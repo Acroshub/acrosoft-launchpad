@@ -41,7 +41,7 @@ const steps = [
 
 const benefits = [
   { icon: Globe, title: "Bilingüe por defecto", desc: "Español e inglés desde el inicio" },
-  { icon: Sparkles, title: "Textos generados con IA", desc: "Inteligencia Artificial para tu contenido" },
+  { icon: Sparkles, title: "Contenido profesional", desc: "Textos escritos por expertos para tu negocio" },
   { icon: Zap, title: "Entrega en días, no meses", desc: "Rapidez sin sacrificar calidad" },
   { icon: DollarSign, title: "Precios para latinos", desc: "Precios para negocios latinos, no corporativos" },
 ];
