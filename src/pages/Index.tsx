@@ -61,7 +61,7 @@ const Index = () => (
             Tu negocio en internet, sin complicaciones.
           </h1>
           <p className="text-lg text-muted-foreground max-w-lg">
-            Creamos sitios web profesionales para restaurantes, salones, clínicas y más. Bilingüe, rápido y sin pagar precios de agencia gringa.
+            Creamos sitios web profesionales para restaurantes, salones, clínicas y más. Bilingüe, rápido y sin pagar precios de agencia americana.
           </p>
           <div className="flex flex-wrap gap-3">
             <Button asChild size="lg">
