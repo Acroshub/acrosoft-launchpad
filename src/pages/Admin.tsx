@@ -153,7 +153,7 @@ const ClientDetail = ({ clientId, onBack }: { clientId: string; onBack: () => vo
   const [tab, setTab] = useState<"info" | "doc" | "notes">("info");
 
   const mdContent = `# {{Client_Business_Name}} — Brief de Proyecto
-Plan: {{Client_Plan}} · ${{Plan_Price}} setup · ${{Plan_Monthly}}/mes
+Plan: {{Client_Plan}} · $\{{Plan_Price}} setup · $\{{Plan_Monthly}}/mes
 Fecha: {{Project_Date}}
 
 ## BRIEF DE DISEÑO
