@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import AcrosoftLogo from "@/components/AcrosoftLogo";
+import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 
 const Admin = () => {
   const navigate = useNavigate();

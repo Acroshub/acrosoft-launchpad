@@ -1,342 +1,148 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { Label } from "@/components/ui/label";
-import { Check, ChevronLeft, ChevronRight, Shield, Upload, Plus, Trash2, CheckCircle2 } from "lucide-react";
-import AcrosoftLogo from "@/components/AcrosoftLogo";
+import { Check, ChevronLeft, ChevronRight, Shield, CheckCircle2, ArrowRight } from "lucide-react";
+import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import Var from "@/components/Var";
 import { Link } from "react-router-dom";
+
+// Modular Step Components
+import Step1Business from "@/components/onboarding/Step1Business";
+import Step2Plan from "@/components/onboarding/Step2Plan";
+import Step3Identity from "@/components/onboarding/Step3Identity";
+import Step4Services from "@/components/onboarding/Step4Services";
+import Step5Audience from "@/components/onboarding/Step5Audience";
+import Step6Content from "@/components/onboarding/Step6Content";
+import Step7Contact from "@/components/onboarding/Step7Contact";
+import Step8Confirm from "@/components/onboarding/Step8Confirm";
 
 const STEP_NAMES = ["Negocio", "Plan", "Identidad", "Servicios", "Audiencia", "Contenido", "Contacto", "Confirmación"];
 
 const Onboarding = () => {
   const [step, setStep] = useState(0);
   const [submitted, setSubmitted] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState(1);
-  const [services, setServices] = useState([{ name: "", desc: "", price: "", featured: false }]);
+  const [selectedPlan, setSelectedPlan] = useState("single_page");
 
-  const next = () => setStep((s) => Math.min(s + 1, 7));
-  const prev = () => setStep((s) => Math.max(s - 1, 0));
-
-  const addService = () => {
-    if (services.length < 6) setServices([...services, { name: "", desc: "", price: "", featured: false }]);
+  const next = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setStep((s) => Math.min(s + 1, 7));
   };
-
-  const removeService = (i: number) => {
-    if (services.length > 1) setServices(services.filter((_, idx) => idx !== i));
+  
+  const prev = () => {
+    window.scrollTo({ top: 0, behavior: "smooth" });
+    setStep((s) => Math.max(s - 1, 0));
   };
 
   if (submitted) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center space-y-6 max-w-md animate-fade-in">
-          <div className="mx-auto w-20 h-20 rounded-full bg-success/10 flex items-center justify-center animate-check-bounce">
-            <CheckCircle2 size={48} className="text-success" />
+        <div className="text-center space-y-8 max-w-md animate-in fade-in zoom-in duration-500">
+          <div className="mx-auto w-24 h-24 rounded-full bg-primary/10 flex items-center justify-center shadow-lg shadow-primary/5 animate-bounce">
+            <CheckCircle2 size={56} className="text-primary" />
           </div>
-          <h1 className="text-2xl font-bold">¡Recibimos tu información!</h1>
-          <p className="text-muted-foreground">El equipo de Acrosoft Labs se pondrá en contacto en las próximas 24 horas.</p>
-          <div className="bg-card border rounded-lg p-4">
-            <span className="text-sm text-muted-foreground">ID de seguimiento:</span>
-            <div className="mt-1"><Var name="Submission_ID" /></div>
+          <div className="space-y-3">
+            <h1 className="text-3xl font-black tracking-tight">¡Todo listo!</h1>
+            <p className="text-muted-foreground leading-relaxed">
+              Hemos recibido tu información. Nuestro equipo y la IA están trabajando en tu propuesta bilingüe de Acrosoft Labs.
+            </p>
           </div>
-          <Button asChild><Link to="/">Volver al inicio</Link></Button>
+          <div className="bg-card border border-primary/20 rounded-2xl p-6 shadow-sm">
+            <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">ID de seguimiento</span>
+            <div className="mt-2 text-lg font-mono font-bold text-primary tracking-wider">
+              <Var name="Submission_ID" />
+            </div>
+          </div>
+          <Button asChild size="lg" className="w-full rounded-2xl font-bold">
+            <Link to="/">Volver al inicio <ArrowRight size={18} className="ml-2" /></Link>
+          </Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background pb-20">
       {/* Header */}
-      <div className="border-b bg-card">
-        <div className="container mx-auto px-4 py-4 flex flex-col items-center gap-2">
+      <header className="sticky top-0 z-50 border-b bg-background/80 backdrop-blur-xl">
+        <div className="container mx-auto px-4 h-16 flex items-center justify-between">
           <Link to="/"><AcrosoftLogo size="sm" /></Link>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-1 text-xs text-muted-foreground border rounded-full px-2 py-0.5">
-              <span className="font-semibold text-foreground">ES</span><span>/</span><span>EN</span>
+          <div className="hidden sm:flex items-center gap-4">
+            <div className="flex items-center gap-1.5 text-[10px] font-bold text-muted-foreground border rounded-full px-3 py-1 bg-secondary/50">
+              <Shield size={12} className="text-primary" /> PROTEGIDO CON SSL
             </div>
-            <div className="flex items-center gap-1 text-xs text-muted-foreground">
-              <Shield size={12} /> Tu información está segura y protegida
+            <div className="h-4 w-[1px] bg-border" />
+            <div className="flex items-center gap-1 text-[10px] font-bold text-muted-foreground border rounded-full px-3 py-1 bg-secondary/50 uppercase tracking-widest">
+              <span>ES</span><span className="text-primary/30">/</span><span>EN</span>
             </div>
           </div>
         </div>
-      </div>
+      </header>
 
-      {/* Stepper */}
-      <div className="container mx-auto px-4 py-6">
-        <div className="flex items-center justify-center gap-1 max-w-2xl mx-auto mb-2">
-          {STEP_NAMES.map((_, i) => (
-            <div key={i} className="flex items-center flex-1">
-              <div
-                className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 transition-colors ${
-                  i < step ? "bg-primary text-primary-foreground" :
-                  i === step ? "bg-primary text-primary-foreground ring-4 ring-accent" :
-                  "bg-secondary text-muted-foreground"
-                }`}
-              >
-                {i < step ? <Check size={14} /> : i + 1}
-              </div>
-              {i < 7 && <div className={`h-0.5 flex-1 mx-1 ${i < step ? "bg-primary" : "bg-border"}`} />}
+      {/* Stepper Progress */}
+      <div className="bg-card/50 border-b py-6 mb-8">
+        <div className="container mx-auto px-4 max-w-4xl">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex flex-col">
+              <span className="text-[10px] font-bold text-primary uppercase tracking-widest">Paso {step + 1} de 8</span>
+              <h2 className="text-lg font-black tracking-tight">{STEP_NAMES[step]}</h2>
             </div>
-          ))}
+            <div className="text-right">
+              <span className="text-xs font-bold text-muted-foreground">{Math.round(((step + 1) / 8) * 100)}% Completado</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 h-1.5">
+            {STEP_NAMES.map((_, i) => (
+              <div 
+                key={i} 
+                className={`h-full flex-1 rounded-full transition-all duration-500 ${
+                  i <= step ? "bg-primary shadow-sm shadow-primary/20" : "bg-muted-foreground/10"
+                }`} 
+              />
+            ))}
+          </div>
         </div>
-        <p className="text-center text-sm font-medium text-primary">{STEP_NAMES[step]}</p>
       </div>
 
       {/* Step content */}
-      <div className="container mx-auto px-4 pb-24">
-        <div className="max-w-[680px] mx-auto bg-card border rounded-xl p-6 md:p-8 animate-fade-in" key={step}>
-          {step === 0 && <Step1 />}
-          {step === 1 && <Step2 selected={selectedPlan} setSelected={setSelectedPlan} />}
-          {step === 2 && <Step3 />}
-          {step === 3 && <Step4 services={services} addService={addService} removeService={removeService} />}
-          {step === 4 && <Step5 />}
-          {step === 5 && <Step6 />}
-          {step === 6 && <Step7 />}
-          {step === 7 && <Step8 onSubmit={() => setSubmitted(true)} />}
+      <main className="container mx-auto px-4">
+        <div className="max-w-2xl mx-auto">
+          <div className="bg-card border border-border/60 rounded-3xl p-8 md:p-10 shadow-xl shadow-foreground/5 animate-in fade-in slide-in-from-bottom-6 duration-700">
+            {step === 0 && <Step1Business />}
+            {step === 1 && <Step2Plan selected={selectedPlan} onSelect={setSelectedPlan} />}
+            {step === 2 && <Step3Identity />}
+            {step === 3 && <Step4Services />}
+            {step === 4 && <Step5Audience />}
+            {step === 5 && <Step6Content />}
+            {step === 6 && <Step7Contact />}
+            {step === 7 && <Step8Confirm onSubmit={() => setSubmitted(true)} />}
+            
+            {/* Nav buttons */}
+            <div className="flex items-center justify-between mt-12 pt-8 border-t border-border/50">
+              <Button 
+                variant="ghost" 
+                onClick={prev} 
+                disabled={step === 0}
+                className="rounded-xl h-12 px-6 font-bold text-muted-foreground hover:text-foreground transition-all"
+              >
+                <ChevronLeft size={18} className="mr-2" /> Anterior
+              </Button>
+              {step < 7 && (
+                <Button 
+                  onClick={next} 
+                  className="rounded-xl h-12 px-8 font-black shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                >
+                  Continuar <ChevronRight size={18} className="ml-2" />
+                </Button>
+              )}
+            </div>
+          </div>
+          
+          <p className="text-center text-[10px] font-medium text-muted-foreground/40 mt-8 uppercase tracking-[0.2em]">
+            Acrosoft Labs Onboarding System v3.0
+          </p>
         </div>
-
-        {/* Nav buttons */}
-        <div className="max-w-[680px] mx-auto flex justify-between mt-6">
-          <Button variant="outline" onClick={prev} disabled={step === 0}>
-            <ChevronLeft size={16} className="mr-1" /> Anterior
-          </Button>
-          {step < 7 ? (
-            <Button onClick={next}>Siguiente <ChevronRight size={16} className="ml-1" /></Button>
-          ) : null}
-        </div>
-      </div>
+      </main>
     </div>
   );
 };
-
-const SectionTitle = ({ title, subtitle }: { title: string; subtitle?: string }) => (
-  <div className="mb-6">
-    <h2 className="text-xl font-bold">{title}</h2>
-    {subtitle && <p className="text-sm text-muted-foreground mt-1">{subtitle}</p>}
-  </div>
-);
-
-const Field = ({ label, required, children }: { label: string; required?: boolean; children: React.ReactNode }) => (
-  <div className="space-y-1.5">
-    <Label className="text-sm font-medium">{label}{required && <span className="text-destructive ml-0.5">*</span>}</Label>
-    {children}
-  </div>
-);
-
-/* STEP 1 */
-const Step1 = () => (
-  <>
-    <SectionTitle title="Cuéntanos sobre tu negocio" subtitle="Esta información aparecerá en tu sitio web" />
-    <div className="space-y-4">
-      <Field label="Nombre del negocio" required><Input placeholder="{{Business_Name}}" /></Field>
-      <Field label="Rubro / Industria" required>
-        <select className="w-full border rounded-md px-3 py-2 text-sm bg-background">
-          <option>Restaurante</option><option>Salón de belleza</option><option>Construcción</option><option>Clínica dental</option><option>Otro</option>
-        </select>
-      </Field>
-      <Field label="Ciudad y Estado" required><Input placeholder="{{Business_City_State}}" /></Field>
-      <Field label="Años en operación"><Input type="number" placeholder="{{Business_Years}}" /></Field>
-      <Field label="Descripción breve del negocio" required>
-        <Textarea placeholder="Ej: Somos un restaurante de comida mexicana en Miami con más de 10 años sirviendo a la comunidad latina..." />
-      </Field>
-      <Field label="Historia del negocio"><Textarea placeholder="{{Business_History}}" /></Field>
-    </div>
-  </>
-);
-
-/* STEP 2 */
-const planOptions = [
-  { name: "Single Page Website", price: "$500 setup" },
-  { name: "Multi Page Website", price: "$1,500 setup" },
-  { name: "Custom Booking", price: "$5,000 setup" },
-];
-const Step2 = ({ selected, setSelected }: { selected: number; setSelected: (n: number) => void }) => (
-  <>
-    <SectionTitle title="¿Qué plan elegiste?" />
-    <div className="grid gap-3 mb-6">
-      {planOptions.map((p, i) => (
-        <button
-          key={p.name}
-          onClick={() => setSelected(i)}
-          className={`text-left border-2 rounded-lg p-4 transition-all ${selected === i ? "border-primary bg-accent" : "border-border hover:border-primary/30"}`}
-        >
-          <div className="font-semibold">{p.name}</div>
-          <div className="text-sm text-muted-foreground">{p.price}</div>
-        </button>
-      ))}
-    </div>
-    <div className="space-y-4">
-      <Field label="Forma de pago">
-        <div className="flex gap-4">
-          <label className="flex items-center gap-2 text-sm"><input type="radio" name="payment" defaultChecked /> Pago único</label>
-          <label className="flex items-center gap-2 text-sm"><input type="radio" name="payment" /> 3 cuotas (50%·25%·25%)</label>
-        </div>
-      </Field>
-      <Field label="Fecha estimada de inicio"><Input type="date" /></Field>
-    </div>
-  </>
-);
-
-/* STEP 3 */
-const Step3 = () => (
-  <>
-    <SectionTitle title="Tu marca e identidad visual" />
-    <div className="space-y-4">
-      <Field label="Logo del negocio">
-        <div className="border-2 border-dashed rounded-lg p-8 text-center text-muted-foreground hover:border-primary/50 transition-colors cursor-pointer">
-          <Upload size={24} className="mx-auto mb-2" />
-          <p className="text-sm">Arrastra tu logo aquí o haz click para subir</p>
-          <p className="text-xs mt-1">PNG, SVG o JPG</p>
-        </div>
-      </Field>
-      <div className="grid grid-cols-3 gap-4">
-        <Field label="Color primario"><Input type="color" defaultValue="#2563EB" className="h-10" /></Field>
-        <Field label="Color secundario"><Input type="color" defaultValue="#1E40AF" className="h-10" /></Field>
-        <Field label="Color de acento"><Input type="color" defaultValue="#F59E0B" className="h-10" /></Field>
-      </div>
-      <Field label="Tipografía preferida">
-        <select className="w-full border rounded-md px-3 py-2 text-sm bg-background">
-          <option>Moderna</option><option>Clásica</option><option>Elegante</option><option>Quiero sugerir una</option>
-        </select>
-      </Field>
-      <Field label="Estilo visual">
-        <select className="w-full border rounded-md px-3 py-2 text-sm bg-background">
-          <option>Moderno y tech</option><option>Cálido y familiar</option><option>Minimalista</option><option>Profesional y formal</option>
-        </select>
-      </Field>
-      <Field label="Sitio de referencia 1"><Input placeholder="{{Reference_URL_1}}" /></Field>
-      <Field label="Sitio de referencia 2"><Input placeholder="{{Reference_URL_2}}" /></Field>
-      <Field label="Sitio de referencia 3"><Input placeholder="{{Reference_URL_3}}" /></Field>
-    </div>
-  </>
-);
-
-/* STEP 4 */
-const Step4 = ({ services, addService, removeService }: { services: any[]; addService: () => void; removeService: (i: number) => void }) => (
-  <>
-    <SectionTitle title="¿Qué servicios ofreces?" subtitle="Agrega hasta 6 servicios. Al menos 1 es requerido." />
-    <div className="space-y-4">
-      {services.map((_, i) => (
-        <div key={i} className="border rounded-lg p-4 space-y-3 relative">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-semibold text-muted-foreground">Servicio {i + 1}</span>
-            {services.length > 1 && (
-              <button onClick={() => removeService(i)} className="text-destructive hover:text-destructive/80"><Trash2 size={16} /></button>
-            )}
-          </div>
-          <Input placeholder={`{{Service_${i + 1}_Name}}`} />
-          <Textarea placeholder={`{{Service_${i + 1}_Description}}`} className="min-h-[60px]" />
-          <Input placeholder={`{{Service_${i + 1}_Price}}`} />
-          <label className="flex items-center gap-2 text-sm"><input type="checkbox" /> ¿Es tu servicio estrella?</label>
-        </div>
-      ))}
-      {services.length < 6 && (
-        <Button variant="outline" onClick={addService} className="w-full"><Plus size={16} className="mr-1" /> Agregar otro servicio</Button>
-      )}
-    </div>
-  </>
-);
-
-/* STEP 5 */
-const Step5 = () => (
-  <>
-    <SectionTitle title="¿A quién le sirves?" />
-    <div className="space-y-4">
-      <Field label="¿Quién es tu cliente ideal?" required><Textarea placeholder="{{Target_Audience}}" /></Field>
-      <Field label="¿Qué problema resuelves?" required><Textarea placeholder="{{Problem_Solved}}" /></Field>
-      <Field label="¿Qué te hace diferente?" required><Textarea placeholder="{{Differentiator}}" /></Field>
-      <div className="border-t pt-4 mt-4">
-        <h3 className="font-semibold mb-3">Testimonios de clientes</h3>
-        {[1, 2, 3].map((n) => (
-          <div key={n} className="border rounded-lg p-4 mb-3 space-y-2">
-            <Input placeholder={`{{Testimonial_${n}_Name}}`} />
-            <Textarea placeholder={`{{Testimonial_${n}_Text}}`} className="min-h-[60px]" />
-          </div>
-        ))}
-      </div>
-      <div className="border-t pt-4 mt-4">
-        <h3 className="font-semibold mb-3">Preguntas frecuentes</h3>
-        {[1, 2, 3, 4, 5].map((n) => (
-          <div key={n} className="border rounded-lg p-4 mb-3 space-y-2">
-            <Input placeholder={`{{FAQ_${n}_Question}}`} />
-            <Textarea placeholder={`{{FAQ_${n}_Answer}}`} className="min-h-[60px]" />
-          </div>
-        ))}
-      </div>
-    </div>
-  </>
-);
-
-/* STEP 6 */
-const Step6 = () => (
-  <>
-    <SectionTitle title="Fotos y videos de tu negocio" />
-    <div className="space-y-4">
-      <Field label="Fotos del negocio (máx 10)">
-        <div className="border-2 border-dashed rounded-lg p-8 text-center text-muted-foreground hover:border-primary/50 transition-colors cursor-pointer">
-          <Upload size={24} className="mx-auto mb-2" />
-          <p className="text-sm">Arrastra tus fotos aquí o haz click para subir</p>
-        </div>
-      </Field>
-      <Field label="Fotos del equipo (opcional)">
-        <div className="border-2 border-dashed rounded-lg p-6 text-center text-muted-foreground hover:border-primary/50 transition-colors cursor-pointer">
-          <Upload size={20} className="mx-auto mb-1" />
-          <p className="text-sm">Subir fotos del equipo</p>
-        </div>
-      </Field>
-      <Field label="Video de presentación (opcional)"><Input placeholder="{{Video_URL}} — URL de YouTube o Vimeo" /></Field>
-    </div>
-  </>
-);
-
-/* STEP 7 */
-const Step7 = () => (
-  <>
-    <SectionTitle title="¿Cómo te contactan?" />
-    <div className="grid sm:grid-cols-2 gap-4">
-      <Field label="Teléfono / WhatsApp" required><Input placeholder="{{Contact_Phone}}" /></Field>
-      <Field label="Email de contacto" required><Input placeholder="{{Contact_Email}}" /></Field>
-      <Field label="Dirección física"><Input placeholder="{{Business_Address}}" /></Field>
-      <Field label="Horario de atención"><Input placeholder="{{Business_Schedule}}" /></Field>
-      <Field label="Instagram"><Input placeholder="{{Social_Instagram}}" /></Field>
-      <Field label="Facebook"><Input placeholder="{{Social_Facebook}}" /></Field>
-      <Field label="TikTok"><Input placeholder="{{Social_TikTok}}" /></Field>
-      <Field label="Google Maps (URL)"><Input placeholder="{{Google_Maps_URL}}" /></Field>
-      <div className="sm:col-span-2">
-        <Field label="Dominio comprado o deseado"><Input placeholder="{{Domain}}" /></Field>
-      </div>
-    </div>
-  </>
-);
-
-/* STEP 8 */
-const Step8 = ({ onSubmit }: { onSubmit: () => void }) => (
-  <>
-    <SectionTitle title="¡Todo listo! Revisa tu información" />
-    <div className="space-y-3">
-      {[
-        { title: "Negocio", vars: ["Business_Name", "Business_Industry", "Business_City_State"] },
-        { title: "Plan", vars: ["Selected_Plan", "Payment_Method"] },
-        { title: "Identidad", vars: ["Brand_Visual_Style", "Brand_Color_Primary"] },
-        { title: "Servicios", vars: ["Service_1_Name", "Service_2_Name"] },
-        { title: "Contacto", vars: ["Contact_Phone", "Contact_Email", "Domain"] },
-      ].map((section) => (
-        <details key={section.title} className="border rounded-lg" open>
-          <summary className="font-semibold text-sm px-4 py-3 cursor-pointer hover:bg-secondary/50 transition-colors">
-            {section.title}
-          </summary>
-          <div className="px-4 pb-3 flex flex-wrap gap-2">
-            {section.vars.map((v) => <Var key={v} name={v} />)}
-          </div>
-        </details>
-      ))}
-    </div>
-    <Button onClick={onSubmit} className="w-full mt-6" size="lg">
-      Confirmar y enviar información →
-    </Button>
-  </>
-);
 
 export default Onboarding;

@@ -1,8 +1,8 @@
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Shield, Globe } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import AcrosoftLogo from "./AcrosoftLogo";
+import AcrosoftLogo from "./shared/AcrosoftLogo";
 
 const Navbar = () => {
   const [open, setOpen] = useState(false);
@@ -11,54 +11,77 @@ const Navbar = () => {
   const isActive = (path: string) => location.pathname === path;
 
   return (
-    <nav className="sticky top-0 z-50 bg-card/80 backdrop-blur-md border-b">
-      <div className="container mx-auto flex items-center justify-between h-16 px-4">
-        <Link to="/">
+    <nav className="sticky top-0 z-50 bg-background/60 backdrop-blur-xl border-b border-border/40">
+      <div className="container mx-auto flex items-center justify-between h-20 px-4 md:px-8">
+        <Link to="/" className="hover:scale-105 transition-transform">
           <AcrosoftLogo size="sm" />
         </Link>
 
-        {/* Desktop */}
-        <div className="hidden md:flex items-center gap-6">
+        {/* Desktop Menu */}
+        <div className="hidden lg:flex items-center gap-8">
           <Link
             to="/"
-            className={`text-sm font-medium transition-colors hover:text-primary ${isActive("/") ? "text-primary" : "text-muted-foreground"}`}
+            className={`text-sm font-bold tracking-tight transition-all hover:text-primary ${isActive("/") ? "text-primary" : "text-muted-foreground/80"}`}
           >
             Servicios
           </Link>
           <a
             href="/#como-funciona"
-            className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
+            className="text-sm font-bold tracking-tight text-muted-foreground/80 hover:text-primary transition-all underline-offset-8 hover:underline"
           >
             Cómo funciona
           </a>
-          <div className="flex items-center gap-1 text-xs text-muted-foreground border rounded-full px-2 py-1">
-            <span className="font-semibold text-foreground">ES</span>
-            <span>/</span>
-            <span>EN</span>
+          <a
+            href="/#planes"
+            className="text-sm font-bold tracking-tight text-muted-foreground/80 hover:text-primary transition-all underline-offset-8 hover:underline"
+          >
+            Planes
+          </a>
+          
+          <div className="h-6 w-[1px] bg-border/60 mx-2" />
+          
+          <div className="flex items-center gap-2 text-[10px] font-black text-muted-foreground border border-border/40 rounded-full px-4 py-1.5 bg-secondary/30 uppercase tracking-[0.2em] shadow-inner">
+            <Globe size={12} className="text-primary/70" /> ES <span className="opacity-20">/</span> EN
           </div>
-          <Button asChild size="sm">
-            <Link to="/onboarding">Comenzar proyecto →</Link>
+          
+          <Button asChild className="rounded-2xl font-black h-11 px-6 shadow-lg shadow-primary/20 hover:scale-105 transition-all">
+            <Link to="/onboarding">Lanzar Proyecto</Link>
           </Button>
         </div>
 
         {/* Mobile toggle */}
-        <button className="md:hidden" onClick={() => setOpen(!open)}>
+        <button 
+          className="lg:hidden p-2 rounded-xl bg-secondary/50 text-foreground hover:bg-secondary transition-all" 
+          onClick={() => setOpen(!open)}
+          aria-label="Menu"
+        >
           {open ? <X size={24} /> : <Menu size={24} />}
         </button>
       </div>
 
       {/* Mobile menu */}
       {open && (
-        <div className="md:hidden bg-card border-b px-4 pb-4 space-y-3 animate-fade-in">
-          <Link to="/" className="block text-sm font-medium py-2" onClick={() => setOpen(false)}>
-            Servicios
-          </Link>
-          <a href="/#como-funciona" className="block text-sm font-medium py-2" onClick={() => setOpen(false)}>
-            Cómo funciona
-          </a>
-          <Button asChild size="sm" className="w-full">
+        <div className="lg:hidden bg-background/95 backdrop-blur-2xl border-b px-6 pt-4 pb-10 space-y-6 animate-in slide-in-from-top-4 duration-300">
+          <div className="flex flex-col gap-4">
+            <Link to="/" className="text-lg font-bold py-2 border-b border-border/40" onClick={() => setOpen(false)}>
+              Servicios
+            </Link>
+            <a href="/#como-funciona" className="text-lg font-bold py-2 border-b border-border/40" onClick={() => setOpen(false)}>
+              Cómo funciona
+            </a>
+            <a href="/#planes" className="text-lg font-bold py-2 border-b border-border/40" onClick={() => setOpen(false)}>
+              Planes
+            </a>
+          </div>
+          
+          <div className="flex items-center gap-2 py-2">
+            <Shield size={16} className="text-primary" />
+            <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Protegido por Acrosoft SSL</span>
+          </div>
+          
+          <Button asChild className="w-full h-14 rounded-2xl font-black text-lg shadow-xl shadow-primary/20">
             <Link to="/onboarding" onClick={() => setOpen(false)}>
-              Comenzar proyecto →
+              Comenzar Brief →
             </Link>
           </Button>
         </div>
