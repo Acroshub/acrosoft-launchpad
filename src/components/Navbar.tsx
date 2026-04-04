@@ -25,18 +25,12 @@ const Navbar = () => {
           >
             Servicios
           </Link>
-          <Link
-            to="/#como-funciona"
+          <a
+            href="/#como-funciona"
             className="text-sm font-medium text-muted-foreground hover:text-primary transition-colors"
           >
             Cómo funciona
-          </Link>
-          <Link
-            to="/admin"
-            className={`text-sm font-medium transition-colors hover:text-primary ${isActive("/admin") ? "text-primary" : "text-muted-foreground"}`}
-          >
-            Admin
-          </Link>
+          </a>
           <div className="flex items-center gap-1 text-xs text-muted-foreground border rounded-full px-2 py-1">
             <span className="font-semibold text-foreground">ES</span>
             <span>/</span>
@@ -59,9 +53,9 @@ const Navbar = () => {
           <Link to="/" className="block text-sm font-medium py-2" onClick={() => setOpen(false)}>
             Servicios
           </Link>
-          <Link to="/admin" className="block text-sm font-medium py-2" onClick={() => setOpen(false)}>
-            Admin
-          </Link>
+          <a href="/#como-funciona" className="block text-sm font-medium py-2" onClick={() => setOpen(false)}>
+            Cómo funciona
+          </a>
           <Button asChild size="sm" className="w-full">
             <Link to="/onboarding" onClick={() => setOpen(false)}>
               Comenzar proyecto →

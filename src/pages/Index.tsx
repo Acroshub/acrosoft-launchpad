@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, Globe, Sparkles, Zap, DollarSign, ClipboardList, Hammer, Rocket } from "lucide-react";
+import { Check, Globe, Sparkles, Zap, DollarSign, ClipboardList, Hammer, Rocket, Phone } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import Var from "@/components/Var";
@@ -41,7 +41,7 @@ const steps = [
 
 const benefits = [
   { icon: Globe, title: "Bilingüe por defecto", desc: "Español e inglés desde el inicio" },
-  { icon: Sparkles, title: "Textos generados con IA", desc: "Inteligencia Artificial para tu contenido" },
+  { icon: Sparkles, title: "Contenido profesional", desc: "Textos escritos por expertos para tu negocio" },
   { icon: Zap, title: "Entrega en días, no meses", desc: "Rapidez sin sacrificar calidad" },
   { icon: DollarSign, title: "Precios para latinos", desc: "Precios para negocios latinos, no corporativos" },
 ];
@@ -61,7 +61,7 @@ const Index = () => (
             Tu negocio en internet, sin complicaciones.
           </h1>
           <p className="text-lg text-muted-foreground max-w-lg">
-            Creamos sitios web profesionales para restaurantes, salones, clínicas y más. Bilingüe, rápido y sin pagar precios de agencia gringa.
+            Creamos sitios web profesionales para restaurantes, salones, clínicas y más. Bilingüe, rápido y sin pagar precios de agencia americana.
           </p>
           <div className="flex flex-wrap gap-3">
             <Button asChild size="lg">
@@ -81,18 +81,19 @@ const Index = () => (
                 <div className="w-3 h-3 rounded-full bg-destructive/40" />
                 <div className="w-3 h-3 rounded-full bg-warning/40" />
                 <div className="w-3 h-3 rounded-full bg-success/40" />
-                <span className="ml-3 text-xs text-muted-foreground">acrosoft-client.vercel.app</span>
+                <span className="ml-3 text-xs text-muted-foreground">Tu-negocio.com</span>
               </div>
               <div className="p-8 space-y-4">
                 <div className="h-4 bg-primary/20 rounded w-1/3" />
-                <h3 className="text-xl font-bold"><Var name="Business_Name" /></h3>
-                <p className="text-sm text-muted-foreground"><Var name="Business_Tagline" /></p>
+                <h3 className="text-xl font-bold">Tu Negocio</h3>
+                <p className="text-sm text-muted-foreground">Tu presencia online</p>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-secondary rounded-lg p-3 h-20" />
                   <div className="bg-secondary rounded-lg p-3 h-20" />
                 </div>
-                <div className="bg-primary/10 rounded-lg p-3 text-center">
-                  <span className="text-xs text-primary font-medium">Llámanos: <Var name="Contact_Phone" /></span>
+                <div className="bg-primary/10 rounded-lg p-3 text-center flex items-center justify-center gap-1.5">
+                  <Phone size={14} className="text-primary" />
+                  <span className="text-xs text-primary font-medium">Llámanos</span>
                 </div>
               </div>
             </div>
