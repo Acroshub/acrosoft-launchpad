@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, Globe, Sparkles, Zap, DollarSign, ClipboardList, Hammer, Rocket } from "lucide-react";
+import { Check, Globe, Sparkles, Zap, DollarSign, ClipboardList, Hammer, Rocket, Phone } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import Var from "@/components/Var";
