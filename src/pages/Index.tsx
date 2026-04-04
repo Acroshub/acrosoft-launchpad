@@ -81,7 +81,7 @@ const Index = () => (
                 <div className="w-3 h-3 rounded-full bg-destructive/40" />
                 <div className="w-3 h-3 rounded-full bg-warning/40" />
                 <div className="w-3 h-3 rounded-full bg-success/40" />
-                <span className="ml-3 text-xs text-muted-foreground">acrosoft-client.vercel.app</span>
+                <span className="ml-3 text-xs text-muted-foreground">Tu-negocio.com</span>
               </div>
               <div className="p-8 space-y-4">
                 <div className="h-4 bg-primary/20 rounded w-1/3" />
