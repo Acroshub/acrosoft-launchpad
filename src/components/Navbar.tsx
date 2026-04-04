@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Shield, Globe } from "lucide-react";
+import { Menu, X, Globe } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import AcrosoftLogo from "./shared/AcrosoftLogo";
@@ -45,7 +45,7 @@ const Navbar = () => {
           </div>
           
           <Button asChild className="rounded-2xl font-black h-11 px-6 shadow-lg shadow-primary/20 hover:scale-105 transition-all">
-            <Link to="/onboarding">Lanzar Proyecto</Link>
+            <a href="/#agendar">Agendar Llamada</a>
           </Button>
         </div>
 
@@ -74,15 +74,10 @@ const Navbar = () => {
             </a>
           </div>
           
-          <div className="flex items-center gap-2 py-2">
-            <Shield size={16} className="text-primary" />
-            <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Protegido por Acrosoft SSL</span>
-          </div>
-          
-          <Button asChild className="w-full h-14 rounded-2xl font-black text-lg shadow-xl shadow-primary/20">
-            <Link to="/onboarding" onClick={() => setOpen(false)}>
-              Comenzar Brief →
-            </Link>
+<Button asChild className="w-full h-14 rounded-2xl font-black text-lg shadow-xl shadow-primary/20">
+            <a href="/#agendar" onClick={() => setOpen(false)}>
+              Agendar Llamada →
+            </a>
           </Button>
         </div>
       )}
