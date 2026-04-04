@@ -152,32 +152,34 @@ const AdminDashboard = ({ onLogout, onViewClient }: { onLogout: () => void; onVi
 const ClientDetail = ({ clientId, onBack }: { clientId: string; onBack: () => void }) => {
   const [tab, setTab] = useState<"info" | "doc" | "notes">("info");
 
-  const mdContent = `# \{\{Client_Business_Name\}\} — Brief de Proyecto
-Plan: \{\{Client_Plan\}\} · $\{\{Plan_Price\}\} setup · $\{\{Plan_Monthly\}\}/mes
-Fecha: {{Project_Date}}
-
-## BRIEF DE DISEÑO
-Rubro: {{Client_Industry}}
-Ubicación: {{Client_City_State}}
-Colores: {{Brand_Color_Primary}} · {{Brand_Color_Secondary}}
-Estilo: {{Client_Visual_Style}}
-Dominio: {{Client_Domain}}
-
-## HERO
-Headline ES: {{AI_Hero_Headline_ES}}
-Headline EN: {{AI_Hero_Headline_EN}}
-Subheadline ES: {{AI_Subheadline_ES}}
-Subheadline EN: {{AI_Subheadline_EN}}
-
-## SERVICIOS
-{{Client_Service_1_Name}}: {{AI_Service_1_Description_ES}}
-{{Client_Service_2_Name}}: {{AI_Service_2_Description_ES}}
-
-## SEO LOCAL
-Keyword ES: {{AI_SEO_Keyword_ES}}
-Keyword EN: {{AI_SEO_Keyword_EN}}
-Meta title ES: {{AI_Meta_Title_ES}}
-Meta description ES: {{AI_Meta_Description_ES}}`;
+  const mdContent = [
+    "# {{Client_Business_Name}} — Brief de Proyecto",
+    "Plan: {{Client_Plan}} · ${{Plan_Price}} setup · ${{Plan_Monthly}}/mes",
+    "Fecha: {{Project_Date}}",
+    "",
+    "## BRIEF DE DISEÑO",
+    "Rubro: {{Client_Industry}}",
+    "Ubicación: {{Client_City_State}}",
+    "Colores: {{Brand_Color_Primary}} · {{Brand_Color_Secondary}}",
+    "Estilo: {{Client_Visual_Style}}",
+    "Dominio: {{Client_Domain}}",
+    "",
+    "## HERO",
+    "Headline ES: {{AI_Hero_Headline_ES}}",
+    "Headline EN: {{AI_Hero_Headline_EN}}",
+    "Subheadline ES: {{AI_Subheadline_ES}}",
+    "Subheadline EN: {{AI_Subheadline_EN}}",
+    "",
+    "## SERVICIOS",
+    "{{Client_Service_1_Name}}: {{AI_Service_1_Description_ES}}",
+    "{{Client_Service_2_Name}}: {{AI_Service_2_Description_ES}}",
+    "",
+    "## SEO LOCAL",
+    "Keyword ES: {{AI_SEO_Keyword_ES}}",
+    "Keyword EN: {{AI_SEO_Keyword_EN}}",
+    "Meta title ES: {{AI_Meta_Title_ES}}",
+    "Meta description ES: {{AI_Meta_Description_ES}}",
+  ].join("\n");
 
   return (
     <div className="min-h-screen bg-background">
