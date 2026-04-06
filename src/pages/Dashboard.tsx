@@ -7,7 +7,8 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Users, FolderOpen, CheckCircle, DollarSign, Search, Eye, Download,
   ArrowLeft, LogOut, FileText, MessageSquare, Info, Star, Zap,
-  TrendingUp, Calendar, Globe, Phone, LayoutDashboard, Sparkles
+  TrendingUp, Calendar, Globe, Phone, LayoutDashboard, Sparkles, Pencil,
+  Image as ImageIcon, Target, Briefcase, Link as LinkIcon, ImagePlus
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import Var from "@/components/Var";
@@ -35,10 +36,10 @@ const statusStyles: Record<string, string> = {
 };
 
 const metrics = [
-  { icon: Users,       label: "Total clientes",   value: "{VAR_DB}", trend: "{VAR_DB}" },
-  { icon: FolderOpen,  label: "Proyectos activos", value: "{VAR_DB}", trend: "{VAR_DB}" },
-  { icon: CheckCircle, label: "Entregados (mes)",  value: "{VAR_DB}", trend: "{VAR_DB}" },
-  { icon: DollarSign,  label: "MRR",               value: "{VAR_DB}", trend: "{VAR_DB}" },
+  { icon: Users,       label: "Total clientes",   value: "{VAR_DB}", showTrend: false },
+  { icon: FolderOpen,  label: "Proyectos activos", value: "{VAR_DB}", showTrend: false },
+  { icon: CheckCircle, label: "Entregados (mes)",  value: "{VAR_DB}", showTrend: false },
+  { icon: DollarSign,  label: "MRR",               value: "{VAR_DB}", showTrend: true, trend: "{VAR_DB}" },
 ];
 
 /* ─── CLIENT DETAIL ─────────────────────────────────────────────────────────── */
@@ -75,12 +76,7 @@ const ClientDetail = ({ clientId, onBack }: { clientId: string; onBack: () => vo
           </div>
 
           <div className="flex items-center gap-2">
-            <Button size="sm" variant="outline" className="hidden sm:flex rounded-lg text-xs">
-              <Download size={14} className="mr-1.5" /> Exportar .md
-            </Button>
-            <Button size="sm" className="rounded-lg text-xs">
-              <Zap size={14} className="mr-1.5" /> Guardar Cambios
-            </Button>
+            {/* El botón Guardar Cambios global se ha eliminado por ser ambiguo */}
           </div>
         </div>
       </header>
@@ -89,7 +85,7 @@ const ClientDetail = ({ clientId, onBack }: { clientId: string; onBack: () => vo
         <div className="max-w-5xl mx-auto space-y-6">
           {/* Tabs */}
           <div className="flex p-1 bg-background border rounded-xl w-full sm:w-fit">
-            {([["info", "Ficha Técnica", Info], ["ai", "Propuesta IA", Sparkles], ["notes", "Notas & Log", MessageSquare]] as const).map(([key, label, Icon]) => (
+            {([["info", "Ficha Técnica", Info], ["notes", "Notas & Log", MessageSquare]] as const).map(([key, label, Icon]) => (
               <button
                 key={key}
                 onClick={() => setTab(key as any)}
@@ -132,15 +128,20 @@ const ClientDetail = ({ clientId, onBack }: { clientId: string; onBack: () => vo
                   fields: [
                     ["Estilo",           "{VAR_DB}"],
                     ["Color Primario",   "{VAR_DB}"],
-                    ["Color Secundario", "{VAR_DB}"],
+                    ["Color Acento",     "{VAR_DB}"],
                     ["Tipografía",       "{VAR_DB}"],
                   ],
                 },
               ].map((section) => (
-                <div key={section.title} className="bg-background border rounded-2xl p-5">
-                  <div className="flex items-center gap-2 mb-5">
-                    <section.icon size={14} className="text-muted-foreground" />
-                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</h3>
+                <div key={section.title} className="bg-background border rounded-2xl p-5 relative border-border/50 shadow-sm transition-all">
+                  <div className="flex items-center justify-between mb-5">
+                    <div className="flex items-center gap-2">
+                      <section.icon size={14} className="text-muted-foreground" />
+                      <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{section.title}</h3>
+                    </div>
+                    <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/5 transition-all">
+                      <Pencil size={14} />
+                    </Button>
                   </div>
                   <div className="space-y-3">
                     {section.fields.map(([label, value]) => (
@@ -153,59 +154,149 @@ const ClientDetail = ({ clientId, onBack }: { clientId: string; onBack: () => vo
                 </div>
               ))}
 
-              <div className="md:col-span-3 bg-background border rounded-2xl p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <FileText size={14} className="text-muted-foreground" />
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Descripción del Negocio</h3>
+              <div className="md:col-span-2 bg-background border rounded-2xl p-5 relative border-border/50 shadow-sm transition-all h-full">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <FileText size={14} className="text-muted-foreground" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Descripción del Negocio</h3>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/5 transition-all">
+                    <Pencil size={14} />
+                  </Button>
                 </div>
                 {/* {VAR_DB} — descripción larga ingresada en el onboarding */}
-                <p className="text-sm leading-relaxed text-muted-foreground bg-secondary/30 p-5 rounded-xl border border-dashed border-border/60 italic">
+                <p className="text-sm leading-relaxed text-muted-foreground bg-secondary/30 p-5 rounded-xl border border-dashed border-border/60 italic min-h-[120px]">
                   {"{VAR_DB}"}
                 </p>
               </div>
-            </div>
-          )}
 
-          {/* Tab: Propuesta IA */}
-          {tab === "ai" && (
-            <div className="space-y-4 animate-in fade-in duration-300">
-              <div className="bg-background border rounded-2xl p-6">
-                <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <Sparkles size={18} className="text-primary" />
-                    </div>
-                    <div>
-                      <h2 className="text-sm font-semibold">Propuesta de Contenido IA</h2>
-                      <p className="text-xs text-muted-foreground">Generado con Claude Sonnet</p>
-                    </div>
+              {/* Box independiente: Documento Maestro (Lado a Lado) */}
+              <div className="md:col-span-1 bg-secondary/20 border border-border/40 rounded-2xl p-6 flex flex-col items-center justify-center text-center gap-4 animate-in fade-in duration-500 h-full">
+                <div className="w-14 h-14 rounded-2xl bg-background border flex items-center justify-center shadow-sm mb-2">
+                  <FileText size={28} className="text-primary" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold">Documento Maestro</h3>
+                  <Badge variant="outline" className="mt-2 bg-background/50 border-primary/20 text-[10px] text-primary">v3.0 LISTO</Badge>
+                </div>
+                <Button variant="default" className="w-full mt-2 h-11 rounded-xl font-bold text-[10px] uppercase tracking-wider shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all">
+                  <Download size={14} className="mr-2" /> DESCARGAR .MD
+                </Button>
+              </div>
+
+              {/* Fila 3: Servicios & Logo */}
+              <div className="md:col-span-2 bg-background border rounded-2xl p-5 relative border-border/50 shadow-sm transition-all">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Briefcase size={14} className="text-muted-foreground" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Servicios & Oferta</h3>
                   </div>
-                  <Button variant="outline" size="sm" className="rounded-lg text-xs">
-                    <Zap size={13} className="mr-1.5" /> Regenerar
+                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/5 transition-all">
+                      <Pencil size={14} />
                   </Button>
                 </div>
-
-                <div className="bg-secondary/20 rounded-xl border overflow-hidden">
-                  <div className="flex items-center gap-2 px-4 py-2.5 border-b text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-                    <FileText size={11} /> master_document_v3.md
-                  </div>
-                  {/* {VAR_DB} — contenido del brief generado por IA desde Supabase Edge Function */}
-                  <pre className="font-mono text-[12px] whitespace-pre-wrap p-6 text-foreground leading-relaxed overflow-x-auto">
-                    {mdContent}
-                  </pre>
+                <div className="space-y-3">
+                  {/* {VAR_DB} — iterar sobre los servicios de Supabase */}
+                  {[1, 2].map((s) => (
+                    <div key={s} className="bg-secondary/20 border border-border/50 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <h4 className="text-sm font-semibold text-foreground">{"{VAR_DB}"} Nombre del Servicio</h4>
+                          {s === 1 && <Badge className="bg-amber-100/50 text-amber-600 hover:bg-amber-100/50 text-[9px] px-1.5 py-0 border-amber-200">ESTRELLA</Badge>}
+                        </div>
+                        <p className="text-xs text-muted-foreground line-clamp-2">{"{VAR_DB}"} Descripción breve del servicio...</p>
+                      </div>
+                      <div className="shrink-0 text-left sm:text-right">
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-widest block mb-0.5">Precio</span>
+                        <span className="text-sm font-bold text-foreground">{"{VAR_DB}"}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
 
-              <div className="bg-secondary/30 border rounded-xl p-5 flex gap-3">
-                <Info size={16} className="text-muted-foreground shrink-0 mt-0.5" />
-                <div className="space-y-1">
-                  {/* {VAR_DB} — observaciones generadas por IA según el brief */}
-                  <p className="text-sm font-medium">Revisión pendiente</p>
-                  <p className="text-xs text-muted-foreground leading-relaxed">{"{VAR_DB}"}</p>
+              {/* Logo Box */}
+              <div className="md:col-span-1 bg-background border rounded-2xl p-5 relative border-border/50 shadow-sm transition-all h-full flex flex-col">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <ImageIcon size={14} className="text-muted-foreground" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Logotipo</h3>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/5 transition-all">
+                      <Pencil size={14} />
+                  </Button>
+                </div>
+                <div className="flex-1 bg-secondary/30 border border-dashed border-border/60 rounded-xl flex items-center justify-center p-6 min-h-[140px] relative">
+                  {/* {VAR_DB} — URL de la imagen del logo en Supabase Storage */}
+                  <div className="absolute inset-0 flex items-center justify-center flex-col text-muted-foreground/50">
+                    <ImageIcon size={32} className="mb-2 opacity-50" />
+                    <span className="text-[10px] uppercase tracking-widest font-medium">{"{VAR_DB_LOGO_URL}"}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Fila 4: Público & Referencias */}
+              <div className="md:col-span-2 bg-background border rounded-2xl p-5 relative border-border/50 shadow-sm transition-all">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <Target size={14} className="text-muted-foreground" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Público Objetivo</h3>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/5 transition-all">
+                      <Pencil size={14} />
+                  </Button>
+                </div>
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div className="bg-secondary/20 border border-border/50 rounded-xl p-4">
+                    <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest mb-1 block">Perfil general</span>
+                    <p className="text-sm font-medium text-foreground">{"{VAR_DB}"}</p>
+                  </div>
+                  <div className="bg-secondary/20 border border-border/50 rounded-xl p-4">
+                    <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest mb-1 block">Rango de edad</span>
+                    <p className="text-sm font-medium text-foreground">{"{VAR_DB}"}</p>
+                  </div>
+                  <div className="sm:col-span-2 bg-secondary/20 border border-border/50 rounded-xl p-4">
+                    <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest mb-1 block">Problema que resolvemos</span>
+                    <p className="text-sm text-foreground">{"{VAR_DB}"}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Referencias Box */}
+              <div className="md:col-span-1 bg-background border rounded-2xl p-5 relative border-border/50 shadow-sm transition-all">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center gap-2">
+                    <LinkIcon size={14} className="text-muted-foreground" />
+                    <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Inspiración</h3>
+                  </div>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg text-muted-foreground/40 hover:text-primary hover:bg-primary/5 transition-all">
+                      <Pencil size={14} />
+                  </Button>
+                </div>
+                <div className="space-y-4">
+                  <div className="space-y-2">
+                    <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest block">Sitios de Referencia</span>
+                    <div className="flex flex-col gap-2">
+                      <div className="text-xs text-primary bg-primary/5 flex items-center gap-2 p-2 rounded-lg border border-primary/10 truncate"><LinkIcon size={10} className="shrink-0" /> {"{VAR_DB_URL_1}"}</div>
+                      <div className="text-xs text-primary bg-primary/5 flex items-center gap-2 p-2 rounded-lg border border-primary/10 truncate"><LinkIcon size={10} className="shrink-0" /> {"{VAR_DB_URL_2}"}</div>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest block">Imágenes Subidas</span>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[1, 2, 3].map(i => (
+                        <div key={i} className="aspect-square bg-secondary/40 rounded-lg flex items-center justify-center border border-border/50 text-muted-foreground/30">
+                          <ImagePlus size={16} />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           )}
+
+
 
           {/* Tab: Notas & Log */}
           {tab === "notes" && (
@@ -218,6 +309,7 @@ const ClientDetail = ({ clientId, onBack }: { clientId: string; onBack: () => vo
                   </div>
                   {/* {VAR_DB} — notas guardadas en Supabase */}
                   <Textarea
+                    defaultValue="{VAR_DB}"
                     placeholder="Escribe notas privadas o instrucciones para el equipo..."
                     className="min-h-[180px] rounded-xl bg-secondary/20 border-border/50 resize-none p-4 text-sm"
                   />
@@ -317,10 +409,16 @@ const Dashboard = () => {
               <div key={m.label} className="bg-background border rounded-2xl p-5">
                 <div className="flex items-center justify-between mb-4">
                   <m.icon size={16} className="text-muted-foreground" />
+                  {/* {VAR_DB} — tendencia calculada desde Supabase (solo si showTrend es true) */}
+                  {m.showTrend && (
+                    <span className="text-[10px] font-medium text-muted-foreground border rounded-full px-2 py-0.5">
+                      {m.trend}
+                    </span>
+                  )}
                 </div>
                 <p className="text-xs text-muted-foreground mb-1">{m.label}</p>
                 {/* {VAR_DB} — valor calculado desde Supabase */}
-                <p className="text-2xl font-semibold text-foreground">—</p>
+                <p className="text-2xl font-semibold text-foreground">{m.value}</p>
               </div>
             ))}
           </div>
