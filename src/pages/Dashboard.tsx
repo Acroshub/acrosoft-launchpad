@@ -8,7 +8,7 @@ import {
   Users, FolderOpen, CheckCircle, DollarSign, Search, Eye, Download,
   ArrowLeft, LogOut, FileText, MessageSquare, Info, Star, Zap,
   TrendingUp, Calendar, Globe, Phone, LayoutDashboard, Sparkles, Pencil,
-  Image as ImageIcon, Target, Briefcase, Link as LinkIcon, ImagePlus
+  Image as ImageIcon, Target, Briefcase, Link as LinkIcon, ImagePlus, Archive
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import Var from "@/components/Var";
@@ -170,17 +170,22 @@ const ClientDetail = ({ clientId, onBack }: { clientId: string; onBack: () => vo
                 </p>
               </div>
 
-              {/* Box independiente: Documento Maestro (Lado a Lado) */}
+              {/* Box independiente: Kit Completo del Cliente (Descarga Unificada) */}
               <div className="md:col-span-1 bg-secondary/20 border border-border/40 rounded-2xl p-6 flex flex-col items-center justify-center text-center gap-4 animate-in fade-in duration-500 h-full">
                 <div className="w-14 h-14 rounded-2xl bg-background border flex items-center justify-center shadow-sm mb-2">
-                  <FileText size={28} className="text-primary" />
+                  <Archive size={28} className="text-primary" />
                 </div>
                 <div>
-                  <h3 className="text-sm font-bold">Documento Maestro</h3>
-                  <Badge variant="outline" className="mt-2 bg-background/50 border-primary/20 text-[10px] text-primary">v3.0 LISTO</Badge>
+                  <h3 className="text-sm font-bold">Kit del Cliente</h3>
+                  <Badge variant="outline" className="mt-2 bg-background/50 border-primary/20 text-[10px] text-primary whitespace-nowrap">
+                    1 DOC + 4 IMÁGENES
+                  </Badge>
+                  <p className="text-[10px] text-muted-foreground mt-3 px-2 leading-relaxed">
+                    Incluye Documento Maestro (.md), Logo e Imágenes de Referencia.
+                  </p>
                 </div>
                 <Button variant="default" className="w-full mt-2 h-11 rounded-xl font-bold text-[10px] uppercase tracking-wider shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all">
-                  <Download size={14} className="mr-2" /> DESCARGAR .MD
+                  <Download size={14} className="mr-2 shrink-0" /> DESCARGAR TODO (.ZIP)
                 </Button>
               </div>
 
