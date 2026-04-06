@@ -178,7 +178,7 @@ const ClientDetail = ({ clientId, onBack }: { clientId: string; onBack: () => vo
                 <div>
                   <h3 className="text-sm font-bold">Kit del Cliente</h3>
                   <Badge variant="outline" className="mt-2 bg-background/50 border-primary/20 text-[10px] text-primary whitespace-nowrap">
-                    1 DOC + 4 IMÁGENES
+                    1 DOC + {"{VAR_DB_COUNT}"} IMÁGENES
                   </Badge>
                   <p className="text-[10px] text-muted-foreground mt-3 px-2 leading-relaxed">
                     Incluye Documento Maestro (.md), Logo e Imágenes de Referencia.
