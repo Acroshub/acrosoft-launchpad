@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft } from "lucide-react";
+import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Pencil } from "lucide-react";
 
 // {VAR_DB} — configuración real del calendario vendrá de Supabase
 const defaultConfig = {
@@ -16,6 +16,7 @@ const CrmCalendarConfig = ({ onBack }: { onBack: () => void }) => {
   const [config, setConfig]       = useState(defaultConfig);
   const [embedTab, setEmbedTab]   = useState<"iframe" | "js">("iframe");
   const [copied, setCopied]       = useState(false);
+  const [isEditingHours, setIsEditingHours] = useState(false);
 
   const publicUrl   = `https://acrosoft-labs.com/book/${config.slug}`;
   const iframeCode  = `<iframe\n  src="${publicUrl}"\n  width="100%"\n  height="700"\n  frameborder="0"\n  style="border-radius:12px;"\n></iframe>`;
@@ -128,23 +129,50 @@ const CrmCalendarConfig = ({ onBack }: { onBack: () => void }) => {
 
         {/* Disponibilidad */}
         <div className="bg-card border rounded-2xl p-6 space-y-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Clock size={15} className="text-muted-foreground" />
-            <h2 className="text-sm font-semibold">Disponibilidad</h2>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Clock size={15} className="text-muted-foreground" />
+              <h2 className="text-sm font-semibold">Disponibilidad</h2>
+            </div>
+            <Button 
+              variant={isEditingHours ? "default" : "outline"}
+              size="sm" 
+              className="h-7 text-xs px-2.5 gap-1.5" 
+              onClick={() => setIsEditingHours(!isEditingHours)}
+            >
+              {isEditingHours ? <Check size={11} /> : <Pencil size={11} />} 
+              {isEditingHours ? "Guardar" : "Editar horarios"}
+            </Button>
           </div>
           {/* {VAR_DB} — horarios disponibles sincronizados con el horario del negocio */}
           {["Lun", "Mar", "Mié", "Jue", "Vie"].map((day) => (
             <div key={day} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
               <span className="text-sm font-medium w-10">{day}</span>
-              <span className="text-xs text-muted-foreground">{"{VAR_DB}"} – {"{VAR_DB}"}</span>
-              <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium">Activo</span>
+              {isEditingHours ? (
+                <div className="flex items-center gap-1.5">
+                   <Input defaultValue="09:00" className="h-6 text-xs w-[72px] px-2 text-center bg-transparent" />
+                   <span className="text-[10px] text-muted-foreground">-</span>
+                   <Input defaultValue="18:00" className="h-6 text-xs w-[72px] px-2 text-center bg-transparent" />
+                </div>
+              ) : (
+                <span className="text-xs text-muted-foreground">09:00 – 18:00</span>
+              )}
+              <span className="text-[10px] bg-primary/10 text-primary px-2 py-0.5 rounded-full font-medium shrink-0">Activo</span>
             </div>
           ))}
           {["Sáb", "Dom"].map((day) => (
             <div key={day} className="flex items-center justify-between py-2 border-b border-border/50 last:border-0">
               <span className="text-sm font-medium w-10 text-muted-foreground">{day}</span>
-              <span className="text-xs text-muted-foreground">—</span>
-              <span className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-medium">Cerrado</span>
+              {isEditingHours ? (
+                <div className="flex items-center gap-1.5 opacity-50">
+                   <Input defaultValue="" placeholder="--" className="h-6 text-xs w-[72px] px-2 text-center bg-transparent" disabled />
+                   <span className="text-[10px] text-muted-foreground">-</span>
+                   <Input defaultValue="" placeholder="--" className="h-6 text-xs w-[72px] px-2 text-center bg-transparent" disabled />
+                </div>
+              ) : (
+                <span className="text-xs text-muted-foreground">—</span>
+              )}
+              <span className="text-[10px] bg-muted text-muted-foreground px-2 py-0.5 rounded-full font-medium shrink-0">Cerrado</span>
             </div>
           ))}
           <p className="text-[11px] text-muted-foreground italic pt-2">

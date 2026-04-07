@@ -1,8 +1,16 @@
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, CalendarDays, Clock, User, Plus, Settings, ChevronDown } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, Clock, User, Plus, Settings, ChevronDown, Pencil, Trash2, Coffee } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import CrmCalendarConfig from "./CrmCalendarConfig";
+
+// {VAR_DB} — contactos reales vendrán de Supabase
+const existingContacts = [
+  { id: "c-1", name: "{VAR_DB}", email: "{VAR_DB}" },
+  { id: "c-2", name: "{VAR_DB}", email: "{VAR_DB}" },
+];
 
 // {VAR_DB} — citas reales vendrán de Supabase
 const today = new Date();
@@ -31,6 +39,48 @@ type ViewMode = "day" | "week" | "month";
 interface CalendarConfig {
   id: string;
   name: string;
+}
+
+// ─── Blocked Slots ────────────────────────────────────────────
+interface BlockedSlot {
+  id: string;
+  type: "hours" | "fullday" | "range";
+  reason: string;
+  // For type "hours": single date + start/end hour
+  date?: string;
+  startHour?: number;
+  endHour?: number;
+  // For type "range": start date to end date (full days)
+  startDate?: string;
+  endDate?: string;
+}
+
+// {VAR_DB} — bloqueos reales vendrán de Supabase
+const initialBlocked: BlockedSlot[] = [
+  { id: "blk-1", type: "hours", reason: "Almuerzo", date: todayKey, startHour: 12, endHour: 13 },
+];
+
+function isHourBlocked(blocked: BlockedSlot[], dayKey: string, hour: number): BlockedSlot | undefined {
+  return blocked.find(b => {
+    if (b.type === "hours" && b.date === dayKey && b.startHour !== undefined && b.endHour !== undefined) {
+      return hour >= b.startHour && hour < b.endHour;
+    }
+    if (b.type === "fullday" && b.date === dayKey) return true;
+    if (b.type === "range" && b.startDate && b.endDate) {
+      return dayKey >= b.startDate && dayKey <= b.endDate;
+    }
+    return false;
+  });
+}
+
+function isDayBlocked(blocked: BlockedSlot[], dayKey: string): BlockedSlot | undefined {
+  return blocked.find(b => {
+    if (b.type === "fullday" && b.date === dayKey) return true;
+    if (b.type === "range" && b.startDate && b.endDate) {
+      return dayKey >= b.startDate && dayKey <= b.endDate;
+    }
+    return false;
+  });
 }
 
 const dummyCalendars: CalendarConfig[] = [
@@ -77,8 +127,8 @@ const EmptySlot = () => (
 
 // DAY VIEW
 const DayView = ({
-  current, onSelect, selected,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null }) => {
+  current, onSelect, selected, onSlotClick, blocked,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number) => void; blocked: BlockedSlot[] }) => {
   const key = dateKey(current);
   const dayAppts = appointments.filter((a) => a.date === key);
 
@@ -87,6 +137,7 @@ const DayView = ({
       <div className="divide-y">
         {HOURS.map((hour) => {
           const appt = dayAppts.find((a) => a.hour === hour);
+          const blk = isHourBlocked(blocked, key, hour);
           return (
             <div key={hour} className="flex gap-4 px-5 py-3 min-h-[56px]">
               <span className="text-xs text-muted-foreground/60 w-12 shrink-0 pt-0.5 font-mono">
@@ -104,13 +155,22 @@ const DayView = ({
                   <p className="font-medium">{appt.name}</p>
                   <p className="opacity-80 mt-0.5">{appt.service}</p>
                 </button>
+              ) : blk ? (
+                <div className="flex-1 rounded-xl px-3 py-2 bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 flex items-center gap-2 text-xs">
+                  <Coffee size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                  <span className="font-semibold">{blk.reason || "Reservado"}</span>
+                </div>
               ) : (
-                <div className="flex-1 border-b border-dashed border-border/30" />
+                <button
+                  onClick={() => onSlotClick(key, hour)}
+                  className="flex-1 border-b border-dashed border-border/30 hover:bg-primary/5 hover:border-primary/30 rounded transition-all group"
+                >
+                  <Plus size={12} className="text-primary/0 group-hover:text-primary/40 transition-all mx-auto" />
+                </button>
               )}
             </div>
           );
         })}
-        {dayAppts.length === 0 && <EmptySlot />}
       </div>
     </div>
   );
@@ -118,8 +178,8 @@ const DayView = ({
 
 // WEEK VIEW
 const WeekView = ({
-  current, onSelect, selected,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null }) => {
+  current, onSelect, selected, onSlotClick, blocked,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number) => void; blocked: BlockedSlot[] }) => {
   const monday = startOfWeek(current);
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
@@ -135,10 +195,11 @@ const WeekView = ({
         <div className="w-14 shrink-0 border-r" />
         {weekDays.map((day) => {
           const isToday = sameDay(day, new Date());
+          const dayBlk = isDayBlocked(blocked, dateKey(day));
           return (
             <div
               key={day.toISOString()}
-              className={`flex-1 min-w-[90px] px-2 py-3 text-center border-r last:border-r-0 ${isToday ? "bg-primary/5" : ""}`}
+              className={`flex-1 min-w-[90px] px-2 py-3 text-center border-r last:border-r-0 ${dayBlk ? "bg-amber-100/60 dark:bg-amber-900/30" : isToday ? "bg-primary/5" : ""}`}
             >
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{DAYS_ES[day.getDay()]}</p>
               <p className={`text-sm font-semibold mt-0.5 ${isToday ? "text-primary" : ""}`}>{day.getDate()}</p>
@@ -161,13 +222,17 @@ const WeekView = ({
             {weekDays.map((day) => {
               const key = dateKey(day);
               const appt = appointments.find((a) => a.date === key && a.hour === hour);
+              const blk = isHourBlocked(blocked, key, hour);
               const isToday = sameDay(day, new Date());
               return (
                 <div
                   key={key}
-                  className={`flex-1 min-w-[90px] border-r last:border-r-0 px-1.5 py-1 ${isToday ? "bg-primary/5" : ""}`}
+                  onClick={() => { if (!appt && !blk) onSlotClick(key, hour); }}
+                  className={`flex-1 min-w-[90px] border-r last:border-r-0 px-1.5 py-1 group ${
+                    blk ? "bg-amber-100 dark:bg-amber-900/40" : isToday ? "bg-primary/5" : ""
+                  } ${!appt && !blk ? "hover:bg-primary/5 cursor-pointer" : ""}`}
                 >
-                  {appt && (
+                  {appt ? (
                     <button
                       onClick={() => onSelect(appt.id === selected ? "" : appt.id)}
                       className={`w-full text-left rounded-lg px-2 py-1.5 text-[10px] border transition-all ${
@@ -179,6 +244,14 @@ const WeekView = ({
                       <p className="font-semibold truncate">{appt.time}</p>
                       <p className="truncate opacity-80">{appt.name}</p>
                     </button>
+                   ) : blk ? (
+                    <div className="w-full h-full flex items-center justify-center text-amber-600 dark:text-amber-400">
+                      <Coffee size={12} />
+                    </div>
+                  ) : (
+                    <div className="h-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Plus size={12} className="text-primary/50" />
+                    </div>
                   )}
                 </div>
               );
@@ -192,8 +265,8 @@ const WeekView = ({
 
 // MONTH VIEW
 const MonthView = ({
-  current, onSelect, selected,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null }) => {
+  current, onSelect, selected, blocked,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; blocked: BlockedSlot[] }) => {
   const year  = current.getFullYear();
   const month = current.getMonth();
 
@@ -226,16 +299,28 @@ const MonthView = ({
           const key = dateKey(day);
           const dayAppts = appointments.filter((a) => a.date === key);
           const isToday = sameDay(day, new Date());
+          const dayBlk = isDayBlocked(blocked, key);
 
           return (
-            <div key={key} className={`min-h-[90px] p-2 border-r border-b last:border-r-0 ${isToday ? "bg-primary/5" : ""}`}>
-              <p className={`text-xs font-semibold mb-1.5 w-6 h-6 flex items-center justify-center rounded-full ${
-                isToday ? "bg-primary text-primary-foreground" : "text-foreground"
-              }`}>
-                {day.getDate()}
-              </p>
+            <div key={key} className={`min-h-[90px] p-2 border-r border-b last:border-r-0 ${
+              dayBlk ? "bg-amber-100 dark:bg-amber-900/40" : isToday ? "bg-primary/5" : ""
+            }`}>
+              <div className="flex items-center justify-between mb-1.5">
+                <p className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full ${
+                  isToday ? "bg-primary text-primary-foreground" : "text-foreground"
+                }`}>
+                  {day.getDate()}
+                </p>
+                {dayBlk && <Coffee size={12} className="text-amber-500 dark:text-amber-400" />}
+              </div>
               <div className="space-y-1">
-                {dayAppts.slice(0, 3).map((a) => (
+                {dayBlk && (
+                  <div className="w-full rounded px-1.5 py-1 text-[9px] bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 border border-amber-200/40 dark:border-amber-800/60 flex items-center justify-center gap-1.5 truncate">
+                    <Coffee size={10} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                    <span className="truncate">{dayBlk.reason || "Reservado"}</span>
+                  </div>
+                )}
+                {dayAppts.slice(0, dayBlk ? 2 : 3).map((a) => (
                   <button
                     key={a.id}
                     onClick={() => onSelect(a.id === selected ? "" : a.id)}
@@ -248,8 +333,8 @@ const MonthView = ({
                     {a.time} {a.name}
                   </button>
                 ))}
-                {dayAppts.length > 3 && (
-                  <p className="text-[10px] text-muted-foreground px-1">+{dayAppts.length - 3} más</p>
+                {dayAppts.length > (dayBlk ? 2 : 3) && (
+                  <p className="text-[10px] text-muted-foreground px-1">+{dayAppts.length - (dayBlk ? 2 : 3)} más</p>
                 )}
               </div>
             </div>
@@ -268,8 +353,55 @@ const CrmCalendar = () => {
   const [view, setView] = useState<ViewMode>("week");
   const [current, setCurrent] = useState(new Date());
   const [selected, setSelected] = useState<string | null>(null);
-  const [showConfig, setShowConfig] = useState(false);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [showConfig, setShowConfig]       = useState(false);
+  const [dropdownOpen, setDropdownOpen]   = useState(false);
+  const [editingApptId, setEditingApptId] = useState<string | null>(null);
+
+  // New appointment modal
+  const [newAppt, setNewAppt] = useState<{ open: boolean; date: string; hour: number; contactId: string; notes: string } | null>(null);
+
+  const openNewAppt = (date: string, hour: number) =>
+    setNewAppt({ open: true, date, hour, contactId: "", notes: "" });
+
+  const closeNewAppt = () => setNewAppt(null);
+
+  // Blocked slots
+  const [blockedSlots, setBlockedSlots] = useState<BlockedSlot[]>(initialBlocked);
+  const [blockModal, setBlockModal] = useState<{
+    open: boolean;
+    type: "hours" | "fullday" | "range";
+    date: string;
+    startHour: number;
+    endHour: number;
+    startDate: string;
+    endDate: string;
+    reason: string;
+  } | null>(null);
+
+  const openBlockModal = () => setBlockModal({
+    open: true, type: "hours",
+    date: dateKey(current), startHour: 12, endHour: 14,
+    startDate: dateKey(current), endDate: dateKey(current),
+    reason: "",
+  });
+
+  const closeBlockModal = () => setBlockModal(null);
+
+  const saveBlock = () => {
+    if (!blockModal) return;
+    const newBlock: BlockedSlot = {
+      id: `blk-${Date.now()}`,
+      type: blockModal.type,
+      reason: blockModal.reason,
+      ...(blockModal.type === "hours" ? { date: blockModal.date, startHour: blockModal.startHour, endHour: blockModal.endHour } : {}),
+      ...(blockModal.type === "fullday" ? { date: blockModal.date } : {}),
+      ...(blockModal.type === "range" ? { startDate: blockModal.startDate, endDate: blockModal.endDate } : {}),
+    };
+    setBlockedSlots(prev => [...prev, newBlock]);
+    closeBlockModal();
+  };
+
+  const canSaveAppt = newAppt && newAppt.contactId && newAppt.date && newAppt.hour >= 0;
 
   const selectedCalendar = calendars.find(c => c.id === selectedCalendarId);
   const detail = appointments.find((a) => a.id === selected);
@@ -396,6 +528,19 @@ const CrmCalendar = () => {
 
         {/* View toggle & Settings */}
         <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={openBlockModal}
+            className="h-[38px] rounded-xl text-xs font-semibold px-4 gap-2 text-amber-700 dark:text-amber-400 hover:text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-amber-300 dark:border-amber-700/40"
+          >
+            <Coffee size={14} /> Reservar tiempo
+          </Button>
+          <Button
+            onClick={() => openNewAppt(dateKey(current), 10)}
+            className="h-[38px] rounded-xl text-xs font-semibold px-4 gap-2"
+          >
+            <Plus size={14} /> Nueva cita
+          </Button>
           <div className="flex border rounded-xl overflow-hidden bg-card h-[38px] shadow-sm">
             {(["day", "week", "month"] as ViewMode[]).map((v) => (
               <button
@@ -451,9 +596,9 @@ const CrmCalendar = () => {
       <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6" : ""}`}>
         {/* Calendar view */}
         <div>
-          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} />}
-          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} />}
-          {view === "month" && <MonthView current={current} onSelect={setSelected} selected={selected} />}
+          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} />}
+          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} />}
+          {view === "month" && <MonthView current={current} onSelect={setSelected} selected={selected} blocked={blockedSlots} />}
         </div>
 
         {/* Detail panel — day & week only */}
@@ -461,15 +606,36 @@ const CrmCalendar = () => {
           <div className="bg-card border rounded-2xl p-5 h-fit">
             {detail ? (
               <div className="space-y-5">
-                <div className="flex items-center gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold">
+                <div className="flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
                     {detail.name.substring(0, 2).toUpperCase()}
                   </div>
-                  <div>
-                    <p className="font-semibold text-sm">{detail.name}</p>
-                    <Badge variant="outline" className={`text-[10px] mt-1 ${statusStyles[detail.status] || ""}`}>
-                      {detail.status}
-                    </Badge>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">{detail.name}</p>
+                    <div className="relative mt-1 inline-block">
+                      <select 
+                        defaultValue={detail.status} 
+                        className={`text-[10px] appearance-none bg-background border px-2.5 py-0.5 rounded-full pr-6 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${statusStyles[detail.status] || ""}`}
+                      >
+                        <option value="Confirmada">Confirmada</option>
+                        <option value="Cancelada">Cancelada</option>
+                        <option value="Pendiente">Pendiente</option>
+                      </select>
+                      <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-0.5 mt-0.5 shrink-0">
+                    <button 
+                      onClick={() => setEditingApptId(detail.id)}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" 
+                      title="Editar cita (fecha y hora)"
+                    >
+                      <Pencil size={14} />
+                    </button>
+                    <button className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Borrar cita">
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
                 <div className="space-y-3 text-sm">
@@ -505,23 +671,310 @@ const CrmCalendar = () => {
         {/* Detail panel — month view (below) */}
         {view === "month" && detail && (
           <div className="bg-card border rounded-2xl p-5 mt-4">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold">
-                {detail.name.substring(0, 2).toUpperCase()}
+            <div className="flex justify-between items-start mb-4">
+              <div className="flex items-center gap-3 overflow-hidden">
+                <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
+                  {detail.name.substring(0, 2).toUpperCase()}
+                </div>
+                <div className="min-w-0">
+                  <p className="font-semibold text-sm truncate">{detail.name}</p>
+                  <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5 truncate">
+                    <Clock size={11} className="shrink-0" /> {detail.date} · {detail.time}
+                  </p>
+                </div>
               </div>
-              <div>
-                <p className="font-semibold text-sm">{detail.name}</p>
-                <p className="text-xs text-muted-foreground flex items-center gap-1.5 mt-0.5">
-                  <Clock size={11} /> {detail.date} · {detail.time}
-                </p>
+              
+              <div className="flex items-center gap-3 shrink-0 ml-4 max-sm:gap-1.5">
+                <div className="relative inline-block max-sm:hidden">
+                  <select 
+                    defaultValue={detail.status} 
+                    className={`text-[10px] appearance-none bg-background border px-2 py-0.5 rounded-full pr-5 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${statusStyles[detail.status] || ""}`}
+                  >
+                    <option value="Confirmada">Confirmada</option>
+                    <option value="Cancelada">Cancelada</option>
+                    <option value="Pendiente">Pendiente</option>
+                  </select>
+                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
+                </div>
+                <div className="flex items-center gap-1 sm:border-l sm:pl-3 border-border/40">
+                  <button 
+                    onClick={() => setEditingApptId(detail.id)}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" 
+                    title="Editar cita (fecha y hora)"
+                  >
+                    <Pencil size={13} />
+                  </button>
+                  <button className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Borrar cita">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
               </div>
-              <Badge variant="outline" className={`text-[10px] ml-auto ${statusStyles[detail.status] || ""}`}>
-                {detail.status}
-              </Badge>
             </div>
           </div>
         )}
       </div>
+
+      {/* ─── New Appointment Modal ─── */}
+      <Dialog open={!!newAppt?.open} onOpenChange={(open) => !open && closeNewAppt()}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Nueva cita</DialogTitle>
+            <DialogDescription>Completa los datos obligatorios para agendar la cita.</DialogDescription>
+          </DialogHeader>
+
+          {newAppt && (
+            <div className="space-y-4 py-2">
+              {/* Contacto */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">
+                  Contacto <span className="text-destructive">*</span>
+                </label>
+                <div className="relative">
+                  <select
+                    value={newAppt.contactId}
+                    onChange={(e) => setNewAppt((p) => p && ({ ...p, contactId: e.target.value }))}
+                    className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    <option value="">Seleccionar contacto...</option>
+                    {existingContacts.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name} — {c.email}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+
+              {/* Fecha y Hora */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">
+                    Fecha <span className="text-destructive">*</span>
+                  </label>
+                  <Input
+                    type="date"
+                    value={newAppt.date}
+                    onChange={(e) => setNewAppt((p) => p && ({ ...p, date: e.target.value }))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">
+                    Hora <span className="text-destructive">*</span>
+                  </label>
+                  <div className="relative">
+                    <select
+                      value={newAppt.hour}
+                      onChange={(e) => setNewAppt((p) => p && ({ ...p, hour: Number(e.target.value) }))}
+                      className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      {HOURS.map((h) => (
+                        <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
+                      ))}
+                    </select>
+                    <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Notas */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-muted-foreground">Notas <span className="text-xs font-normal">(opcional)</span></label>
+                <textarea
+                  value={newAppt.notes}
+                  onChange={(e) => setNewAppt((p) => p && ({ ...p, notes: e.target.value }))}
+                  placeholder="Motivo de la cita, instrucciones especiales..."
+                  rows={3}
+                  className="w-full rounded-lg border bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeNewAppt} className="h-9">Cancelar</Button>
+            <Button
+              disabled={!canSaveAppt}
+              onClick={() => {
+                // {VAR_DB} — guardar en Supabase
+                closeNewAppt();
+              }}
+              className="h-9"
+            >
+              Agendar cita
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!editingApptId} onOpenChange={(open) => !open && setEditingApptId(null)}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Editar Cita</DialogTitle>
+            <DialogDescription>
+              Modifica la fecha u hora agendada para {appointments.find(a => a.id === editingApptId)?.name}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-4 py-4">
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="date" className="text-right text-sm font-medium">Fecha</label>
+              <Input 
+                id="date" 
+                type="date" 
+                defaultValue={appointments.find(a => a.id === editingApptId)?.date} 
+                className="col-span-3 h-9 text-sm" 
+              />
+            </div>
+            <div className="grid grid-cols-4 items-center gap-4">
+              <label htmlFor="time" className="text-right text-sm font-medium">Hora</label>
+              <Input 
+                id="time" 
+                type="time" 
+                defaultValue={appointments.find(a => a.id === editingApptId)?.time} 
+                className="col-span-3 h-9 text-sm" 
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingApptId(null)} className="h-9">Cancelar</Button>
+            <Button onClick={() => setEditingApptId(null)} className="h-9">Guardar cambios</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* ─── Block Time Modal ─── */}
+      <Dialog open={!!blockModal?.open} onOpenChange={(open) => !open && closeBlockModal()}>
+        <DialogContent className="sm:max-w-[460px]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
+              <Coffee size={18} /> Reservar tiempo personal
+            </DialogTitle>
+            <DialogDescription>Reserva un espacio para ti. El calendario no aceptará citas en ese horario, sin modificar tu disponibilidad general.</DialogDescription>
+          </DialogHeader>
+
+          {blockModal && (
+            <div className="space-y-5 py-2">
+              {/* Block type selector */}
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tipo de reserva</label>
+                <div className="flex border rounded-xl overflow-hidden h-10">
+                  {(["hours", "fullday", "range"] as const).map(t => (
+                    <button
+                      key={t}
+                      onClick={() => setBlockModal(prev => prev && ({ ...prev, type: t }))}
+                      className={`flex-1 text-xs font-semibold transition-all ${
+                        blockModal.type === t ? "bg-amber-500 text-white" : "bg-card text-muted-foreground hover:bg-secondary/50"
+                      } ${t !== "hours" ? "border-l" : ""}`}
+                    >
+                      {t === "hours" ? "Horas específicas" : t === "fullday" ? "Día completo" : "Rango de días"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Hours mode */}
+              {blockModal.type === "hours" && (
+                <div className="space-y-3">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Fecha</label>
+                    <Input
+                      type="date"
+                      value={blockModal.date}
+                      onChange={e => setBlockModal(prev => prev && ({ ...prev, date: e.target.value }))}
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium">Desde</label>
+                      <div className="relative">
+                        <select
+                          value={blockModal.startHour}
+                          onChange={e => setBlockModal(prev => prev && ({ ...prev, startHour: Number(e.target.value) }))}
+                          className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+                        >
+                          {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+                        </select>
+                        <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-sm font-medium">Hasta</label>
+                      <div className="relative">
+                        <select
+                          value={blockModal.endHour}
+                          onChange={e => setBlockModal(prev => prev && ({ ...prev, endHour: Number(e.target.value) }))}
+                          className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+                        >
+                          {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+                        </select>
+                        <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Full day mode */}
+              {blockModal.type === "fullday" && (
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Fecha a bloquear</label>
+                  <Input
+                    type="date"
+                    value={blockModal.date}
+                    onChange={e => setBlockModal(prev => prev && ({ ...prev, date: e.target.value }))}
+                    className="h-9 text-sm"
+                  />
+                </div>
+              )}
+
+              {/* Date range mode */}
+              {blockModal.type === "range" && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Desde</label>
+                    <Input
+                      type="date"
+                      value={blockModal.startDate}
+                      onChange={e => setBlockModal(prev => prev && ({ ...prev, startDate: e.target.value }))}
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-sm font-medium">Hasta</label>
+                    <Input
+                      type="date"
+                      value={blockModal.endDate}
+                      onChange={e => setBlockModal(prev => prev && ({ ...prev, endDate: e.target.value }))}
+                      className="h-9 text-sm"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Reason */}
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-muted-foreground">Motivo <span className="text-xs font-normal">(opcional)</span></label>
+                <Input
+                  value={blockModal.reason}
+                  onChange={e => setBlockModal(prev => prev && ({ ...prev, reason: e.target.value }))}
+                  placeholder="Ej: Vacaciones, cita personal, almuerzo..."
+                  className="h-9 text-sm"
+                />
+              </div>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" onClick={closeBlockModal} className="h-9">Cancelar</Button>
+            <Button
+              onClick={saveBlock}
+              className="h-9 bg-amber-500 hover:bg-amber-600 text-white"
+            >
+              <Coffee size={14} className="mr-1.5" /> Reservar tiempo
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

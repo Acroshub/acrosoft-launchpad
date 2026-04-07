@@ -6,8 +6,10 @@ import {
   Plus, Trash2, GripVertical, Pencil,
   Type, AlignLeft, Mail, Phone, MapPin, ChevronDown,
   Calendar, Clock, Link, ClipboardList, ArrowLeft, Settings, Briefcase,
-  Hash, Upload, CheckSquare, Minus, Palette, Circle, Layers
+  Hash, Upload, CheckSquare, Minus, Palette, Circle, Layers,
+  ExternalLink, Copy, Code, Braces, Link as LinkIcon, Eye
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 
 // {VAR_DB} — campos del formulario se guardarán en Supabase por negocio
 
@@ -22,13 +24,18 @@ interface FormConfig {
   fields: FormField[];
   sections?: FormSection[];
   multiPage?: boolean;
+  submitButtonText?: string;
+  successAction?: "popup" | "redirect";
+  successPopupMessage?: string;
+  successImageType?: "icon" | "logo";
+  successRedirectUrl?: string;
 }
 
 type FieldType =
   | "text" | "textarea" | "email" | "phone" | "address"
   | "select" | "date" | "time" | "url" | "services"
   | "number" | "file" | "checkbox" | "heading"
-  | "radio" | "color";
+  | "radio" | "color" | "schedule";
 
 interface FormField {
   id: string;
@@ -59,6 +66,7 @@ const FIELD_TYPES: { value: FieldType; label: string; icon: React.ElementType }[
   { value: "file",     label: "Subir archivo",        icon: Upload      },
   { value: "services", label: "Servicios",            icon: Briefcase   },
   { value: "heading",  label: "Título / Sección",     icon: Minus       },
+  { value: "schedule", label: "Horarios",             icon: Calendar    },
 ];
 
 const defaultFields: FormField[] = [
@@ -157,7 +165,7 @@ const FieldRow = ({
       </div>
 
       {/* Placeholder */}
-      {!["date", "time", "heading", "file", "checkbox", "color", "services", "radio"].includes(field.type) && (
+      {!["date", "time", "heading", "file", "checkbox", "color", "services", "radio", "schedule"].includes(field.type) && (
         <div className="pl-11">
           <Input
             value={field.placeholder ?? ""}
@@ -315,6 +323,21 @@ const FieldRow = ({
           </p>
         </div>
       )}
+
+      {/* Schedule info */}
+      {field.type === "schedule" && (
+        <div className="pl-11">
+          <div className="bg-primary/5 border border-primary/10 rounded-xl px-4 py-3">
+            <p className="text-[11px] text-primary font-medium flex items-center gap-1.5">
+              <Calendar size={12} />
+              Selector de Horarios (Semanal)
+            </p>
+            <p className="text-[10px] text-muted-foreground mt-1.5 leading-relaxed">
+              El cliente verá una tabla interactiva para definir sus horarios de disponibilidad (ej. Lun a Vie de 9am - 6pm), igual a la que se utiliza en el Onboarding de cuenta.
+            </p>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -329,6 +352,12 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
   const [sections, setSections]   = useState<FormSection[]>(form.sections ?? [{ id: "sec-1", name: "Página 1" }]);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
 
+  const [submitButtonText, setSubmitButtonText] = useState(form.submitButtonText || "Enviar mensaje");
+  const [successAction, setSuccessAction] = useState<"popup" | "redirect">(form.successAction || "popup");
+  const [successPopupMessage, setSuccessPopupMessage] = useState(form.successPopupMessage || "¡Gracias! Hemos recibido tu información.");
+  const [successImageType, setSuccessImageType] = useState<"icon" | "logo">(form.successImageType || "icon");
+  const [successRedirectUrl, setSuccessRedirectUrl] = useState(form.successRedirectUrl || "");
+
   const update = (id: string, patch: Partial<FormField>) =>
     setFields((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)));
 
@@ -340,7 +369,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
 
   const handleSave = () => {
     // {VAR_DB} — guardar en Supabase
-    onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage });
+    onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -427,150 +456,303 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
         </div>
       </div>
 
-      {/* ─── Fields (flat or by sections) ─── */}
-      {!multiPage ? (
-        <>
-          <div className="space-y-3">
-            {fields.map((field) => (
-              <FieldRow
-                key={field.id}
-                field={field}
-                onToggleRequired={() => update(field.id, { required: !field.required })}
-                onChangeLabel={(v) => update(field.id, { label: v })}
-                onChangeType={(v) =>
-                  update(field.id, {
-                    type: v,
-                    options: (v === "select" || v === "radio") ? (field.options?.length ? field.options : ["", ""]) : field.options,
-                    multiSelect: v === "select" ? (field.multiSelect ?? false) : undefined,
-                  })
-                }
-                onToggleMultiSelect={() => update(field.id, { multiSelect: !field.multiSelect })}
-                onAddOption={() => update(field.id, { options: [...(field.options ?? []), ""] })}
-                onChangeOption={(i, v) => {
-                  const opts = [...(field.options ?? [])];
-                  opts[i] = v;
-                  update(field.id, { options: opts });
-                }}
-                onRemoveOption={(i) =>
-                  update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
-                }
-                onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
-              />
-            ))}
-          </div>
-          <button
-            onClick={() => addField()}
-            className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-border rounded-2xl py-4 text-sm text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/5 transition-all"
-          >
-            <Plus size={15} />
-            Añadir campo
-          </button>
-        </>
-      ) : (
-        <div className="space-y-6">
-          {sections.map((sec, secIdx) => {
-            const sectionFields = fields.filter(f => f.sectionId === sec.id);
-            return (
-              <div key={sec.id} className="bg-card border rounded-2xl overflow-hidden">
-                {/* Section header */}
-                <div className="flex items-center gap-3 px-5 py-3 bg-secondary/30 border-b group/secheader">
-                  <Layers size={14} className="text-primary shrink-0" />
-                  <div className="flex-1 flex items-center gap-2">
-                    {editingSectionId === sec.id ? (
-                      <Input
-                        value={sec.name}
-                        onChange={(e) => renameSection(sec.id, e.target.value)}
-                        onBlur={() => setEditingSectionId(null)}
-                        onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingSectionId(null); }}
-                        autoFocus
-                        className="h-8 text-sm font-semibold border-none bg-background px-2 -ml-2 focus-visible:ring-1 max-w-[250px]"
-                        placeholder="Nombre de la sección"
-                      />
-                    ) : (
-                      <>
-                        <h2 className="text-sm font-semibold text-foreground leading-8">
-                          {sec.name || "Sin título"}
-                        </h2>
+      {/* ─── Columns Layout ─── */}
+      <div className="grid lg:grid-cols-[1fr_320px] gap-8 items-start">
+        {/* LEFT COLUMN: Fields Editor */}
+        <div className="space-y-8">
+          {/* Fields (flat or by sections) */}
+          {!multiPage ? (
+            <>
+              <div className="space-y-3">
+                {fields.map((field) => (
+                  <FieldRow
+                    key={field.id}
+                    field={field}
+                    onToggleRequired={() => update(field.id, { required: !field.required })}
+                    onChangeLabel={(v) => update(field.id, { label: v })}
+                    onChangeType={(v) =>
+                      update(field.id, {
+                        type: v,
+                        options: (v === "select" || v === "radio") ? (field.options?.length ? field.options : ["", ""]) : field.options,
+                        multiSelect: v === "select" ? (field.multiSelect ?? false) : undefined,
+                      })
+                    }
+                    onToggleMultiSelect={() => update(field.id, { multiSelect: !field.multiSelect })}
+                    onAddOption={() => update(field.id, { options: [...(field.options ?? []), ""] })}
+                    onChangeOption={(i, v) => {
+                      const opts = [...(field.options ?? [])];
+                      opts[i] = v;
+                      update(field.id, { options: opts });
+                    }}
+                    onRemoveOption={(i) =>
+                      update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
+                    }
+                    onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
+                  />
+                ))}
+              </div>
+              <button
+                onClick={() => addField()}
+                className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-border rounded-2xl py-4 text-sm text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/5 transition-all"
+              >
+                <Plus size={15} />
+                Añadir campo
+              </button>
+            </>
+          ) : (
+            <div className="space-y-6">
+              {sections.map((sec, secIdx) => {
+                const sectionFields = fields.filter(f => f.sectionId === sec.id);
+                return (
+                  <div key={sec.id} className="bg-card border rounded-2xl overflow-hidden">
+                    {/* Section header */}
+                    <div className="flex items-center gap-3 px-5 py-3 bg-secondary/30 border-b group/secheader">
+                      <Layers size={14} className="text-primary shrink-0" />
+                      <div className="flex-1 flex items-center gap-2">
+                        {editingSectionId === sec.id ? (
+                          <Input
+                            value={sec.name}
+                            onChange={(e) => renameSection(sec.id, e.target.value)}
+                            onBlur={() => setEditingSectionId(null)}
+                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingSectionId(null); }}
+                            autoFocus
+                            className="h-8 text-sm font-semibold border-none bg-background px-2 -ml-2 focus-visible:ring-1 max-w-[250px]"
+                            placeholder="Nombre de la sección"
+                          />
+                        ) : (
+                          <>
+                            <h2 className="text-sm font-semibold text-foreground leading-8">
+                              {sec.name || "Sin título"}
+                            </h2>
+                            <button
+                              onClick={() => setEditingSectionId(sec.id)}
+                              className="p-1 rounded-md text-muted-foreground opacity-40 group-hover/secheader:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition-all"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
+                        Página {secIdx + 1}
+                      </span>
+                      {sections.length > 1 && (
                         <button
-                          onClick={() => setEditingSectionId(sec.id)}
-                          className="p-1 rounded-md text-muted-foreground opacity-40 group-hover/secheader:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition-all"
+                          onClick={() => removeSection(sec.id)}
+                          className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
                         >
-                          <Pencil size={13} />
+                          <Trash2 size={13} />
                         </button>
-                      </>
-                    )}
+                      )}
+                    </div>
+                    {/* Section fields */}
+                    <div className="p-4 space-y-3">
+                      {sectionFields.length === 0 && (
+                        <p className="text-xs text-muted-foreground text-center py-4">
+                          Sin campos. Añade uno abajo.
+                        </p>
+                      )}
+                      {sectionFields.map((field) => (
+                        <FieldRow
+                          key={field.id}
+                          field={field}
+                          onToggleRequired={() => update(field.id, { required: !field.required })}
+                          onChangeLabel={(v) => update(field.id, { label: v })}
+                          onChangeType={(v) =>
+                            update(field.id, {
+                              type: v,
+                              options: (v === "select" || v === "radio") ? (field.options?.length ? field.options : ["", ""]) : field.options,
+                              multiSelect: v === "select" ? (field.multiSelect ?? false) : undefined,
+                            })
+                          }
+                          onToggleMultiSelect={() => update(field.id, { multiSelect: !field.multiSelect })}
+                          onAddOption={() => update(field.id, { options: [...(field.options ?? []), ""] })}
+                          onChangeOption={(i, v) => {
+                            const opts = [...(field.options ?? [])];
+                            opts[i] = v;
+                            update(field.id, { options: opts });
+                          }}
+                          onRemoveOption={(i) =>
+                            update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
+                          }
+                          onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
+                        />
+                      ))}
+                      <button
+                        onClick={() => addField(sec.id)}
+                        className="w-full flex items-center justify-center gap-2 border border-dashed border-border rounded-xl py-2.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/5 transition-all"
+                      >
+                        <Plus size={13} /> Añadir campo a esta sección
+                      </button>
+                    </div>
                   </div>
-                  <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
-                    Página {secIdx + 1}
-                  </span>
-                  {sections.length > 1 && (
-                    <button
-                      onClick={() => removeSection(sec.id)}
-                      className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                  )}
-                </div>
-                {/* Section fields */}
-                <div className="p-4 space-y-3">
-                  {sectionFields.length === 0 && (
-                    <p className="text-xs text-muted-foreground text-center py-4">
-                      Sin campos. Añade uno abajo.
-                    </p>
-                  )}
-                  {sectionFields.map((field) => (
-                    <FieldRow
-                      key={field.id}
-                      field={field}
-                      onToggleRequired={() => update(field.id, { required: !field.required })}
-                      onChangeLabel={(v) => update(field.id, { label: v })}
-                      onChangeType={(v) =>
-                        update(field.id, {
-                          type: v,
-                          options: (v === "select" || v === "radio") ? (field.options?.length ? field.options : ["", ""]) : field.options,
-                          multiSelect: v === "select" ? (field.multiSelect ?? false) : undefined,
-                        })
-                      }
-                      onToggleMultiSelect={() => update(field.id, { multiSelect: !field.multiSelect })}
-                      onAddOption={() => update(field.id, { options: [...(field.options ?? []), ""] })}
-                      onChangeOption={(i, v) => {
-                        const opts = [...(field.options ?? [])];
-                        opts[i] = v;
-                        update(field.id, { options: opts });
-                      }}
-                      onRemoveOption={(i) =>
-                        update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
-                      }
-                      onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
-                    />
-                  ))}
+                );
+              })}
+              <button
+                onClick={addSection}
+                className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-primary/30 rounded-2xl py-4 text-sm text-primary font-medium hover:bg-primary/5 transition-all"
+              >
+                <Plus size={15} /> Añadir sección (página)
+              </button>
+            </div>
+          )}
+
+          {/* Acciones del formulario (Botón y Éxito) */}
+          <div className="bg-card border rounded-2xl p-6 space-y-6 mt-8">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <CheckSquare size={16} className="text-primary"/> Configuración de envío
+            </h2>
+
+            <div className="grid sm:grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Texto del botón enviar</label>
+                <Input 
+                  value={submitButtonText} 
+                  onChange={e => setSubmitButtonText(e.target.value)} 
+                  placeholder="Ej: Agendar Cita" 
+                  className="h-10 text-sm"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Al completar el formulario</label>
+                <div className="flex border rounded-xl overflow-hidden h-10">
                   <button
-                    onClick={() => addField(sec.id)}
-                    className="w-full flex items-center justify-center gap-2 border border-dashed border-border rounded-xl py-2.5 text-xs text-muted-foreground hover:text-foreground hover:border-primary/40 hover:bg-primary/5 transition-all"
+                    onClick={() => setSuccessAction("popup")}
+                    className={`flex-1 text-xs font-semibold transition-all ${
+                      successAction === "popup" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
+                    }`}
                   >
-                    <Plus size={13} /> Añadir campo a esta sección
+                    Mostrar Mensaje
+                  </button>
+                  <button
+                    onClick={() => setSuccessAction("redirect")}
+                    className={`flex-1 text-xs font-semibold transition-all border-l ${
+                      successAction === "redirect" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
+                    }`}
+                  >
+                    Redirigir a URL
                   </button>
                 </div>
               </div>
-            );
-          })}
-          <button
-            onClick={addSection}
-            className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-primary/30 rounded-2xl py-4 text-sm text-primary font-medium hover:bg-primary/5 transition-all"
-          >
-            <Plus size={15} /> Añadir sección (página)
-          </button>
-        </div>
-      )}
+            </div>
 
-      <div className="bg-secondary/40 border rounded-2xl px-5 py-4 text-xs text-muted-foreground leading-relaxed">
-        <p className="font-semibold text-foreground mb-1">¿Cómo funciona?</p>
-        <p>
-          Los campos que configures aquí aparecerán en el formulario público de reserva.
-          Cada respuesta quedará guardada en la ficha del contacto, visible en la sección <strong>Contactos</strong>.
-          Los campos <em>Nombre</em> y <em>Email</em> son fijos y siempre obligatorios.
-        </p>
+            <div className="bg-secondary/20 p-4 rounded-xl border border-secondary/50">
+              {successAction === "popup" ? (
+                <div className="space-y-5">
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Imagen a mostrar</label>
+                    <div className="flex border rounded-xl overflow-hidden h-9 w-max">
+                      <button
+                        onClick={() => setSuccessImageType("icon")}
+                        className={`px-4 text-xs font-semibold transition-all ${
+                          successImageType === "icon" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
+                        }`}
+                      >
+                        Icono (Check)
+                      </button>
+                      <button
+                        onClick={() => setSuccessImageType("logo")}
+                        className={`px-4 text-xs font-semibold transition-all border-l ${
+                          successImageType === "logo" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
+                        }`}
+                      >
+                        Logo de la marca
+                      </button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Mensaje principal de éxito</label>
+                    <Input 
+                      value={successPopupMessage} 
+                      onChange={e => setSuccessPopupMessage(e.target.value)} 
+                      placeholder="¡Gracias! Hemos recibido tu solicitud." 
+                      className="h-10 text-sm bg-background border-input"
+                    />
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Este texto aparecerá en grande {successImageType === "icon" ? "debajo del icono de éxito" : "debajo de tu logotipo"} al enviar la información.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-muted-foreground">URL de redirección (Thank you page)</label>
+                  <Input 
+                    value={successRedirectUrl} 
+                    onChange={e => setSuccessRedirectUrl(e.target.value)} 
+                    placeholder="https://tudominio.com/gracias" 
+                    className="h-10 text-sm bg-background border-input font-mono"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">El usuario será redirigido automáticamente a este enlace al completar el formulario.</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+
+          <div className="bg-secondary/40 border rounded-2xl px-5 py-4 text-xs text-muted-foreground leading-relaxed">
+            <p className="font-semibold text-foreground mb-1">¿Cómo funciona?</p>
+            <p>
+              Los campos que configures aquí aparecerán en el formulario público de reserva.
+              Cada respuesta quedará guardada en la ficha del contacto, visible en la sección <strong>Contactos</strong>.
+              Los campos <em>Nombre</em> y <em>Email</em> son fijos y siempre obligatorios.
+            </p>
+          </div>
+        </div>
+
+        {/* RIGHT COLUMN: Share Form */}
+        <div className="bg-card border rounded-2xl p-5 space-y-6 sticky top-6">
+           <div>
+             <h3 className="text-sm font-semibold mb-1">Compartir Formulario</h3>
+             <p className="text-xs text-muted-foreground">Comparte este formulario o incrústalo en tu página web.</p>
+           </div>
+           
+           {/* Enlace directo */}
+           <div className="space-y-2.5">
+             <div className="flex items-center gap-2 text-sm font-medium">
+               <LinkIcon size={14} className="text-primary"/> Link (directo)
+             </div>
+             <div className="flex gap-2">
+               <Input 
+                 readOnly 
+                 value={`https://acros.hub/f/${form.id}`} 
+                 className="h-8 text-[11px] bg-secondary/30 font-mono" 
+               />
+               <Button variant="secondary" size="icon" className="h-8 w-8 shrink-0"><Copy size={13}/></Button>
+               <Button variant="outline" size="icon" className="h-8 w-8 shrink-0"><ExternalLink size={13}/></Button>
+             </div>
+           </div>
+
+           {/* Iframe */}
+           <div className="space-y-2.5">
+             <div className="flex items-center gap-2 text-sm font-medium">
+               <Code size={14} className="text-orange-500"/> Iframe (HTML)
+             </div>
+             <div className="relative">
+               <textarea 
+                 readOnly 
+                 value={`<iframe src="https://acros.hub/f/${form.id}" width="100%" height="600px" frameborder="0"></iframe>`}
+                 className="w-full h-[76px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+               />
+               <Button variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"><Copy size={11}/></Button>
+             </div>
+           </div>
+
+           {/* Javascript */}
+           <div className="space-y-2.5">
+             <div className="flex items-center gap-2 text-sm font-medium">
+               <Braces size={14} className="text-blue-500"/> Javascript Embed
+             </div>
+             <div className="relative">
+               <textarea 
+                 readOnly 
+                 value={`<script src="https://acros.hub/embed.js"></script>\n<acros-form id="${form.id}"></acros-form>`}
+                 className="w-full h-[76px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+               />
+               <Button variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"><Copy size={11}/></Button>
+             </div>
+           </div>
+        </div>
       </div>
     </div>
   );

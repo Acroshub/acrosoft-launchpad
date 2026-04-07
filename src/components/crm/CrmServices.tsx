@@ -11,6 +11,10 @@ export interface ServiceConfig {
   description: string;
   benefits: string[];
   price: number;
+  monthlyPrice?: number;
+  billingFrequency?: string;
+  deliveryTime?: string;
+  isRecommended?: boolean;
 }
 
 // {VAR_DB}
@@ -21,6 +25,10 @@ const dummyServices: ServiceConfig[] = [
     description: "{VAR_DB}",
     benefits: ["{VAR_DB}", "{VAR_DB}", "{VAR_DB}"],
     price: 0,
+    monthlyPrice: 0,
+    billingFrequency: "mensual",
+    deliveryTime: "",
+    isRecommended: false,
   },
 ];
 
@@ -38,10 +46,14 @@ const ServiceEditor = ({
   const [description, setDescription] = useState(service.description);
   const [benefits, setBenefits] = useState<string[]>(service.benefits);
   const [price, setPrice] = useState(service.price);
+  const [monthlyPrice, setMonthlyPrice] = useState(service.monthlyPrice || 0);
+  const [billingFrequency, setBillingFrequency] = useState(service.billingFrequency || "");
+  const [deliveryTime, setDeliveryTime] = useState(service.deliveryTime || "");
+  const [isRecommended, setIsRecommended] = useState(service.isRecommended || false);
   const [saved, setSaved] = useState(false);
 
   const handleSave = () => {
-    onUpdate({ ...service, name, description, benefits, price });
+    onUpdate({ ...service, name, description, benefits, price, monthlyPrice, billingFrequency, deliveryTime, isRecommended });
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
   };
@@ -86,7 +98,7 @@ const ServiceEditor = ({
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="h-10 text-sm"
-              placeholder="Ej: Consultoría Estratégica"
+              placeholder="Ej: Diseño Web, Corte de Cabello, etc."
             />
           </div>
 
@@ -100,18 +112,68 @@ const ServiceEditor = ({
             />
           </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <DollarSign size={12} />
+                Precio Base / Inicial
+              </label>
+              <Input
+                type="number"
+                value={price}
+                onChange={(e) => setPrice(Number(e.target.value))}
+                className="h-10 text-sm"
+                min={0}
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <DollarSign size={12} />
+                Info de cobro recurrente
+              </label>
+              <div className="flex gap-2">
+                <Input
+                  type="number"
+                  value={monthlyPrice}
+                  onChange={(e) => setMonthlyPrice(Number(e.target.value))}
+                  className="h-10 text-sm w-1/3"
+                  min={0}
+                  placeholder="0"
+                />
+                <Input
+                  type="text"
+                  value={billingFrequency}
+                  onChange={(e) => setBillingFrequency(e.target.value)}
+                  className="h-10 text-sm flex-1"
+                  placeholder="Frecuencia (Ej: mensual, o /sesión)"
+                />
+              </div>
+            </div>
+          </div>
+
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-              <DollarSign size={12} />
-              Precio (USD)
-            </label>
+            <label className="text-xs font-medium text-muted-foreground">Duración / Entrega (Opcional)</label>
             <Input
-              type="number"
-              value={price}
-              onChange={(e) => setPrice(Number(e.target.value))}
+              type="text"
+              value={deliveryTime}
+              onChange={(e) => setDeliveryTime(e.target.value)}
               className="h-10 text-sm"
-              min={0}
+              placeholder="Ej: 3–5 días, o 1 hora"
             />
+          </div>
+
+          <div className="flex items-center gap-2 pt-2">
+            <input 
+              type="checkbox"
+              id="isRecommended"
+              checked={isRecommended}
+              onChange={(e) => setIsRecommended(e.target.checked)}
+              className="rounded border-input text-primary focus:ring-primary h-4 w-4"
+            />
+            <label htmlFor="isRecommended" className="text-sm font-medium leading-none cursor-pointer">
+              Etiqueta de "Recomendado / Destacado"
+            </label>
           </div>
         </div>
 
@@ -174,6 +236,10 @@ const CrmServices = () => {
       description: "",
       benefits: [""],
       price: 0,
+      monthlyPrice: 0,
+      billingFrequency: "",
+      deliveryTime: "",
+      isRecommended: false,
     };
     setServices([...services, newSvc]);
     setSelectedId(newSvc.id);
@@ -248,10 +314,18 @@ const CrmServices = () => {
                 <div className="text-right shrink-0 mr-4">
                   <p className="text-sm font-bold text-foreground">
                     ${svc.price.toFixed(2)}
+                    {svc.monthlyPrice ? <span className="text-muted-foreground text-xs font-normal"> + ${svc.monthlyPrice.toFixed(2)}{svc.billingFrequency ? ` ${svc.billingFrequency}` : ''}</span> : ""}
                   </p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {svc.benefits.filter(Boolean).length} beneficios
-                  </p>
+                  <div className="flex items-center justify-end gap-2 mt-0.5">
+                    {svc.isRecommended && (
+                      <span className="text-[9px] font-bold uppercase tracking-wider text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                        Top
+                      </span>
+                    )}
+                    <p className="text-[10px] text-muted-foreground">
+                      {svc.benefits.filter(Boolean).length} beneficios
+                    </p>
+                  </div>
                 </div>
               </div>
               <div className="flex items-center gap-2">

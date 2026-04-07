@@ -1,17 +1,48 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, X, GripVertical, Settings2, Check } from "lucide-react";
+import { Plus, X, GripVertical, Settings2, Check, ChevronDown } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Switch } from "@/components/ui/switch";
+
+// {VAR_DB} — campos disponibles vendrán de los formularios creados en Supabase
+const availableFormFields: { id: string; label: string; formName: string }[] = [
+  { id: "ff-1", label: "{VAR_DB}", formName: "{VAR_DB}" },
+  { id: "ff-2", label: "{VAR_DB}", formName: "{VAR_DB}" },
+  { id: "ff-3", label: "{VAR_DB}", formName: "{VAR_DB}" },
+];
 
 // {VAR_DB} — columnas y tarjetas del pipeline vendrán de Supabase
-type Card = { id: string; name: string; email: string; value?: string };
+type Card = { 
+  id: string; 
+  name: string; 
+  email: string; 
+  value?: string;
+  customFields?: { label: string; value: string }[];
+};
 type Column = { id: string; name: string; cards: Card[] };
 
+// {VAR_DB} — columnas y tarjetas reales vendrán de Supabase
 const defaultColumns: Column[] = [
-  { id: "col-1", name: "Nuevo contacto",  cards: [] },
-  { id: "col-2", name: "En seguimiento",  cards: [] },
-  { id: "col-3", name: "Propuesta",        cards: [] },
-  { id: "col-4", name: "Cerrado",          cards: [] },
+  {
+    id: "col-1",
+    name: "{VAR_DB}",
+    cards: [
+      {
+        id: "card-1",
+        name: "{VAR_DB}",
+        email: "{VAR_DB}",
+        value: "{VAR_DB}",
+        customFields: [
+          { label: "{VAR_DB}", value: "{VAR_DB}" },
+          { label: "{VAR_DB}", value: "{VAR_DB}" },
+        ],
+      },
+    ],
+  },
+  { id: "col-2", name: "{VAR_DB}", cards: [] },
+  { id: "col-3", name: "{VAR_DB}", cards: [] },
+  { id: "col-4", name: "{VAR_DB}", cards: [] },
 ];
 
 const CrmPipeline = () => {
@@ -22,6 +53,61 @@ const CrmPipeline = () => {
   const [addingCol, setAddingCol]   = useState(false);
   const [dragCard, setDragCard]     = useState<{ card: Card; fromColId: string } | null>(null);
   const [dragOver, setDragOver]     = useState<string | null>(null);
+
+  // Card creation state
+  const [addingCardToCol, setAddingCardToCol] = useState<string | null>(null);
+  const [newCardName, setNewCardName]         = useState("");
+  const [newCardEmail, setNewCardEmail]       = useState("");
+
+  const [configCard, setConfigCard]     = useState<Card | null>(null);
+  const [cardConfig, setCardConfig]     = useState<{ showValue: boolean; showService: boolean; showPhone: boolean }>({
+    showValue: true, showService: false, showPhone: false,
+  });
+  const [extraFields, setExtraFields]   = useState<string[]>([]); // ids of selected form fields
+
+  const openConfig = (card: Card) => {
+    setConfigCard(card);
+    setCardConfig({
+      showValue:   !!card.value,
+      showService: !!card.customFields?.some(f => f.label === "{VAR_DB}"),
+      showPhone:   !!card.customFields?.some(f => f.label === "{VAR_DB}"),
+    });
+    setExtraFields([]);
+  };
+
+  const toggleExtraField = (id: string) =>
+    setExtraFields((prev) =>
+      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
+    );
+
+  const startAddCard = (colId: string) => {
+    setAddingCardToCol(colId);
+    setNewCardName("");
+    setNewCardEmail("");
+  };
+
+  const saveCard = (colId: string) => {
+    if (!newCardName.trim()) return;
+    setColumns((cols) =>
+      cols.map((c) => {
+        if (c.id === colId) {
+          return {
+            ...c,
+            cards: [
+              ...c.cards,
+              {
+                id: `card-${Date.now()}`,
+                name: newCardName.trim(),
+                email: newCardEmail.trim() || "-",
+              },
+            ],
+          };
+        }
+        return c;
+      })
+    );
+    setAddingCardToCol(null);
+  };
 
   /* ─── Column management ─── */
   const startEditCol = (col: Column) => {
@@ -79,18 +165,18 @@ const CrmPipeline = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4 flex-wrap">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold">Pipeline</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Gestiona tus oportunidades y seguimientos</p>
         </div>
-        <button
-          onClick={() => setAddingCol(true)}
-          className="flex items-center gap-2 text-xs font-semibold border rounded-xl px-4 py-2 hover:bg-secondary transition-colors"
-        >
-          <Plus size={14} />
-          Nueva columna
-        </button>
+          <button
+            onClick={() => setAddingCol(true)}
+            className="flex items-center gap-2 text-xs font-semibold border rounded-xl px-4 py-2 hover:bg-secondary transition-colors"
+          >
+            <Plus size={14} />
+            Nueva columna
+          </button>
       </div>
 
       {/* Board */}
@@ -150,34 +236,80 @@ const CrmPipeline = () => {
               </div>
 
               {/* Cards */}
-              <div className="flex-1 p-3 space-y-2 min-h-[200px]">
-                {col.cards.length === 0 ? (
-                  <div className="h-full flex items-center justify-center">
-                    <p className="text-[11px] text-muted-foreground/40 text-center leading-relaxed">
-                      {/* {VAR_DB} — tarjetas desde Supabase */}
-                      Sin tarjetas
-                    </p>
+              <div className="flex-1 p-3 space-y-2 min-h-[150px]">
+                {col.cards.map((card) => (
+                  <div
+                    key={card.id}
+                    draggable
+                    onDragStart={() => handleDragStart(card, col.id)}
+                    className="bg-card border rounded-xl px-3 py-3 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all group"
+                  >
+                    <div className="flex items-start gap-2 relative">
+                      <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 group-hover:text-muted-foreground/60 shrink-0" />
+                      <div className="flex-1 min-w-0 pr-5">
+                        <p className="text-xs font-medium truncate">{card.name}</p>
+                        <p className="text-[10px] text-muted-foreground truncate mt-0.5">{card.email}</p>
+                        {card.value && (
+                          <p className="text-[10px] font-semibold text-primary mt-1">{card.value}</p>
+                        )}
+                        {card.customFields && card.customFields.length > 0 && (
+                          <div className="mt-2.5 space-y-1">
+                            {card.customFields.map((f, i) => (
+                              <div key={i} className="flex justify-between items-center text-[9px] bg-secondary/50 rounded overflow-hidden">
+                                <span className="text-muted-foreground px-1.5 py-1 border-r border-border/40 bg-card/40 shrink-0">{f.label}</span>
+                                <span className="font-semibold text-foreground px-1.5 py-1 truncate">{f.value}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      
+                      <button 
+                        onClick={() => openConfig(card)}
+                        className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 p-1 hover:bg-secondary rounded-md text-muted-foreground transition-all bg-card"
+                        title="Configurar campos de la tarjeta"
+                      >
+                        <Settings2 size={13} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Inline Card Creation */}
+                {addingCardToCol === col.id ? (
+                  <div className="bg-card border rounded-xl p-3 space-y-2.5 shadow-sm animate-in fade-in zoom-in-95">
+                    <Input
+                      autoFocus
+                      placeholder="Nombre (obligatorio)"
+                      value={newCardName}
+                      onChange={(e) => setNewCardName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveCard(col.id);
+                        if (e.key === "Escape") setAddingCardToCol(null);
+                      }}
+                      className="h-7 text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2"
+                    />
+                    <Input
+                      placeholder="Email (opcional)"
+                      value={newCardEmail}
+                      onChange={(e) => setNewCardEmail(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") saveCard(col.id);
+                      }}
+                      className="h-7 text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2"
+                    />
+                    <div className="flex gap-2 pt-1">
+                      <Button size="sm" className="h-7 text-[11px] flex-1 rounded-lg" disabled={!newCardName.trim()} onClick={() => saveCard(col.id)}>Guardar</Button>
+                      <button onClick={() => setAddingCardToCol(null)} className="h-7 px-2.5 rounded-lg border text-muted-foreground hover:bg-secondary"><X size={12}/></button>
+                    </div>
                   </div>
                 ) : (
-                  col.cards.map((card) => (
-                    <div
-                      key={card.id}
-                      draggable
-                      onDragStart={() => handleDragStart(card, col.id)}
-                      className="bg-card border rounded-xl px-3 py-3 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all group"
-                    >
-                      <div className="flex items-start gap-2">
-                        <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 group-hover:text-muted-foreground/60 shrink-0" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-medium truncate">{card.name}</p>
-                          <p className="text-[10px] text-muted-foreground truncate mt-0.5">{card.email}</p>
-                          {card.value && (
-                            <p className="text-[10px] font-semibold text-primary mt-1">{card.value}</p>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  ))
+                  <button
+                    onClick={() => startAddCard(col.id)}
+                    className="w-full flex items-center justify-center gap-1.5 py-2 mt-2 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors border border-transparent hover:border-border/50 border-dashed"
+                  >
+                    <Plus size={13} /> Añadir tarjeta
+                  </button>
                 )}
               </div>
             </div>
@@ -221,6 +353,66 @@ const CrmPipeline = () => {
       <p className="text-[11px] text-muted-foreground italic">
         Puedes arrastrar tarjetas entre columnas. Las columnas y sus nombres son completamente personalizables.
       </p>
+
+      {/* Card Settings Modal */}
+      <Dialog open={!!configCard} onOpenChange={(open) => !open && setConfigCard(null)}>
+        <DialogContent className="sm:max-w-[400px]">
+          <DialogHeader>
+            <DialogTitle>Configurar tarjeta</DialogTitle>
+            <DialogDescription>
+              Selecciona qué variables adicionales de {configCard?.name} deseas visualizar.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {configCard && (
+            <div className="py-2 space-y-6">
+              {/* Fixed fields */}
+              <div className="space-y-4">
+                <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground/60">Campos fijos</p>
+                {([
+                  ["showValue",   "Valor del trato",     "Muestra el monto en la tarjeta ($)"],
+                  ["showService", "Servicio interesado", "Variable recogida del formulario"],
+                  ["showPhone",   "Teléfono principal",  "Variable recogida del formulario"],
+                ] as [keyof typeof cardConfig, string, string][]).map(([key, label, desc]) => (
+                  <div key={key} className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium leading-none">{label}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                    </div>
+                    <Switch
+                      checked={cardConfig[key]}
+                      onCheckedChange={(val) => setCardConfig((prev) => ({ ...prev, [key]: val }))}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* Form fields */}
+              <div className="space-y-3">
+                <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground/60">Campos de tus formularios</p>
+                {availableFormFields.length === 0 ? (
+                  <p className="text-xs text-muted-foreground italic">No hay formularios creados aún.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {availableFormFields.map((ff) => (
+                      <div key={ff.id} className="flex items-center justify-between gap-4">
+                        <div>
+                          <p className="text-sm font-medium leading-none">{ff.label}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{ff.formName}</p>
+                        </div>
+                        <Switch
+                          checked={extraFields.includes(ff.id)}
+                          onCheckedChange={() => toggleExtraField(ff.id)}
+                        />
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

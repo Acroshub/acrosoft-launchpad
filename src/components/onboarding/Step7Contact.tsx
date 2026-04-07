@@ -77,7 +77,7 @@ const SchedulePicker = () => {
             key={day}
             style={{
               display: "grid",
-              gridTemplateColumns: "48px 1fr 12px 1fr 36px",
+              gridTemplateColumns: "48px 1fr 12px 1fr auto",
               alignItems: "center",
               gap: "8px",
               padding: "10px 16px",
