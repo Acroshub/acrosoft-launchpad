@@ -60,7 +60,7 @@ const Step8Confirm = ({ onSubmit }: Step8ConfirmProps) => {
           <div>
             <p className="text-sm font-bold text-foreground">Al hacer clic en el botón, nuestro equipo recibirá tu brief.</p>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Iniciaremos el proceso de diseño y copywriting bilingüe. Recibirás un correo electrónico de confirmación en los próximos minutos.
+              Iniciaremos el proceso de diseño y copywriting profesional. Recibirás un correo electrónico de confirmación en los próximos minutos.
             </p>
           </div>
         </div>

@@ -42,7 +42,7 @@ const Onboarding = () => {
           <div className="space-y-3">
             <h1 className="text-3xl font-black tracking-tight">¡Todo listo!</h1>
             <p className="text-muted-foreground leading-relaxed">
-              Hemos recibido tu información. Nuestro equipo y la IA están trabajando en tu propuesta bilingüe de Acrosoft Labs.
+              Hemos recibido tu información. Nuestro equipo está trabajando en tu sitio web profesional
             </p>
           </div>
           <div className="bg-card border border-primary/20 rounded-2xl p-6 shadow-sm">
