@@ -1,18 +1,15 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, X, GripVertical, Settings2, Check, ChevronDown } from "lucide-react";
+import { Plus, X, GripVertical, Settings2, Check, ChevronDown, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
+import { useDeals, useCreateDeal, useUpdateDeal, useDeleteDeal, useContacts } from "@/hooks/useCrmData";
+import { toast } from "sonner";
 
-// {VAR_DB} — campos disponibles vendrán de los formularios creados en Supabase
-const availableFormFields: { id: string; label: string; formName: string }[] = [
-  { id: "ff-1", label: "{VAR_DB}", formName: "{VAR_DB}" },
-  { id: "ff-2", label: "{VAR_DB}", formName: "{VAR_DB}" },
-  { id: "ff-3", label: "{VAR_DB}", formName: "{VAR_DB}" },
-];
+// ─── Default stage names (configurable in future) ───
+const DEFAULT_STAGES = ["Nuevo Lead", "Contactado", "Negociación", "Cerrado"];
 
-// {VAR_DB} — columnas y tarjetas del pipeline vendrán de Supabase
 type Card = { 
   id: string; 
   name: string; 
@@ -22,37 +19,36 @@ type Card = {
 };
 type Column = { id: string; name: string; cards: Card[] };
 
-// {VAR_DB} — columnas y tarjetas reales vendrán de Supabase
-const defaultColumns: Column[] = [
-  {
-    id: "col-1",
-    name: "{VAR_DB}",
-    cards: [
-      {
-        id: "card-1",
-        name: "{VAR_DB}",
-        email: "{VAR_DB}",
-        value: "{VAR_DB}",
-        customFields: [
-          { label: "{VAR_DB}", value: "{VAR_DB}" },
-          { label: "{VAR_DB}", value: "{VAR_DB}" },
-        ],
-      },
-    ],
-  },
-  { id: "col-2", name: "{VAR_DB}", cards: [] },
-  { id: "col-3", name: "{VAR_DB}", cards: [] },
-  { id: "col-4", name: "{VAR_DB}", cards: [] },
-];
-
 const CrmPipeline = () => {
-  const [columns, setColumns]       = useState<Column[]>(defaultColumns);
+  const { data: deals = [], isLoading } = useDeals();
+  const { data: contacts = [] } = useContacts();
+  const createDeal = useCreateDeal();
+  const updateDeal = useUpdateDeal();
+  const deleteDeal = useDeleteDeal();
+
+  const [stageNames, setStageNames] = useState<string[]>(DEFAULT_STAGES);
   const [editingCol, setEditingCol] = useState<string | null>(null);
   const [editName, setEditName]     = useState("");
   const [newColName, setNewColName] = useState("");
   const [addingCol, setAddingCol]   = useState(false);
   const [dragCard, setDragCard]     = useState<{ card: Card; fromColId: string } | null>(null);
   const [dragOver, setDragOver]     = useState<string | null>(null);
+
+  // Build columns from deals + stages
+  const columns: Column[] = useMemo(() => {
+    return stageNames.map((stage) => ({
+      id: stage,
+      name: stage,
+      cards: deals
+        .filter((d) => d.stage === stage)
+        .map((d) => ({
+          id: d.id,
+          name: d.title,
+          email: contacts.find(c => c.id === d.contact_id)?.email ?? "",
+          value: d.value ? `$${Number(d.value).toFixed(0)}` : undefined,
+        })),
+    }));
+  }, [deals, stageNames, contacts]);
 
   // Card creation state
   const [addingCardToCol, setAddingCardToCol] = useState<string | null>(null);

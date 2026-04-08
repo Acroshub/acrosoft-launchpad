@@ -3,34 +3,16 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   Search, Users, Mail, Phone, Calendar, X, Eye,
   ArrowLeft, FolderOpen, Star, FileText, MessageSquare,
   TrendingUp, Briefcase, Target, ImagePlus, Tag, Plus,
-  Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide,
+  Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
 } from "lucide-react";
-
-// {VAR_DB} — contactos reales vendrán de Supabase
-const contacts: {
-  id: string; name: string; email: string; phone: string;
-  source: string; createdAt: string; lastAppointment: string | null;
-  totalAppointments: number; notes: string; tags: string[];
-  pipeline: string;
-}[] = [
-  {
-    id: "1",
-    name: "{VAR_DB}",
-    email: "{VAR_DB}",
-    phone: "{VAR_DB}",
-    source: "{VAR_DB}",
-    createdAt: "{VAR_DB}",
-    lastAppointment: "{VAR_DB}",
-    totalAppointments: 0,
-    notes: "{VAR_DB}",
-    tags: ["{VAR_DB}"],
-    pipeline: "{VAR_DB}",
-  },
-];
+import { useContacts, useCreateContact, useUpdateContact } from "@/hooks/useCrmData";
+import type { CrmContact } from "@/lib/supabase";
+import { toast } from "sonner";
 
 // ─── Ficha técnica (solo superadmin) ─────────────────────────────────────────
 const ClientDetail = ({ onBack }: { contactId: string; onBack: () => void }) => {
@@ -251,12 +233,22 @@ const ClientDetail = ({ onBack }: { contactId: string; onBack: () => void }) => 
 
 // ─── Contacts list ────────────────────────────────────────────────────────────
 const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
+  const { data: contacts = [], isLoading } = useContacts();
+  const createContact = useCreateContact();
+  const updateContact = useUpdateContact();
+
   const [search, setSearch]         = useState("");
   const [selected, setSelected]     = useState<string | null>(null);
   const [viewing, setViewing]       = useState<string | null>(null);
   const [tagInputId, setTagInputId] = useState<string | null>(null);
   const [tagValue, setTagValue]     = useState("");
-  const [localTags, setLocalTags]   = useState<Record<string, string[]>>({});
+
+  // New contact dialog
+  const [showNew, setShowNew]       = useState(false);
+  const [newName, setNewName]       = useState("");
+  const [newEmail, setNewEmail]     = useState("");
+  const [newPhone, setNewPhone]     = useState("");
+  const [newCompany, setNewCompany] = useState("");
 
   // Superadmin: show full ficha técnica
   if (viewing && isSuperAdmin) {
@@ -266,39 +258,99 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const filtered = contacts.filter(
     (c) =>
       c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.email.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone.includes(search)
+      (c.email ?? "").toLowerCase().includes(search.toLowerCase()) ||
+      (c.phone ?? "").includes(search)
   );
 
   const detail = contacts.find((c) => c.id === selected);
 
-  const getTags = (c: typeof contacts[0]) =>
-    localTags[c.id] !== undefined ? localTags[c.id] : c.tags;
-
-  const addTag = (id: string) => {
+  const addTag = async (id: string) => {
     if (!tagValue.trim()) return;
-    setLocalTags((prev) => ({
-      ...prev,
-      [id]: [...(prev[id] ?? contacts.find((c) => c.id === id)?.tags ?? []), tagValue.trim()],
-    }));
+    const contact = contacts.find((c) => c.id === id);
+    if (!contact) return;
+    const newTags = [...(contact.tags ?? []), tagValue.trim()];
+    await updateContact.mutateAsync({ id, tags: newTags });
     setTagValue("");
     setTagInputId(null);
   };
 
-  const removeTag = (id: string, tag: string) => {
-    setLocalTags((prev) => ({
-      ...prev,
-      [id]: (prev[id] ?? contacts.find((c) => c.id === id)?.tags ?? []).filter((t) => t !== tag),
-    }));
+  const removeTag = async (id: string, tag: string) => {
+    const contact = contacts.find((c) => c.id === id);
+    if (!contact) return;
+    const newTags = (contact.tags ?? []).filter((t) => t !== tag);
+    await updateContact.mutateAsync({ id, tags: newTags });
+  };
+
+  const handleCreateContact = async () => {
+    if (!newName.trim()) return;
+    try {
+      await createContact.mutateAsync({
+        name: newName.trim(),
+        email: newEmail.trim() || null,
+        phone: newPhone.trim() || null,
+        company: newCompany.trim() || null,
+        stage: "lead",
+        tags: [],
+      });
+      toast.success("Contacto creado exitosamente");
+      setShowNew(false);
+      setNewName(""); setNewEmail(""); setNewPhone(""); setNewCompany("");
+    } catch {
+      toast.error("Error al crear el contacto");
+    }
   };
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Contactos</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Todos los contactos registrados en el calendario</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">Contactos</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Todos los contactos registrados en el CRM</p>
+        </div>
+        <Button onClick={() => setShowNew(true)} className="rounded-xl gap-2 h-9 text-xs font-medium">
+          <Plus size={14} /> Nuevo contacto
+        </Button>
       </div>
 
+      {/* New contact dialog */}
+      <Dialog open={showNew} onOpenChange={setShowNew}>
+        <DialogContent className="max-w-md rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-semibold">Nuevo Contacto</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Nombre *</label>
+              <Input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Nombre completo" className="h-9" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
+              <Input value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="email@ejemplo.com" className="h-9" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Teléfono</label>
+              <Input value={newPhone} onChange={e => setNewPhone(e.target.value)} placeholder="+1 555 123 4567" className="h-9" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Empresa</label>
+              <Input value={newCompany} onChange={e => setNewCompany(e.target.value)} placeholder="Nombre de la empresa" className="h-9" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowNew(false)}>Cancelar</Button>
+            <Button onClick={handleCreateContact} disabled={!newName.trim() || createContact.isPending} className="rounded-xl">
+              {createContact.isPending ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+              Guardar contacto
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {isLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 size={24} className="animate-spin text-muted-foreground" />
+        </div>
+      ) : (
       <div className="grid lg:grid-cols-[1fr_340px] gap-6">
         {/* Lista */}
         <div className="bg-card border rounded-2xl overflow-hidden">
@@ -339,12 +391,12 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium truncate">{c.name}</p>
-                          {/* Pipeline status */}
+                          {/* Stage status */}
                           <Badge variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-primary/20 bg-primary/5 text-primary">
-                            {c.pipeline}
+                            {c.stage}
                           </Badge>
                         </div>
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">{c.email}</p>
+                        <p className="text-xs text-muted-foreground truncate mt-0.5">{c.email ?? "Sin email"}</p>
                       </div>
                     </button>
 
@@ -394,7 +446,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                   </div>
                   <div>
                     <p className="font-semibold text-sm">{detail.name}</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">Desde {detail.createdAt}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Desde {new Date(detail.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}</p>
                   </div>
                 </div>
                 <button
@@ -405,33 +457,27 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                 </button>
               </div>
 
-              {/* Pipeline status */}
               <div className="flex items-center gap-2">
-                <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Pipeline</span>
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Etapa</span>
                 <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary">
-                  {detail.pipeline}
+                  {detail.stage}
                 </Badge>
               </div>
 
               <div className="space-y-3">
                 <a href={`mailto:${detail.email}`} className="flex items-center gap-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                  <Mail size={13} className="shrink-0" /><span className="truncate">{detail.email}</span>
+                  <Mail size={13} className="shrink-0" /><span className="truncate">{detail.email ?? "Sin email"}</span>
                 </a>
                 <a href={`tel:${detail.phone}`} className="flex items-center gap-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                  <Phone size={13} className="shrink-0" /><span>{detail.phone}</span>
+                  <Phone size={13} className="shrink-0" /><span>{detail.phone ?? "Sin teléfono"}</span>
                 </a>
-                {detail.lastAppointment && (
-                  <div className="flex items-center gap-2.5 text-xs text-muted-foreground">
-                    <Calendar size={13} className="shrink-0" /><span>Última cita: {detail.lastAppointment}</span>
-                  </div>
-                )}
               </div>
 
               {/* Tags */}
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Etiquetas</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {getTags(detail).map((tag) => (
+                  {(detail.tags ?? []).map((tag) => (
                     <span key={tag} className="flex items-center gap-1 text-[10px] border rounded-full px-2 py-0.5 bg-secondary/50">
                       {tag}
                       <button onClick={() => removeTag(detail.id, tag)} className="text-muted-foreground hover:text-destructive transition-colors">
@@ -489,6 +535,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
           )}
         </div>
       </div>
+      )}
     </div>
   );
 };

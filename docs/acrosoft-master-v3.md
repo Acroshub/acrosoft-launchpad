@@ -1,6 +1,554 @@
 # Acrosoft Labs — Documento Maestro del Sistema
-> Versión 3.0 · Uso interno exclusivo · Confidencial
-> Stack actualizado al proyecto real generado en Lovable
+> Versión 3.1 · Uso interno exclusivo · Confidencial
+> Última actualización: Abril 2026 · Módulo CRM completado
+
+---
+
+## 1. Visión General
+
+Acrosoft Labs es una agencia de desarrollo web con vibecoding orientada a negocios latinos en Estados Unidos. Este documento define la arquitectura, flujo de trabajo y estructura técnica del sistema interno de onboarding y gestión de clientes.
+
+**Alcance actual (v3.1):**
+- Single Page Website y Multi Page Website (Producto entregable al cliente)
+- **CRM completo** — sistema de gestión interno para los clientes de Acrosoft (Nuevo)
+
+**Próximo update (v4.0):** Integración completa con Supabase (persistencia real de todos los módulos del CRM).
+
+---
+
+## 2. Stack Tecnológico Real
+
+| Capa | Tecnología | Versión | Propósito |
+|---|---|---|---|
+| Framework | Vite + React | 18.3.1 | SPA sin SSR |
+| Lenguaje | TypeScript | 5.8.3 | Tipado estático |
+| Routing | React Router DOM | v6.30.1 | Navegación entre rutas |
+| Estilos | Tailwind CSS | 3.4.17 | UI y branding |
+| Componentes | shadcn/ui (Radix UI) | — | UI components accesibles |
+| Formularios | react-hook-form + zod | 7.61.1 + 3.25.76 | Validación de formularios |
+| Estado servidor | TanStack Query | v5.83.0 | Fetching y caché de datos |
+| Gráficas | Recharts | 2.15.4 | Dashboard de métricas admin |
+| Iconos | Lucide React | 0.462.0 | Iconografía |
+| Toasts | Sonner | 1.7.4 | Notificaciones UI |
+| Temas | next-themes | 0.3.0 | Dark/light mode |
+| Base de datos | Supabase (PostgreSQL) | — | Almacenamiento de submissions y CRM |
+| Autenticación | Supabase Auth | — | Login del panel admin y dashboard |
+| Storage | Supabase Storage | — | Logo y fotos del cliente |
+| API IA | Claude API vía Supabase Edge Function | claude-sonnet-4-20250514 | Generación de copy bilingüe |
+| Emails | Resend vía Supabase Edge Function | — | Notificaciones internas |
+| Deploy | Vercel | — | Hosting del frontend |
+| Dominio | Cliente lo compra | — | Conectado por Acrosoft |
+
+> **Importante:** Este proyecto es una SPA pura (Vite, sin servidor Node propio).
+> Toda lógica que requiera claves secretas (Claude API, Resend, Google Calendar OAuth) debe ejecutarse
+> en **Supabase Edge Functions** — nunca exponer API keys en el frontend.
+
+---
+
+## 3. Dependencias Instaladas (package.json)
+
+### Producción (ya disponibles, no reinstalar)
+```
+react-router-dom        → routing
+react-hook-form         → formularios
+zod                     → validación de esquemas
+@tanstack/react-query   → fetching y caché
+recharts                → gráficas del dashboard
+lucide-react            → iconos
+sonner                  → toasts
+next-themes             → dark/light mode
+date-fns                → manejo de fechas
+embla-carousel-react    → carrusel (galería de fotos)
+react-day-picker        → date picker en formularios
+tailwind-merge + clsx   → utilidades de clases
+class-variance-authority → variantes de componentes shadcn
+vaul                    → drawer mobile
+cmdk                    → command palette
+input-otp               → inputs OTP (login admin)
+@supabase/supabase-js   → cliente Supabase (ya instalado)
+```
+
+### Variables de entorno requeridas (.env)
+```env
+VITE_SUPABASE_URL=https://vbzpvjikkvwlcadughmm.supabase.co
+VITE_SUPABASE_ANON_KEY=xxxx
+# Las siguientes NUNCA van en el frontend — van en Supabase Edge Functions:
+# ANTHROPIC_API_KEY=xxxx
+# RESEND_API_KEY=xxxx
+# GOOGLE_CLIENT_ID=xxxx       ← para Google Calendar OAuth
+# GOOGLE_CLIENT_SECRET=xxxx   ← para Google Calendar OAuth
+```
+
+---
+
+## 4. Estructura de Carpetas del Proyecto
+
+```
+src/
+├── main.tsx                  → Entry point
+├── App.tsx                   → Router principal con <Routes>
+├── index.css                 → Estilos globales + variables Tailwind
+│
+├── pages/
+│   ├── Index.tsx             → Ruta / (landing page)
+│   ├── Onboarding.tsx        → Ruta /onboarding (stepper)
+│   ├── Login.tsx             → Ruta /login (login unificado)
+│   ├── Dashboard.tsx         → Ruta /dashboard (panel admin Acrosoft)
+│   ├── Crm.tsx               → Ruta /crm (módulo CRM)
+│   ├── Admin.tsx             → (legacy — reemplazado por Login.tsx)
+│   └── NotFound.tsx          → Ruta * (404)
+│
+├── components/
+│   ├── ui/                   → shadcn/ui (no modificar directamente)
+│   ├── layout/
+│   │   ├── Navbar.tsx
+│   │   └── Footer.tsx
+│   ├── landing/
+│   │   ├── Hero.tsx
+│   │   ├── Plans.tsx
+│   │   ├── HowItWorks.tsx
+│   │   └── WhyAcrosoft.tsx
+│   ├── onboarding/
+│   │   ├── StepperHeader.tsx
+│   │   ├── Step1Business.tsx
+│   │   ├── Step2Plan.tsx
+│   │   ├── Step3Identity.tsx
+│   │   ├── Step4Services.tsx
+│   │   ├── Step5Audience.tsx
+│   │   ├── Step6Content.tsx
+│   │   ├── Step7Contact.tsx  ← incluye selector de horarios
+│   │   └── Step8Confirm.tsx  ← popup/redirect configurable post-envío
+│   ├── crm/
+│   │   ├── CrmOverview.tsx       → Dashboard principal del CRM
+│   │   ├── CrmContacts.tsx       → Gestión de contactos
+│   │   ├── CrmClients.tsx        → Ficha técnica de clientes
+│   │   ├── CrmPipeline.tsx       → Pipeline de ventas (Kanban)
+│   │   ├── CrmCalendar.tsx       → Calendario (Día/Semana/Mes + citas + tiempo reservado)
+│   │   ├── CrmCalendarConfig.tsx → Configuración del calendario + integración Google
+│   │   ├── CrmForms.tsx          → Constructor de formularios personalizados
+│   │   ├── CrmServices.tsx       → Gestión de servicios y precios
+│   │   └── CrmBusiness.tsx       → Configuración del negocio
+│   ├── admin/
+│   │   ├── LoginForm.tsx
+│   │   ├── ClientsTable.tsx
+│   │   ├── MetricsCards.tsx
+│   │   ├── ClientDetail.tsx
+│   │   └── MasterDocPreview.tsx
+│   └── shared/
+│       ├── AcrosoftLogo.tsx  → SVG del logo (reutilizable)
+│       └── LanguageToggle.tsx
+│
+├── hooks/
+│   ├── useOnboardingForm.ts  → Estado global del stepper
+│   ├── useSupabase.ts        → Cliente Supabase
+│   └── useAuth.ts            → Auth del admin
+│
+├── lib/
+│   ├── supabase.ts           → Inicialización del cliente Supabase
+│   ├── utils.ts              → cn() y helpers
+│   └── generateMd.ts        → Función que arma el .md desde los datos
+│
+└── types/
+    └── submission.ts         → Tipos TypeScript del formulario y DB
+```
+
+---
+
+## 5. Routing — React Router DOM v6
+
+```tsx
+// src/App.tsx — rutas actuales
+<Route path="/"            element={<Index />} />
+<Route path="/onboarding"  element={<Onboarding />} />
+<Route path="/login"       element={<Login />} />
+<Route path="/dashboard"   element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+<Route path="/crm"         element={<ProtectedRoute><Crm /></ProtectedRoute>} />
+<Route path="*"            element={<NotFound />} />
+```
+
+El componente `<ProtectedRoute>` verifica la sesión de Supabase Auth.
+Si no hay sesión activa, redirige a `/login`.
+
+---
+
+## 6. Módulo CRM — Funcionalidades
+
+El CRM es el panel de gestión operativo del negocio cliente. Está diseñado para ser **agnóstico al nicho** (peluquerías, veterinarias, abogados, constructoras, agencias, etc.) y cubre el ciclo completo del cliente.
+
+### 6A. Módulos implementados (UI completa)
+
+| Módulo | Archivo | Estado |
+|---|---|---|
+| Overview / Dashboard | CrmOverview.tsx | ✅ UI lista |
+| Contactos | CrmContacts.tsx | ✅ UI lista |
+| Ficha de Clientes | CrmClients.tsx | ✅ UI lista |
+| Pipeline de Ventas | CrmPipeline.tsx | ✅ UI lista |
+| Calendario | CrmCalendar.tsx | ✅ UI lista |
+| Configuración de Calendario | CrmCalendarConfig.tsx | ✅ UI lista |
+| Constructor de Formularios | CrmForms.tsx | ✅ UI lista |
+| Servicios y Precios | CrmServices.tsx | ✅ UI lista |
+| Configuración del Negocio | CrmBusiness.tsx | ✅ UI lista |
+
+### 6B. Funcionalidades clave del Calendario
+
+- **Vistas:** Diaria, Semanal, Mensual
+- **Citas:** Crear, editar fecha/hora, cambiar estado (Confirmada / Cancelada), eliminar
+- **Tiempo Reservado (☕):** Bloquear horas específicas, días completos o rangos de fechas para vacaciones/descanso — sin modificar la disponibilidad general. Se visualiza con tono ámbar consistente en las 3 vistas
+- **Configuración:** Nombre, descripción, duración de cita, tiempo entre citas, horarios de atención editables, URL pública, formulario vinculado
+- **Código de incrustación:** iframe y JavaScript
+- **Integración:** Botón "Conectar cuenta" Google Calendar (UI lista, requiere OAuth en backend)
+
+### 6C. Constructor de Formularios
+
+- Tipos de campo: texto corto, texto largo, email, teléfono, número, selección, casilla, archivo, fecha, URL, selector de horario
+- Configuración post-envío: popup de confirmación (con icono check o logo del negocio) o redirección a URL externa
+- Texto del botón de envío personalizable
+- El formulario de Onboarding de Acrosoft es 100% replicable con esta herramienta
+
+---
+
+## 7. Planes Activos (MVP)
+
+| Plan | Setup | Mantenimiento | Entrega |
+|---|---|---|---|
+| Single Page Website | $500 | $50/mes | 3–5 días hábiles |
+| Multi Page Website | $1,500 | $100/mes | 10–14 días hábiles |
+
+> **Custom Booking / CRM** — en desarrollo activo (v3.1). UI completa, backend en progreso.
+
+**Política de pagos:** 50% al inicio · 50% al entregar
+**Dominio:** Lo compra el cliente (recomendado: Namecheap o GoDaddy)
+
+---
+
+## 8. Branding
+
+| Token | Valor |
+|---|---|
+| Color primario | `#2563EB` |
+| Color primario dark | `#1E40AF` |
+| Color acento | `#DBEAFE` |
+| Fondo claro | `#F8FAFC` |
+| Texto principal | `#0F172A` |
+| Texto secundario | `#64748B` |
+| Color "Tiempo Reservado" | `amber-100` / `amber-900/40` (dark) |
+| Fuente | Inter (Google Fonts) |
+| Border radius | `rounded-xl` (12px) |
+| Logo | Matraz flask azul con arco blanco + "Acrosoft Labs" |
+
+---
+
+## 9. Formulario de Onboarding — `/onboarding`
+
+### Estado del stepper
+Manejar con `useState` local en `Onboarding.tsx` o con un hook `useOnboardingForm.ts`.
+El estado completo del formulario se acumula en un objeto que al finalizar
+se envía a Supabase en una sola operación.
+
+```ts
+// src/types/submission.ts
+export type OnboardingData = {
+  // Paso 1
+  business_name: string
+  industry: string
+  city_state: string
+  years_operating?: string
+  description: string
+  history?: string
+
+  // Paso 2
+  plan: 'single_page' | 'multi_page'
+  payment_method: 'one_time' | 'installments'
+  project_start_date?: string
+
+  // Paso 3
+  logo_url?: string
+  color_primary?: string
+  color_secondary?: string
+  color_accent?: string
+  typography?: string
+  visual_style?: string
+  reference_urls?: string[]
+
+  // Paso 4
+  services: Array<{
+    name: string
+    description?: string
+    price?: string
+    featured?: boolean
+  }>
+
+  // Paso 5
+  target_audience?: string
+  problem_solved?: string
+  differentiators?: string
+  testimonials?: Array<{ name: string; text: string }>
+  faqs?: Array<{ question: string; answer: string }>
+
+  // Paso 6
+  photo_urls?: string[]
+  team_photo_urls?: string[]
+  video_url?: string
+
+  // Paso 7
+  phone: string
+  email: string
+  address?: string
+  schedule?: string  // horarios de atención (selector visual)
+  instagram?: string
+  facebook?: string
+  tiktok?: string
+  google_maps?: string
+  domain?: string
+}
+```
+
+---
+
+## 10. Schema de Supabase (Tablas CRM)
+
+> Las tablas del Onboarding (`submissions`) y plataforma educativa (`hubs`, `courses`, etc.) ya existen.
+> Las siguientes son las **nuevas tablas que requiere el CRM**.
+
+### Tabla: `crm_contacts`
+```sql
+CREATE TABLE crm_contacts (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    timestamptz DEFAULT now(),
+  user_id       uuid REFERENCES auth.users NOT NULL,
+  name          text NOT NULL,
+  email         text,
+  phone         text,
+  company       text,
+  stage         text DEFAULT 'lead',  -- lead, prospect, client, churned
+  tags          text[] DEFAULT '{}',
+  notes         text,
+  custom_fields jsonb DEFAULT '{}'
+);
+```
+
+### Tabla: `crm_appointments`
+```sql
+CREATE TABLE crm_appointments (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    timestamptz DEFAULT now(),
+  user_id       uuid REFERENCES auth.users NOT NULL,
+  contact_id    uuid REFERENCES crm_contacts,
+  date          date NOT NULL,
+  hour          int NOT NULL,          -- 0–23
+  duration_min  int DEFAULT 30,
+  service       text,
+  status        text DEFAULT 'confirmed' CHECK (status IN ('confirmed','cancelled')),
+  notes         text
+);
+```
+
+### Tabla: `crm_blocked_slots`
+```sql
+CREATE TABLE crm_blocked_slots (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    timestamptz DEFAULT now(),
+  user_id       uuid REFERENCES auth.users NOT NULL,
+  type          text NOT NULL CHECK (type IN ('hours','fullday','range')),
+  date          date,             -- para hours y fullday
+  start_hour    int,              -- para type = hours
+  end_hour      int,              -- para type = hours
+  range_start   date,             -- para type = range
+  range_end     date,             -- para type = range
+  reason        text
+);
+```
+
+### Tabla: `crm_pipeline_deals`
+```sql
+CREATE TABLE crm_pipeline_deals (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    timestamptz DEFAULT now(),
+  user_id       uuid REFERENCES auth.users NOT NULL,
+  contact_id    uuid REFERENCES crm_contacts,
+  title         text NOT NULL,
+  stage         text NOT NULL,   -- según columnas del pipeline del negocio
+  value         numeric DEFAULT 0,
+  currency      text DEFAULT 'USD',
+  notes         text,
+  custom_fields jsonb DEFAULT '{}'
+);
+```
+
+### Tabla: `crm_forms`
+```sql
+CREATE TABLE crm_forms (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at      timestamptz DEFAULT now(),
+  user_id         uuid REFERENCES auth.users NOT NULL,
+  name            text NOT NULL,
+  fields          jsonb NOT NULL DEFAULT '[]',
+  submit_label    text DEFAULT 'Enviar',
+  success_action  text DEFAULT 'popup' CHECK (success_action IN ('popup','redirect')),
+  success_message text,
+  success_image   text DEFAULT 'icon' CHECK (success_image IN ('icon','logo')),
+  redirect_url    text,
+  slug            text UNIQUE
+);
+```
+
+### Tabla: `crm_form_submissions`
+```sql
+CREATE TABLE crm_form_submissions (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at timestamptz DEFAULT now(),
+  form_id    uuid REFERENCES crm_forms NOT NULL,
+  data       jsonb NOT NULL DEFAULT '{}'
+);
+```
+
+### Tabla: `crm_calendar_config`
+```sql
+CREATE TABLE crm_calendar_config (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid REFERENCES auth.users UNIQUE NOT NULL,
+  name            text,
+  description     text,
+  duration_min    int DEFAULT 30,
+  buffer_min      int DEFAULT 10,
+  slug            text UNIQUE,
+  linked_form_id  uuid REFERENCES crm_forms,
+  availability    jsonb DEFAULT '{}',  -- { mon: {start: 9, end: 18}, ... }
+  google_token    jsonb              -- access_token, refresh_token encriptados
+);
+```
+
+---
+
+## 11. Edge Functions — CRM
+
+### Edge Function 3 — `google-calendar-oauth`
+**Propósito:** Manejar el flujo OAuth 2.0 con Google para sincronizar citas.
+```
+GET  /google-calendar-oauth/authorize  → Redirige a Google OAuth consent
+GET  /google-calendar-oauth/callback   → Recibe code, intercambia por tokens, guarda en crm_calendar_config
+POST /google-calendar-oauth/sync       → Sincroniza citas nuevas/editadas con Google Calendar API
+```
+
+### Edge Function 4 — `crm-form-public`
+**Propósito:** Endpoint público para recibir submissions de formularios embebidos en sitios externos.
+```
+POST /crm-form-public → Valida form_id, guarda en crm_form_submissions, opcionalmente notifica al negocio
+```
+
+---
+
+## 12. Prompt de Claude API (generación de copy)
+
+(sin cambios — ver versión anterior)
+
+---
+
+## 13. Flujo Completo del Sistema
+
+```
+CLIENTE FINAL (del negocio)
+  │
+  ├─ 1. Escanea/abre el enlace del formulario embebido
+  ├─ 2. Llena el formulario (creado con CrmForms)
+  ├─ 3. Elige horario disponible (slot libre, no bloqueado)
+  ├─ 4. Submit → Edge Function crm-form-public → crm_form_submissions
+  └─ 5. Ve popup de confirmación o es redirigido a Thank You Page
+
+NEGOCIO (usuario del CRM)
+  │
+  ├─ 6. Ve nueva solicitud en CrmContacts (estado: Lead)
+  ├─ 7. Confirma la cita → aparece en CrmCalendar
+  ├─ 8. Mueve el contacto por el Pipeline según avanza
+  ├─ 9. Registra la venta con el servicio correspondiente
+  └─ 10. Puede bloquear tiempo propio (☕ Reservar tiempo)
+
+SISTEMA (automático)
+  │
+  ├─ 11. Si Google Calendar conectado → cita se sincroniza automáticamente
+  └─ 12. Notificaciones por email al negocio (Edge Function send-notification)
+
+ACROSOFT (admin del sistema)
+  │
+  ├─ 13. Entra a /dashboard
+  ├─ 14. Ve todos los negocios clientes y su estado
+  └─ 15. Administra planes, límites y facturación
+```
+
+---
+
+## 14. Panel Admin — `/login` y `/dashboard`
+
+### Autenticación
+```ts
+// src/hooks/useAuth.ts
+import { supabase } from '@/lib/supabase'
+
+export const signIn = (email: string, password: string) =>
+  supabase.auth.signInWithPassword({ email, password })
+
+export const signOut = () => supabase.auth.signOut()
+
+export const getSession = () => supabase.auth.getSession()
+```
+
+### Métricas del dashboard Acrosoft
+Calculadas con queries a Supabase desde TanStack Query:
+- Total clientes: `COUNT(*) FROM submissions`
+- Activos: `COUNT(*) WHERE status = 'in_progress'`
+- Entregados: `COUNT(*) WHERE status = 'delivered'`
+- MRR: suma de `$50/mes * single_page_count + $100/mes * multi_page_count`
+
+---
+
+## 15. Checklist de Desarrollo
+
+### ✅ Completado
+- [x] Proyecto creado y desplegado
+- [x] Repositorio en GitHub
+- [x] Dependencias instaladas (`@supabase/supabase-js` incluido)
+- [x] Landing page `/` (completa)
+- [x] Stepper de onboarding `/onboarding` (8 pasos completos)
+- [x] Panel admin `/login` + `/dashboard`
+- [x] CRM — UI completa (todos los módulos)
+- [x] Calendario con vistas Día/Semana/Mes
+- [x] Función "Reservar tiempo" (bloqueos de horario con estética ámbar)
+- [x] Constructor de formularios con config post-envío
+- [x] Integración Google Calendar (UI lista — botón "Conectar cuenta")
+
+### 🔄 Pendiente — Backend CRM
+- [ ] Crear tablas CRM en Supabase (ver Sección 10)
+- [ ] Conectar CrmContacts con tabla `crm_contacts`
+- [ ] Conectar CrmCalendar (citas + bloqueos) con Supabase
+- [ ] Conectar CrmPipeline con `crm_pipeline_deals`
+- [ ] Conectar CrmForms (builder + submissions) con Supabase
+- [ ] Conectar CrmServices con tabla de servicios
+- [ ] Implementar Edge Function `google-calendar-oauth`
+- [ ] Implementar Edge Function `crm-form-public`
+- [ ] Implementar autenticación real para dashboard de clientes
+- [ ] Deploy actualizado en Vercel con variables de entorno
+
+---
+
+## 16. Backlog (v4.0 y v5.0)
+
+### v4.0 — Backend CRM (prioridad inmediata)
+- Persistencia completa de todos los módulos del CRM en Supabase
+- Google Calendar OAuth funcional
+- Formularios embebibles con endpoint público
+- Notificaciones por email al negocio cuando llega un nuevo lead
+
+### v5.0 — Funcionalidades avanzadas
+- App móvil (React Native o PWA) para gestión rápida de citas
+- Reportes y analíticas avanzadas (retención, LTV, tasa de conversión)
+- Automatizaciones: recordatorios de citas por WhatsApp/SMS
+- Multi-usuario: permitir que un negocio tenga múltiples empleados con su propio calendario
+- Marketplace de plantillas de formulario por industria
+
+---
+
+*Acrosoft Labs · Documento de uso interno · No compartir con clientes*
+
 
 ---
 

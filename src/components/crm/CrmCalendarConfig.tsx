@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Pencil } from "lucide-react";
+import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Pencil, Link2 } from "lucide-react";
 
 // {VAR_DB} — configuración real del calendario vendrá de Supabase
 const defaultConfig = {
@@ -178,6 +178,35 @@ const CrmCalendarConfig = ({ onBack }: { onBack: () => void }) => {
           <p className="text-[11px] text-muted-foreground italic pt-2">
             La disponibilidad se sincroniza con tu horario de atención configurado en el onboarding.
           </p>
+        </div>
+      </div>
+
+      {/* Integraciones */}
+      <div className="bg-card border rounded-2xl p-6 space-y-5">
+        <div className="flex items-center gap-2">
+          <Link2 size={15} className="text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Integraciones Externas</h2>
+        </div>
+
+        <div className="grid gap-4">
+          <div className="flex items-center justify-between p-5 rounded-2xl border bg-secondary/10 group hover:border-primary/30 transition-all">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 rounded-xl bg-white border flex items-center justify-center p-2 shadow-sm shrink-0">
+                <img 
+                  src="https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_48dp.png" 
+                  alt="Google Calendar" 
+                  className="w-full h-full object-contain"
+                />
+              </div>
+              <div>
+                <p className="text-sm font-bold text-foreground">Google Calendar</p>
+                <p className="text-xs text-muted-foreground mt-1">Sincroniza tus citas y evita duplicidad automáticamente en tiempo real.</p>
+              </div>
+            </div>
+            <Button className="h-11 px-6 rounded-xl text-sm font-bold bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
+              Conectar cuenta
+            </Button>
+          </div>
         </div>
       </div>
 

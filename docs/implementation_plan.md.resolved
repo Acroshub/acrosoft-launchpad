@@ -1,0 +1,378 @@
+# Plan de Implementación — CRM Backend (v4.0)
+
+La UI está 100% lista. Este plan convierte el CRM de una demo estática a un producto real conectado a Supabase, módulo por módulo.
+
+> [!IMPORTANT]
+> El orden de las fases es crítico. Cada fase tiene dependencias de la anterior. No saltar pasos.
+
+---
+
+## Estado Actual
+
+- ✅ UI completa (todos los módulos del CRM)
+- ✅ `@supabase/supabase-js` instalado
+- ✅ Organización Supabase disponible (`Daniel Org` — `vfolazstlqsaikrcswkr`)
+- ⚠️ Se usará un **proyecto Supabase nuevo y dedicado** — completamente separado del proyecto AcrosHub (plataforma educativa)
+- ❌ Proyecto Supabase para el CRM **aún no creado**
+- ❌ Tablas CRM no existen aún
+- ❌ El CRM usa datos mockeados hardcodeados en cada componente
+
+> [!IMPORTANT]
+> El proyecto AcrosHub (`vbzpvjikkvwlcadughmm`) es de uso exclusivo para la plataforma educativa. El CRM tendrá su **propio proyecto Supabase independiente** para separar ambientes, datos y costos.
+
+---
+
+## Fase 0 — Crear Nuevo Proyecto Supabase
+**Estimado: 15 min**
+
+Antes de cualquier migración, se debe crear el proyecto Supabase dedicado al CRM.
+
+### 0.1 Crear el proyecto
+- **Organización:** Daniel Org (`vfolazstlqsaikrcswkr`)
+- **Nombre sugerido:** `acrosoft-crm`
+- **Región:** `us-east-1` (misma que AcrosHub para consistencia)
+- **Costo:** $0/mes (plan Free)
+
+### 0.2 Obtener credenciales
+Una vez creado, copiar de la Dashboard de Supabase:
+```
+Settings → API → Project URL
+Settings → API → anon public key
+```
+
+### 0.3 Crear archivo `.env`
+```env
+VITE_SUPABASE_URL=https://<nuevo-project-id>.supabase.co
+VITE_SUPABASE_ANON_KEY=<nueva-anon-key>
+```
+
+### 0.4 Inicializar cliente Supabase en el frontend
+Crear/actualizar `src/lib/supabase.ts`:
+```ts
+import { createClient } from '@supabase/supabase-js'
+
+export const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+)
+```
+
+> [!TIP]
+> El proyecto nuevo del CRM incluirá automáticamente el schema de `auth.users` de Supabase, que es lo único que necesitamos como base para las tablas CRM.
+
+---
+
+## Fase 1 — Base de Datos (Supabase Migrations)
+**Estimado: 1 día**
+
+Crear todas las tablas del CRM en Supabase con RLS activado. Orden de creación por dependencias:
+
+### 1.1 `crm_contacts`
+```sql
+CREATE TABLE crm_contacts (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    timestamptz DEFAULT now(),
+  user_id       uuid REFERENCES auth.users NOT NULL,
+  name          text NOT NULL,
+  email         text,
+  phone         text,
+  company       text,
+  stage         text DEFAULT 'lead',
+  tags          text[] DEFAULT '{}',
+  notes         text,
+  custom_fields jsonb DEFAULT '{}'
+);
+ALTER TABLE crm_contacts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own contacts" ON crm_contacts
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+```
+
+### 1.2 `crm_appointments`
+```sql
+CREATE TABLE crm_appointments (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at   timestamptz DEFAULT now(),
+  user_id      uuid REFERENCES auth.users NOT NULL,
+  contact_id   uuid REFERENCES crm_contacts ON DELETE SET NULL,
+  date         date NOT NULL,
+  hour         int NOT NULL,
+  duration_min int DEFAULT 30,
+  service      text,
+  status       text DEFAULT 'confirmed' CHECK (status IN ('confirmed','cancelled')),
+  notes        text
+);
+ALTER TABLE crm_appointments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own appointments" ON crm_appointments
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+```
+
+### 1.3 `crm_blocked_slots`
+```sql
+CREATE TABLE crm_blocked_slots (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at  timestamptz DEFAULT now(),
+  user_id     uuid REFERENCES auth.users NOT NULL,
+  type        text NOT NULL CHECK (type IN ('hours','fullday','range')),
+  date        date,
+  start_hour  int,
+  end_hour    int,
+  range_start date,
+  range_end   date,
+  reason      text
+);
+ALTER TABLE crm_blocked_slots ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own blocks" ON crm_blocked_slots
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+```
+
+### 1.4 `crm_pipeline_deals`
+```sql
+CREATE TABLE crm_pipeline_deals (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at   timestamptz DEFAULT now(),
+  user_id      uuid REFERENCES auth.users NOT NULL,
+  contact_id   uuid REFERENCES crm_contacts ON DELETE SET NULL,
+  title        text NOT NULL,
+  stage        text NOT NULL,
+  value        numeric DEFAULT 0,
+  currency     text DEFAULT 'USD',
+  notes        text,
+  custom_fields jsonb DEFAULT '{}'
+);
+ALTER TABLE crm_pipeline_deals ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own deals" ON crm_pipeline_deals
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+```
+
+### 1.5 `crm_forms` + `crm_form_submissions`
+```sql
+CREATE TABLE crm_forms (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at      timestamptz DEFAULT now(),
+  user_id         uuid REFERENCES auth.users NOT NULL,
+  name            text NOT NULL,
+  fields          jsonb NOT NULL DEFAULT '[]',
+  submit_label    text DEFAULT 'Enviar',
+  success_action  text DEFAULT 'popup' CHECK (success_action IN ('popup','redirect')),
+  success_message text,
+  success_image   text DEFAULT 'icon' CHECK (success_image IN ('icon','logo')),
+  redirect_url    text,
+  slug            text UNIQUE
+);
+ALTER TABLE crm_forms ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own forms" ON crm_forms
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+
+CREATE TABLE crm_form_submissions (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at timestamptz DEFAULT now(),
+  form_id    uuid REFERENCES crm_forms NOT NULL,
+  data       jsonb NOT NULL DEFAULT '{}'
+);
+ALTER TABLE crm_form_submissions ENABLE ROW LEVEL SECURITY;
+-- Submissions son escribibles por cualquiera (formulario público) pero legibles solo por el dueño del form
+CREATE POLICY "Anyone can submit" ON crm_form_submissions FOR INSERT WITH CHECK (true);
+CREATE POLICY "Form owner reads submissions" ON crm_form_submissions FOR SELECT
+  USING (EXISTS (SELECT 1 FROM crm_forms WHERE crm_forms.id = form_id AND crm_forms.user_id = auth.uid()));
+```
+
+### 1.6 `crm_calendar_config`
+```sql
+CREATE TABLE crm_calendar_config (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id        uuid REFERENCES auth.users UNIQUE NOT NULL,
+  name           text,
+  description    text,
+  duration_min   int DEFAULT 30,
+  buffer_min     int DEFAULT 10,
+  slug           text UNIQUE,
+  linked_form_id uuid REFERENCES crm_forms ON DELETE SET NULL,
+  availability   jsonb DEFAULT '{"mon":{"start":9,"end":18},"tue":{"start":9,"end":18},"wed":{"start":9,"end":18},"thu":{"start":9,"end":18},"fri":{"start":9,"end":18}}',
+  google_token   jsonb
+);
+ALTER TABLE crm_calendar_config ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users manage own calendar config" ON crm_calendar_config
+  USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+```
+
+---
+
+## Fase 2 — Autenticación y Contexto de Usuario
+**Estimado: 0.5 días**
+
+### 2.1 Crear `src/lib/supabase.ts`
+Inicializar el cliente Supabase con las variables de entorno que ya existen.
+
+### 2.2 Crear hook `useCurrentUser`
+Hook que retorna el `user_id` del usuario autenticado para usarlo en todas las queries del CRM.
+
+```ts
+// src/hooks/useCurrentUser.ts
+export const useCurrentUser = () => {
+  const [user, setUser] = useState(null)
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setUser(data.user))
+  }, [])
+  return user
+}
+```
+
+### 2.3 Verificar `ProtectedRoute`
+Asegurar que `/crm` requiere sesión activa y redirige a `/login` si no hay.
+
+---
+
+## Fase 3 — Módulos CRM (Wiring de Datos)
+**Estimado: 3–4 días**
+
+Conectar cada componente UI con su tabla de Supabase, módulo por módulo. Orden recomendado (de menor a mayor complejidad y dependencias):
+
+### 3.1 CrmContacts → `crm_contacts`
+- **READ:** `useQuery` — `SELECT * FROM crm_contacts WHERE user_id = $uid ORDER BY created_at DESC`
+- **CREATE:** Mutación al guardar el modal "Nuevo contacto"
+- **UPDATE:** Stage, notas, tags — al editar ficha
+- **DELETE:** Confirmación y `DELETE FROM crm_contacts WHERE id = $id`
+
+### 3.2 CrmCalendar → `crm_appointments` + `crm_blocked_slots`
+- **READ appointments:** Por semana/mes/día según vista activa
+- **CREATE appointment:** Al confirmar el modal "Nueva cita"
+- **UPDATE appointment:** Status (confirmed/cancelled) y fecha/hora al editar
+- **DELETE appointment:** Al confirmar borrado
+- **READ blocked_slots:** Cargar al montar el componente
+- **CREATE blocked_slot:** Al guardar "Reservar tiempo"
+- **DELETE blocked_slot:** Si se añade opción de eliminar bloqueos
+
+### 3.3 CrmCalendarConfig → `crm_calendar_config`
+- **READ/UPSERT config:** Al abrir la configuración, cargar. Al guardar, hacer `upsert`
+- **Horarios de atención:** Guardar en el campo `availability` (jsonb)
+
+### 3.4 CrmPipeline → `crm_pipeline_deals`
+- **READ:** Agrupar deals por `stage` para renderizar columnas del Kanban
+- **CREATE:** Modal "Nuevo deal" vinculado a un contacto
+- **UPDATE stage:** Al arrastrar tarjeta entre columnas (drag & drop)
+- **UPDATE value:** Al editar el valor del deal
+
+### 3.5 CrmForms → `crm_forms`
+- **READ:** Lista de formularios del usuario
+- **CREATE/UPDATE:** Guardar la configuración completa del formulario (campos, config post-envío)
+- **READ submissions:** Para ver cuántas respuestas tiene cada formulario
+
+### 3.6 CrmServices → tabla `crm_services` (nueva, sencilla)
+- Crear tabla simple: `id, user_id, name, price, description, is_recurring`
+- READ/CREATE/UPDATE/DELETE servicios
+
+### 3.7 CrmOverview → Queries de métricas
+- Consultas paralelas con `Promise.all` o múltiples `useQuery` para los contadores del dashboard:
+  - Contactos totales, Citas esta semana, Deals activos, MRR estimado
+- Datos de la gráfica de actividad (citas por semana)
+
+---
+
+## Fase 4 — Edge Functions
+**Estimado: 2 días**
+
+### 4.1 `crm-form-public` (prioridad alta)
+Endpoint público para recibir submissions de formularios embebidos en sitios de clientes.
+
+```ts
+// supabase/functions/crm-form-public/index.ts
+Deno.serve(async (req) => {
+  const { form_id, data } = await req.json()
+  // Validar que el form existe
+  const { data: form } = await supabaseAdmin.from('crm_forms').select('id, user_id').eq('id', form_id).single()
+  if (!form) return new Response('Not found', { status: 404 })
+  // Guardar submission
+  await supabaseAdmin.from('crm_form_submissions').insert({ form_id, data })
+  // Notificar al negocio (opcional — via send-notification)
+  return new Response(JSON.stringify({ ok: true }), { status: 200 })
+})
+```
+
+**verify_jwt: false** — este endpoint es público.
+
+### 4.2 `google-calendar-oauth`
+Flujo OAuth 2.0 para la integración con Google Calendar.
+
+```
+Subpaths:
+  /authorize → construye la URL de Google OAuth y redirige
+  /callback  → recibe el code, hace POST a Google por tokens,
+               encripta y guarda en crm_calendar_config.google_token
+  /sync      → POST con appointment data → crea/actualiza evento en Google Calendar API
+```
+
+> [!WARNING]
+> Requiere crear una aplicación OAuth en Google Cloud Console con los scopes:
+> `https://www.googleapis.com/auth/calendar.events`
+> El Client ID y Secret van en las secrets de la Edge Function, nunca en el frontend.
+
+---
+
+## Fase 5 — Formulario de Onboarding (persistencia real)
+**Estimado: 1 día**
+
+El Onboarding ya tiene la UI lista. Conectar el submit final del Step8Confirm:
+- Subir logo y fotos a Supabase Storage bucket `client-assets`
+- Hacer `INSERT INTO submissions` con todos los datos del stepper
+- Llamar Edge Function `generate-copy` para generar el documento maestro con IA
+- Llamar Edge Function `send-notification` para notificar a Acrosoft
+- Mostrar popup de éxito real con el ID de seguimiento
+
+---
+
+## Fase 6 — Deploy y Variables de Entorno
+**Estimado: 0.5 días**
+
+### 6.1 Variables en Vercel
+Agregar en el dashboard de Vercel (Settings → Environment Variables):
+```
+VITE_SUPABASE_URL
+VITE_SUPABASE_ANON_KEY
+```
+
+### 6.2 Secrets en Supabase Edge Functions
+```
+ANTHROPIC_API_KEY
+RESEND_API_KEY
+GOOGLE_CLIENT_ID
+GOOGLE_CLIENT_SECRET
+```
+
+### 6.3 Verificar RLS en todas las tablas CRM
+Correr `get_advisors(type: 'security')` en el MCP para detectar tablas sin políticas.
+
+### 6.4 Deploy final
+```bash
+git push origin main  # Vercel auto-deploya
+```
+
+---
+
+## Resumen y Estimado Total
+
+| Fase | Nombre | Días |
+|---|---|---|
+| 0 | **Nuevo proyecto Supabase** (crear + credenciales) | 0.25 |
+| 1 | Base de datos (migraciones) | 1 |
+| 2 | Autenticación y contexto | 0.5 |
+| 3 | Wiring de módulos CRM | 3–4 |
+| 4 | Edge Functions | 2 |
+| 5 | Onboarding persistencia | 1 |
+| 6 | Deploy y env vars | 0.5 |
+| **Total** | | **8–9 días hábiles** |
+
+> [!TIP]
+> La **Fase 3.2 (Calendario)** y **Fase 4.1 (crm-form-public)** son las más impactantes para mostrar valor real a los primeros clientes. Se pueden priorizar antes de completar todas las demás fases.
+
+---
+
+## Orden de Implementación Recomendado por Sesión
+
+```
+Sesión 1: Fase 0 (nuevo proyecto Supabase) + Fase 1 (migraciones) + Fase 2 (auth)
+Sesión 2: Fase 3.1 + 3.2 (Contactos + Calendario)
+Sesión 3: Fase 3.3 + 3.4 (Config Calendario + Pipeline)
+Sesión 4: Fase 3.5 + 3.6 + 3.7 (Formularios + Servicios + Overview)
+Sesión 5: Fase 4 (Edge Functions)
+Sesión 6: Fase 5 + 6 (Onboarding real + Deploy)
+```

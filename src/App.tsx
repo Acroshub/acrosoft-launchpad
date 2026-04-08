@@ -6,9 +6,9 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Index from "./pages/Index.tsx";
 import Onboarding from "./pages/Onboarding.tsx";
 import Login from "./pages/Login.tsx";
-import Dashboard from "./pages/Dashboard.tsx";
 import Crm from "./pages/Crm.tsx";
 import NotFound from "./pages/NotFound.tsx";
+import ProtectedRoute from "./components/shared/ProtectedRoute.tsx";
 
 const queryClient = new QueryClient();
 
@@ -19,11 +19,14 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <Routes>
-          <Route path="/" element={<Index />} />
-          <Route path="/onboarding" element={<Onboarding />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/admin" element={<Dashboard />} />
-          <Route path="/:slug" element={<Crm />} />
+          {/* Public routes */}
+          <Route path="/"            element={<Index />} />
+          <Route path="/onboarding"  element={<Onboarding />} />
+          <Route path="/login"       element={<Login />} />
+
+          {/* Protected routes */}
+          <Route path="/crm" element={<ProtectedRoute><Crm /></ProtectedRoute>} />
+
           <Route path="*" element={<NotFound />} />
         </Routes>
       </BrowserRouter>

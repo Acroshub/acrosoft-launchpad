@@ -4,48 +4,30 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Eye, EyeOff } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
-
-// {VAR_DB} — La lógica de autenticación real se conectará a Supabase Auth.
-// El rol del usuario (admin / client) y el slug del negocio vendrán del perfil en la DB.
-// Por ahora se simula con credenciales hardcodeadas para demostración.
-
-const MOCK_USERS = [
-  { email: "admin@acrosoft.com", password: "admin123", role: "admin", slug: null },
-  { email: "cliente@negocio.com", password: "cliente123", role: "client", slug: "mi-negocio" },
-];
+import { signIn } from "@/hooks/useAuth";
 
 const Login = () => {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [email, setEmail]             = useState("");
+  const [password, setPassword]       = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [error, setError]             = useState("");
+  const [loading, setLoading]         = useState(false);
 
-  const handleLogin = () => {
+  const handleLogin = async () => {
     setError("");
     setLoading(true);
 
-    // {VAR_DB} — reemplazar con llamada real a Supabase Auth
-    setTimeout(() => {
-      const user = MOCK_USERS.find(
-        (u) => u.email === email && u.password === password
-      );
+    const { error: authError } = await signIn(email, password);
 
-      if (!user) {
-        setError("Email o contraseña incorrectos.");
-        setLoading(false);
-        return;
-      }
-
-      if (user.role === "admin") {
-        navigate("/admin");
-      } else {
-        navigate(`/${user.slug}`);
-      }
-
+    if (authError) {
+      setError("Email o contraseña incorrectos.");
       setLoading(false);
-    }, 600);
+      return;
+    }
+
+    // Redirect to CRM after successful login
+    navigate("/crm");
   };
 
   return (

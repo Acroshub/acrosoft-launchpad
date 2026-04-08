@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2 } from "lucide-react";
+import { useServices, useCreateService, useUpdateService, useDeleteService } from "@/hooks/useCrmData";
+import { toast } from "sonner";
 
-// {VAR_DB} — servicios se guardarán en Supabase por negocio
+// {VAR_DB} — servicios se guardan en Supabase
 
 export interface ServiceConfig {
   id: string;
@@ -15,22 +17,8 @@ export interface ServiceConfig {
   billingFrequency?: string;
   deliveryTime?: string;
   isRecommended?: boolean;
+  is_recurring?: boolean;
 }
-
-// {VAR_DB}
-const dummyServices: ServiceConfig[] = [
-  {
-    id: "svc-1",
-    name: "{VAR_DB}",
-    description: "{VAR_DB}",
-    benefits: ["{VAR_DB}", "{VAR_DB}", "{VAR_DB}"],
-    price: 0,
-    monthlyPrice: 0,
-    billingFrequency: "mensual",
-    deliveryTime: "",
-    isRecommended: false,
-  },
-];
 
 // ─── Service Editor ──────────────────────────────────────────────────
 const ServiceEditor = ({
@@ -51,11 +39,17 @@ const ServiceEditor = ({
   const [deliveryTime, setDeliveryTime] = useState(service.deliveryTime || "");
   const [isRecommended, setIsRecommended] = useState(service.isRecommended || false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
 
-  const handleSave = () => {
-    onUpdate({ ...service, name, description, benefits, price, monthlyPrice, billingFrequency, deliveryTime, isRecommended });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onUpdate({ ...service, name, description, benefits, price, monthlyPrice, billingFrequency, deliveryTime, isRecommended });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -79,7 +73,8 @@ const ServiceEditor = ({
             Configura los detalles de este servicio
           </p>
         </div>
-        <Button onClick={handleSave} className="h-9 rounded-xl text-sm font-medium px-5">
+        <Button onClick={handleSave} disabled={saving} className="h-9 rounded-xl text-sm font-medium px-5">
+          {saving ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
           {saved ? "Guardado ✓" : "Guardar cambios"}
         </Button>
       </div>
@@ -221,29 +216,68 @@ const ServiceEditor = ({
   );
 };
 
+// Helper: serialize ServiceConfig to DB row
+function toDbRow(svc: ServiceConfig) {
+  return {
+    name: svc.name,
+    price: svc.price,
+    description: JSON.stringify({
+      text: svc.description,
+      benefits: svc.benefits,
+      monthlyPrice: svc.monthlyPrice,
+      billingFrequency: svc.billingFrequency,
+      deliveryTime: svc.deliveryTime,
+      isRecommended: svc.isRecommended,
+    }),
+    is_recurring: (svc.monthlyPrice ?? 0) > 0,
+  };
+}
+
+// Helper: deserialize DB row to ServiceConfig
+function fromDbRow(row: any): ServiceConfig {
+  let meta: any = {};
+  try { meta = JSON.parse(row.description ?? "{}"); } catch { /* */ }
+  return {
+    id: row.id,
+    name: row.name,
+    description: meta.text ?? "",
+    benefits: meta.benefits ?? [],
+    price: Number(row.price) || 0,
+    monthlyPrice: meta.monthlyPrice ?? 0,
+    billingFrequency: meta.billingFrequency ?? "",
+    deliveryTime: meta.deliveryTime ?? "",
+    isRecommended: meta.isRecommended ?? false,
+    is_recurring: row.is_recurring,
+  };
+}
+
 // ─── Main: Services Library ─────────────────────────────────────────
 const CrmServices = () => {
+  const { data: rawServices = [], isLoading } = useServices();
+  const createService = useCreateService();
+  const updateService = useUpdateService();
+  const deleteService = useDeleteService();
+
+  const services: ServiceConfig[] = rawServices.map(fromDbRow);
+
   const [view, setView] = useState<"list" | "editor">("list");
-  const [services, setServices] = useState<ServiceConfig[]>(dummyServices);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const selected = services.find((s) => s.id === selectedId);
 
-  const handleCreateNew = () => {
-    const newSvc: ServiceConfig = {
-      id: `svc-${Date.now()}`,
-      name: "Nuevo Servicio",
-      description: "",
-      benefits: [""],
-      price: 0,
-      monthlyPrice: 0,
-      billingFrequency: "",
-      deliveryTime: "",
-      isRecommended: false,
-    };
-    setServices([...services, newSvc]);
-    setSelectedId(newSvc.id);
-    setView("editor");
+  const handleCreateNew = async () => {
+    try {
+      const { id } = await createService.mutateAsync({
+        name: "Nuevo Servicio",
+        price: 0,
+        description: JSON.stringify({ text: "", benefits: [""], monthlyPrice: 0, billingFrequency: "", deliveryTime: "", isRecommended: false }),
+        is_recurring: false,
+      });
+      setSelectedId(id);
+      setView("editor");
+    } catch {
+      toast.error("Error al crear servicio");
+    }
   };
 
   const handleEdit = (id: string) => {
@@ -251,8 +285,13 @@ const CrmServices = () => {
     setView("editor");
   };
 
-  const handleDelete = (id: string) => {
-    setServices(services.filter((s) => s.id !== id));
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteService.mutateAsync(id);
+      toast.success("Servicio eliminado");
+    } catch {
+      toast.error("Error al eliminar");
+    }
   };
 
   if (view === "editor" && selected) {
@@ -260,9 +299,14 @@ const CrmServices = () => {
       <ServiceEditor
         service={selected}
         onBack={() => setView("list")}
-        onUpdate={(updated) =>
-          setServices(services.map((s) => (s.id === updated.id ? updated : s)))
-        }
+        onUpdate={async (updated) => {
+          try {
+            await updateService.mutateAsync({ id: updated.id, ...toDbRow(updated) });
+            toast.success("Servicio actualizado");
+          } catch {
+            toast.error("Error al actualizar");
+          }
+        }}
       />
     );
   }
@@ -285,7 +329,11 @@ const CrmServices = () => {
       </div>
 
       <div className="grid gap-4">
-        {services.length === 0 ? (
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 size={24} className="animate-spin text-muted-foreground" />
+        </div>
+      ) : services.length === 0 ? (
           <div className="text-center py-12 bg-card border rounded-2xl">
             <Briefcase size={32} className="mx-auto text-muted-foreground/30 mb-3" />
             <p className="text-sm font-medium">No hay servicios creados.</p>

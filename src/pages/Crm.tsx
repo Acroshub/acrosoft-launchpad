@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
+import { useCurrentUser, signOut } from "@/hooks/useAuth";
 import CrmOverview from "@/components/crm/CrmOverview";
 import CrmCalendar from "@/components/crm/CrmCalendar";
 import CrmForms from "@/components/crm/CrmForms";
@@ -9,7 +10,7 @@ import CrmContacts from "@/components/crm/CrmContacts";
 import CrmPipeline from "@/components/crm/CrmPipeline";
 import CrmBusiness from "@/components/crm/CrmBusiness";
 
-// {VAR_DB} — en producción vendrá del perfil del usuario autenticado en Supabase
+// {VAR_DB} — isSuperAdmin vendrá del perfil del usuario en Supabase
 const isSuperAdmin = true;
 
 type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline";
@@ -26,9 +27,15 @@ const navItems: { id: View; label: string; icon: React.ElementType; group: strin
 const groups = [...new Set(navItems.map((n) => n.group))];
 
 const Crm = () => {
-  const { slug } = useParams<{ slug: string }>();
-  const [view, setView]           = useState<View>("overview");
+  const navigate = useNavigate();
+  const { user } = useCurrentUser();
+  const [view, setView]             = useState<View>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/login");
+  };
 
   const renderView = () => {
     switch (view) {
@@ -45,8 +52,8 @@ const Crm = () => {
     <div className="flex flex-col h-full">
       <div className="px-5 py-5 border-b">
         <AcrosoftLogo size="sm" />
-        {/* {VAR_DB} — nombre del negocio */}
-        <p className="text-[11px] text-muted-foreground mt-2 font-medium truncate">{slug}</p>
+        {/* {VAR_DB} — nombre del negocio desde el perfil */}
+        <p className="text-[11px] text-muted-foreground mt-2 font-medium truncate">{user?.email}</p>
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-5 overflow-y-auto">
@@ -82,13 +89,13 @@ const Crm = () => {
       </nav>
 
       <div className="px-3 py-4 border-t">
-        <a
-          href="/login"
+        <button
+          onClick={handleSignOut}
           className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-all w-full"
         >
           <LogOut size={15} />
           Cerrar sesión
-        </a>
+        </button>
       </div>
     </div>
   );
