@@ -72,6 +72,10 @@ export type CrmForm = {
   user_id: string
   name: string
   fields: Json[]
+  sections?: Json[]
+  multi_page?: boolean
+  show_confirmation_step?: boolean
+  confirmation_message?: string | null
   submit_label: string
   success_action: 'popup' | 'redirect'
   success_message: string | null
@@ -110,7 +114,14 @@ export type CrmService = {
   price: number
   currency: string
   is_recurring: boolean
+  recurring_price: number | null
+  recurring_interval: string | null
+  recurring_label: string | null
+  delivery_time: string | null
+  benefits: string[] | null
+  is_recommended: boolean | null
   active: boolean
+  sort_order?: number
 }
 
 export type CrmSale = {
@@ -124,4 +135,28 @@ export type CrmSale = {
   currency: string
   type: 'initial' | 'recurring'
   notes: string | null
+}
+
+export type CrmBusinessProfile = {
+  id: string
+  created_at: string
+  user_id: string
+  first_name: string | null
+  last_name: string | null
+  contact_email: string | null
+  contact_phone: string | null
+  role: string | null
+  business_name: string | null
+  industry: string | null
+  city: string | null
+  country: string | null
+  website: string | null
+  whatsapp: string | null
+  instagram: string | null
+  facebook: string | null
+  description: string | null
+  logo_url: string | null
+  color_primary: string
+  color_secondary: string
+  color_accent: string
 }

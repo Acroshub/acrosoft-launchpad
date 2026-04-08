@@ -14,13 +14,25 @@ import Step5Audience from "@/components/onboarding/Step5Audience";
 import Step6Content from "@/components/onboarding/Step6Content";
 import Step7Contact from "@/components/onboarding/Step7Contact";
 import Step8Confirm from "@/components/onboarding/Step8Confirm";
+import { OnboardingProvider, useOnboarding } from "@/components/onboarding/OnboardingContext";
+import { useForms } from "@/hooks/useCrmData";
+
+const ONBOARDING_FORM_ID = "b733e0c5-60d4-414d-896a-5ce459b07eaf";
 
 const STEP_NAMES = ["Negocio", "Plan", "Identidad", "Servicios", "Audiencia", "Contenido", "Contacto", "Confirmación"];
 
-const Onboarding = () => {
+const OnboardingContent = () => {
   const [step, setStep] = useState(0);
   const [submitted, setSubmitted] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState("single_page");
+  const [submissionId, setSubmissionId] = useState("");
+  const { data, updateData } = useOnboarding();
+  const { data: forms = [] } = useForms();
+  const onboardingForm = forms.find(f => f.id === ONBOARDING_FORM_ID);
+  const confirmationMessage = onboardingForm?.confirmation_message ?? "";
+  const servicesField = (onboardingForm?.fields as any[])?.find((f: any) => f.type === "services");
+  const allowedServiceIds: string[] | undefined = servicesField?.allowedServiceIds?.length
+    ? servicesField.allowedServiceIds
+    : undefined;
 
   const next = () => {
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -48,7 +60,7 @@ const Onboarding = () => {
           <div className="bg-card border border-primary/20 rounded-2xl p-6 shadow-sm">
             <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">ID de seguimiento</span>
             <div className="mt-2 text-lg font-mono font-bold text-primary tracking-wider">
-              <Var name="Submission_ID" />
+              {submissionId}
             </div>
           </div>
           <Button asChild size="lg" className="w-full rounded-2xl font-bold">
@@ -107,13 +119,13 @@ const Onboarding = () => {
         <div className="max-w-2xl mx-auto">
           <div className="bg-card border border-border/60 rounded-3xl p-8 md:p-10 shadow-xl shadow-foreground/5 animate-in fade-in slide-in-from-bottom-6 duration-700">
             {step === 0 && <Step1Business />}
-            {step === 1 && <Step2Plan selected={selectedPlan} onSelect={setSelectedPlan} />}
+            {step === 1 && <Step2Plan selected={data.plan} onSelect={(p) => updateData({ plan: p })} allowedServiceIds={allowedServiceIds} />}
             {step === 2 && <Step3Identity />}
             {step === 3 && <Step4Services />}
             {step === 4 && <Step5Audience />}
             {step === 5 && <Step6Content />}
             {step === 6 && <Step7Contact />}
-            {step === 7 && <Step8Confirm onSubmit={() => setSubmitted(true)} />}
+            {step === 7 && <Step8Confirm onSubmit={(id) => { setSubmissionId(id); setSubmitted(true); }} confirmationMessage={confirmationMessage} />}
             
             {/* Nav buttons */}
             <div className="flex items-center justify-between mt-12 pt-8 border-t border-border/50">
@@ -144,5 +156,13 @@ const Onboarding = () => {
     </div>
   );
 };
+
+const Onboarding = () => {
+  return (
+    <OnboardingProvider>
+      <OnboardingContent />
+    </OnboardingProvider>
+  );
+}
 
 export default Onboarding;

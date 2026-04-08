@@ -1,9 +1,27 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2 } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, GripVertical } from "lucide-react";
 import { useServices, useCreateService, useUpdateService, useDeleteService } from "@/hooks/useCrmData";
 import { toast } from "sonner";
+import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  verticalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 // {VAR_DB} — servicios se guardan en Supabase
 
@@ -14,7 +32,8 @@ export interface ServiceConfig {
   benefits: string[];
   price: number;
   monthlyPrice?: number;
-  billingFrequency?: string;
+  recurringLabel?: string;   // e.g. "Mantenimiento", "Soporte", "Hosting"
+  billingFrequency?: string; // e.g. "mensual", "/sesión"
   deliveryTime?: string;
   isRecommended?: boolean;
   is_recurring?: boolean;
@@ -34,17 +53,18 @@ const ServiceEditor = ({
   const [description, setDescription] = useState(service.description);
   const [benefits, setBenefits] = useState<string[]>(service.benefits);
   const [price, setPrice] = useState(service.price);
-  const [monthlyPrice, setMonthlyPrice] = useState(service.monthlyPrice || 0);
+  const [monthlyPrice, setMonthlyPrice]     = useState(service.monthlyPrice || 0);
+  const [recurringLabel, setRecurringLabel] = useState(service.recurringLabel || "");
   const [billingFrequency, setBillingFrequency] = useState(service.billingFrequency || "");
-  const [deliveryTime, setDeliveryTime] = useState(service.deliveryTime || "");
-  const [isRecommended, setIsRecommended] = useState(service.isRecommended || false);
+  const [deliveryTime, setDeliveryTime]     = useState(service.deliveryTime || "");
+  const [isRecommended, setIsRecommended]   = useState(service.isRecommended || false);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await onUpdate({ ...service, name, description, benefits, price, monthlyPrice, billingFrequency, deliveryTime, isRecommended });
+      await onUpdate({ ...service, name, description, benefits, price, monthlyPrice, recurringLabel, billingFrequency, deliveryTime, isRecommended });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } finally {
@@ -148,6 +168,17 @@ const ServiceEditor = ({
           </div>
 
           <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Etiqueta de cobro recurrente</label>
+            <Input
+              type="text"
+              value={recurringLabel}
+              onChange={(e) => setRecurringLabel(e.target.value)}
+              className="h-10 text-sm"
+              placeholder="Ej: Mantenimiento, Soporte, Hosting"
+            />
+          </div>
+
+          <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Duración / Entrega (Opcional)</label>
             <Input
               type="text"
@@ -216,40 +247,120 @@ const ServiceEditor = ({
   );
 };
 
-// Helper: serialize ServiceConfig to DB row
 function toDbRow(svc: ServiceConfig) {
   return {
     name: svc.name,
     price: svc.price,
-    description: JSON.stringify({
-      text: svc.description,
-      benefits: svc.benefits,
-      monthlyPrice: svc.monthlyPrice,
-      billingFrequency: svc.billingFrequency,
-      deliveryTime: svc.deliveryTime,
-      isRecommended: svc.isRecommended,
-    }),
+    description: svc.description,
+    benefits: svc.benefits,
+    recurring_price: svc.monthlyPrice,
+    recurring_interval: svc.billingFrequency,
+    recurring_label: svc.recurringLabel,
+    delivery_time: svc.deliveryTime,
     is_recurring: (svc.monthlyPrice ?? 0) > 0,
+    is_recommended: svc.isRecommended,
   };
 }
-
-// Helper: deserialize DB row to ServiceConfig
 function fromDbRow(row: any): ServiceConfig {
-  let meta: any = {};
-  try { meta = JSON.parse(row.description ?? "{}"); } catch { /* */ }
   return {
     id: row.id,
     name: row.name,
-    description: meta.text ?? "",
-    benefits: meta.benefits ?? [],
+    description: row.description ?? "",
+    benefits: row.benefits ?? [],
     price: Number(row.price) || 0,
-    monthlyPrice: meta.monthlyPrice ?? 0,
-    billingFrequency: meta.billingFrequency ?? "",
-    deliveryTime: meta.deliveryTime ?? "",
-    isRecommended: meta.isRecommended ?? false,
+    monthlyPrice: row.recurring_price ?? 0,
+    billingFrequency: row.recurring_interval ?? "",
+    recurringLabel: row.recurring_label ?? "",
+    deliveryTime: row.delivery_time ?? "",
+    isRecommended: row.is_recommended ?? false,
     is_recurring: row.is_recurring,
   };
 }
+
+// ─── Sortable Service Item ──────────────────────────────────────────
+const SortableServiceItem = ({ svc, handleEdit, handleDelete }: any) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: svc.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    zIndex: isDragging ? 1 : 0,
+    opacity: isDragging ? 0.8 : 1,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className={`bg-card border rounded-2xl p-5 flex items-center justify-between group ${isDragging ? 'shadow-lg border-primary/50' : ''}`}
+    >
+      <div 
+        className="flex items-center gap-2 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-foreground transition-colors p-1 -ml-2 select-none" 
+        {...attributes} 
+        {...listeners}
+      >
+        <GripVertical size={18} />
+      </div>
+      <div
+        className="flex items-center gap-4 cursor-pointer flex-1 ml-2"
+        onClick={() => handleEdit(svc.id)}
+      >
+        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+          <Briefcase size={18} className="text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold group-hover:text-primary transition-colors">
+            {svc.name}
+          </p>
+          <p className="text-xs text-muted-foreground truncate">
+            {svc.description || "Sin descripción"}
+          </p>
+        </div>
+        <div className="text-right shrink-0 mr-4">
+          <p className="text-sm font-bold text-foreground">
+            ${svc.price.toFixed(2)}
+            {svc.monthlyPrice ? <span className="text-muted-foreground text-xs font-normal"> + ${svc.monthlyPrice.toFixed(2)}{svc.billingFrequency ? ` ${svc.billingFrequency}` : ''}</span> : ""}
+          </p>
+          <div className="flex items-center justify-end gap-2 mt-0.5">
+            {svc.isRecommended && (
+              <span className="text-[9px] font-bold uppercase tracking-wider text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
+                Recomendado
+              </span>
+            )}
+            <p className="text-[10px] text-muted-foreground">
+              {svc.benefits?.filter(Boolean).length || 0} beneficios
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:text-foreground hover:bg-secondary"
+          onClick={() => handleEdit(svc.id)}
+        >
+          <Settings size={15} />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+          onClick={() => handleDelete(svc.id)}
+        >
+          <Trash2 size={14} />
+        </Button>
+      </div>
+    </div>
+  );
+};
 
 // ─── Main: Services Library ─────────────────────────────────────────
 const CrmServices = () => {
@@ -258,20 +369,27 @@ const CrmServices = () => {
   const updateService = useUpdateService();
   const deleteService = useDeleteService();
 
-  const services: ServiceConfig[] = rawServices.map(fromDbRow);
+  const [localServices, setLocalServices] = useState<ServiceConfig[]>([]);
+
+  useEffect(() => {
+    setLocalServices(rawServices.map(fromDbRow));
+  }, [rawServices]);
 
   const [view, setView] = useState<"list" | "editor">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
-  const selected = services.find((s) => s.id === selectedId);
+  const selected = localServices.find((s) => s.id === selectedId);
 
   const handleCreateNew = async () => {
     try {
       const { id } = await createService.mutateAsync({
         name: "Nuevo Servicio",
         price: 0,
-        description: JSON.stringify({ text: "", benefits: [""], monthlyPrice: 0, billingFrequency: "", deliveryTime: "", isRecommended: false }),
+        description: "",
+        benefits: [],
         is_recurring: false,
+        is_recommended: false,
       });
       setSelectedId(id);
       setView("editor");
@@ -285,12 +403,49 @@ const CrmServices = () => {
     setView("editor");
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = (id: string) => {
+    setDeleteTargetId(id);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return;
     try {
-      await deleteService.mutateAsync(id);
+      await deleteService.mutateAsync(deleteTargetId);
       toast.success("Servicio eliminado");
     } catch {
       toast.error("Error al eliminar");
+    } finally {
+      setDeleteTargetId(null);
+    }
+  };
+
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+
+    if (over && active.id !== over.id) {
+      setLocalServices((items) => {
+        const oldIndex = items.findIndex((i) => i.id === active.id);
+        const newIndex = items.findIndex((i) => i.id === over.id);
+        
+        const newArray = arrayMove(items, oldIndex, newIndex);
+        
+        const updates = newArray.map((item, idx) => ({ id: item.id, sort_order: idx }));
+        
+        Promise.all(updates.filter((u, i) => items[i] && items[i].id !== u.id).map(u => 
+           updateService.mutateAsync(u)
+        )).catch(() => {
+           toast.error("Error al reordenar");
+        });
+
+        return newArray;
+      });
     }
   };
 
@@ -312,6 +467,14 @@ const CrmServices = () => {
   }
 
   return (
+    <>
+    <DeleteConfirmDialog
+      open={!!deleteTargetId}
+      onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}
+      onConfirm={handleConfirmDelete}
+      isPending={deleteService.isPending}
+      description="Se eliminará el servicio permanentemente."
+    />
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
@@ -333,72 +496,37 @@ const CrmServices = () => {
         <div className="flex items-center justify-center py-12">
           <Loader2 size={24} className="animate-spin text-muted-foreground" />
         </div>
-      ) : services.length === 0 ? (
+      ) : localServices.length === 0 ? (
           <div className="text-center py-12 bg-card border rounded-2xl">
             <Briefcase size={32} className="mx-auto text-muted-foreground/30 mb-3" />
             <p className="text-sm font-medium">No hay servicios creados.</p>
           </div>
         ) : (
-          services.map((svc) => (
-            <div
-              key={svc.id}
-              className="bg-card border rounded-2xl p-5 flex items-center justify-between group"
+          <DndContext 
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext 
+              items={localServices.map(s => s.id)}
+              strategy={verticalListSortingStrategy}
             >
-              <div
-                className="flex items-center gap-4 cursor-pointer flex-1"
-                onClick={() => handleEdit(svc.id)}
-              >
-                <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                  <Briefcase size={18} className="text-primary" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold group-hover:text-primary transition-colors">
-                    {svc.name}
-                  </p>
-                  <p className="text-xs text-muted-foreground truncate">
-                    {svc.description || "Sin descripción"}
-                  </p>
-                </div>
-                <div className="text-right shrink-0 mr-4">
-                  <p className="text-sm font-bold text-foreground">
-                    ${svc.price.toFixed(2)}
-                    {svc.monthlyPrice ? <span className="text-muted-foreground text-xs font-normal"> + ${svc.monthlyPrice.toFixed(2)}{svc.billingFrequency ? ` ${svc.billingFrequency}` : ''}</span> : ""}
-                  </p>
-                  <div className="flex items-center justify-end gap-2 mt-0.5">
-                    {svc.isRecommended && (
-                      <span className="text-[9px] font-bold uppercase tracking-wider text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
-                        Top
-                      </span>
-                    )}
-                    <p className="text-[10px] text-muted-foreground">
-                      {svc.benefits.filter(Boolean).length} beneficios
-                    </p>
-                  </div>
-                </div>
+              <div className="grid gap-4">
+                {localServices.map((svc) => (
+                  <SortableServiceItem 
+                    key={svc.id} 
+                    svc={svc} 
+                    handleEdit={handleEdit} 
+                    handleDelete={handleDelete} 
+                  />
+                ))}
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground hover:text-foreground hover:bg-secondary"
-                  onClick={() => handleEdit(svc.id)}
-                >
-                  <Settings size={15} />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-                  onClick={() => handleDelete(svc.id)}
-                >
-                  <Trash2 size={14} />
-                </Button>
-              </div>
-            </div>
-          ))
+            </SortableContext>
+          </DndContext>
         )}
       </div>
     </div>
+    </>
   );
 };
 

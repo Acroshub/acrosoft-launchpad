@@ -2,8 +2,11 @@ import React from "react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SectionTitle, Field } from "./FormHelpers";
+import { useOnboarding } from "./OnboardingContext";
 
 const Step1Business = () => {
+  const { data, updateData } = useOnboarding();
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <SectionTitle 
@@ -13,11 +16,20 @@ const Step1Business = () => {
       
       <div className="grid gap-4">
         <Field label="Nombre del negocio" required>
-          <Input placeholder="Ej: El Sabor de México" className="h-11" />
+          <Input 
+            value={data.businessName} 
+            onChange={(e) => updateData({ businessName: e.target.value })}
+            placeholder="Ej: El Sabor de México" 
+            className="h-11" 
+          />
         </Field>
         
         <Field label="Rubro / Industria" required>
-          <select className="w-full h-11 border rounded-md px-3 py-2 text-sm bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all">
+          <select 
+            value={data.industry} 
+            onChange={(e) => updateData({ industry: e.target.value })}
+            className="w-full h-11 border rounded-md px-3 py-2 text-sm bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+          >
             <option value="">Selecciona un rubro</option>
             <option value="restaurant">Restaurante / Comida</option>
             <option value="beauty">Salón de belleza / Barbería</option>
@@ -29,17 +41,30 @@ const Step1Business = () => {
         </Field>
         
         <Field label="Ciudad y Estado" required>
-          <Input placeholder="Ej: Miami, FL" className="h-11" />
+          <Input 
+             value={data.city} 
+             onChange={(e) => updateData({ city: e.target.value })}
+             placeholder="Ej: Miami, FL" 
+             className="h-11" 
+          />
         </Field>
         
         <div className="grid sm:grid-cols-2 gap-4">
           <Field label="Años en operación">
-            <Input type="number" placeholder="Ej: 5" className="h-11" />
+            <Input 
+              type="number" 
+              value={data.yearsInOperation} 
+              onChange={(e) => updateData({ yearsInOperation: e.target.value })}
+              placeholder="Ej: 5" 
+              className="h-11" 
+            />
           </Field>
         </div>
 
         <Field label="Descripción breve del negocio" required>
           <Textarea 
+            value={data.description} 
+            onChange={(e) => updateData({ description: e.target.value })}
             placeholder="Ej: Somos un restaurante familiar en Miami con más de 10 años sirviendo la mejor comida mexicana auténtica de la zona..." 
             className="min-h-[120px] resize-none"
           />
@@ -47,6 +72,8 @@ const Step1Business = () => {
         
         <Field label="Historia del negocio (Opcional)">
           <Textarea 
+            value={data.history} 
+            onChange={(e) => updateData({ history: e.target.value })}
             placeholder="¿Cómo empezó tu negocio? Cuéntanos tu pasión." 
             className="min-h-[100px] resize-none"
           />

@@ -5,15 +5,27 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { SectionTitle, Field } from "./FormHelpers";
 
+import { useOnboarding } from "./OnboardingContext";
+
 const Step5Audience = () => {
-  const [testimonials, setTestimonials] = useState([{ name: "", text: "" }]);
-  const [faqs, setFaqs] = useState([{ question: "", answer: "" }]);
+  const { data, updateData } = useOnboarding();
+  const { testimonials, faqs, idealClient, problem, differentiator } = data;
 
-  const addTestimonial = () => testimonials.length < 3 && setTestimonials([...testimonials, { name: "", text: "" }]);
-  const removeTestimonial = (index: number) => testimonials.length > 1 && setTestimonials(testimonials.filter((_, i) => i !== index));
+  const addTestimonial = () => testimonials.length < 3 && updateData({ testimonials: [...testimonials, { name: "", text: "" }] });
+  const removeTestimonial = (index: number) => testimonials.length > 1 && updateData({ testimonials: testimonials.filter((_, i) => i !== index) });
+  const updateTestimonial = (index: number, field: "name" | "text", val: string) => {
+    const arr = [...testimonials];
+    arr[index] = { ...arr[index], [field]: val };
+    updateData({ testimonials: arr });
+  };
 
-  const addFaq = () => faqs.length < 5 && setFaqs([...faqs, { question: "", answer: "" }]);
-  const removeFaq = (index: number) => faqs.length > 1 && setFaqs(faqs.filter((_, i) => i !== index));
+  const addFaq = () => faqs.length < 5 && updateData({ faqs: [...faqs, { question: "", answer: "" }] });
+  const removeFaq = (index: number) => faqs.length > 1 && updateData({ faqs: faqs.filter((_, i) => i !== index) });
+  const updateFaq = (index: number, field: "question" | "answer", val: string) => {
+    const arr = [...faqs];
+    arr[index] = { ...arr[index], [field]: val };
+    updateData({ faqs: arr });
+  };
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -27,6 +39,8 @@ const Step5Audience = () => {
           <div className="relative">
             <Users className="absolute left-3 top-4 w-4 h-4 text-muted-foreground/60" />
             <Textarea 
+              value={idealClient}
+              onChange={(e) => updateData({ idealClient: e.target.value })}
               placeholder="Ej: Madres latinas trabajadoras en el área de Miami que buscan servicios rápidos y de confianza..." 
               className="min-h-[100px] pl-10 bg-background/50 border-muted-foreground/10 focus:bg-background transition-colors resize-none"
             />
@@ -37,6 +51,8 @@ const Step5Audience = () => {
           <div className="relative">
             <Target className="absolute left-3 top-4 w-4 h-4 text-muted-foreground/60" />
             <Textarea 
+              value={problem}
+              onChange={(e) => updateData({ problem: e.target.value })}
               placeholder="Ej: Ayudamos a que las familias dejen de preocuparse por la limpieza de su hogar para que disfruten su tiempo libre..." 
               className="min-h-[100px] pl-10 bg-background/50 border-muted-foreground/10 focus:bg-background transition-colors resize-none"
             />
@@ -47,6 +63,8 @@ const Step5Audience = () => {
           <div className="relative">
             <Zap className="absolute left-3 top-4 w-4 h-4 text-muted-foreground/60" />
             <Textarea 
+              value={differentiator}
+              onChange={(e) => updateData({ differentiator: e.target.value })}
               placeholder="Ej: Ofrecemos garantía de satisfacción, somos bilingües y usamos productos orgánicos certificados..." 
               className="min-h-[100px] pl-10 bg-background/50 border-muted-foreground/10 focus:bg-background transition-colors resize-none"
             />
@@ -78,8 +96,8 @@ const Step5Audience = () => {
                 </button>
               )}
               <div className="grid gap-4">
-                <Input placeholder="Nombre del cliente" className="h-10 bg-background border-muted-foreground/10" />
-                <Textarea placeholder="Escribe lo que el cliente dijo sobre tu excelente trabajo..." className="min-h-[80px] bg-background border-muted-foreground/10 resize-none" />
+                <Input value={t.name} onChange={(e) => updateTestimonial(index, "name", e.target.value)} placeholder="Nombre del cliente" className="h-10 bg-background border-muted-foreground/10" />
+                <Textarea value={t.text} onChange={(e) => updateTestimonial(index, "text", e.target.value)} placeholder="Escribe lo que el cliente dijo sobre tu excelente trabajo..." className="min-h-[80px] bg-background border-muted-foreground/10 resize-none" />
               </div>
             </div>
           ))}
@@ -110,8 +128,8 @@ const Step5Audience = () => {
                 </button>
               )}
               <div className="grid gap-4">
-                <Input placeholder="Pregunta (Ej: ¿Aceptan tarjetas de crédito?)" className="h-10 bg-background border-muted-foreground/10" />
-                <Textarea placeholder="Respuesta breve y clara..." className="min-h-[80px] bg-background border-muted-foreground/10 resize-none" />
+                <Input value={f.question} onChange={(e) => updateFaq(index, "question", e.target.value)} placeholder="Pregunta (Ej: ¿Aceptan tarjetas de crédito?)" className="h-10 bg-background border-muted-foreground/10" />
+                <Textarea value={f.answer} onChange={(e) => updateFaq(index, "answer", e.target.value)} placeholder="Respuesta breve y clara..." className="min-h-[80px] bg-background border-muted-foreground/10 resize-none" />
               </div>
             </div>
           ))}

@@ -13,27 +13,28 @@ interface Service {
   featured: boolean;
 }
 
+import { useOnboarding } from "./OnboardingContext";
+
 const Step4Services = () => {
-  const [services, setServices] = useState<Service[]>([
-    { name: "", description: "", price: "", featured: false }
-  ]);
+  const { data, updateData } = useOnboarding();
+  const services = data.services;
 
   const addService = () => {
     if (services.length < 6) {
-      setServices([...services, { name: "", description: "", price: "", featured: false }]);
+      updateData({ services: [...services, { name: "", description: "", price: "", featured: false }] });
     }
   };
 
   const removeService = (index: number) => {
     if (services.length > 1) {
-      setServices(services.filter((_, i) => i !== index));
+      updateData({ services: services.filter((_, i) => i !== index) });
     }
   };
 
   const updateService = (index: number, field: keyof Service, value: any) => {
     const updated = [...services];
     updated[index] = { ...updated[index], [field]: value };
-    setServices(updated);
+    updateData({ services: updated });
   };
 
   return (

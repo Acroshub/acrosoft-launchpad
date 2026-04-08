@@ -7,15 +7,20 @@ import {
   Type, AlignLeft, Mail, Phone, MapPin, ChevronDown,
   Calendar, Clock, Link, ClipboardList, ArrowLeft, Settings, Briefcase,
   Hash, Upload, CheckSquare, Minus, Palette, Circle, Layers,
-  ExternalLink, Copy, Code, Braces, Link as LinkIcon, Eye
+  ExternalLink, Copy, Code, Braces, Link as LinkIcon, Eye, Loader2, List
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+import { useForms, useCreateForm, useUpdateForm, useDeleteForm, useServices } from "@/hooks/useCrmData";
+import type { CrmForm } from "@/lib/supabase";
+import { toast } from "sonner";
 
 // {VAR_DB} — campos del formulario se guardarán en Supabase por negocio
 
 interface FormSection {
   id: string;
   name: string;
+  isConfirmation?: boolean; // special: renders a summary of all answers, no fields
 }
 
 interface FormConfig {
@@ -24,6 +29,8 @@ interface FormConfig {
   fields: FormField[];
   sections?: FormSection[];
   multiPage?: boolean;
+  showConfirmationStep?: boolean; // for single-page: show summary before submit
+  confirmationMessage?: string;   // optional message shown before the submit button
   submitButtonText?: string;
   successAction?: "popup" | "redirect";
   successPopupMessage?: string;
@@ -35,7 +42,15 @@ type FieldType =
   | "text" | "textarea" | "email" | "phone" | "address"
   | "select" | "date" | "time" | "url" | "services"
   | "number" | "file" | "checkbox" | "heading"
-  | "radio" | "color" | "schedule";
+  | "radio" | "color" | "schedule" | "repeatable";
+
+type SubFieldType = "text" | "textarea" | "number" | "url" | "checkbox";
+
+interface SubField {
+  id: string;
+  label: string;
+  type: SubFieldType;
+}
 
 interface FormField {
   id: string;
@@ -47,6 +62,9 @@ interface FormField {
   multiSelect?: boolean;
   locked?: boolean;
   sectionId?: string;
+  subFields?: SubField[];
+  maxItems?: number;
+  allowedServiceIds?: string[];
 }
 
 const FIELD_TYPES: { value: FieldType; label: string; icon: React.ElementType }[] = [
@@ -64,9 +82,10 @@ const FIELD_TYPES: { value: FieldType; label: string; icon: React.ElementType }[
   { value: "time",     label: "Hora",                 icon: Clock       },
   { value: "url",      label: "Enlace / URL",         icon: Link        },
   { value: "file",     label: "Subir archivo",        icon: Upload      },
-  { value: "services", label: "Servicios",            icon: Briefcase   },
-  { value: "heading",  label: "Título / Sección",     icon: Minus       },
-  { value: "schedule", label: "Horarios",             icon: Calendar    },
+  { value: "services",   label: "Servicios",            icon: Briefcase   },
+  { value: "repeatable", label: "Grupo repetible",     icon: List        },
+  { value: "heading",    label: "Título / Sección",    icon: Minus       },
+  { value: "schedule",   label: "Horarios",            icon: Calendar    },
 ];
 
 const defaultFields: FormField[] = [
@@ -79,6 +98,57 @@ const typeIcon = (type: FieldType) =>
   FIELD_TYPES.find((t) => t.value === type)?.icon ?? Type;
 
 // ─── Field row ────────────────────────────────────────────────────────────────
+// ─── Services Field Config ────────────────────────────────────────────────────
+const ServicesFieldConfig = ({
+  allowedServiceIds,
+  onChange,
+}: {
+  allowedServiceIds?: string[];
+  onChange: (ids: string[]) => void;
+}) => {
+  const { data: services = [] } = useServices();
+  if (services.length === 0) return (
+    <p className="text-[11px] text-muted-foreground">No hay servicios creados aún. Ve a Mi Negocio → Servicios.</p>
+  );
+  const selected = allowedServiceIds ?? [];
+  const toggle = (id: string) => {
+    const next = selected.includes(id) ? selected.filter(x => x !== id) : [...selected, id];
+    onChange(next);
+  };
+  return (
+    <div className="space-y-2">
+      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+        Servicios visibles en este campo {selected.length > 0 ? `(${selected.length} seleccionados)` : "(todos)"}
+      </p>
+      {services.map((svc) => (
+        <label key={svc.id} className="flex items-center gap-2.5 cursor-pointer group/svc">
+          <input
+            type="checkbox"
+            checked={selected.length === 0 || selected.includes(svc.id)}
+            onChange={() => toggle(svc.id)}
+            className="rounded border-input h-3.5 w-3.5 text-primary focus:ring-primary"
+          />
+          <span className="text-xs text-foreground group-hover/svc:text-primary transition-colors">{svc.name}</span>
+          <span className="text-[10px] text-muted-foreground">${svc.price}</span>
+        </label>
+      ))}
+      {selected.length > 0 && (
+        <button onClick={() => onChange([])} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+          Mostrar todos
+        </button>
+      )}
+    </div>
+  );
+};
+
+const SUB_FIELD_TYPES: { value: SubFieldType; label: string }[] = [
+  { value: "text",     label: "Texto corto" },
+  { value: "textarea", label: "Texto largo" },
+  { value: "number",   label: "Número" },
+  { value: "url",      label: "URL" },
+  { value: "checkbox", label: "Casilla" },
+];
+
 const FieldRow = ({
   field,
   onToggleRequired,
@@ -88,6 +158,11 @@ const FieldRow = ({
   onAddOption,
   onChangeOption,
   onRemoveOption,
+  onAddSubField,
+  onChangeSubField,
+  onRemoveSubField,
+  onChangeMaxItems,
+  onChangeAllowedServices,
   onDelete,
 }: {
   field: FormField;
@@ -98,6 +173,11 @@ const FieldRow = ({
   onAddOption: () => void;
   onChangeOption: (i: number, v: string) => void;
   onRemoveOption: (i: number) => void;
+  onAddSubField: () => void;
+  onChangeSubField: (i: number, patch: Partial<SubField>) => void;
+  onRemoveSubField: (i: number) => void;
+  onChangeMaxItems: (n: number) => void;
+  onChangeAllowedServices: (ids: string[]) => void;
   onDelete: () => void;
 }) => {
   const Icon = typeIcon(field.type);
@@ -165,7 +245,7 @@ const FieldRow = ({
       </div>
 
       {/* Placeholder */}
-      {!["date", "time", "heading", "file", "checkbox", "color", "services", "radio", "schedule"].includes(field.type) && (
+      {!["date", "time", "heading", "file", "checkbox", "color", "services", "radio", "schedule", "repeatable"].includes(field.type) && (
         <div className="pl-11">
           <Input
             value={field.placeholder ?? ""}
@@ -284,18 +364,18 @@ const FieldRow = ({
         </div>
       )}
 
-      {/* Services field info */}
+      {/* Services field config */}
       {field.type === "services" && (
-        <div className="pl-11 space-y-2">
-          <div className="bg-primary/5 border border-primary/15 rounded-xl px-4 py-3 space-y-2">
+        <div className="pl-11 space-y-3">
+          <div className="bg-primary/5 border border-primary/15 rounded-xl px-4 py-3 space-y-3">
             <p className="text-xs font-semibold text-primary flex items-center gap-1.5">
               <Briefcase size={12} />
               Selector de servicios
             </p>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">
-              Este campo mostrará automáticamente todos los servicios que hayas creado en la sección <strong>Servicios</strong> del CRM.
-              El cliente podrá seleccionar uno o varios servicios al completar el formulario.
-            </p>
+            <ServicesFieldConfig
+              allowedServiceIds={field.allowedServiceIds}
+              onChange={onChangeAllowedServices}
+            />
           </div>
         </div>
       )}
@@ -338,6 +418,67 @@ const FieldRow = ({
           </div>
         </div>
       )}
+
+      {/* Repeatable group */}
+      {field.type === "repeatable" && (
+        <div className="pl-11 space-y-3">
+          <div className="bg-primary/5 border border-primary/15 rounded-xl px-4 py-2.5 flex items-start gap-2">
+            <List size={12} className="text-primary mt-0.5 shrink-0" />
+            <p className="text-[11px] text-primary font-medium leading-relaxed">
+              Grupo repetible — el usuario puede añadir múltiples entradas de este bloque (ej. servicios, testimonios, FAQs).
+            </p>
+          </div>
+
+          {/* Max items */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground">Máx. entradas:</span>
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={field.maxItems ?? 3}
+              onChange={(e) => onChangeMaxItems(Number(e.target.value))}
+              className="h-8 w-20 rounded-lg border border-input bg-background px-2 text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+
+          {/* Sub-fields */}
+          <div className="space-y-2">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Campos del grupo</p>
+            {(field.subFields ?? []).map((sf, i) => (
+              <div key={sf.id} className="flex gap-2 items-center">
+                <input
+                  value={sf.label}
+                  onChange={(e) => onChangeSubField(i, { label: e.target.value })}
+                  placeholder={`Campo ${i + 1}`}
+                  className="h-8 flex-1 rounded-md border border-input bg-background px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <select
+                  value={sf.type}
+                  onChange={(e) => onChangeSubField(i, { type: e.target.value as SubFieldType })}
+                  className="h-8 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {SUB_FIELD_TYPES.map((t) => (
+                    <option key={t.value} value={t.value}>{t.label}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => onRemoveSubField(i)}
+                  className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <Trash2 size={12} />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={onAddSubField}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Plus size={12} /> Añadir campo al grupo
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -349,6 +490,8 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
   const [editingName, setEditingName] = useState(false);
   const [saved, setSaved]         = useState(false);
   const [multiPage, setMultiPage] = useState(form.multiPage ?? false);
+  const [showConfirmationStep, setShowConfirmationStep] = useState(form.showConfirmationStep ?? false);
+  const [confirmationMessage, setConfirmationMessage]   = useState(form.confirmationMessage ?? "");
   const [sections, setSections]   = useState<FormSection[]>(form.sections ?? [{ id: "sec-1", name: "Página 1" }]);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
 
@@ -361,17 +504,44 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
   const update = (id: string, patch: Partial<FormField>) =>
     setFields((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)));
 
+  const serviceCallbacks = (fieldId: string) => ({
+    onChangeAllowedServices: (ids: string[]) => update(fieldId, { allowedServiceIds: ids }),
+  });
+
+  const subFieldCallbacks = (fieldId: string) => ({
+    onAddSubField: () =>
+      update(fieldId, {
+        subFields: [
+          ...(fields.find(f => f.id === fieldId)?.subFields ?? []),
+          { id: `sf-${Date.now()}`, label: "Nuevo campo", type: "text" as SubFieldType },
+        ],
+      }),
+    onChangeSubField: (i: number, patch: Partial<SubField>) => {
+      const sfs = [...(fields.find(f => f.id === fieldId)?.subFields ?? [])];
+      sfs[i] = { ...sfs[i], ...patch };
+      update(fieldId, { subFields: sfs });
+    },
+    onRemoveSubField: (i: number) =>
+      update(fieldId, {
+        subFields: (fields.find(f => f.id === fieldId)?.subFields ?? []).filter((_, idx) => idx !== i),
+      }),
+    onChangeMaxItems: (n: number) => update(fieldId, { maxItems: n }),
+  });
+
   const addField = (sectionId?: string) =>
     setFields((fs) => [
       ...fs,
       { id: `f-${Date.now()}`, label: "Nuevo campo", type: "text", required: false, placeholder: "", options: [], sectionId },
     ]);
 
-  const handleSave = () => {
-    // {VAR_DB} — guardar en Supabase
-    onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl });
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleSave = async () => {
+    try {
+      onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch {
+      // error handled in parent
+    }
   };
 
   const addSection = () =>
@@ -487,6 +657,8 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                     onRemoveOption={(i) =>
                       update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
                     }
+                    {...subFieldCallbacks(field.id)}
+                    {...serviceCallbacks(field.id)}
                     onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
                   />
                 ))}
@@ -504,12 +676,15 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
               {sections.map((sec, secIdx) => {
                 const sectionFields = fields.filter(f => f.sectionId === sec.id);
                 return (
-                  <div key={sec.id} className="bg-card border rounded-2xl overflow-hidden">
+                  <div key={sec.id} className={`border rounded-2xl overflow-hidden ${sec.isConfirmation ? "border-amber-300/60 dark:border-amber-700/40 bg-amber-50/30 dark:bg-amber-950/10" : "bg-card"}`}>
                     {/* Section header */}
-                    <div className="flex items-center gap-3 px-5 py-3 bg-secondary/30 border-b group/secheader">
-                      <Layers size={14} className="text-primary shrink-0" />
+                    <div className={`flex items-center gap-3 px-5 py-3 border-b group/secheader ${sec.isConfirmation ? "bg-amber-100/40 dark:bg-amber-900/20 border-amber-200/50 dark:border-amber-800/30" : "bg-secondary/30"}`}>
+                      {sec.isConfirmation
+                        ? <CheckSquare size={14} className="text-amber-500 shrink-0" />
+                        : <Layers size={14} className="text-primary shrink-0" />
+                      }
                       <div className="flex-1 flex items-center gap-2">
-                        {editingSectionId === sec.id ? (
+                        {!sec.isConfirmation && editingSectionId === sec.id ? (
                           <Input
                             value={sec.name}
                             onChange={(e) => renameSection(sec.id, e.target.value)}
@@ -524,28 +699,62 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                             <h2 className="text-sm font-semibold text-foreground leading-8">
                               {sec.name || "Sin título"}
                             </h2>
-                            <button
-                              onClick={() => setEditingSectionId(sec.id)}
-                              className="p-1 rounded-md text-muted-foreground opacity-40 group-hover/secheader:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition-all"
-                            >
-                              <Pencil size={13} />
-                            </button>
+                            {!sec.isConfirmation && (
+                              <button
+                                onClick={() => setEditingSectionId(sec.id)}
+                                className="p-1 rounded-md text-muted-foreground opacity-40 group-hover/secheader:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition-all"
+                              >
+                                <Pencil size={13} />
+                              </button>
+                            )}
                           </>
                         )}
                       </div>
                       <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
                         Página {secIdx + 1}
                       </span>
-                      {sections.length > 1 && (
-                        <button
-                          onClick={() => removeSection(sec.id)}
-                          className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      )}
+                      <button
+                        onClick={() => removeSection(sec.id)}
+                        className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                      >
+                        <Trash2 size={13} />
+                      </button>
                     </div>
-                    {/* Section fields */}
+
+                    {/* Confirmation page preview */}
+                    {sec.isConfirmation ? (
+                      <div className="p-6 space-y-3">
+                        <p className="text-xs text-amber-700 dark:text-amber-400 font-medium flex items-center gap-1.5">
+                          <CheckSquare size={12} /> Resumen automático de respuestas
+                        </p>
+                        <div className="bg-background/60 border border-amber-200/40 dark:border-amber-800/30 rounded-xl p-4 space-y-2">
+                          {sections.filter(s => !s.isConfirmation).map((s) => (
+                            <div key={s.id} className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
+                              <span className="font-medium text-foreground">{s.name}</span>
+                              <span className="text-muted-foreground/60">— {fields.filter(f => f.sectionId === s.id).length} campo{fields.filter(f => f.sectionId === s.id).length !== 1 ? "s" : ""}</span>
+                            </div>
+                          ))}
+                        </div>
+                        <p className="text-[10px] text-muted-foreground leading-relaxed">
+                          El usuario verá un resumen de todo lo ingresado antes de confirmar el envío. No se pueden añadir campos aquí.
+                        </p>
+                        <div className="space-y-1.5 pt-1">
+                          <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                            Mensaje antes de enviar (opcional)
+                          </label>
+                          <textarea
+                            value={confirmationMessage}
+                            onChange={(e) => setConfirmationMessage(e.target.value)}
+                            rows={3}
+                            placeholder="Ej: Al confirmar, nuestro equipo comenzará a trabajar en tu proyecto. Recibirás un correo de confirmación."
+                            className="w-full rounded-xl border border-amber-200/60 dark:border-amber-800/40 bg-background/80 text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-amber-400/60 placeholder:text-muted-foreground/50"
+                          />
+                          <p className="text-[10px] text-muted-foreground">Si lo dejas vacío, no se mostrará ningún mensaje.</p>
+                        </div>
+                      </div>
+                    ) : (
+                    /* Section fields */
                     <div className="p-4 space-y-3">
                       {sectionFields.length === 0 && (
                         <p className="text-xs text-muted-foreground text-center py-4">
@@ -575,6 +784,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                           onRemoveOption={(i) =>
                             update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
                           }
+                          {...subFieldCallbacks(field.id)}
                           onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
                         />
                       ))}
@@ -585,15 +795,26 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                         <Plus size={13} /> Añadir campo a esta sección
                       </button>
                     </div>
+                    )}
                   </div>
                 );
               })}
-              <button
-                onClick={addSection}
-                className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-primary/30 rounded-2xl py-4 text-sm text-primary font-medium hover:bg-primary/5 transition-all"
-              >
-                <Plus size={15} /> Añadir sección (página)
-              </button>
+              <div className="flex gap-3">
+                <button
+                  onClick={addSection}
+                  className="flex-1 flex items-center justify-center gap-2 border-2 border-dashed border-primary/30 rounded-2xl py-4 text-sm text-primary font-medium hover:bg-primary/5 transition-all"
+                >
+                  <Plus size={15} /> Añadir sección (página)
+                </button>
+                {!sections.some(s => s.isConfirmation) && (
+                  <button
+                    onClick={() => setSections(s => [...s, { id: `sec-confirm-${Date.now()}`, name: "Confirmación", isConfirmation: true }])}
+                    className="flex items-center justify-center gap-2 border-2 border-dashed border-amber-400/50 rounded-2xl py-4 px-5 text-sm text-amber-600 dark:text-amber-400 font-medium hover:bg-amber-50 dark:hover:bg-amber-950/20 transition-all"
+                  >
+                    <CheckSquare size={15} /> Página de confirmación
+                  </button>
+                )}
+              </div>
             </div>
           )}
 
@@ -602,6 +823,39 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
             <h2 className="text-sm font-semibold flex items-center gap-2">
               <CheckSquare size={16} className="text-primary"/> Configuración de envío
             </h2>
+
+            {/* Confirmation step toggle — only for single-page */}
+            {!multiPage && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between p-4 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-800/30 rounded-xl">
+                  <div>
+                    <p className="text-sm font-medium">Mostrar resumen antes de enviar</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      El usuario verá un resumen de sus respuestas y deberá confirmar antes de enviar el formulario.
+                    </p>
+                  </div>
+                  <Switch
+                    checked={showConfirmationStep}
+                    onCheckedChange={setShowConfirmationStep}
+                  />
+                </div>
+                {showConfirmationStep && (
+                  <div className="space-y-1.5 px-1">
+                    <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
+                      Mensaje antes de enviar (opcional)
+                    </label>
+                    <textarea
+                      value={confirmationMessage}
+                      onChange={(e) => setConfirmationMessage(e.target.value)}
+                      rows={3}
+                      placeholder="Ej: Al confirmar, nuestro equipo comenzará a trabajar en tu proyecto. Recibirás un correo de confirmación."
+                      className="w-full rounded-xl border border-input bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
+                    />
+                    <p className="text-[10px] text-muted-foreground">Si lo dejas vacío, no se mostrará ningún mensaje.</p>
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="grid sm:grid-cols-2 gap-6">
               <div className="space-y-2">
@@ -759,29 +1013,51 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
 };
 
 // ─── Main Component: Forms Library ─────────────────────────────────────────
-
-// {VAR_DB} — formularios reales vendrán de Supabase
-const dummyForms: FormConfig[] = [
-  { id: "f-1", name: "{VAR_DB}", fields: defaultFields },
-  { id: "f-2", name: "{VAR_DB}", fields: defaultFields },
-];
-
 const CrmForms = () => {
+  const { data: rawForms = [], isLoading } = useForms();
+  const createForm = useCreateForm();
+  const updateForm = useUpdateForm();
+  const deleteForm = useDeleteForm();
+
   const [view, setView] = useState<"list" | "builder">("list");
-  const [forms, setForms] = useState<FormConfig[]>(dummyForms);
   const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
+
+  // Convert rawForms to FormConfig format
+  const forms: FormConfig[] = rawForms.map(f => ({
+    id: f.id,
+    name: f.name,
+    fields: (Array.isArray(f.fields) ? f.fields : []) as unknown as FormField[],
+    sections: (Array.isArray(f.sections) ? f.sections : undefined) as unknown as FormSection[],
+    multiPage: f.multi_page ?? false,
+    showConfirmationStep: f.show_confirmation_step ?? false,
+    confirmationMessage: f.confirmation_message ?? "",
+    submitButtonText: f.submit_label ?? "Enviar",
+    successAction: f.success_action ?? "popup",
+    successPopupMessage: f.success_message ?? "",
+    successImageType: f.success_image ?? "icon",
+    successRedirectUrl: f.redirect_url ?? "",
+  }));
 
   const selectedForm = forms.find(f => f.id === selectedFormId);
 
-  const handleCreateNew = () => {
-    const newForm = { 
-      id: `form-${Date.now()}`, 
-      name: "{VAR_DB}",
-      fields: defaultFields 
-    };
-    setForms([...forms, newForm]);
-    setSelectedFormId(newForm.id);
-    setView("builder");
+  const handleCreateNew = async () => {
+    try {
+      const result = await createForm.mutateAsync({
+        name: "Nuevo Formulario",
+        fields: defaultFields as any,
+        submit_label: "Enviar mensaje",
+        success_action: "popup",
+        success_message: "¡Gracias! Hemos recibido tu información.",
+        success_image: "icon",
+        multi_page: false,
+      });
+      setSelectedFormId(result.id);
+      setView("builder");
+    } catch {
+      toast.error("Error al crear formulario");
+    }
   };
 
   const handleEdit = (id: string) => {
@@ -790,30 +1066,78 @@ const CrmForms = () => {
   };
 
   const handleDelete = (id: string) => {
-    setForms(forms.filter(f => f.id !== id));
+    setDeleteTargetId(id);
+    setDeleteConfirmText("");
   };
 
+  const handleConfirmDelete = async () => {
+    if (!deleteTargetId) return;
+    try {
+      await deleteForm.mutateAsync(deleteTargetId);
+      if (selectedFormId === deleteTargetId) {
+        setSelectedFormId(null);
+        setView("list");
+      }
+      toast.success("Formulario eliminado");
+    } catch {
+      toast.error("Error al eliminar formulario");
+    } finally {
+      setDeleteTargetId(null);
+      setDeleteConfirmText("");
+    }
+  };
 
   if (view === "builder" && selectedForm) {
-    return <FormBuilder form={selectedForm} onBack={() => setView("list")} onUpdate={(updated) => {
-       setForms(forms.map(f => f.id === updated.id ? updated : f));
+    return <FormBuilder form={selectedForm} onBack={() => setView("list")} onUpdate={async (updated) => {
+      try {
+        await updateForm.mutateAsync({
+          id: updated.id,
+          name: updated.name,
+          fields: updated.fields as any,
+          sections: updated.sections as any,
+          multi_page: updated.multiPage,
+          show_confirmation_step: updated.showConfirmationStep ?? false,
+          confirmation_message: updated.confirmationMessage || null,
+          submit_label: updated.submitButtonText ?? "Enviar",
+          success_action: updated.successAction ?? "popup",
+          success_message: updated.successPopupMessage ?? null,
+          success_image: updated.successImageType ?? "icon",
+          redirect_url: updated.successRedirectUrl ?? null,
+        });
+        toast.success("Formulario guardado");
+      } catch {
+        toast.error("Error al guardar formulario");
+      }
     }} />;
   }
 
   return (
+    <>
+    <DeleteConfirmDialog
+      open={!!deleteTargetId}
+      onOpenChange={(open) => { if (!open) { setDeleteTargetId(null); setDeleteConfirmText(""); } }}
+      onConfirm={handleConfirmDelete}
+      isPending={deleteForm.isPending}
+      description="Se eliminará el formulario y todos sus campos permanentemente."
+    />
+
     <div className="space-y-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Formularios</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Define la información que solicitarás a tus clientes</p>
         </div>
-        <Button onClick={handleCreateNew} className="h-9 rounded-xl text-sm font-medium px-4 gap-2">
-          <Plus size={16} /> Crear nuevo
+        <Button onClick={handleCreateNew} disabled={createForm.isPending} className="h-9 rounded-xl text-sm font-medium px-4 gap-2">
+          {createForm.isPending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={16} />} Crear nuevo
         </Button>
       </div>
 
       <div className="grid gap-4">
-        {forms.length === 0 ? (
+      {isLoading ? (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 size={24} className="animate-spin text-muted-foreground" />
+        </div>
+      ) : forms.length === 0 ? (
            <div className="text-center py-12 bg-card border rounded-2xl">
              <ClipboardList size={32} className="mx-auto text-muted-foreground/30 mb-3" />
              <p className="text-sm font-medium">No hay formularios creados.</p>
@@ -856,6 +1180,7 @@ const CrmForms = () => {
         )}
       </div>
     </div>
+    </>
   );
 };
 

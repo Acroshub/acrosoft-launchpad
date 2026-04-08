@@ -4,10 +4,11 @@ import { Input } from "@/components/ui/input";
 import { Plus, X, GripVertical, Settings2, Check, ChevronDown, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Switch } from "@/components/ui/switch";
-import { useDeals, useCreateDeal, useUpdateDeal, useDeleteDeal, useContacts } from "@/hooks/useCrmData";
+import { useDeals, useCreateDeal, useUpdateDeal, useDeleteDeal, useContacts, useForms } from "@/hooks/useCrmData";
 import { toast } from "sonner";
+import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 
-// ─── Default stage names (configurable in future) ───
+// ─── Default stage names ───
 const DEFAULT_STAGES = ["Nuevo Lead", "Contactado", "Negociación", "Cerrado"];
 
 type Card = { 
@@ -15,6 +16,7 @@ type Card = {
   name: string; 
   email: string; 
   value?: string;
+  contactId?: string | null;
   customFields?: { label: string; value: string }[];
 };
 type Column = { id: string; name: string; cards: Card[] };
@@ -22,6 +24,7 @@ type Column = { id: string; name: string; cards: Card[] };
 const CrmPipeline = () => {
   const { data: deals = [], isLoading } = useDeals();
   const { data: contacts = [] } = useContacts();
+  const { data: forms = [] } = useForms();
   const createDeal = useCreateDeal();
   const updateDeal = useUpdateDeal();
   const deleteDeal = useDeleteDeal();
@@ -34,7 +37,7 @@ const CrmPipeline = () => {
   const [dragCard, setDragCard]     = useState<{ card: Card; fromColId: string } | null>(null);
   const [dragOver, setDragOver]     = useState<string | null>(null);
 
-  // Build columns from deals + stages
+  // Build columns from deals grouped by stages
   const columns: Column[] = useMemo(() => {
     return stageNames.map((stage) => ({
       id: stage,
@@ -46,27 +49,45 @@ const CrmPipeline = () => {
           name: d.title,
           email: contacts.find(c => c.id === d.contact_id)?.email ?? "",
           value: d.value ? `$${Number(d.value).toFixed(0)}` : undefined,
+          contactId: d.contact_id,
         })),
     }));
   }, [deals, stageNames, contacts]);
+
+  // Available form fields for card configuration
+  const availableFormFields = useMemo(() => {
+    const fields: { id: string; label: string; formName: string }[] = [];
+    forms.forEach((form) => {
+      const formFields = Array.isArray(form.fields) ? form.fields : [];
+      formFields.forEach((field: any) => {
+        if (field.label && field.id) {
+          fields.push({ id: `${form.id}__${field.id}`, label: field.label, formName: form.name });
+        }
+      });
+    });
+    return fields;
+  }, [forms]);
 
   // Card creation state
   const [addingCardToCol, setAddingCardToCol] = useState<string | null>(null);
   const [newCardName, setNewCardName]         = useState("");
   const [newCardEmail, setNewCardEmail]       = useState("");
+  const [newCardValue, setNewCardValue]       = useState("");
+  const [newCardContact, setNewCardContact]   = useState("");
 
   const [configCard, setConfigCard]     = useState<Card | null>(null);
   const [cardConfig, setCardConfig]     = useState<{ showValue: boolean; showService: boolean; showPhone: boolean }>({
     showValue: true, showService: false, showPhone: false,
   });
-  const [extraFields, setExtraFields]   = useState<string[]>([]); // ids of selected form fields
+  const [extraFields, setExtraFields]   = useState<string[]>([]);
+  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
   const openConfig = (card: Card) => {
     setConfigCard(card);
     setCardConfig({
       showValue:   !!card.value,
-      showService: !!card.customFields?.some(f => f.label === "{VAR_DB}"),
-      showPhone:   !!card.customFields?.some(f => f.label === "{VAR_DB}"),
+      showService: !!card.customFields?.some(f => f.label === "Servicio"),
+      showPhone:   !!card.customFields?.some(f => f.label === "Teléfono"),
     });
     setExtraFields([]);
   };
@@ -80,29 +101,25 @@ const CrmPipeline = () => {
     setAddingCardToCol(colId);
     setNewCardName("");
     setNewCardEmail("");
+    setNewCardValue("");
+    setNewCardContact("");
   };
 
-  const saveCard = (colId: string) => {
+  const saveCard = async (colId: string) => {
     if (!newCardName.trim()) return;
-    setColumns((cols) =>
-      cols.map((c) => {
-        if (c.id === colId) {
-          return {
-            ...c,
-            cards: [
-              ...c.cards,
-              {
-                id: `card-${Date.now()}`,
-                name: newCardName.trim(),
-                email: newCardEmail.trim() || "-",
-              },
-            ],
-          };
-        }
-        return c;
-      })
-    );
-    setAddingCardToCol(null);
+    try {
+      await createDeal.mutateAsync({
+        title: newCardName.trim(),
+        stage: colId,
+        value: newCardValue ? Number(newCardValue) : 0,
+        contact_id: newCardContact || null,
+        notes: newCardEmail.trim() || null,
+      });
+      toast.success("Deal creado");
+      setAddingCardToCol(null);
+    } catch {
+      toast.error("Error al crear deal");
+    }
   };
 
   /* ─── Column management ─── */
@@ -111,26 +128,44 @@ const CrmPipeline = () => {
     setEditName(col.name);
   };
 
-  const saveColName = (colId: string) => {
-    if (!editName.trim()) return;
-    setColumns((cols) =>
-      cols.map((c) => (c.id === colId ? { ...c, name: editName.trim() } : c))
-    );
-    setEditingCol(null);
+  const saveColName = async (colId: string) => {
+    if (!editName.trim() || editName.trim() === colId) {
+      setEditingCol(null);
+      return;
+    }
+    const newName = editName.trim();
+    // Update all deals in this stage to the new stage name
+    const dealsInStage = deals.filter(d => d.stage === colId);
+    try {
+      await Promise.all(
+        dealsInStage.map(d => updateDeal.mutateAsync({ id: d.id, stage: newName }))
+      );
+      setStageNames(prev => prev.map(s => s === colId ? newName : s));
+      setEditingCol(null);
+      if (dealsInStage.length > 0) toast.success("Columna renombrada");
+    } catch {
+      toast.error("Error al renombrar columna");
+    }
   };
 
   const addColumn = () => {
     if (!newColName.trim()) return;
-    setColumns((cols) => [
-      ...cols,
-      { id: `col-${Date.now()}`, name: newColName.trim(), cards: [] },
-    ]);
+    if (stageNames.includes(newColName.trim())) {
+      toast.error("Esta columna ya existe");
+      return;
+    }
+    setStageNames(prev => [...prev, newColName.trim()]);
     setNewColName("");
     setAddingCol(false);
   };
 
   const removeColumn = (colId: string) => {
-    setColumns((cols) => cols.filter((c) => c.id !== colId));
+    const dealsInCol = deals.filter(d => d.stage === colId);
+    if (dealsInCol.length > 0) {
+      toast.error(`No puedes eliminar "${colId}" — tiene ${dealsInCol.length} deals.`);
+      return;
+    }
+    setStageNames(prev => prev.filter(s => s !== colId));
   };
 
   /* ─── Drag & drop ─── */
@@ -138,28 +173,56 @@ const CrmPipeline = () => {
     setDragCard({ card, fromColId });
   };
 
-  const handleDrop = (toColId: string) => {
+  const handleDrop = async (toColId: string) => {
     if (!dragCard || dragCard.fromColId === toColId) {
       setDragCard(null);
       setDragOver(null);
       return;
     }
-    setColumns((cols) =>
-      cols.map((col) => {
-        if (col.id === dragCard.fromColId) {
-          return { ...col, cards: col.cards.filter((c) => c.id !== dragCard.card.id) };
-        }
-        if (col.id === toColId) {
-          return { ...col, cards: [...col.cards, dragCard.card] };
-        }
-        return col;
-      })
-    );
+    try {
+      await updateDeal.mutateAsync({ id: dragCard.card.id, stage: toColId });
+      toast.success(`Deal movido a "${toColId}"`);
+    } catch {
+      toast.error("Error al mover deal");
+    }
     setDragCard(null);
     setDragOver(null);
   };
 
+  /* ─── Delete deal ─── */
+  const handleDeleteDeal = (dealId: string) => {
+    setDeleteTargetId(dealId);
+  };
+
+  const handleConfirmDeleteDeal = async () => {
+    if (!deleteTargetId) return;
+    try {
+      await deleteDeal.mutateAsync(deleteTargetId);
+      toast.success("Deal eliminado");
+    } catch {
+      toast.error("Error al eliminar deal");
+    } finally {
+      setDeleteTargetId(null);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 size={24} className="animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
   return (
+    <>
+    <DeleteConfirmDialog
+      open={!!deleteTargetId}
+      onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}
+      onConfirm={handleConfirmDeleteDeal}
+      isPending={deleteDeal.isPending}
+      description="Se eliminará el deal del pipeline permanentemente."
+    />
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -260,13 +323,22 @@ const CrmPipeline = () => {
                         )}
                       </div>
                       
-                      <button 
-                        onClick={() => openConfig(card)}
-                        className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 p-1 hover:bg-secondary rounded-md text-muted-foreground transition-all bg-card"
-                        title="Configurar campos de la tarjeta"
-                      >
-                        <Settings2 size={13} />
-                      </button>
+                      <div className="absolute top-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                        <button 
+                          onClick={() => openConfig(card)}
+                          className="p-1 hover:bg-secondary rounded-md text-muted-foreground bg-card"
+                          title="Configurar campos de la tarjeta"
+                        >
+                          <Settings2 size={13} />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteDeal(card.id)}
+                          className="p-1 hover:bg-destructive/10 rounded-md text-muted-foreground hover:text-destructive bg-card"
+                          title="Eliminar deal"
+                        >
+                          <X size={13} />
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -276,7 +348,7 @@ const CrmPipeline = () => {
                   <div className="bg-card border rounded-xl p-3 space-y-2.5 shadow-sm animate-in fade-in zoom-in-95">
                     <Input
                       autoFocus
-                      placeholder="Nombre (obligatorio)"
+                      placeholder="Título del deal (obligatorio)"
                       value={newCardName}
                       onChange={(e) => setNewCardName(e.target.value)}
                       onKeyDown={(e) => {
@@ -285,17 +357,37 @@ const CrmPipeline = () => {
                       }}
                       className="h-7 text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2"
                     />
+                    {/* Contact selector */}
+                    <div className="relative">
+                      <select
+                        value={newCardContact}
+                        onChange={(e) => setNewCardContact(e.target.value)}
+                        className="w-full h-7 rounded-md border bg-secondary/50 text-xs pl-2 pr-6 appearance-none focus:outline-none focus:ring-1 focus:ring-primary border-transparent"
+                      >
+                        <option value="">Sin contacto</option>
+                        {contacts.map(c => (
+                          <option key={c.id} value={c.id}>{c.name} — {c.email ?? ""}</option>
+                        ))}
+                      </select>
+                      <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
                     <Input
-                      placeholder="Email (opcional)"
-                      value={newCardEmail}
-                      onChange={(e) => setNewCardEmail(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") saveCard(col.id);
-                      }}
+                      placeholder="Valor $ (opcional)"
+                      type="number"
+                      value={newCardValue}
+                      onChange={(e) => setNewCardValue(e.target.value)}
                       className="h-7 text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2"
                     />
                     <div className="flex gap-2 pt-1">
-                      <Button size="sm" className="h-7 text-[11px] flex-1 rounded-lg" disabled={!newCardName.trim()} onClick={() => saveCard(col.id)}>Guardar</Button>
+                      <Button 
+                        size="sm" 
+                        className="h-7 text-[11px] flex-1 rounded-lg" 
+                        disabled={!newCardName.trim() || createDeal.isPending}
+                        onClick={() => saveCard(col.id)}
+                      >
+                        {createDeal.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                        Guardar
+                      </Button>
                       <button onClick={() => setAddingCardToCol(null)} className="h-7 px-2.5 rounded-lg border text-muted-foreground hover:bg-secondary"><X size={12}/></button>
                     </div>
                   </div>
@@ -410,6 +502,7 @@ const CrmPipeline = () => {
         </DialogContent>
       </Dialog>
     </div>
+    </>
   );
 };
 

@@ -4,18 +4,55 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SectionTitle } from "./FormHelpers";
 
+import { useOnboarding } from "./OnboardingContext";
+
 interface Step8ConfirmProps {
-  onSubmit?: () => void;
+  onSubmit?: (submissionId: string) => void;
+  confirmationMessage?: string;
 }
 
-const Step8Confirm = ({ onSubmit }: Step8ConfirmProps) => {
+const Step8Confirm = ({ onSubmit, confirmationMessage }: Step8ConfirmProps) => {
+  const { data } = useOnboarding();
+  
   const sections = [
-    { title: "Negocio", items: ["Nombre: El Sabor de México", "Rubro: Restaurante", "Ubicación: Miami, FL"] },
-    { title: "Plan Seleccionado", items: ["Multi Page Website", "Pago único (50/50)", "Inicio: 2024-04-15"] },
-    { title: "Identidad Visual", items: ["Colores: Azul, Blanco, Dorado", "Estilo: Moderno y Cálido", "Logo: Cargado"] },
-    { title: "Servicios", items: ["Menú Digital", "Reserva de Mesas", "Pedidos Online"] },
-    { title: "Contacto", items: ["+1 (305) 555-0123", "hola@sabor.com", "sabordemexico.com"] },
+    { title: "Negocio", items: [`Nombre: ${data.businessName || "N/A"}`, `Rubro: ${data.industry || "N/A"}`, `Ciudad: ${data.city || "N/A"}`] },
+    { title: "Plan Seleccionado", items: [data.plan ? `Plan ID: ${data.plan}` : "Ninguno", "Pago 50/50"] },
+    { title: "Identidad Visual", items: [`Color 1: ${data.primaryColor}`, `Fuente: ${data.typography || "No elegida"}`, `Estilo: ${data.visualStyle || "N/A"}`] },
+    { title: "Servicios", items: data.services.map(s => s.name).filter(Boolean).length > 0 ? data.services.map(s => s.name).filter(Boolean) : ["No declarados"] },
+    { title: "Contacto", items: [data.phone || "Sin teléfono", data.email || "Sin email", data.domain || "Sin dominio"] },
   ];
+
+  const [isSubmitting, setIsSubmitting] = React.useState(false);
+
+  const handleSubmit = async () => {
+    setIsSubmitting(true);
+    try {
+      const dbUrl = import.meta.env.VITE_SUPABASE_URL;
+      const functionUrl = `${dbUrl}/functions/v1/crm-form-public`;
+      const res = await fetch(functionUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        // Usamos el ID del formulario "Onboarding Oficial v3"
+        // Este form fue creado en CrmForms previamente
+        body: JSON.stringify({
+          form_id: "b733e0c5-60d4-414d-896a-5ce459b07eaf", 
+          data: data 
+        }),
+      });
+
+      if (!res.ok) throw new Error("Fallo al enviar");
+      const result = await res.json();
+      if (onSubmit) onSubmit(result.submission_id);
+    } catch (e) {
+      console.error(e);
+      alert("Hubo un problema enviando tu solicitud. Por favor intenta de nuevo.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -52,27 +89,25 @@ const Step8Confirm = ({ onSubmit }: Step8ConfirmProps) => {
         ))}
       </div>
 
-      <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6 space-y-4">
-        <div className="flex items-start gap-4">
-          <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-            <CheckCircle2 size={24} className="text-primary" />
-          </div>
-          <div>
-            <p className="text-sm font-bold text-foreground">Al hacer clic en el botón, nuestro equipo recibirá tu brief.</p>
-            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Iniciaremos el proceso de diseño y copywriting profesional. Recibirás un correo electrónico de confirmación en los próximos minutos.
-            </p>
+      {confirmationMessage && (
+        <div className="bg-primary/5 border border-primary/20 rounded-2xl p-6">
+          <div className="flex items-start gap-4">
+            <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+              <CheckCircle2 size={24} className="text-primary" />
+            </div>
+            <p className="text-sm text-muted-foreground leading-relaxed mt-2">{confirmationMessage}</p>
           </div>
         </div>
-      </div>
+      )}
 
       <Button 
-        onClick={onSubmit} 
+        onClick={handleSubmit} 
+        disabled={isSubmitting}
         size="lg" 
         className="w-full h-16 rounded-2xl text-lg font-black shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all group"
       >
-        Confirmar y Enviar Brief
-        <ArrowRight size={20} className="ml-2 transition-transform group-hover:translate-x-1" />
+        {isSubmitting ? "Enviando..." : "Confirmar y Enviar Brief"}
+        {!isSubmitting && <ArrowRight size={20} className="ml-2 transition-transform group-hover:translate-x-1" />}
       </Button>
       
       <p className="text-center text-[11px] text-muted-foreground">

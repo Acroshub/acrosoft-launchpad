@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut } from "@/hooks/useAuth";
 import CrmOverview from "@/components/crm/CrmOverview";
@@ -9,19 +9,21 @@ import CrmForms from "@/components/crm/CrmForms";
 import CrmContacts from "@/components/crm/CrmContacts";
 import CrmPipeline from "@/components/crm/CrmPipeline";
 import CrmBusiness from "@/components/crm/CrmBusiness";
+import CrmSettings from "@/components/crm/CrmSettings";
 
 // {VAR_DB} — isSuperAdmin vendrá del perfil del usuario en Supabase
 const isSuperAdmin = true;
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline";
+type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "settings";
 
 const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
-  { id: "overview",  label: "Resumen",      icon: LayoutDashboard, group: "Principal"  },
-  { id: "business",  label: "Mi Negocio",   icon: Store,           group: "Principal"  },
-  { id: "calendar",  label: "Calendarios",  icon: CalendarDays,    group: "Calendario" },
-  { id: "forms",     label: "Formularios",  icon: ClipboardList,   group: "Calendario" },
-  { id: "contacts",  label: "Contactos",    icon: Users,           group: "CRM"        },
-  { id: "pipeline",  label: "Pipeline",     icon: Kanban,          group: "CRM"        },
+  { id: "overview",  label: "Resumen",       icon: LayoutDashboard, group: "Principal"      },
+  { id: "business",  label: "Mi Negocio",    icon: Store,           group: "Principal"      },
+  { id: "calendar",  label: "Calendarios",   icon: CalendarDays,    group: "Calendario"     },
+  { id: "forms",     label: "Formularios",   icon: ClipboardList,   group: "Calendario"     },
+  { id: "contacts",  label: "Contactos",     icon: Users,           group: "CRM"            },
+  { id: "pipeline",  label: "Pipeline",      icon: Kanban,          group: "CRM"            },
+  { id: "settings",  label: "Configuración", icon: Settings,        group: "Configuración"  },
 ];
 
 const groups = [...new Set(navItems.map((n) => n.group))];
@@ -45,6 +47,7 @@ const Crm = () => {
       case "forms":     return <CrmForms />;
       case "contacts":  return <CrmContacts isSuperAdmin={isSuperAdmin} />;
       case "pipeline":  return <CrmPipeline />;
+      case "settings":  return <CrmSettings />;
     }
   };
 

@@ -1,18 +1,9 @@
-import { CalendarDays, Users, Clock, FolderOpen, CheckCircle, DollarSign, GripVertical, Settings2, Plus } from "lucide-react";
-import { useState } from "react";
+import { CalendarDays, Users, Clock, FolderOpen, CheckCircle, DollarSign, GripVertical, Settings2, Plus, Loader2 } from "lucide-react";
+import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-// {VAR_DB} — todos los valores numéricos vienen de Supabase
-
-interface Sale {
-  id: string;
-  date: string;
-  contactName: string;
-  serviceName: string;
-  amount: number;
-  notes: string;
-}
+import { useContacts, useAppointments, useServices, useSales, useCreateSale } from "@/hooks/useCrmData";
+import { toast } from "sonner";
 
 const initialMetrics = [
   // Métricas de Admin
@@ -25,37 +16,18 @@ const initialMetrics = [
   { id: "proxima-cita", icon: Clock,        label: "Próxima cita", isAdmin: false },
 ];
 
-// {VAR_DB} — citas del día desde Supabase
-const todayAppointments: { time: string; name: string; service: string }[] = [];
-
-// {VAR_DB} — mocks
-const dummyContacts = [
-  { id: "c1", name: "{VAR_DB} - Juan Pérez" },
-  { id: "c2", name: "{VAR_DB} - María Gómez" }
-];
-
-const dummyServices = [
-  { id: "s1", name: "{VAR_DB} - Consultoría Básica", price: 500, monthlyPrice: 49 },
-  { id: "s2", name: "{VAR_DB} - Desarrollo Web", price: 1500, monthlyPrice: 0 }
-];
-
-const initialSales: Sale[] = [
-  {
-    id: "sale-1",
-    date: new Date().toLocaleDateString(),
-    contactName: "{VAR_DB} - Cliente Piloto",
-    serviceName: "{VAR_DB} - Consultoría Básica",
-    amount: 500,
-    notes: "[Pago Inicial] Confirmado por transferencia."
-  }
-];
-
 const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
+  // ─── Supabase hooks ───
+  const { data: contacts = [] } = useContacts();
+  const { data: appointments = [] } = useAppointments();
+  const { data: services = [] } = useServices();
+  const { data: salesData = [], isLoading: loadingSales } = useSales();
+  const createSale = useCreateSale();
+
   const [isEditing, setIsEditing] = useState(false);
   const [metrics, setMetrics] = useState(initialMetrics);
   const [draggedId, setDraggedId] = useState<string | null>(null);
 
-  const [sales, setSales] = useState<Sale[]>(initialSales);
   const [currentPage, setCurrentPage] = useState(1);
   const salesPerPage = 10;
 
@@ -63,14 +35,65 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const [selectedService, setSelectedService] = useState("");
   const [saleNotes, setSaleNotes] = useState("");
   const [saleAmount, setSaleAmount] = useState<number | "">("");
-  const [saleType, setSaleType] = useState<"setup" | "recurrent">("setup");
+  const [saleType, setSaleType] = useState<"initial" | "recurring">("initial");
+
+  // ─── Compute metrics from real data ───
+  const todayKey = useMemo(() => {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, "0")}-${String(t.getDate()).padStart(2, "0")}`;
+  }, []);
+
+  const todayAppointments = useMemo(
+    () => appointments.filter(a => a.date === todayKey && a.status === "confirmed"),
+    [appointments, todayKey]
+  );
+
+  const nextAppointment = useMemo(() => {
+    const now = new Date();
+    const upcoming = appointments
+      .filter(a => a.status === "confirmed")
+      .filter(a => {
+        const d = new Date(a.date);
+        d.setHours(a.hour, 0, 0, 0);
+        return d >= now;
+      })
+      .sort((a, b) => {
+        const da = new Date(a.date); da.setHours(a.hour);
+        const db = new Date(b.date); db.setHours(b.hour);
+        return da.getTime() - db.getTime();
+      });
+    return upcoming[0] ?? null;
+  }, [appointments]);
+
+  const mrr = useMemo(() => {
+    return salesData
+      .filter(s => s.type === "recurring")
+      .reduce((sum, s) => sum + s.amount, 0);
+  }, [salesData]);
+
+  const getMetricValue = (id: string) => {
+    switch (id) {
+      case "citas-hoy": return String(todayAppointments.length);
+      case "total-contactos": return String(contacts.length);
+      case "proxima-cita": {
+        if (!nextAppointment) return "—";
+        return `${nextAppointment.date} ${String(nextAppointment.hour).padStart(2, "0")}:00`;
+      }
+      case "mrr": return `$${mrr.toFixed(0)}`;
+      case "proyectos-activos": return String(contacts.filter(c => c.stage === "client").length);
+      case "entregados-mes": return "—";
+      default: return "—";
+    }
+  };
+
+  // ─── Sales form ───
 
   const handleServiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const sId = e.target.value;
     setSelectedService(sId);
-    setSaleType("setup");
+    setSaleType("initial");
     
-    const s = dummyServices.find(x => x.id === sId);
+    const s = services.find(x => x.id === sId);
     if (s) {
       setSaleAmount(s.price);
     } else {
@@ -78,35 +101,50 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
     }
   };
 
-  const handleRegisterSale = () => {
+  const handleRegisterSale = async () => {
     if (!selectedContact || !selectedService || saleAmount === "" || isNaN(Number(saleAmount))) return;
     
-    const contact = dummyContacts.find(c => c.id === selectedContact);
-    const service = dummyServices.find(s => s.id === selectedService);
+    const contact = contacts.find(c => c.id === selectedContact);
+    const service = services.find(s => s.id === selectedService);
     if (!contact || !service) return;
 
     let finalNotes = saleNotes;
-    if (service.monthlyPrice > 0) {
-        const typeLabel = saleType === "setup" ? "Pago Inicial" : "Pago Recurrente";
-        finalNotes = finalNotes ? `[${typeLabel}] ${finalNotes}` : `[${typeLabel}]`;
+    if (service.is_recurring) {
+      const typeLabel = saleType === "initial" ? "Pago Inicial" : "Pago Recurrente";
+      finalNotes = finalNotes ? `[${typeLabel}] ${finalNotes}` : `[${typeLabel}]`;
     }
 
-    const newSale: Sale = {
-        id: Date.now().toString(),
-        date: new Date().toLocaleDateString(),
-        contactName: contact.name,
-        serviceName: service.name,
+    try {
+      await createSale.mutateAsync({
+        contact_id: contact.id,
+        service_id: service.id,
+        service_name: service.name,
         amount: Number(saleAmount),
-        notes: finalNotes
-    };
-    setSales([newSale, ...sales]);
-    setSelectedContact("");
-    setSelectedService("");
-    setSaleNotes("");
-    setSaleAmount("");
-    setSaleType("setup");
-    setCurrentPage(1);
+        currency: service.currency ?? "USD",
+        type: saleType,
+        notes: finalNotes || null,
+      });
+      toast.success("Venta registrada");
+      setSelectedContact("");
+      setSelectedService("");
+      setSaleNotes("");
+      setSaleAmount("");
+      setSaleType("initial");
+      setCurrentPage(1);
+    } catch {
+      toast.error("Error al registrar la venta");
+    }
   };
+
+  // ─── Sales table ───
+  const sales = useMemo(() => salesData.map(s => ({
+    id: s.id,
+    date: new Date(s.created_at).toLocaleDateString("es-ES"),
+    contactName: contacts.find(c => c.id === s.contact_id)?.name ?? "—",
+    serviceName: s.service_name ?? "—",
+    amount: s.amount,
+    notes: s.notes ?? "",
+  })), [salesData, contacts]);
 
   const indexOfLastSale = currentPage * salesPerPage;
   const indexOfFirstSale = indexOfLastSale - salesPerPage;
@@ -116,7 +154,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const visibleMetrics = metrics.filter(m => isSuperAdmin || !m.isAdmin);
 
   const handleDragOver = (e: React.DragEvent) => {
-    e.preventDefault(); // Necessary to allow dropping
+    e.preventDefault();
   };
 
   const handleDrop = (targetId: string) => {
@@ -171,7 +209,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                 </div>
               )}
               <m.icon size={16} className={`mb-4 ${isEditing ? "text-primary" : "text-muted-foreground"}`} />
-              <p className="text-2xl font-semibold text-foreground">—</p>
+              <p className="text-2xl font-semibold text-foreground">{getMetricValue(m.id)}</p>
               <p className="text-xs text-muted-foreground mt-1">{m.label}</p>
             </div>
           ))}
@@ -187,23 +225,25 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
           <div className="px-6 py-12 text-center">
             <CalendarDays size={24} className="text-muted-foreground/30 mx-auto mb-3" />
             <p className="text-sm text-muted-foreground">
-              {/* {VAR_DB} — citas del día */}
               No hay citas agendadas para hoy.
             </p>
           </div>
         ) : (
           <div className="divide-y">
-            {todayAppointments.map((a, i) => (
-              <div key={i} className="px-6 py-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium">{a.name}</p>
-                  <p className="text-xs text-muted-foreground">{a.service}</p>
+            {todayAppointments.map((a) => {
+              const contact = contacts.find(c => c.id === a.contact_id);
+              return (
+                <div key={a.id} className="px-6 py-4 flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium">{contact?.name ?? "Sin contacto"}</p>
+                    <p className="text-xs text-muted-foreground">{a.service ?? ""}</p>
+                  </div>
+                  <span className="text-xs font-medium bg-primary/10 text-primary px-3 py-1 rounded-full">
+                    {String(a.hour).padStart(2, "0")}:00
+                  </span>
                 </div>
-                <span className="text-xs font-medium bg-primary/10 text-primary px-3 py-1 rounded-full">
-                  {a.time}
-                </span>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -220,7 +260,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
               onChange={(e) => setSelectedContact(e.target.value)}
             >
               <option value="">Seleccionar...</option>
-              {dummyContacts.map(c => (
+              {contacts.map(c => (
                 <option key={c.id} value={c.id}>{c.name}</option>
               ))}
             </select>
@@ -233,8 +273,8 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
               onChange={handleServiceChange}
             >
               <option value="">Seleccionar...</option>
-              {dummyServices.map(s => (
-                <option key={s.id} value={s.id}>{s.name}</option>
+              {services.map(s => (
+                <option key={s.id} value={s.id}>{s.name} — ${s.price}</option>
               ))}
             </select>
           </div>
@@ -249,13 +289,18 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
               className="h-10"
             />
           </div>
-          <Button onClick={handleRegisterSale} className="h-10 w-full" disabled={!selectedContact || !selectedService || saleAmount === ""}>
-            <Plus size={16} className="mr-1.5" /> Registrar Venta
+          <Button 
+            onClick={handleRegisterSale} 
+            className="h-10 w-full" 
+            disabled={!selectedContact || !selectedService || saleAmount === "" || createSale.isPending}
+          >
+            {createSale.isPending ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Plus size={16} className="mr-1.5" />}
+            Registrar Venta
           </Button>
 
           {(() => {
-            const s = dummyServices.find(x => x.id === selectedService);
-            if (s && s.monthlyPrice > 0) {
+            const s = services.find(x => x.id === selectedService);
+            if (s && s.is_recurring) {
               return (
                 <div className="md:col-span-4 p-3 bg-secondary/30 rounded-xl border border-secondary">
                   <p className="text-xs font-medium text-muted-foreground mb-2">Tipo de cobro para este servicio</p>
@@ -264,27 +309,28 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                       <input 
                         type="radio" 
                         name="saleType" 
-                        checked={saleType === "setup"} 
+                        checked={saleType === "initial"} 
                         onChange={() => {
-                           setSaleType("setup");
+                           setSaleType("initial");
                            setSaleAmount(s.price);
                         }} 
                         className="text-primary focus:ring-primary h-4 w-4 accent-primary" 
                       />
-                      Pago Inicial / Setup (${s.price})
+                      Pago Inicial (${s.price})
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
                       <input 
                         type="radio" 
                         name="saleType" 
-                        checked={saleType === "recurrent"} 
+                        checked={saleType === "recurring"} 
                         onChange={() => {
-                           setSaleType("recurrent");
-                           setSaleAmount(s.monthlyPrice);
+                           setSaleType("recurring");
+                           // Use same price for recurring for now
+                           setSaleAmount(s.price);
                         }} 
                         className="text-primary focus:ring-primary h-4 w-4 accent-primary" 
                       />
-                      Pago Recurrente (${s.monthlyPrice})
+                      Pago Recurrente
                     </label>
                   </div>
                 </div>
@@ -310,7 +356,11 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
         <div className="px-6 py-4 border-b flex justify-between items-center">
           <h2 className="text-sm font-semibold">Historial de Ventas</h2>
         </div>
-        {sales.length === 0 ? (
+        {loadingSales ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 size={24} className="animate-spin text-muted-foreground" />
+          </div>
+        ) : sales.length === 0 ? (
           <div className="px-6 py-12 text-center text-muted-foreground">
             <DollarSign size={24} className="mx-auto mb-3 opacity-30" />
             <p className="text-sm font-medium">No hay ventas registradas.</p>
