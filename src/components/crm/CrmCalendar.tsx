@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, CalendarDays, Clock, User, Plus, Settings, ChevronDown, Pencil, Trash2, Coffee, Loader2, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import CrmCalendarConfig from "./CrmCalendarConfig";
 import { useAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment, useBlockedSlots, useCreateBlockedSlot, useDeleteBlockedSlot, useContacts, useCalendars, useForms, useCreateForm, useUpdateCalendarConfig } from "@/hooks/useCrmData";
 import type { CrmCalendarConfig as CalendarData } from "@/lib/supabase";
+import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 
@@ -52,6 +53,27 @@ function isDayBlocked(blocked: BlockedSlot[], dayKey: string): BlockedSlot | und
 }
 
 
+// ─── Availability helpers ─────────────────────────────────────
+
+const SCHEDULE_KEY = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+const amPmToHour = (t: string): number => {
+  const [timePart, period] = t.split(" ");
+  const [h] = timePart.split(":").map(Number);
+  if (period === "AM") return h === 12 ? 0 : h;
+  return h === 12 ? 12 : h + 12;
+};
+
+const isHourAvailable = (avail: WeeklySchedule | null | undefined, dayOfWeek: number, hour: number): boolean => {
+  if (!avail) return true;
+  const dayKey = SCHEDULE_KEY[dayOfWeek];
+  const day = avail[dayKey];
+  if (!day || !day.open) return false;
+  return day.slots.some((slot) => hour >= amPmToHour(slot.from) && hour < amPmToHour(slot.to));
+};
+
+// ─── Status styles ────────────────────────────────────────────
+
 const statusStyles: Record<string, string> = {
   "Confirmada": "bg-primary/10 text-primary border-primary/20",
   "Pendiente":  "bg-amber-50 text-amber-700 border-amber-200",
@@ -80,6 +102,192 @@ function dateKey(d: Date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// ─── Slot Dialog (two-tab: Agendar / Reservar) ───────────────
+
+interface SlotDialogProps {
+  newAppt: { open: boolean; date: string; hour: number; contactId: string; notes: string; service: string } | null;
+  contacts: any[];
+  onClose: () => void;
+  onChangeAppt: (patch: Partial<{ date: string; hour: number; contactId: string; notes: string; service: string }>) => void;
+  onSaveAppt: () => Promise<void>;
+  onSaveBlock: (payload: { type: "hours" | "fullday" | "range"; date: string; startHour: number; endHour: number; reason: string }) => Promise<void>;
+  isSavingAppt: boolean;
+  isSavingBlock: boolean;
+}
+
+const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSaveBlock, isSavingAppt, isSavingBlock }: SlotDialogProps) => {
+  const [slotTab, setSlotTab] = useState<"appt" | "block">("appt");
+  const [blockType, setBlockType] = useState<"hours" | "fullday">("hours");
+  const [blockReason, setBlockReason] = useState("");
+  const [blockEndHour, setBlockEndHour] = useState((newAppt?.hour ?? 12) + 1);
+
+  if (!newAppt) return null;
+
+  const canSave = !!newAppt.contactId && !!newAppt.date && newAppt.hour >= 0;
+
+  const handleSaveBlock = () =>
+    onSaveBlock({ type: blockType, date: newAppt.date, startHour: newAppt.hour, endHour: blockEndHour, reason: blockReason });
+
+  return (
+    <>
+      <DialogHeader>
+        <DialogTitle>
+          {slotTab === "appt" ? "Nueva cita" : "Reservar tiempo"}
+        </DialogTitle>
+        <DialogDescription>
+          {slotTab === "appt"
+            ? `${newAppt.date} · ${String(newAppt.hour).padStart(2, "0")}:00`
+            : "Bloquea este horario. No se aceptarán citas en este espacio."}
+        </DialogDescription>
+      </DialogHeader>
+
+      {/* Tab switcher */}
+      <div className="flex border rounded-xl overflow-hidden h-9 -mt-1">
+        <button
+          onClick={() => setSlotTab("appt")}
+          className={`flex-1 text-xs font-semibold transition-all ${slotTab === "appt" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:bg-secondary/50"}`}
+        >
+          Agendar cita
+        </button>
+        <button
+          onClick={() => setSlotTab("block")}
+          className={`flex-1 text-xs font-semibold border-l transition-all ${slotTab === "block" ? "bg-amber-500 text-white" : "text-muted-foreground hover:bg-secondary/50"}`}
+        >
+          Reservar tiempo
+        </button>
+      </div>
+
+      {slotTab === "appt" ? (
+        <div className="space-y-4 py-1">
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Contacto <span className="text-destructive">*</span></label>
+            <div className="relative">
+              <select
+                value={newAppt.contactId}
+                onChange={(e) => onChangeAppt({ contactId: e.target.value })}
+                className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
+              >
+                <option value="">Seleccionar contacto...</option>
+                {contacts.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name} — {c.email ?? ""}</option>
+                ))}
+              </select>
+              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Fecha <span className="text-destructive">*</span></label>
+              <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Hora <span className="text-destructive">*</span></label>
+              <div className="relative">
+                <select
+                  value={newAppt.hour}
+                  onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })}
+                  className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+                </select>
+                <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium text-muted-foreground">Notas <span className="text-xs font-normal">(opcional)</span></label>
+            <textarea
+              value={newAppt.notes}
+              onChange={(e) => onChangeAppt({ notes: e.target.value })}
+              placeholder="Motivo de la cita, instrucciones especiales..."
+              rows={3}
+              className="w-full rounded-lg border bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose} className="h-9">Cancelar</Button>
+            <Button disabled={!canSave || isSavingAppt} onClick={onSaveAppt} className="h-9">
+              {isSavingAppt ? <Loader2 size={14} className="animate-spin mr-1.5" /> : null}
+              Agendar cita
+            </Button>
+          </DialogFooter>
+        </div>
+      ) : (
+        <div className="space-y-4 py-1">
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Tipo de reserva</label>
+            <div className="flex border rounded-xl overflow-hidden h-9">
+              {(["hours", "fullday"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setBlockType(t)}
+                  className={`flex-1 text-xs font-semibold transition-all ${
+                    blockType === t ? "bg-amber-500 text-white" : "bg-card text-muted-foreground hover:bg-secondary/50"
+                  } ${t !== "hours" ? "border-l" : ""}`}
+                >
+                  {t === "hours" ? "Horas" : "Día completo"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {blockType === "hours" && (
+            <div className="space-y-3">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium">Fecha</label>
+                <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Desde</label>
+                  <div className="relative">
+                    <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                      {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+                    </select>
+                    <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Hasta</label>
+                  <div className="relative">
+                    <select value={blockEndHour} onChange={(e) => setBlockEndHour(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                      {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+                    </select>
+                    <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {blockType === "fullday" && (
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Fecha a bloquear</label>
+              <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
+            </div>
+          )}
+
+<div className="space-y-1.5">
+            <label className="text-sm font-medium text-muted-foreground">Motivo <span className="text-xs font-normal">(opcional)</span></label>
+            <Input value={blockReason} onChange={(e) => setBlockReason(e.target.value)} placeholder="Ej: Reunión interna, vacaciones..." className="h-9 text-sm" />
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={onClose} className="h-9">Cancelar</Button>
+            <Button disabled={isSavingBlock} onClick={handleSaveBlock} className="h-9 bg-amber-500 hover:bg-amber-600 text-white">
+              {isSavingBlock ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Coffee size={14} className="mr-1.5" />}
+              Reservar tiempo
+            </Button>
+          </DialogFooter>
+        </div>
+      )}
+    </>
+  );
+};
+
 // ─── Sub-views ───────────────────────────────────────────────
 
 const EmptySlot = () => (
@@ -91,10 +299,11 @@ const EmptySlot = () => (
 
 // DAY VIEW
 const DayView = ({
-  current, onSelect, selected, onSlotClick, blocked, appointments,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number) => void; blocked: BlockedSlot[]; appointments: any[] }) => {
+  current, onSelect, selected, onSlotClick, blocked, appointments, availability,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null }) => {
   const key = dateKey(current);
   const dayAppts = appointments.filter((a) => a.date === key);
+  const dow = current.getDay();
 
   return (
     <div className="bg-card border rounded-2xl overflow-hidden">
@@ -102,9 +311,10 @@ const DayView = ({
         {HOURS.map((hour) => {
           const appt = dayAppts.find((a) => a.hour === hour);
           const blk = isHourBlocked(blocked, key, hour);
+          const unavailable = !appt && !blk && !isHourAvailable(availability, dow, hour);
           return (
-            <div key={hour} className="flex gap-4 px-5 py-3 min-h-[56px]">
-              <span className="text-xs text-muted-foreground/60 w-12 shrink-0 pt-0.5 font-mono">
+            <div key={hour} className={`flex gap-4 px-5 py-3 min-h-[56px] ${unavailable ? "bg-muted/70" : ""}`}>
+              <span className={`text-xs w-12 shrink-0 pt-0.5 font-mono ${unavailable ? "text-muted-foreground/30" : "text-muted-foreground/60"}`}>
                 {String(hour).padStart(2, "0")}:00
               </span>
               {appt ? (
@@ -124,6 +334,8 @@ const DayView = ({
                   <Coffee size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
                   <span className="font-semibold">{blk.reason || "Reservado"}</span>
                 </div>
+              ) : unavailable ? (
+                <div className="flex-1" />
               ) : (
                 <button
                   onClick={() => onSlotClick(key, hour)}
@@ -142,8 +354,8 @@ const DayView = ({
 
 // WEEK VIEW
 const WeekView = ({
-  current, onSelect, selected, onSlotClick, blocked, appointments,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number) => void; blocked: BlockedSlot[]; appointments: any[] }) => {
+  current, onSelect, selected, onSlotClick, blocked, appointments, availability,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null }) => {
   const monday = startOfWeek(current);
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
@@ -163,7 +375,7 @@ const WeekView = ({
           return (
             <div
               key={day.toISOString()}
-              className={`flex-1 min-w-[90px] px-2 py-3 text-center border-r last:border-r-0 ${dayBlk ? "bg-amber-100/60 dark:bg-amber-900/30" : isToday ? "bg-primary/5" : ""}`}
+              className={`flex-1 min-w-[90px] px-2 py-3 text-center border-r last:border-r-0 ${dayBlk ? "bg-amber-100/60 dark:bg-amber-900/30" : isToday ? "bg-primary/10" : ""}`}
             >
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{DAYS_ES[day.getDay()]}</p>
               <p className={`text-sm font-semibold mt-0.5 ${isToday ? "text-primary" : ""}`}>{day.getDate()}</p>
@@ -188,13 +400,16 @@ const WeekView = ({
               const appt = appointments.find((a) => a.date === key && a.hour === hour);
               const blk = isHourBlocked(blocked, key, hour);
               const isToday = sameDay(day, new Date());
+              const unavailable = !appt && !blk && !isHourAvailable(availability, day.getDay(), hour);
               return (
                 <div
                   key={key}
-                  onClick={() => { if (!appt && !blk) onSlotClick(key, hour); }}
+                  onClick={() => { if (!appt && !blk && !unavailable) onSlotClick(key, hour); }}
                   className={`flex-1 min-w-[90px] border-r last:border-r-0 px-1.5 py-1 group ${
-                    blk ? "bg-amber-100 dark:bg-amber-900/40" : isToday ? "bg-primary/5" : ""
-                  } ${!appt && !blk ? "hover:bg-primary/5 cursor-pointer" : ""}`}
+                    blk ? "bg-amber-100 dark:bg-amber-900/40"
+                    : unavailable ? "bg-muted/70"
+                    : isToday ? "bg-primary/10" : ""
+                  } ${!appt && !blk && !unavailable ? "hover:bg-primary/5 cursor-pointer" : ""}`}
                 >
                   {appt ? (
                     <button
@@ -208,11 +423,11 @@ const WeekView = ({
                       <p className="font-semibold truncate">{appt.time}</p>
                       <p className="truncate opacity-80">{appt.name}</p>
                     </button>
-                   ) : blk ? (
+                  ) : blk ? (
                     <div className="w-full h-full flex items-center justify-center text-amber-600 dark:text-amber-400">
                       <Coffee size={12} />
                     </div>
-                  ) : (
+                  ) : unavailable ? null : (
                     <div className="h-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <Plus size={12} className="text-primary/50" />
                     </div>
@@ -267,7 +482,7 @@ const MonthView = ({
 
           return (
             <div key={key} className={`min-h-[90px] p-2 border-r border-b last:border-r-0 ${
-              dayBlk ? "bg-amber-100 dark:bg-amber-900/40" : isToday ? "bg-primary/5" : ""
+              dayBlk ? "bg-amber-100 dark:bg-amber-900/40" : isToday ? "bg-primary/10" : ""
             }`}>
               <div className="flex items-center justify-between mb-1.5">
                 <p className={`text-xs font-semibold w-6 h-6 flex items-center justify-center rounded-full ${
@@ -356,7 +571,13 @@ const CrmCalendar = () => {
     endDate: b.range_end ?? undefined,
   })), [rawBlocked]);
 
-  const [view, setView] = useState<ViewMode>("week");
+  const [view, setView] = useState<ViewMode>(() =>
+    (localStorage.getItem("crm_calendar_view") as ViewMode | null) ?? "week"
+  );
+  const handleSetView = useCallback((v: ViewMode) => {
+    setView(v);
+    localStorage.setItem("crm_calendar_view", v);
+  }, []);
   const [current, setCurrent] = useState(new Date());
   const [selected, setSelected] = useState<string | null>(null);
   const [dropdownOpen, setDropdownOpen]   = useState(false);
@@ -412,14 +633,13 @@ const CrmCalendar = () => {
     }
   };
 
-  const canSaveAppt = newAppt && newAppt.contactId && newAppt.date && newAppt.hour >= 0;
-
   // Which calendar is selected in the dropdown
   const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
   // null = new calendar form; CalendarData = edit form; undefined = not in config mode
   const [editingCalendar, setEditingCalendar] = useState<CalendarData | null | undefined>(undefined);
 
   const selectedCalendar = calendars.find((c) => c.id === selectedCalendarId) ?? calendars[0] ?? null;
+  const availability = selectedCalendar?.availability as WeeklySchedule | null | undefined;
   const detail = appointments.find((a) => a.id === selected);
 
   const isLoading = loadingConfig || loadingForms || loadingAppts || loadingBlocked;
@@ -633,7 +853,7 @@ const CrmCalendar = () => {
                         key={cal.id}
                         onClick={() => { setSelectedCalendarId(cal.id); setDropdownOpen(false); }}
                         className={`w-full text-left px-4 py-3 text-sm flex items-center gap-3 transition-all ${
-                          isActive ? "bg-primary/10 text-primary font-semibold border-l-2 border-primary" : "hover:bg-secondary/70 text-foreground"
+                          isActive ? "bg-primary/10 text-primary font-semibold border-l-2 border-primary" : "hover:bg-secondary/90 text-foreground"
                         }`}
                       >
                         <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isActive ? "bg-primary/20" : "bg-secondary"}`}>
@@ -679,7 +899,7 @@ const CrmCalendar = () => {
             {(["day", "week", "month"] as ViewMode[]).map((v) => (
               <button
                 key={v}
-                onClick={() => setView(v)}
+                onClick={() => handleSetView(v)}
                 className={`px-4 py-1 text-[11px] font-semibold transition-all ${
                   view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary/20"
                 }`}
@@ -702,7 +922,7 @@ const CrmCalendar = () => {
 
       {/* Date Navigation */}
       <div className="flex flex-col-reverse sm:flex-row items-start sm:items-center gap-4 py-2 border-b border-border/40 mb-2">
-        <div className="flex items-center bg-secondary/40 border border-border/60 rounded-xl p-0.5">
+        <div className="flex items-center bg-secondary/90 border border-border/60 rounded-xl p-0.5">
           <button onClick={() => navigate(-1)} className="p-1 px-1.5 hover:bg-background rounded-lg transition-colors text-muted-foreground hover:text-foreground">
             <ChevronLeft size={16} />
           </button>
@@ -730,8 +950,8 @@ const CrmCalendar = () => {
       <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6" : ""}`}>
         {/* Calendar view */}
         <div>
-          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} />}
-          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} />}
+          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} />}
+          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} />}
           {view === "month" && <MonthView current={current} onSelect={setSelected} selected={selected} blocked={blockedSlots} appointments={appointments} />}
         </div>
 
@@ -864,109 +1084,51 @@ const CrmCalendar = () => {
         )}
       </div>
 
-      {/* ─── New Appointment Modal ─── */}
+      {/* ─── New Appointment / Block Time Modal ─── */}
       <Dialog open={!!newAppt?.open} onOpenChange={(open) => !open && closeNewAppt()}>
-        <DialogContent className="sm:max-w-[420px]">
-          <DialogHeader>
-            <DialogTitle>Nueva cita</DialogTitle>
-            <DialogDescription>Completa los datos obligatorios para agendar la cita.</DialogDescription>
-          </DialogHeader>
-
-          {newAppt && (
-            <div className="space-y-4 py-2">
-              {/* Contacto */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium">
-                  Contacto <span className="text-destructive">*</span>
-                </label>
-                <div className="relative">
-                  <select
-                    value={newAppt.contactId}
-                    onChange={(e) => setNewAppt((p) => p && ({ ...p, contactId: e.target.value }))}
-                    className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
-                  >
-                    <option value="">Seleccionar contacto...</option>
-                    {contacts.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name} — {c.email ?? ""}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                </div>
-              </div>
-
-              {/* Fecha y Hora */}
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">
-                    Fecha <span className="text-destructive">*</span>
-                  </label>
-                  <Input
-                    type="date"
-                    value={newAppt.date}
-                    onChange={(e) => setNewAppt((p) => p && ({ ...p, date: e.target.value }))}
-                    className="h-9 text-sm"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">
-                    Hora <span className="text-destructive">*</span>
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={newAppt.hour}
-                      onChange={(e) => setNewAppt((p) => p && ({ ...p, hour: Number(e.target.value) }))}
-                      className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
-                    >
-                      {HOURS.map((h) => (
-                        <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-                      ))}
-                    </select>
-                    <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Notas */}
-              <div className="space-y-1.5">
-                <label className="text-sm font-medium text-muted-foreground">Notas <span className="text-xs font-normal">(opcional)</span></label>
-                <textarea
-                  value={newAppt.notes}
-                  onChange={(e) => setNewAppt((p) => p && ({ ...p, notes: e.target.value }))}
-                  placeholder="Motivo de la cita, instrucciones especiales..."
-                  rows={3}
-                  className="w-full rounded-lg border bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-            </div>
-          )}
-
-          <DialogFooter>
-            <Button variant="outline" onClick={closeNewAppt} className="h-9">Cancelar</Button>
-            <Button
-              disabled={!canSaveAppt || createAppointment.isPending}
-              onClick={async () => {
-                if (!newAppt) return;
-                try {
-                  await createAppointment.mutateAsync({
-                    contact_id: newAppt.contactId || null,
-                    date: newAppt.date,
-                    hour: newAppt.hour,
-                    service: newAppt.service || null,
-                    notes: newAppt.notes || null,
-                    status: "confirmed",
-                  });
-                  toast.success("Cita agendada");
-                  closeNewAppt();
-                } catch {
-                  toast.error("Error al agendar cita");
-                }
-              }}
-              className="h-9"
-            >
-              {createAppointment.isPending ? <Loader2 size={14} className="animate-spin mr-1.5" /> : null}
-              Agendar cita
-            </Button>
-          </DialogFooter>
+        <DialogContent className="sm:max-w-[440px]">
+          <SlotDialog
+            newAppt={newAppt}
+            contacts={contacts}
+            onClose={closeNewAppt}
+            onChangeAppt={(patch) => setNewAppt((p) => p && ({ ...p, ...patch }))}
+            onSaveAppt={async () => {
+              if (!newAppt) return;
+              try {
+                await createAppointment.mutateAsync({
+                  contact_id: newAppt.contactId || null,
+                  date: newAppt.date,
+                  hour: newAppt.hour,
+                  service: newAppt.service || null,
+                  notes: newAppt.notes || null,
+                  status: "confirmed",
+                });
+                toast.success("Cita agendada");
+                closeNewAppt();
+              } catch {
+                toast.error("Error al agendar cita");
+              }
+            }}
+            onSaveBlock={async ({ type, date, startHour, endHour, reason }) => {
+              try {
+                await createBlockedSlot.mutateAsync({
+                  type,
+                  reason: reason || null,
+                  date: type !== "range" ? date : null,
+                  start_hour: type === "hours" ? startHour : null,
+                  end_hour: type === "hours" ? endHour : null,
+                  range_start: type === "range" ? date : null,
+                  range_end: type === "range" ? date : null,
+                });
+                toast.success("Tiempo reservado");
+                closeNewAppt();
+              } catch {
+                toast.error("Error al reservar tiempo");
+              }
+            }}
+            isSavingAppt={createAppointment.isPending}
+            isSavingBlock={createBlockedSlot.isPending}
+          />
         </DialogContent>
       </Dialog>
 

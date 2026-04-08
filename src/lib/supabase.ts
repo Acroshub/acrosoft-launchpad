@@ -21,7 +21,7 @@ export type CrmContact = {
   email: string | null
   phone: string | null
   company: string | null
-  stage: 'lead' | 'prospect' | 'client' | 'churned'
+  stage: 'lead' | 'prospect' | 'client' | 'churned' | null
   tags: string[]
   notes: string | null
   custom_fields: Json

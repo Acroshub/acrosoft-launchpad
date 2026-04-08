@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -15,6 +15,77 @@ import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useF
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+
+// ─── Inline editable field ────────────────────────────────────────────────────
+const InlineEdit = ({
+  icon: Icon,
+  value,
+  placeholder,
+  type = "text",
+  onSave,
+}: {
+  icon: React.ElementType;
+  value: string | null;
+  placeholder: string;
+  type?: string;
+  onSave: (val: string) => Promise<void>;
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(value ?? "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => { setVal(value ?? ""); }, [value]);
+
+  const commit = async () => {
+    const trimmed = val.trim();
+    if (trimmed === (value ?? "")) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      await onSave(trimmed);
+      setEditing(false);
+    } catch {
+      toast.error("Error al guardar");
+      setVal(value ?? "");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-2">
+        <Icon size={13} className="shrink-0 text-muted-foreground" />
+        <Input
+          autoFocus
+          type={type}
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") { setVal(value ?? ""); setEditing(false); }
+          }}
+          disabled={saving}
+          placeholder={placeholder}
+          className="h-7 text-xs flex-1"
+        />
+        {saving && <Loader2 size={13} className="animate-spin text-muted-foreground shrink-0" />}
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className={`flex items-center gap-2.5 text-xs w-full group rounded-lg px-0 py-0.5 hover:text-foreground transition-colors text-left ${value ? "text-muted-foreground" : "text-muted-foreground/40"}`}
+      title={`Editar ${placeholder.toLowerCase()}`}
+    >
+      <Icon size={13} className="shrink-0" />
+      <span className="truncate flex-1">{value || placeholder}</span>
+      <Pencil size={10} className="shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" />
+    </button>
+  );
+};
 
 // ─── Forms data panel (shown in contact detail for all users) ─────────────────
 const SIMPLE_TYPES = ["text", "email", "phone", "number", "url", "textarea", "select", "address"];
@@ -493,7 +564,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
         email: newEmail.trim(),
         phone: null,
         company: null,
-        stage: "lead",
+        stage: null,
         tags: [],
       });
       toast.success("Contacto creado exitosamente");
@@ -641,9 +712,11 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <p className="text-sm font-medium truncate">{c.name}</p>
-                            <Badge variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-primary/20 bg-primary/5 text-primary">
-                              {c.stage}
-                            </Badge>
+                            {c.stage && (
+                              <Badge variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-primary/20 bg-primary/5 text-primary">
+                                {c.stage}
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-0.5">{c.email ?? "Sin email"}</p>
                         </div>
@@ -691,34 +764,30 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                   </button>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Etapa</span>
-                  <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary">
-                    {detail.stage}
-                  </Badge>
-                </div>
+                {detail.stage && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Etapa</span>
+                    <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary">
+                      {detail.stage}
+                    </Badge>
+                  </div>
+                )}
 
-                <div className="space-y-3">
-                  {detail.email ? (
-                    <a href={`mailto:${detail.email}`} className="flex items-center gap-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                      <Mail size={13} className="shrink-0" />
-                      <span className="truncate">{detail.email}</span>
-                    </a>
-                  ) : (
-                    <div className="flex items-center gap-2.5 text-xs text-muted-foreground/40">
-                      <Mail size={13} className="shrink-0" /> <span>—</span>
-                    </div>
-                  )}
-                  {detail.phone ? (
-                    <a href={`tel:${detail.phone}`} className="flex items-center gap-2.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-                      <Phone size={13} className="shrink-0" />
-                      <span>{detail.phone}</span>
-                    </a>
-                  ) : (
-                    <div className="flex items-center gap-2.5 text-xs text-muted-foreground/40">
-                      <Phone size={13} className="shrink-0" /> <span>—</span>
-                    </div>
-                  )}
+                <div className="space-y-2">
+                  <InlineEdit
+                    icon={Mail}
+                    value={detail.email}
+                    placeholder="Añadir email"
+                    type="email"
+                    onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null })}
+                  />
+                  <InlineEdit
+                    icon={Phone}
+                    value={detail.phone}
+                    placeholder="Añadir teléfono"
+                    type="tel"
+                    onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null })}
+                  />
                 </div>
 
                 {/* Tags */}
