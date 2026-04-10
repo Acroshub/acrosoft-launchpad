@@ -1,7 +1,8 @@
-import { useState } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Activity, Loader2, Filter, Users, ChevronDown, Search, X } from "lucide-react";
 import { useLogs } from "@/hooks/useCrmData";
 import type { CrmLog } from "@/hooks/useCrmData";
+import { Input } from "@/components/ui/input";
 
 // ─── Logs Tab ─────────────────────────────────────────────────────────────────
 
@@ -91,34 +92,111 @@ const LogRow = ({ log, isLast }: { log: CrmLog; isLast: boolean }) => {
   );
 };
 
+const LOGS_PER_PAGE = 20;
+
 const LogsTab = () => {
   const { data: logs = [], isLoading } = useLogs();
-  const [filter, setFilter] = useState<"all" | "create" | "update" | "delete">("all");
+  const [actionFilter, setActionFilter] = useState<"all" | "create" | "update" | "delete">("all");
+  const [search, setSearch] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo]   = useState("");
+  const [page, setPage] = useState(1);
 
-  const visible = filter === "all" ? logs : logs.filter((l) => l.action === filter);
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim();
+    return logs.filter((l) => {
+      if (actionFilter !== "all" && l.action !== actionFilter) return false;
+      if (dateFrom && l.created_at < dateFrom) return false;
+      if (dateTo   && l.created_at.slice(0, 10) > dateTo) return false;
+      if (q) {
+        const haystack = [l.description, l.entity, l.entity_id].join(" ").toLowerCase();
+        if (!haystack.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [logs, actionFilter, search, dateFrom, dateTo]);
+
+  const totalPages = Math.max(1, Math.ceil(filtered.length / LOGS_PER_PAGE));
+  const safePage   = Math.min(page, totalPages);
+  const visible    = filtered.slice((safePage - 1) * LOGS_PER_PAGE, safePage * LOGS_PER_PAGE);
+
+  const resetFilters = () => { setSearch(""); setDateFrom(""); setDateTo(""); setActionFilter("all"); setPage(1); };
+  const hasFilters = search || dateFrom || dateTo || actionFilter !== "all";
 
   return (
     <div className="space-y-5">
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Filter size={13} /> Filtrar:
+      {/* ─── Filtros ─── */}
+      <div className="space-y-3">
+        {/* Buscador */}
+        <div className="relative">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
+          <Input
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Buscar por descripción, entidad, ID..."
+            className="h-9 pl-8 pr-8 text-sm"
+          />
+          {search && (
+            <button onClick={() => { setSearch(""); setPage(1); }}
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground">
+              <X size={13} />
+            </button>
+          )}
         </div>
-        {(["all", "create", "update", "delete"] as const).map((f) => (
-          <button
-            key={f}
-            onClick={() => setFilter(f)}
-            className={`text-xs font-semibold px-3 py-1.5 rounded-full border transition-all ${
-              filter === f
-                ? "bg-primary text-primary-foreground border-primary"
-                : "border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
-            }`}
-          >
-            {f === "all" ? "Todos" : ACTION_LABEL[f]}
-          </button>
-        ))}
-        <span className="ml-auto text-xs text-muted-foreground">{visible.length} entradas</span>
+
+        {/* Acción + fechas */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+            <Filter size={12} /> Acción:
+          </div>
+          {(["all", "create", "update", "delete"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => { setActionFilter(f); setPage(1); }}
+              className={`text-xs font-semibold px-3 py-1 rounded-full border transition-all ${
+                actionFilter === f
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+              }`}
+            >
+              {f === "all" ? "Todos" : ACTION_LABEL[f]}
+            </button>
+          ))}
+
+          <div className="flex items-center gap-1.5 ml-auto">
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
+              className="h-7 text-xs border rounded-lg px-2 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              title="Desde"
+            />
+            <span className="text-muted-foreground text-xs">—</span>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
+              className="h-7 text-xs border rounded-lg px-2 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              title="Hasta"
+            />
+            {hasFilters && (
+              <button onClick={resetFilters}
+                className="text-xs text-muted-foreground hover:text-foreground underline ml-1">
+                Limpiar
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span>{filtered.length} {filtered.length === 1 ? "entrada" : "entradas"}</span>
+          {totalPages > 1 && (
+            <span>Página {safePage} de {totalPages}</span>
+          )}
+        </div>
       </div>
 
+      {/* ─── Contenido ─── */}
       {isLoading ? (
         <div className="flex justify-center py-16">
           <Loader2 size={22} className="animate-spin text-muted-foreground" />
@@ -127,17 +205,63 @@ const LogsTab = () => {
         <div className="text-center py-20 bg-card border rounded-2xl">
           <Activity size={30} className="mx-auto text-muted-foreground/20 mb-3" />
           <p className="text-sm text-muted-foreground">
-            {filter === "all"
-              ? "No hay actividad registrada aún. Los logs se generan automáticamente con cada operación."
-              : "No hay entradas para este filtro."}
+            {hasFilters ? "No hay entradas para estos filtros." : "No hay actividad registrada aún."}
           </p>
         </div>
       ) : (
-        <div className="bg-card border rounded-2xl overflow-hidden">
-          {visible.map((log, i) => (
-            <LogRow key={log.id} log={log} isLast={i === visible.length - 1} />
-          ))}
-        </div>
+        <>
+          <div className="bg-card border rounded-2xl overflow-hidden">
+            {visible.map((log, i) => (
+              <LogRow key={log.id} log={log} isLast={i === visible.length - 1} />
+            ))}
+          </div>
+
+          {/* ─── Paginación ─── */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-1 pt-1">
+              <button
+                disabled={safePage === 1}
+                onClick={() => setPage(p => p - 1)}
+                className="h-7 px-3 text-xs rounded-lg border text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Anterior
+              </button>
+
+              {Array.from({ length: totalPages }, (_, i) => i + 1)
+                .filter(p => p === 1 || p === totalPages || Math.abs(p - safePage) <= 2)
+                .reduce<(number | "…")[]>((acc, p, idx, arr) => {
+                  if (idx > 0 && p - (arr[idx - 1] as number) > 1) acc.push("…");
+                  acc.push(p);
+                  return acc;
+                }, [])
+                .map((p, i) =>
+                  p === "…" ? (
+                    <span key={`ellipsis-${i}`} className="text-xs text-muted-foreground px-1">…</span>
+                  ) : (
+                    <button
+                      key={p}
+                      onClick={() => setPage(p as number)}
+                      className={`w-7 h-7 rounded-lg text-xs font-medium transition-colors ${
+                        safePage === p
+                          ? "bg-primary text-primary-foreground"
+                          : "border text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  )
+                )}
+
+              <button
+                disabled={safePage === totalPages}
+                onClick={() => setPage(p => p + 1)}
+                className="h-7 px-3 text-xs rounded-lg border text-muted-foreground hover:text-foreground hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                Siguiente
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

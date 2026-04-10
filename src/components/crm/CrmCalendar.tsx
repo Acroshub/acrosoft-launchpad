@@ -584,7 +584,7 @@ const CrmCalendar = () => {
   const [editingApptId, setEditingApptId] = useState<string | null>(null);
   const [editDate, setEditDate]           = useState("");
   const [editHour, setEditHour]           = useState(10);
-  const [deleteApptId, setDeleteApptId]   = useState<string | null>(null);
+  const [deleteApptTarget, setDeleteApptTarget] = useState<{ id: string; name: string } | null>(null);
 
   // New appointment modal
   const [newAppt, setNewAppt] = useState<{ open: boolean; date: string; hour: number; contactId: string; notes: string; service: string } | null>(null);
@@ -805,23 +805,23 @@ const CrmCalendar = () => {
   }
 
   const handleConfirmDeleteAppt = async () => {
-    if (!deleteApptId) return;
+    if (!deleteApptTarget) return;
     try {
-      await deleteAppointment.mutateAsync(deleteApptId);
+      await deleteAppointment.mutateAsync({ id: deleteApptTarget.id, name: deleteApptTarget.name });
       toast.success("Cita eliminada");
       setSelected(null);
     } catch {
       toast.error("Error al eliminar");
     } finally {
-      setDeleteApptId(null);
+      setDeleteApptTarget(null);
     }
   };
 
   return (
     <>
     <DeleteConfirmDialog
-      open={!!deleteApptId}
-      onOpenChange={(open) => { if (!open) setDeleteApptId(null); }}
+      open={!!deleteApptTarget}
+      onOpenChange={(open) => { if (!open) setDeleteApptTarget(null); }}
       onConfirm={handleConfirmDeleteAppt}
       isPending={deleteAppointment.isPending}
       description="Se eliminará la cita permanentemente."
@@ -994,7 +994,7 @@ const CrmCalendar = () => {
                       <Pencil size={14} />
                     </button>
                     <button
-                      onClick={() => setDeleteApptId(detail.id)}
+                      onClick={() => setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` })}
                       className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Borrar cita">
                       <Trash2 size={14} />
                     </button>
@@ -1073,7 +1073,7 @@ const CrmCalendar = () => {
                     <Pencil size={13} />
                   </button>
                   <button
-                    onClick={() => setDeleteApptId(detail.id)}
+                    onClick={() => setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` })}
                     className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Borrar cita">
                     <Trash2 size={13} />
                   </button>

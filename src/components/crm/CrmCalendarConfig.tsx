@@ -100,9 +100,14 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
     }
   }, [existingCalendar]);
 
-  const publicUrl  = `https://acrosoft-labs.com/book/${slug}`;
-  const iframeCode = `<iframe\n  src="${publicUrl}"\n  width="100%"\n  height="700"\n  frameborder="0"\n  style="border-radius:12px;"\n></iframe>`;
-  const jsCode     = `<div id="acrosoft-calendar"></div>\n<script>\n  window.AcrosoftCalendar = {\n    slug: "${slug}",\n    target: "#acrosoft-calendar"\n  };\n</script>\n<script src="https://acrosoft-labs.com/embed/calendar.js" defer></script>`;
+  const calendarUid = existingCalendar?.id ?? "";
+  const publicUrl   = calendarUid ? `${window.location.origin}/book/${calendarUid}` : "";
+  const iframeCode  = calendarUid
+    ? `<iframe\n  src="${window.location.origin}/book/${calendarUid}"\n  width="100%"\n  height="700"\n  frameborder="0"\n  style="border:none;border-radius:12px;"\n></iframe>`
+    : "";
+  const jsCode = calendarUid
+    ? `<div id="acrosoft-cal-${calendarUid}"></div>\n<script>\n  (function(){\n    var i=document.createElement('iframe');\n    i.src='${window.location.origin}/book/${calendarUid}';\n    i.width='100%';i.height='700';i.frameBorder='0';\n    i.style.borderRadius='12px';\n    document.getElementById('acrosoft-cal-${calendarUid}').appendChild(i);\n  })();\n</script>`
+    : "";
   const activeCode = embedTab === "iframe" ? iframeCode : jsCode;
 
   const handleCopy = () => {
@@ -267,10 +272,10 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
             </select>
           </Field>
 
-          <Field label="URL pública del calendario">
+          <Field label="Slug personalizado (opcional)">
             <div className="flex items-center gap-2">
               <Globe size={14} className="text-muted-foreground shrink-0" />
-              <span className="text-xs text-muted-foreground">acrosoft-labs.com/book/</span>
+              <span className="text-xs text-muted-foreground truncate">{window.location.origin}/book/</span>
               <Input
                 value={slug}
                 onChange={(e) => setSlug(e.target.value)}
@@ -278,6 +283,9 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
                 placeholder="mi-negocio"
               />
             </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              El calendario funciona sin slug — se usa el ID automáticamente.
+            </p>
           </Field>
 
           <div className="grid grid-cols-2 gap-4">
@@ -430,9 +438,13 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
           </div>
           <div className="flex items-center gap-3 pt-2 border-t">
             <span className="text-xs text-muted-foreground">URL directa:</span>
-            <a href={publicUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-primary hover:underline">
-              {publicUrl}
-            </a>
+            {publicUrl ? (
+              <a href={publicUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-primary hover:underline truncate">
+                {publicUrl}
+              </a>
+            ) : (
+              <span className="text-xs text-muted-foreground italic">Guarda el calendario primero</span>
+            )}
           </div>
         </div>
         </>

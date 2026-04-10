@@ -1,19 +1,23 @@
-import { CalendarDays, Users, Clock, FolderOpen, CheckCircle, DollarSign, GripVertical, Settings2, Plus, Loader2 } from "lucide-react";
+import { CalendarDays, Users, Clock, FolderOpen, CheckCircle, DollarSign, GripVertical, Settings2, Plus, Loader2, Pencil, Trash2, X, Check, TrendingUp } from "lucide-react";
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { useContacts, useAppointments, useServices, useSales, useCreateSale } from "@/hooks/useCrmData";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { useContacts, useAppointments, useServices, useSales, useCreateSale, useUpdateSale, useDeleteSale } from "@/hooks/useCrmData";
+import type { CrmSale } from "@/lib/supabase";
 import { toast } from "sonner";
 
 const initialMetrics = [
   // Métricas de Admin
   { id: "proyectos-activos", icon: FolderOpen,   label: "Proyectos activos", isAdmin: true },
   { id: "entregados-mes", icon: CheckCircle,  label: "Entregados (mes)",  isAdmin: true },
-  { id: "mrr", icon: DollarSign,   label: "MRR", isAdmin: true },
+  { id: "total-vendido", icon: DollarSign, label: "Total Vendido", isAdmin: true },
   // Métricas de CRM
   { id: "citas-hoy", icon: CalendarDays, label: "Citas hoy",       isAdmin: false },
   { id: "total-contactos", icon: Users,        label: "Total contactos", isAdmin: false },
   { id: "proxima-cita", icon: Clock,        label: "Próxima cita", isAdmin: false },
+  { id: "conversion", icon: TrendingUp, label: "% Conversión", isAdmin: false },
 ];
 
 const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
@@ -23,6 +27,61 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const { data: services = [] } = useServices();
   const { data: salesData = [], isLoading: loadingSales } = useSales();
   const createSale = useCreateSale();
+  const updateSale = useUpdateSale();
+  const deleteSale = useDeleteSale();
+
+  // ─── Edit / delete sale modal state ───
+  const [saleModal, setSaleModal] = useState<
+    | { mode: "edit"; sale: CrmSale }
+    | { mode: "delete"; sale: CrmSale }
+    | null
+  >(null);
+  const [justification, setJustification] = useState("");
+  const [editAmount, setEditAmount] = useState<number | "">("");
+  const [editNotes, setEditNotes] = useState("");
+
+  const openEditSale = (sale: CrmSale) => {
+    setSaleModal({ mode: "edit", sale });
+    setEditAmount(sale.amount);
+    setEditNotes(sale.notes ?? "");
+    setJustification("");
+  };
+  const openDeleteSale = (sale: CrmSale) => {
+    setSaleModal({ mode: "delete", sale });
+    setJustification("");
+  };
+  const closeSaleModal = () => { setSaleModal(null); setJustification(""); };
+
+  const handleConfirmEditSale = async () => {
+    if (!saleModal || saleModal.mode !== "edit") return;
+    if (!justification.trim()) { toast.error("La justificación es obligatoria"); return; }
+    try {
+      await updateSale.mutateAsync({
+        id: saleModal.sale.id,
+        amount: Number(editAmount),
+        notes: editNotes || null,
+        justification: justification.trim(),
+      });
+      toast.success("Venta actualizada");
+      closeSaleModal();
+    } catch { toast.error("Error al actualizar la venta"); }
+  };
+
+  const handleConfirmDeleteSale = async () => {
+    if (!saleModal || saleModal.mode !== "delete") return;
+    if (!justification.trim()) { toast.error("La justificación es obligatoria"); return; }
+    try {
+      await deleteSale.mutateAsync({
+        id: saleModal.sale.id,
+        contactName: saleModal.sale.contact_name ?? "—",
+        serviceName: saleModal.sale.service_name ?? "—",
+        amount: saleModal.sale.amount,
+        justification: justification.trim(),
+      });
+      toast.success("Venta eliminada");
+      closeSaleModal();
+    } catch { toast.error("Error al eliminar la venta"); }
+  };
 
   const [isEditing, setIsEditing] = useState(false);
   const [metrics, setMetrics] = useState(initialMetrics);
@@ -65,11 +124,21 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
     return upcoming[0] ?? null;
   }, [appointments]);
 
-  const mrr = useMemo(() => {
-    return salesData
-      .filter(s => s.type === "recurring")
-      .reduce((sum, s) => sum + s.amount, 0);
+  const totalVendido = useMemo(() => {
+    return salesData.reduce((sum, s) => sum + s.amount, 0);
   }, [salesData]);
+
+  const conversionRate = useMemo(() => {
+    if (contacts.length === 0) return null;
+    const contactsWithSale = new Set(salesData.map(s => s.contact_id).filter(Boolean));
+    return Math.round((contactsWithSale.size / contacts.length) * 100);
+  }, [contacts, salesData]);
+
+  const newContactsThisWeek = useMemo(() => {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    return contacts.filter(c => new Date(c.created_at) >= cutoff);
+  }, [contacts]);
 
   const getMetricValue = (id: string) => {
     switch (id) {
@@ -79,7 +148,8 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
         if (!nextAppointment) return "—";
         return `${nextAppointment.date} ${String(nextAppointment.hour).padStart(2, "0")}:00`;
       }
-      case "mrr": return `$${mrr.toFixed(0)}`;
+      case "total-vendido": return `$${totalVendido.toFixed(0)}`;
+      case "conversion": return conversionRate !== null ? `${conversionRate}%` : "—";
       case "proyectos-activos": return String(contacts.filter(c => c.stage === "client").length);
       case "entregados-mes": return "—";
       default: return "—";
@@ -117,6 +187,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
     try {
       await createSale.mutateAsync({
         contact_id: contact.id,
+        contact_name: contact.name,
         service_id: service.id,
         service_name: service.name,
         amount: Number(saleAmount),
@@ -140,8 +211,9 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const sales = useMemo(() => salesData.map(s => ({
     id: s.id,
     date: new Date(s.created_at).toLocaleDateString("es-ES"),
-    contactName: contacts.find(c => c.id === s.contact_id)?.name ?? "—",
-    serviceName: s.service_name ?? "—",
+    // contact_name es el snapshot guardado al crear la venta — sobrevive al borrado del contacto
+    contactName: s.contact_name ?? contacts.find(c => c.id === s.contact_id)?.name ?? "Contacto eliminado",
+    serviceName: s.service_name ?? "Servicio eliminado",
     amount: s.amount,
     notes: s.notes ?? "",
   })), [salesData, contacts]);
@@ -171,6 +243,97 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   };
 
   return (
+    <>
+    {/* ─── Edit / Delete Sale Modal ─── */}
+    <Dialog open={!!saleModal} onOpenChange={(o) => { if (!o) closeSaleModal(); }}>
+      <DialogContent className="sm:max-w-[440px]">
+        <DialogHeader>
+          <DialogTitle>
+            {saleModal?.mode === "edit" ? "Editar transacción" : "Eliminar transacción"}
+          </DialogTitle>
+        </DialogHeader>
+
+        {saleModal && (
+          <div className="space-y-4 py-1">
+            {/* Resumen de la venta */}
+            <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1 text-sm">
+              <p className="font-medium">{saleModal.sale.contact_name ?? "—"}</p>
+              <p className="text-muted-foreground text-xs">{saleModal.sale.service_name ?? "—"}</p>
+              <p className="text-primary font-semibold">${saleModal.sale.amount.toFixed(2)}</p>
+            </div>
+
+            {saleModal.mode === "edit" && (
+              <>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Nuevo monto</label>
+                  <Input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value === "" ? "" : Number(e.target.value))}
+                    className="h-9"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-muted-foreground">Notas</label>
+                  <Textarea
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    rows={2}
+                    className="text-sm resize-none"
+                    placeholder="Observaciones sobre esta venta..."
+                  />
+                </div>
+              </>
+            )}
+
+            {saleModal.mode === "delete" && (
+              <p className="text-sm text-muted-foreground">
+                Esta acción eliminará la transacción permanentemente. Quedará registrada en el log de actividad.
+              </p>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">
+                Justificación <span className="text-destructive">*</span>
+              </label>
+              <Textarea
+                value={justification}
+                onChange={(e) => setJustification(e.target.value)}
+                rows={2}
+                className="text-sm resize-none"
+                placeholder="Motivo de este cambio (obligatorio)..."
+                autoFocus
+              />
+            </div>
+          </div>
+        )}
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={closeSaleModal}>Cancelar</Button>
+          {saleModal?.mode === "edit" ? (
+            <Button
+              onClick={handleConfirmEditSale}
+              disabled={!justification.trim() || editAmount === "" || updateSale.isPending}
+            >
+              {updateSale.isPending && <Loader2 size={14} className="animate-spin mr-1.5" />}
+              Guardar cambios
+            </Button>
+          ) : (
+            <Button
+              variant="destructive"
+              onClick={handleConfirmDeleteSale}
+              disabled={!justification.trim() || deleteSale.isPending}
+            >
+              {deleteSale.isPending && <Loader2 size={14} className="animate-spin mr-1.5" />}
+              Eliminar transacción
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
     <div className="space-y-8">
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -216,36 +379,67 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
         </div>
       </div>
 
-      {/* Citas del día */}
-      <div className="bg-card border rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b">
-          <h2 className="text-sm font-semibold">Citas de hoy</h2>
-        </div>
-        {todayAppointments.length === 0 ? (
-          <div className="px-6 py-12 text-center">
-            <CalendarDays size={24} className="text-muted-foreground/30 mx-auto mb-3" />
-            <p className="text-sm text-muted-foreground">
-              No hay citas agendadas para hoy.
-            </p>
+      {/* Citas del día + Nuevos contactos */}
+      <div className="grid md:grid-cols-2 gap-4">
+        {/* Citas de hoy */}
+        <div className="bg-card border rounded-2xl overflow-hidden">
+          <div className="px-6 py-4 border-b">
+            <h2 className="text-sm font-semibold">Citas de hoy</h2>
           </div>
-        ) : (
-          <div className="divide-y">
-            {todayAppointments.map((a) => {
-              const contact = contacts.find(c => c.id === a.contact_id);
-              return (
-                <div key={a.id} className="px-6 py-4 flex items-center justify-between">
-                  <div>
-                    <p className="text-sm font-medium">{contact?.name ?? "Sin contacto"}</p>
-                    <p className="text-xs text-muted-foreground">{a.service ?? ""}</p>
+          {todayAppointments.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <CalendarDays size={24} className="text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">No hay citas agendadas para hoy.</p>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {todayAppointments.map((a) => {
+                const contact = contacts.find(c => c.id === a.contact_id);
+                return (
+                  <div key={a.id} className="px-6 py-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-sm font-medium">{contact?.name ?? "Sin contacto"}</p>
+                      <p className="text-xs text-muted-foreground">{a.service ?? ""}</p>
+                    </div>
+                    <span className="text-xs font-medium bg-primary/10 text-primary px-3 py-1 rounded-full">
+                      {String(a.hour).padStart(2, "0")}:00
+                    </span>
                   </div>
-                  <span className="text-xs font-medium bg-primary/10 text-primary px-3 py-1 rounded-full">
-                    {String(a.hour).padStart(2, "0")}:00
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Nuevos contactos esta semana */}
+        <div className="bg-card border rounded-2xl overflow-hidden">
+          <div className="px-6 py-4 border-b flex items-center justify-between">
+            <h2 className="text-sm font-semibold">Nuevos esta semana</h2>
+            <span className="text-xs font-semibold bg-primary/10 text-primary px-2.5 py-0.5 rounded-full">
+              {newContactsThisWeek.length}
+            </span>
+          </div>
+          {newContactsThisWeek.length === 0 ? (
+            <div className="px-6 py-12 text-center">
+              <Users size={24} className="text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-sm text-muted-foreground">Sin nuevos contactos esta semana.</p>
+            </div>
+          ) : (
+            <div className="divide-y">
+              {newContactsThisWeek.slice(0, 8).map((c) => (
+                <div key={c.id} className="px-6 py-3 flex items-center justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate">{c.name}</p>
+                    {c.email && <p className="text-xs text-muted-foreground truncate">{c.email}</p>}
+                  </div>
+                  <span className="text-[10px] text-muted-foreground shrink-0 ml-3">
+                    {new Date(c.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "short" })}
                   </span>
                 </div>
-              );
-            })}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Registrar Venta */}
@@ -319,18 +513,17 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                       Pago Inicial (${s.price})
                     </label>
                     <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input 
-                        type="radio" 
-                        name="saleType" 
-                        checked={saleType === "recurring"} 
+                      <input
+                        type="radio"
+                        name="saleType"
+                        checked={saleType === "recurring"}
                         onChange={() => {
                            setSaleType("recurring");
-                           // Use same price for recurring for now
-                           setSaleAmount(s.price);
-                        }} 
-                        className="text-primary focus:ring-primary h-4 w-4 accent-primary" 
+                           setSaleAmount(s.recurring_price ?? s.price);
+                        }}
+                        className="text-primary focus:ring-primary h-4 w-4 accent-primary"
                       />
-                      Pago Recurrente
+                      Pago Recurrente{s.recurring_price ? ` ($${s.recurring_price}${s.recurring_interval ? ` ${s.recurring_interval}` : ""})` : ""}
                     </label>
                   </div>
                 </div>
@@ -377,18 +570,40 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                     <th className="px-6 py-3 font-medium">Servicio</th>
                     <th className="px-6 py-3 font-medium text-right">Monto</th>
                     <th className="px-6 py-3 font-medium">Notas</th>
+                    <th className="px-4 py-3"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
-                  {currentSales.map((sale) => (
-                    <tr key={sale.id} className="hover:bg-secondary/30 transition-colors">
-                      <td className="px-6 py-3 whitespace-nowrap text-muted-foreground text-xs">{sale.date}</td>
-                      <td className="px-6 py-3 font-medium">{sale.contactName}</td>
-                      <td className="px-6 py-3">{sale.serviceName}</td>
-                      <td className="px-6 py-3 font-semibold text-primary text-right">${sale.amount.toFixed(2)}</td>
-                      <td className="px-6 py-3 text-muted-foreground text-xs truncate max-w-[200px]">{sale.notes || "-"}</td>
-                    </tr>
-                  ))}
+                  {currentSales.map((sale) => {
+                    const raw = salesData.find(s => s.id === sale.id)!;
+                    return (
+                      <tr key={sale.id} className="hover:bg-secondary/30 transition-colors group">
+                        <td className="px-6 py-3 whitespace-nowrap text-muted-foreground text-xs">{sale.date}</td>
+                        <td className="px-6 py-3 font-medium">{sale.contactName}</td>
+                        <td className="px-6 py-3">{sale.serviceName}</td>
+                        <td className="px-6 py-3 font-semibold text-primary text-right">${sale.amount.toFixed(2)}</td>
+                        <td className="px-6 py-3 text-muted-foreground text-xs truncate max-w-[160px]">{sale.notes || "-"}</td>
+                        <td className="px-4 py-3 text-right">
+                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => openEditSale(raw)}
+                              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                              title="Editar transacción"
+                            >
+                              <Pencil size={13} />
+                            </button>
+                            <button
+                              onClick={() => openDeleteSale(raw)}
+                              className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                              title="Eliminar transacción"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -440,6 +655,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
         )}
       </div>
     </div>
+    </>
   );
 };
 

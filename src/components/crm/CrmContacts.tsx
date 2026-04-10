@@ -7,11 +7,11 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import {
   Search, Users, Mail, Phone, Calendar, X, Eye,
   ArrowLeft, FolderOpen, Star, FileText, MessageSquare,
-  TrendingUp, Briefcase, Target, ImagePlus, Tag, Plus,
+  TrendingUp, Briefcase, Target, ImagePlus, Plus,
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
   Trash2, ChevronDown,
 } from "lucide-react";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms } from "@/hooks/useCrmData";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
@@ -84,6 +84,74 @@ const InlineEdit = ({
       <span className="truncate flex-1">{value || placeholder}</span>
       <Pencil size={10} className="shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" />
     </button>
+  );
+};
+
+// ─── Contact Notes Thread ─────────────────────────────────────────────────────
+const ContactNotesThread = ({ contactId }: { contactId: string }) => {
+  const { data: notes = [], isLoading } = useContactNotes(contactId);
+  const createNote = useCreateContactNote();
+  const [body, setBody] = useState("");
+
+  const handleSubmit = async () => {
+    const text = body.trim();
+    if (!text) return;
+    try {
+      await createNote.mutateAsync({ contactId, body: text });
+      setBody("");
+    } catch {
+      // silently fail — user can retry
+    }
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Historial de notas</p>
+
+      {isLoading ? (
+        <div className="flex justify-center py-4">
+          <Loader2 size={16} className="animate-spin text-muted-foreground" />
+        </div>
+      ) : notes.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground/50 italic">Sin notas aún.</p>
+      ) : (
+        <div className="space-y-2">
+          {notes.map((note) => (
+            <div key={note.id} className="bg-secondary/30 rounded-xl px-3 py-2 space-y-1">
+              <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{note.body}</p>
+              <p className="text-[9px] text-muted-foreground/50 tabular-nums">
+                {new Date(note.created_at).toLocaleString("es-ES", {
+                  day: "2-digit", month: "short", year: "numeric",
+                  hour: "2-digit", minute: "2-digit",
+                })}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="space-y-1.5">
+        <Textarea
+          value={body}
+          onChange={(e) => setBody(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit();
+          }}
+          rows={2}
+          placeholder="Escribe una nota… (Cmd+Enter para guardar)"
+          className="text-xs resize-none"
+        />
+        <Button
+          size="sm"
+          className="h-7 text-xs"
+          onClick={handleSubmit}
+          disabled={!body.trim() || createNote.isPending}
+        >
+          {createNote.isPending && <Loader2 size={12} className="animate-spin mr-1" />}
+          Guardar nota
+        </Button>
+      </div>
+    </div>
   );
 };
 
@@ -239,8 +307,6 @@ const FormDataPanel = ({
 
 // ─── Ficha técnica (solo admin) ───────────────────────────────────────────────
 const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => void }) => {
-  const [tab, setTab] = useState<"info" | "notes">("info");
-
   const cf = (contact.custom_fields as Record<string, any>) ?? {};
 
   const val = (key: string) => cf[key] || "—";
@@ -267,24 +333,7 @@ const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => 
         </div>
       </div>
 
-      {/* Tabs */}
-      <div className="flex p-1 bg-background border rounded-xl w-fit">
-        {([["info", "Ficha Técnica", FileText], ["notes", "Notas & Log", MessageSquare]] as const).map(
-          ([key, label, Icon]) => (
-            <button
-              key={key}
-              onClick={() => setTab(key)}
-              className={`flex items-center gap-1.5 px-5 py-2 rounded-lg text-sm font-medium transition-all ${
-                tab === key ? "bg-primary text-white shadow-sm" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <Icon size={14} /> {label}
-            </button>
-          )
-        )}
-      </div>
-
-      {tab === "info" && (
+      {(
         <div className="grid md:grid-cols-3 gap-4 animate-in fade-in duration-300">
           {[
             {
@@ -459,45 +508,6 @@ const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => 
           </div>
         </div>
       )}
-
-      {tab === "notes" && (
-        <div className="grid md:grid-cols-3 gap-4 animate-in fade-in duration-300">
-          <div className="md:col-span-2 bg-background border rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-4">
-              <MessageSquare size={14} className="text-muted-foreground" />
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Notas del Administrador
-              </h3>
-            </div>
-            <Textarea
-              defaultValue={contact.notes ?? ""}
-              placeholder="Escribe notas privadas o instrucciones para el equipo..."
-              className="min-h-[180px] rounded-xl bg-secondary/20 border-border/50 resize-none p-4 text-sm"
-            />
-            <div className="mt-3 flex justify-end">
-              <Button size="sm" className="rounded-lg text-xs">Guardar Nota</Button>
-            </div>
-          </div>
-          <div className="bg-background border rounded-2xl p-5">
-            <div className="flex items-center gap-2 mb-5">
-              <TrendingUp size={14} className="text-muted-foreground" />
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Historial</h3>
-            </div>
-            <div className="space-y-5 relative ml-2">
-              <div className="absolute left-[7px] top-2 bottom-2 w-px bg-border" />
-              <div className="relative flex gap-3 pl-6">
-                <div className="absolute left-0 top-1.5 w-3.5 h-3.5 rounded-full border-2 border-background bg-primary" />
-                <div>
-                  <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wide">
-                    {new Date(contact.created_at).toLocaleDateString("es-ES")}
-                  </p>
-                  <p className="text-xs font-medium mt-0.5">Contacto creado</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };
@@ -506,16 +516,21 @@ const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => 
 const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const { data: contacts = [], isLoading } = useContacts();
   const { data: forms = [] } = useForms();
+  const { data: pipelines = [] } = usePipelines();
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
   const deleteContact = useDeleteContact();
+
+  // First contacts pipeline — new contacts auto-enter its first column
+  const contactsPipeline = pipelines.find((p) => p.type === "contacts") ?? null;
+  const defaultStage = contactsPipeline?.column_names[0] ?? null;
 
   const [search, setSearch]         = useState("");
   const [selected, setSelected]     = useState<string | null>(null);
   const [viewing, setViewing]       = useState<string | null>(null);
   const [tagInputId, setTagInputId] = useState<string | null>(null);
   const [tagValue, setTagValue]     = useState("");
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   // New contact dialog
   const [showNew, setShowNew]       = useState(false);
@@ -564,10 +579,10 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
         email: newEmail.trim(),
         phone: null,
         company: null,
-        stage: null,
+        stage: defaultStage,
         tags: [],
       });
-      toast.success("Contacto creado exitosamente");
+      toast.success(defaultStage ? `Contacto creado y añadido a "${defaultStage}"` : "Contacto creado exitosamente");
       setShowNew(false);
       setNewName("");
       setNewEmail("");
@@ -577,15 +592,15 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   };
 
   const handleConfirmDelete = async () => {
-    if (!deleteTargetId) return;
+    if (!deleteTarget) return;
     try {
-      await deleteContact.mutateAsync(deleteTargetId);
-      if (selected === deleteTargetId) setSelected(null);
+      await deleteContact.mutateAsync({ id: deleteTarget.id, name: deleteTarget.name });
+      if (selected === deleteTarget.id) setSelected(null);
       toast.success("Contacto eliminado");
     } catch {
       toast.error("Error al eliminar contacto");
     } finally {
-      setDeleteTargetId(null);
+      setDeleteTarget(null);
     }
   };
 
@@ -600,8 +615,8 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   return (
     <>
     <DeleteConfirmDialog
-      open={!!deleteTargetId}
-      onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}
+      open={!!deleteTarget}
+      onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
       onConfirm={handleConfirmDelete}
       isPending={deleteContact.isPending}
       description="Se eliminará el contacto y todos sus datos permanentemente."
@@ -724,7 +739,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
 
                       {/* Delete button */}
                       <button
-                        onClick={() => setDeleteTargetId(c.id)}
+                        onClick={() => setDeleteTarget({ id: c.id, name: c.name })}
                         className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive shrink-0"
                         title="Eliminar contacto"
                       >
@@ -738,31 +753,46 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
           </div>
 
           {/* Panel de detalle */}
-          <div className="bg-card border rounded-2xl p-5 h-fit max-h-[80vh] overflow-y-auto">
+          <div className="bg-card border rounded-2xl flex flex-col max-h-[80vh]">
             {detail ? (
-              <div className="space-y-5">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
-                      {detail.name.substring(0, 2).toUpperCase()}
+              <>
+                {/* Fixed header */}
+                <div className="p-5 border-b shrink-0 space-y-3">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-center gap-3">
+                      <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
+                        {detail.name.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div>
+                        <p className="font-semibold text-sm">{detail.name}</p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Desde{" "}
+                          {new Date(detail.created_at).toLocaleDateString("es-ES", {
+                            day: "numeric", month: "short", year: "numeric",
+                          })}
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-semibold text-sm">{detail.name}</p>
-                      <p className="text-[10px] text-muted-foreground mt-0.5">
-                        Desde{" "}
-                        {new Date(detail.created_at).toLocaleDateString("es-ES", {
-                          day: "numeric", month: "short", year: "numeric",
-                        })}
-                      </p>
-                    </div>
+                    <button
+                      onClick={() => setSelected(null)}
+                      className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
+                    >
+                      <X size={14} />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => setSelected(null)}
-                    className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
-                  >
-                    <X size={14} />
-                  </button>
+                  {isSuperAdmin && (
+                    <Button
+                      className="w-full h-9 rounded-xl text-xs font-medium gap-2"
+                      onClick={() => setViewing(detail.id)}
+                    >
+                      <Eye size={14} />
+                      Ver Ficha Técnica
+                    </Button>
+                  )}
                 </div>
+
+                {/* Scrollable body */}
+                <div className="p-5 overflow-y-auto flex-1 space-y-5">
 
                 {detail.stage && (
                   <div className="flex items-center gap-2">
@@ -779,14 +809,14 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                     value={detail.email}
                     placeholder="Añadir email"
                     type="email"
-                    onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null })}
+                    onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})}
                   />
                   <InlineEdit
                     icon={Phone}
                     value={detail.phone}
                     placeholder="Añadir teléfono"
                     type="tel"
-                    onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null })}
+                    onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})}
                   />
                 </div>
 
@@ -841,13 +871,6 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                   )}
                 </div>
 
-                {detail.notes && (
-                  <div>
-                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">Notas</p>
-                    <p className="text-xs text-muted-foreground leading-relaxed">{detail.notes}</p>
-                  </div>
-                )}
-
                 {/* Formularios */}
                 <FormDataPanel
                   contact={detail}
@@ -855,19 +878,12 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                   onSave={(cf) => handleSaveFormData(detail.id, cf)}
                 />
 
-                {/* Ver Ficha Técnica — solo admin */}
-                {isSuperAdmin && (
-                  <Button
-                    className="w-full h-9 rounded-xl text-xs font-medium gap-2 mt-1"
-                    onClick={() => setViewing(detail.id)}
-                  >
-                    <Eye size={14} />
-                    Ver Ficha Técnica
-                  </Button>
-                )}
+                {/* Historial de notas */}
+                <ContactNotesThread contactId={detail.id} />
               </div>
+              </>
             ) : (
-              <div className="py-10 text-center">
+              <div className="p-5 py-10 text-center">
                 <Users size={22} className="text-muted-foreground/20 mx-auto mb-2" />
                 <p className="text-xs text-muted-foreground">Selecciona un contacto para ver los detalles</p>
               </div>

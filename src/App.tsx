@@ -5,6 +5,8 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Index from "./pages/Index.tsx";
 import Onboarding from "./pages/Onboarding.tsx";
+import FormPage from "./pages/FormPage.tsx";
+import BookingPage from "./pages/BookingPage.tsx";
 import Login from "./pages/Login.tsx";
 import Crm from "./pages/Crm.tsx";
 import NotFound from "./pages/NotFound.tsx";
@@ -20,9 +22,11 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           {/* Public routes */}
-          <Route path="/"            element={<Index />} />
-          <Route path="/onboarding"  element={<Onboarding />} />
-          <Route path="/login"       element={<Login />} />
+          <Route path="/"              element={<Index />} />
+          <Route path="/onboarding"    element={<Onboarding />} />
+          <Route path="/login"         element={<Login />} />
+          <Route path="/f/:formId"     element={<FormPage />} />
+          <Route path="/book/:calendarId" element={<BookingPage />} />
 
           {/* Protected routes */}
           <Route path="/crm" element={<ProtectedRoute><Crm /></ProtectedRoute>} />

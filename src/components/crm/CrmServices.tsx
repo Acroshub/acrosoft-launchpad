@@ -377,7 +377,7 @@ const CrmServices = () => {
 
   const [view, setView] = useState<"list" | "editor">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const selected = localServices.find((s) => s.id === selectedId);
 
@@ -404,18 +404,19 @@ const CrmServices = () => {
   };
 
   const handleDelete = (id: string) => {
-    setDeleteTargetId(id);
+    const svc = localServices.find((s) => s.id === id);
+    setDeleteTarget({ id, name: svc?.name ?? id });
   };
 
   const handleConfirmDelete = async () => {
-    if (!deleteTargetId) return;
+    if (!deleteTarget) return;
     try {
-      await deleteService.mutateAsync(deleteTargetId);
+      await deleteService.mutateAsync({ id: deleteTarget.id, name: deleteTarget.name });
       toast.success("Servicio eliminado");
     } catch {
       toast.error("Error al eliminar");
     } finally {
-      setDeleteTargetId(null);
+      setDeleteTarget(null);
     }
   };
 
@@ -469,8 +470,8 @@ const CrmServices = () => {
   return (
     <>
     <DeleteConfirmDialog
-      open={!!deleteTargetId}
-      onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}
+      open={!!deleteTarget}
+      onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
       onConfirm={handleConfirmDelete}
       isPending={deleteService.isPending}
       description="Se eliminará el servicio permanentemente."

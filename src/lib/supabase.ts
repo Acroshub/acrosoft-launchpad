@@ -21,10 +21,31 @@ export type CrmContact = {
   email: string | null
   phone: string | null
   company: string | null
-  stage: 'lead' | 'prospect' | 'client' | 'churned' | null
+  stage: string | null   // pipeline column name, or null if not in any pipeline
   tags: string[]
   notes: string | null
   custom_fields: Json
+}
+
+export type CrmPipeline = {
+  id: string
+  created_at: string
+  user_id: string
+  name: string
+  type: 'contacts' | 'tasks'
+  column_names: string[]
+}
+
+export type CrmTask = {
+  id: string
+  created_at: string
+  user_id: string
+  pipeline_id: string
+  title: string
+  description: string | null
+  priority: 'low' | 'medium' | 'high' | null
+  stage: string
+  position: number
 }
 
 export type CrmAppointment = {
@@ -82,6 +103,8 @@ export type CrmForm = {
   success_image: 'icon' | 'logo'
   redirect_url: string | null
   slug: string | null
+  auto_tags?: string[] | null
+  facebook_pixel_id?: string | null
 }
 
 export type CrmFormSubmission = {
@@ -129,12 +152,21 @@ export type CrmSale = {
   created_at: string
   user_id: string
   contact_id: string | null
+  contact_name: string | null   // snapshot del nombre al momento de la venta
   service_id: string | null
   service_name: string | null
   amount: number
   currency: string
   type: 'initial' | 'recurring'
   notes: string | null
+}
+
+export type CrmContactNote = {
+  id: string
+  created_at: string
+  contact_id: string
+  user_id: string
+  body: string
 }
 
 export type CrmBusinessProfile = {

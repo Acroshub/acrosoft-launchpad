@@ -1,209 +1,1001 @@
 import { useState, useMemo } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, X, GripVertical, Settings2, Check, ChevronDown, Loader2 } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
-import { useDeals, useCreateDeal, useUpdateDeal, useDeleteDeal, useContacts, useForms } from "@/hooks/useCrmData";
+import { Textarea } from "@/components/ui/textarea";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  Plus, X, GripVertical, Check, ChevronDown, Loader2,
+  Mail, Phone, Tag, User, Users, ListTodo, CalendarDays,
+  AlertCircle, AlertTriangle, Minus, Pencil,
+} from "lucide-react";
+import {
+  usePipelines, useCreatePipeline, useUpdatePipeline, useDeletePipeline,
+  useTasks, useCreateTask, useUpdateTask, useDeleteTask,
+  useContacts, useUpdateContact, useForms,
+} from "@/hooks/useCrmData";
+import type { CrmPipeline, CrmContact, CrmTask, CrmForm } from "@/lib/supabase";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 
-// ─── Default stage names ───
-const DEFAULT_STAGES = ["Nuevo Lead", "Contactado", "Negociación", "Cerrado"];
-
-type Card = { 
-  id: string; 
-  name: string; 
-  email: string; 
-  value?: string;
-  contactId?: string | null;
-  customFields?: { label: string; value: string }[];
+// ─── Constants ───────────────────────────────────────────────
+const DEFAULT_COLUMNS: Record<CrmPipeline["type"], string[]> = {
+  contacts: ["Nuevo Lead", "Contactado", "Propuesta", "Cliente", "Post-venta"],
+  tasks:    ["Por hacer", "En progreso", "Completado"],
 };
-type Column = { id: string; name: string; cards: Card[] };
 
-const CrmPipeline = () => {
-  const { data: deals = [], isLoading } = useDeals();
-  const { data: contacts = [] } = useContacts();
-  const { data: forms = [] } = useForms();
-  const createDeal = useCreateDeal();
-  const updateDeal = useUpdateDeal();
-  const deleteDeal = useDeleteDeal();
+const PRIORITY_STYLES: Record<string, { label: string; className: string; icon: React.ElementType }> = {
+  low:    { label: "Baja",  className: "bg-muted text-muted-foreground border-border",                    icon: Minus },
+  medium: { label: "Media", className: "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-900/20 dark:text-amber-400 dark:border-amber-800/40", icon: AlertTriangle },
+  high:   { label: "Alta",  className: "bg-destructive/10 text-destructive border-destructive/20",         icon: AlertCircle },
+};
 
-  const [stageNames, setStageNames] = useState<string[]>(DEFAULT_STAGES);
-  const [editingCol, setEditingCol] = useState<string | null>(null);
-  const [editName, setEditName]     = useState("");
-  const [newColName, setNewColName] = useState("");
-  const [addingCol, setAddingCol]   = useState(false);
-  const [dragCard, setDragCard]     = useState<{ card: Card; fromColId: string } | null>(null);
-  const [dragOver, setDragOver]     = useState<string | null>(null);
+// ─── Contact Card ─────────────────────────────────────────────
+const ContactCard = ({
+  contact,
+  forms,
+  onDelete,
+  onDragStart,
+}: {
+  contact: CrmContact;
+  forms: CrmForm[];
+  onDelete: () => void;
+  onDragStart: () => void;
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const [expandedForms, setExpandedForms] = useState<Set<string>>(new Set());
+  const [newTag, setNewTag] = useState("");
+  const updateContact = useUpdateContact();
 
-  // Build columns from deals grouped by stages
-  const columns: Column[] = useMemo(() => {
-    return stageNames.map((stage) => ({
-      id: stage,
-      name: stage,
-      cards: deals
-        .filter((d) => d.stage === stage)
-        .map((d) => ({
-          id: d.id,
-          name: d.title,
-          email: contacts.find(c => c.id === d.contact_id)?.email ?? "",
-          value: d.value ? `$${Number(d.value).toFixed(0)}` : undefined,
-          contactId: d.contact_id,
-        })),
-    }));
-  }, [deals, stageNames, contacts]);
+  const customFields = (contact.custom_fields as Record<string, Record<string, string>>) ?? {};
 
-  // Available form fields for card configuration
-  const availableFormFields = useMemo(() => {
-    const fields: { id: string; label: string; formName: string }[] = [];
-    forms.forEach((form) => {
-      const formFields = Array.isArray(form.fields) ? form.fields : [];
-      formFields.forEach((field: any) => {
-        if (field.label && field.id) {
-          fields.push({ id: `${form.id}__${field.id}`, label: field.label, formName: form.name });
-        }
-      });
+  const toggleForm = (id: string) =>
+    setExpandedForms((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
     });
-    return fields;
-  }, [forms]);
 
-  // Card creation state
-  const [addingCardToCol, setAddingCardToCol] = useState<string | null>(null);
-  const [newCardName, setNewCardName]         = useState("");
-  const [newCardEmail, setNewCardEmail]       = useState("");
-  const [newCardValue, setNewCardValue]       = useState("");
-  const [newCardContact, setNewCardContact]   = useState("");
-
-  const [configCard, setConfigCard]     = useState<Card | null>(null);
-  const [cardConfig, setCardConfig]     = useState<{ showValue: boolean; showService: boolean; showPhone: boolean }>({
-    showValue: true, showService: false, showPhone: false,
+  // Only forms that have at least one non-empty value for this contact
+  const formsWithData = forms.filter((form) => {
+    const vals = customFields[form.id] ?? {};
+    return Object.values(vals).some((v) => typeof v === "string" && v.trim());
   });
-  const [extraFields, setExtraFields]   = useState<string[]>([]);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
 
-  const openConfig = (card: Card) => {
-    setConfigCard(card);
-    setCardConfig({
-      showValue:   !!card.value,
-      showService: !!card.customFields?.some(f => f.label === "Servicio"),
-      showPhone:   !!card.customFields?.some(f => f.label === "Teléfono"),
-    });
-    setExtraFields([]);
+  const hasBasicInfo = !!(contact.email || contact.phone);
+
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      className="bg-card border rounded-xl cursor-grab active:cursor-grabbing hover:shadow-sm transition-all group"
+    >
+      {/* Always visible */}
+      <div className="px-3 pt-3 pb-2.5 flex items-start gap-2">
+        <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 group-hover:text-muted-foreground/60 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold truncate leading-tight">{contact.name}</p>
+          {contact.email && (
+            <p className="text-[10px] text-muted-foreground truncate mt-0.5">{contact.email}</p>
+          )}
+          {contact.notes && (
+            <p className="text-[10px] text-muted-foreground/70 mt-1 line-clamp-2 leading-relaxed italic">
+              {contact.notes}
+            </p>
+          )}
+        </div>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            title={expanded ? "Ocultar detalles" : "Ver información completa"}
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+          </button>
+          <button
+            onClick={onDelete}
+            className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            title="Eliminar del pipeline"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      </div>
+
+      {/* Expandable: contact info + form data */}
+      {expanded && (
+        <div className="border-t mx-3 mb-3 pt-2.5 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+          {/* Basic contact info */}
+          {contact.email && (
+            <div className="flex items-center gap-1.5">
+              <Mail size={10} className="shrink-0 text-muted-foreground/40" />
+              <a href={`mailto:${contact.email}`} onClick={(e) => e.stopPropagation()}
+                className="text-[10px] text-muted-foreground hover:text-foreground truncate transition-colors">
+                {contact.email}
+              </a>
+            </div>
+          )}
+          {contact.phone && (
+            <div className="flex items-center gap-1.5">
+              <Phone size={10} className="shrink-0 text-muted-foreground/40" />
+              <a href={`tel:${contact.phone}`} onClick={(e) => e.stopPropagation()}
+                className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                {contact.phone}
+              </a>
+            </div>
+          )}
+          {/* Tags editor */}
+          <div className="flex items-start gap-1.5">
+            <Tag size={10} className="shrink-0 text-muted-foreground/40 mt-0.5" />
+            <div className="flex-1 min-w-0 space-y-1">
+              {(contact.tags ?? []).length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {(contact.tags ?? []).map((t) => (
+                    <span
+                      key={t}
+                      className="inline-flex items-center gap-0.5 text-[9px] border rounded-full pl-1.5 pr-0.5 py-0.5 bg-secondary/60 text-muted-foreground"
+                    >
+                      {t}
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          const next = (contact.tags ?? []).filter((tag) => tag !== t);
+                          updateContact.mutate({ id: contact.id, tags: next });
+                        }}
+                        className="rounded-full hover:bg-destructive/20 hover:text-destructive p-0.5 transition-colors"
+                        title={`Eliminar etiqueta "${t}"`}
+                      >
+                        <X size={8} />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="flex items-center gap-1">
+                <input
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    e.preventDefault();
+                    const tag = newTag.trim();
+                    if (!tag) return;
+                    const current = contact.tags ?? [];
+                    if (current.includes(tag)) { setNewTag(""); return; }
+                    updateContact.mutate({ id: contact.id, tags: [...current, tag] });
+                    setNewTag("");
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  placeholder="+ etiqueta"
+                  className="text-[9px] h-5 px-1.5 rounded-full border border-dashed bg-transparent text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary w-20"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Form data — one collapsible row per form that has data */}
+          {formsWithData.length > 0 && (
+            <div className={`space-y-1 ${hasBasicInfo ? "pt-1 border-t border-border/40" : ""}`}>
+              {formsWithData.map((form) => {
+                const vals = customFields[form.id] ?? {};
+                const filledFields = (form.fields as any[]).filter(
+                  (f) => vals[f.id] && String(vals[f.id]).trim()
+                );
+                const isFormOpen = expandedForms.has(form.id);
+
+                return (
+                  <div key={form.id} className="rounded-lg border border-border/50 overflow-hidden">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleForm(form.id); }}
+                      className="w-full flex items-center justify-between px-2.5 py-1.5 hover:bg-secondary/30 transition-colors text-left"
+                    >
+                      <span className="text-[10px] font-semibold text-muted-foreground truncate">{form.name}</span>
+                      <ChevronDown
+                        size={11}
+                        className={`shrink-0 text-muted-foreground/50 transition-transform duration-150 ${isFormOpen ? "rotate-180" : ""}`}
+                      />
+                    </button>
+                    {isFormOpen && (
+                      <div className="px-2.5 pb-2 pt-1.5 border-t border-border/40 bg-secondary/10 space-y-1.5">
+                        {filledFields.map((f) => (
+                          <div key={f.id}>
+                            <span className="text-[9px] uppercase tracking-widest text-muted-foreground/50 font-medium block">
+                              {f.label}
+                            </span>
+                            <span className="text-[10px] text-foreground leading-snug">
+                              {String(vals[f.id])}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Task Card ────────────────────────────────────────────────
+const TaskCard = ({
+  task,
+  onDelete,
+  onDragStart,
+}: {
+  task: CrmTask;
+  onDelete: () => void;
+  onDragStart: () => void;
+}) => {
+  const priority = task.priority ? PRIORITY_STYLES[task.priority] : null;
+  const PriorityIcon = priority?.icon;
+
+  return (
+    <div
+      draggable
+      onDragStart={onDragStart}
+      className="bg-card border rounded-xl px-3 py-2.5 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all group"
+    >
+      <div className="flex items-start gap-2">
+        <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 group-hover:text-muted-foreground/60 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold leading-tight">{task.title}</p>
+          {task.description && (
+            <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{task.description}</p>
+          )}
+          {priority && PriorityIcon && (
+            <div className="mt-2">
+              <span className={`inline-flex items-center gap-1 text-[9px] font-medium border rounded-full px-1.5 py-0.5 ${priority.className}`}>
+                <PriorityIcon size={9} />
+                {priority.label}
+              </span>
+            </div>
+          )}
+        </div>
+        <button
+          onClick={onDelete}
+          className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
+          title="Eliminar tarea"
+        >
+          <X size={13} />
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Column (shared) ─────────────────────────────────────────
+const BoardColumn = ({
+  name,
+  count,
+  cardDragOver,
+  colDragOver,
+  isBeingDragged,
+  onCardDragOver,
+  onCardDrop,
+  onCardDragLeave,
+  onColDragStart,
+  onColDragEnd,
+  onRename,
+  onDelete,
+  children,
+  footer,
+}: {
+  name: string;
+  count: number;
+  cardDragOver: boolean;
+  colDragOver: boolean;
+  isBeingDragged: boolean;
+  onCardDragOver: () => void;
+  onCardDrop: () => void;
+  onCardDragLeave: () => void;
+  onColDragStart: () => void;
+  onColDragEnd: () => void;
+  onRename: (newName: string) => void;
+  onDelete: () => void;
+  children: React.ReactNode;
+  footer: React.ReactNode;
+}) => {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(name);
+
+  const commit = () => {
+    if (val.trim() && val.trim() !== name) onRename(val.trim());
+    setEditing(false);
   };
 
-  const toggleExtraField = (id: string) =>
-    setExtraFields((prev) =>
-      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
-    );
+  return (
+    <div
+      className={`flex flex-col w-64 rounded-2xl border bg-secondary/30 overflow-hidden transition-all duration-150 ${
+        colDragOver ? "ring-2 ring-primary/60 scale-[1.01]"
+        : cardDragOver ? "ring-2 ring-primary/40"
+        : ""
+      } ${isBeingDragged ? "opacity-40" : ""}`}
+      onDragOver={(e) => { e.preventDefault(); onCardDragOver(); }}
+      onDrop={onCardDrop}
+      onDragLeave={onCardDragLeave}
+    >
+      {/* Header */}
+      <div className="px-3 py-3 flex items-center gap-1.5 bg-card border-b">
+        {/* Column drag handle */}
+        <div
+          draggable
+          onDragStart={(e) => { e.stopPropagation(); onColDragStart(); }}
+          onDragEnd={onColDragEnd}
+          className="cursor-grab active:cursor-grabbing p-0.5 rounded text-muted-foreground/25 hover:text-muted-foreground/60 transition-colors shrink-0"
+          title="Arrastrar para mover columna"
+        >
+          <GripVertical size={14} />
+        </div>
 
-  const startAddCard = (colId: string) => {
-    setAddingCardToCol(colId);
-    setNewCardName("");
-    setNewCardEmail("");
-    setNewCardValue("");
-    setNewCardContact("");
-  };
+        {editing ? (
+          <div className="flex items-center gap-2 flex-1">
+            <Input
+              value={val}
+              onChange={(e) => setVal(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") { setVal(name); setEditing(false); } }}
+              className="h-7 text-xs flex-1"
+              autoFocus
+            />
+            <button onClick={commit} className="p-1 rounded hover:bg-secondary text-primary transition-colors">
+              <Check size={13} />
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              onClick={() => { setVal(name); setEditing(true); }}
+              className="text-xs font-semibold flex-1 truncate text-left hover:text-primary transition-colors"
+              title="Renombrar columna"
+            >
+              {name}
+            </button>
+            <span className="text-[10px] text-muted-foreground bg-secondary rounded-full px-2 py-0.5 font-medium shrink-0">
+              {count}
+            </span>
+            <button
+              onClick={onDelete}
+              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors shrink-0"
+              title="Eliminar columna"
+            >
+              <X size={12} />
+            </button>
+          </>
+        )}
+      </div>
 
-  const saveCard = async (colId: string) => {
-    if (!newCardName.trim()) return;
-    try {
-      await createDeal.mutateAsync({
-        title: newCardName.trim(),
-        stage: colId,
-        value: newCardValue ? Number(newCardValue) : 0,
-        contact_id: newCardContact || null,
-        notes: newCardEmail.trim() || null,
-      });
-      toast.success("Deal creado");
-      setAddingCardToCol(null);
-    } catch {
-      toast.error("Error al crear deal");
-    }
-  };
+      {/* Cards */}
+      <div className="flex-1 p-3 space-y-2 min-h-[150px]">
+        {children}
+        {footer}
+      </div>
+    </div>
+  );
+};
 
-  /* ─── Column management ─── */
-  const startEditCol = (col: Column) => {
-    setEditingCol(col.id);
-    setEditName(col.name);
-  };
+// ─── Contacts Board ───────────────────────────────────────────
+const ContactsBoard = ({
+  pipeline,
+  allContacts,
+  forms,
+  onUpdatePipeline,
+}: {
+  pipeline: CrmPipeline;
+  allContacts: CrmContact[];
+  forms: CrmForm[];
+  onUpdatePipeline: (patch: Partial<CrmPipeline>) => Promise<void>;
+}) => {
+  const updateContact = useUpdateContact();
 
-  const saveColName = async (colId: string) => {
-    if (!editName.trim() || editName.trim() === colId) {
-      setEditingCol(null);
-      return;
-    }
-    const newName = editName.trim();
-    // Update all deals in this stage to the new stage name
-    const dealsInStage = deals.filter(d => d.stage === colId);
-    try {
-      await Promise.all(
-        dealsInStage.map(d => updateDeal.mutateAsync({ id: d.id, stage: newName }))
-      );
-      setStageNames(prev => prev.map(s => s === colId ? newName : s));
-      setEditingCol(null);
-      if (dealsInStage.length > 0) toast.success("Columna renombrada");
-    } catch {
-      toast.error("Error al renombrar columna");
-    }
-  };
+  const [dragCard, setDragCard]       = useState<{ id: string; fromCol: string } | null>(null);
+  const [dragOver, setDragOver]       = useState<string | null>(null);
+  const [addingTo, setAddingTo]       = useState<string | null>(null);
+  const [pickedId, setPickedId]       = useState("");
+  const [newNotes, setNewNotes]       = useState("");
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
 
-  const addColumn = () => {
-    if (!newColName.trim()) return;
-    if (stageNames.includes(newColName.trim())) {
-      toast.error("Esta columna ya existe");
-      return;
-    }
-    setStageNames(prev => [...prev, newColName.trim()]);
-    setNewColName("");
-    setAddingCol(false);
-  };
+  const columns = pipeline.column_names;
 
-  const removeColumn = (colId: string) => {
-    const dealsInCol = deals.filter(d => d.stage === colId);
-    if (dealsInCol.length > 0) {
-      toast.error(`No puedes eliminar "${colId}" — tiene ${dealsInCol.length} deals.`);
-      return;
-    }
-    setStageNames(prev => prev.filter(s => s !== colId));
-  };
+  // Contacts currently in this pipeline
+  const pipelineContacts = allContacts.filter((c) => columns.includes(c.stage ?? ""));
+  // Contacts available to add (not already in any column of this pipeline)
+  const availableContacts = allContacts.filter((c) => !columns.includes(c.stage ?? ""));
 
-  /* ─── Drag & drop ─── */
-  const handleDragStart = (card: Card, fromColId: string) => {
-    setDragCard({ card, fromColId });
-  };
-
-  const handleDrop = async (toColId: string) => {
-    if (!dragCard || dragCard.fromColId === toColId) {
-      setDragCard(null);
-      setDragOver(null);
-      return;
-    }
-    try {
-      await updateDeal.mutateAsync({ id: dragCard.card.id, stage: toColId });
-      toast.success(`Deal movido a "${toColId}"`);
-    } catch {
-      toast.error("Error al mover deal");
-    }
+  const handleDrop = async (toCol: string) => {
+    if (!dragCard || dragCard.fromCol === toCol) { setDragCard(null); setDragOver(null); return; }
+    try { await updateContact.mutateAsync({ id: dragCard.id, stage: toCol }); }
+    catch { toast.error("Error al mover contacto"); }
     setDragCard(null);
     setDragOver(null);
   };
 
-  /* ─── Delete deal ─── */
-  const handleDeleteDeal = (dealId: string) => {
-    setDeleteTargetId(dealId);
+  const handleRenameCol = async (oldName: string, newName: string) => {
+    const newCols = columns.map((c) => (c === oldName ? newName : c));
+    await onUpdatePipeline({ column_names: newCols });
+    const affected = pipelineContacts.filter((c) => c.stage === oldName);
+    await Promise.all(affected.map((c) => updateContact.mutateAsync({ id: c.id, stage: newName })));
+    if (affected.length > 0) toast.success("Columna renombrada");
   };
 
-  const handleConfirmDeleteDeal = async () => {
-    if (!deleteTargetId) return;
+  const handleDeleteCol = async (colName: string) => {
+    const count = pipelineContacts.filter((c) => c.stage === colName).length;
+    if (count > 0) { toast.error(`"${colName}" tiene ${count} contactos — muévelos antes de eliminar.`); return; }
+    await onUpdatePipeline({ column_names: columns.filter((c) => c !== colName) });
+  };
+
+  const handleAddCol = async (name: string) => {
+    if (columns.includes(name)) { toast.error("Esa columna ya existe"); return; }
+    await onUpdatePipeline({ column_names: [...columns, name] });
+  };
+
+  const handleSaveCard = async (colName: string) => {
+    if (!pickedId) return;
+    const contact = allContacts.find((c) => c.id === pickedId);
     try {
-      await deleteDeal.mutateAsync(deleteTargetId);
-      toast.success("Deal eliminado");
-    } catch {
-      toast.error("Error al eliminar deal");
-    } finally {
-      setDeleteTargetId(null);
-    }
+      await updateContact.mutateAsync({
+        id: pickedId,
+        stage: colName,
+        // Only overwrite notes if the user typed something
+        ...(newNotes.trim() ? { notes: newNotes.trim() } : {}),
+      });
+      toast.success(`${contact?.name ?? "Contacto"} añadido a "${colName}"`);
+      setAddingTo(null);
+    } catch { toast.error("Error al añadir contacto"); }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await updateContact.mutateAsync({ id: deleteTarget, stage: null });
+      toast.success("Contacto removido del pipeline");
+    } catch { toast.error("Error al remover"); }
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <DeleteConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        onConfirm={handleConfirmDelete}
+        isPending={updateContact.isPending}
+        description="El contacto se removerá del pipeline pero no se eliminará del CRM."
+      />
+      <BoardGrid
+        columns={columns}
+        dragOver={dragOver}
+        onDragOver={setDragOver}
+        onDrop={handleDrop}
+        onDragLeave={() => setDragOver(null)}
+        onRenameCol={handleRenameCol}
+        onDeleteCol={handleDeleteCol}
+        onAddCol={handleAddCol}
+        onReorderCols={(newOrder) => onUpdatePipeline({ column_names: newOrder })}
+        getCount={(col) => pipelineContacts.filter((c) => c.stage === col).length}
+        renderCards={(col) =>
+          pipelineContacts.filter((c) => c.stage === col).map((contact) => (
+            <ContactCard
+              key={contact.id}
+              contact={contact}
+              forms={forms}
+              onDelete={() => setDeleteTarget(contact.id)}
+              onDragStart={() => setDragCard({ id: contact.id, fromCol: col })}
+            />
+          ))
+        }
+        renderCreation={(col) =>
+          addingTo === col ? (
+            <div className="bg-card border rounded-xl p-3 space-y-2 shadow-sm animate-in fade-in zoom-in-95">
+              {availableContacts.length === 0 ? (
+                <p className="text-[10px] text-muted-foreground/60 italic text-center py-1">
+                  Todos los contactos ya están en este pipeline
+                </p>
+              ) : (
+                <>
+                  {/* Contact selector */}
+                  <div className="relative">
+                    <select
+                      autoFocus
+                      value={pickedId}
+                      onChange={(e) => setPickedId(e.target.value)}
+                      className="w-full h-7 rounded-md border bg-secondary/50 border-transparent text-xs pl-2 pr-6 appearance-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                    >
+                      <option value="">Seleccionar contacto *</option>
+                      {availableContacts.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}{c.email ? ` — ${c.email}` : ""}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  </div>
+
+                  {/* Notes */}
+                  <Textarea
+                    placeholder="Notas (opcional)"
+                    value={newNotes}
+                    onChange={(e) => setNewNotes(e.target.value)}
+                    rows={2}
+                    className="text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2 py-1.5 resize-none min-h-0"
+                  />
+                </>
+              )}
+
+              <div className="flex gap-2 pt-0.5">
+                <Button
+                  size="sm"
+                  className="h-7 text-[11px] flex-1 rounded-lg"
+                  disabled={!pickedId || updateContact.isPending}
+                  onClick={() => handleSaveCard(col)}
+                >
+                  {updateContact.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                  Añadir
+                </Button>
+                <button onClick={() => setAddingTo(null)} className="h-7 px-2.5 rounded-lg border text-muted-foreground hover:bg-secondary">
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setAddingTo(col); setPickedId(""); setNewNotes(""); }}
+              className="w-full flex items-center justify-center gap-1.5 py-2 mt-1 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors border border-transparent hover:border-border/50 border-dashed"
+            >
+              <Plus size={13} /> Añadir contacto
+            </button>
+          )
+        }
+      />
+    </>
+  );
+};
+
+// ─── Tasks Board ──────────────────────────────────────────────
+const TasksBoard = ({
+  pipeline,
+  onUpdatePipeline,
+}: {
+  pipeline: CrmPipeline;
+  onUpdatePipeline: (patch: Partial<CrmPipeline>) => Promise<void>;
+}) => {
+  const { data: tasks = [] } = useTasks(pipeline.id);
+  const createTask  = useCreateTask();
+  const updateTask  = useUpdateTask();
+  const deleteTask  = useDeleteTask();
+
+  const [dragCard, setDragCard]   = useState<{ id: string; fromCol: string } | null>(null);
+  const [dragOver, setDragOver]   = useState<string | null>(null);
+  const [addingTo, setAddingTo]   = useState<string | null>(null);
+  const [newTitle, setNewTitle]   = useState("");
+  const [newDesc, setNewDesc]     = useState("");
+  const [newPri, setNewPri]       = useState<"low" | "medium" | "high" | "">("");
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+
+  const columns = pipeline.column_names;
+
+  const handleDrop = async (toCol: string) => {
+    if (!dragCard || dragCard.fromCol === toCol) { setDragCard(null); setDragOver(null); return; }
+    try { await updateTask.mutateAsync({ id: dragCard.id, stage: toCol }); }
+    catch { toast.error("Error al mover tarea"); }
+    setDragCard(null);
+    setDragOver(null);
+  };
+
+  const handleRenameCol = async (oldName: string, newName: string) => {
+    const newCols = columns.map((c) => (c === oldName ? newName : c));
+    await onUpdatePipeline({ column_names: newCols });
+    const affected = tasks.filter((t) => t.stage === oldName);
+    await Promise.all(affected.map((t) => updateTask.mutateAsync({ id: t.id, stage: newName })));
+    if (affected.length > 0) toast.success("Columna renombrada");
+  };
+
+  const handleDeleteCol = async (colName: string) => {
+    const count = tasks.filter((t) => t.stage === colName).length;
+    if (count > 0) { toast.error(`"${colName}" tiene ${count} tareas — muévelas antes de eliminar.`); return; }
+    await onUpdatePipeline({ column_names: columns.filter((c) => c !== colName) });
+  };
+
+  const handleAddCol = async (name: string) => {
+    if (columns.includes(name)) { toast.error("Esa columna ya existe"); return; }
+    await onUpdatePipeline({ column_names: [...columns, name] });
+  };
+
+  const handleSaveCard = async (col: string) => {
+    if (!newTitle.trim()) return;
+    try {
+      await createTask.mutateAsync({
+        pipeline_id: pipeline.id,
+        title: newTitle.trim(),
+        description: newDesc.trim() || null,
+        priority: newPri || null,
+        stage: col,
+      });
+      toast.success("Tarea creada");
+      setAddingTo(null);
+    } catch { toast.error("Error al crear tarea"); }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget) return;
+    try { await deleteTask.mutateAsync({ id: deleteTarget.id, pipelineId: pipeline.id, name: deleteTarget.name }); toast.success("Tarea eliminada"); }
+    catch { toast.error("Error al eliminar"); }
+    setDeleteTarget(null);
+  };
+
+  return (
+    <>
+      <DeleteConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        onConfirm={handleConfirmDelete}
+        isPending={deleteTask.isPending}
+        description="Se eliminará la tarea permanentemente."
+      />
+      <BoardGrid
+        columns={columns}
+        dragOver={dragOver}
+        onDragOver={setDragOver}
+        onDrop={handleDrop}
+        onDragLeave={() => setDragOver(null)}
+        onRenameCol={handleRenameCol}
+        onDeleteCol={handleDeleteCol}
+        onAddCol={handleAddCol}
+        onReorderCols={(newOrder) => onUpdatePipeline({ column_names: newOrder })}
+        getCount={(col) => tasks.filter((t) => t.stage === col).length}
+        renderCards={(col) =>
+          tasks.filter((t) => t.stage === col).map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              onDelete={() => setDeleteTarget({ id: task.id, name: task.title })}
+              onDragStart={() => setDragCard({ id: task.id, fromCol: col })}
+            />
+          ))
+        }
+        renderCreation={(col) =>
+          addingTo === col ? (
+            <div className="bg-card border rounded-xl p-3 space-y-2 shadow-sm animate-in fade-in zoom-in-95">
+              <Input
+                autoFocus
+                placeholder="Título *"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                onKeyDown={(e) => { if (e.key === "Escape") setAddingTo(null); }}
+                className="h-7 text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2"
+              />
+              <Textarea
+                placeholder="Descripción (opcional)"
+                value={newDesc}
+                onChange={(e) => setNewDesc(e.target.value)}
+                rows={2}
+                className="text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2 py-1.5 resize-none min-h-0"
+              />
+              {/* Priority selector */}
+              <div className="flex gap-1.5">
+                {(["", "low", "medium", "high"] as const).map((p) => {
+                  const style = p ? PRIORITY_STYLES[p] : null;
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => setNewPri(p)}
+                      className={`flex-1 text-[9px] font-semibold rounded-lg border px-1 py-1 transition-all ${
+                        newPri === p
+                          ? p ? style!.className : "bg-secondary text-foreground border-border"
+                          : "text-muted-foreground border-transparent hover:bg-secondary/50"
+                      }`}
+                    >
+                      {p ? style!.label : "Sin prioridad"}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2 pt-0.5">
+                <Button
+                  size="sm"
+                  className="h-7 text-[11px] flex-1 rounded-lg"
+                  disabled={!newTitle.trim() || createTask.isPending}
+                  onClick={() => handleSaveCard(col)}
+                >
+                  {createTask.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                  Guardar
+                </Button>
+                <button onClick={() => setAddingTo(null)} className="h-7 px-2.5 rounded-lg border text-muted-foreground hover:bg-secondary">
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              onClick={() => { setAddingTo(col); setNewTitle(""); setNewDesc(""); setNewPri(""); }}
+              className="w-full flex items-center justify-center gap-1.5 py-2 mt-1 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors border border-transparent hover:border-border/50 border-dashed"
+            >
+              <Plus size={13} /> Añadir tarea
+            </button>
+          )
+        }
+      />
+    </>
+  );
+};
+
+// ─── Board Grid (shared layout) ───────────────────────────────
+const BoardGrid = ({
+  columns,
+  dragOver,
+  onDragOver,
+  onDrop,
+  onDragLeave,
+  onRenameCol,
+  onDeleteCol,
+  onAddCol,
+  onReorderCols,
+  getCount,
+  renderCards,
+  renderCreation,
+}: {
+  columns: string[];
+  dragOver: string | null;
+  onDragOver: (col: string) => void;
+  onDrop: (col: string) => void;
+  onDragLeave: () => void;
+  onRenameCol: (old: string, next: string) => void;
+  onDeleteCol: (col: string) => void;
+  onAddCol: (name: string) => void;
+  onReorderCols: (newOrder: string[]) => void;
+  getCount: (col: string) => number;
+  renderCards: (col: string) => React.ReactNode;
+  renderCreation: (col: string) => React.ReactNode;
+}) => {
+  const [addingCol, setAddingCol]     = useState(false);
+  const [newColName, setNewColName]   = useState("");
+  const [draggingCol, setDraggingCol] = useState<string | null>(null);
+  const [colDragOver, setColDragOver] = useState<string | null>(null);
+
+  const handleColDrop = (targetCol: string) => {
+    if (!draggingCol || draggingCol === targetCol) return;
+    const from = columns.indexOf(draggingCol);
+    const to   = columns.indexOf(targetCol);
+    const next = [...columns];
+    next.splice(from, 1);
+    next.splice(to, 0, draggingCol);
+    onReorderCols(next);
+    setDraggingCol(null);
+    setColDragOver(null);
+  };
+
+  return (
+    <div className="overflow-x-auto pb-4">
+      <div className="flex gap-4 min-w-max">
+        {columns.map((col) => (
+          // Wrapper intercepts column-level drag events
+          <div
+            key={col}
+            onDragOver={(e) => {
+              e.preventDefault();
+              if (draggingCol) setColDragOver(col);
+              // card drag-over handled inside BoardColumn
+            }}
+            onDrop={() => {
+              if (draggingCol) handleColDrop(col);
+              else onDrop(col);
+            }}
+            onDragLeave={() => {
+              if (draggingCol) setColDragOver(null);
+              else onDragLeave();
+            }}
+          >
+            <BoardColumn
+              name={col}
+              count={getCount(col)}
+              cardDragOver={!draggingCol && dragOver === col}
+              colDragOver={!!draggingCol && colDragOver === col}
+              isBeingDragged={draggingCol === col}
+              onCardDragOver={() => { if (!draggingCol) onDragOver(col); }}
+              onCardDrop={() => { if (!draggingCol) onDrop(col); }}
+              onCardDragLeave={() => { if (!draggingCol) onDragLeave(); }}
+              onColDragStart={() => setDraggingCol(col)}
+              onColDragEnd={() => { setDraggingCol(null); setColDragOver(null); }}
+              onRename={(next) => onRenameCol(col, next)}
+              onDelete={() => onDeleteCol(col)}
+            >
+              {renderCards(col)}
+              {renderCreation(col)}
+            </BoardColumn>
+          </div>
+        ))}
+
+        {/* Add column */}
+        {addingCol ? (
+          <div className="w-64 rounded-2xl border bg-card p-3 h-fit space-y-2">
+            <Input
+              placeholder="Nombre de la columna"
+              value={newColName}
+              onChange={(e) => setNewColName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") { onAddCol(newColName.trim()); setNewColName(""); setAddingCol(false); }
+                if (e.key === "Escape") setAddingCol(false);
+              }}
+              className="h-8 text-xs"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                onClick={() => { onAddCol(newColName.trim()); setNewColName(""); setAddingCol(false); }}
+                className="flex-1 h-8 text-xs rounded-lg"
+                disabled={!newColName.trim()}
+              >
+                Añadir
+              </Button>
+              <button onClick={() => { setAddingCol(false); setNewColName(""); }}
+                className="px-3 py-1.5 rounded-lg border text-xs text-muted-foreground hover:bg-secondary transition-colors">
+                <X size={13} />
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            onClick={() => setAddingCol(true)}
+            className="flex items-center gap-2 h-10 px-4 rounded-2xl border border-dashed text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors self-start mt-0"
+          >
+            <Plus size={14} /> Nueva columna
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Create Pipeline Dialog ───────────────────────────────────
+const CreatePipelineDialog = ({
+  open,
+  onClose,
+  onCreate,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreate: (name: string, type: CrmPipeline["type"]) => Promise<void>;
+}) => {
+  const [name, setName]       = useState("");
+  const [type, setType]       = useState<CrmPipeline["type"] | null>(null);
+  const [saving, setSaving]   = useState(false);
+
+  const reset = () => { setName(""); setType(null); setSaving(false); };
+
+  const handleCreate = async () => {
+    if (!name.trim() || !type) return;
+    setSaving(true);
+    try { await onCreate(name.trim(), type); onClose(); reset(); }
+    catch { toast.error("Error al crear pipeline"); }
+    finally { setSaving(false); }
+  };
+
+  const TYPES: { id: CrmPipeline["type"]; icon: React.ElementType; title: string; desc: string; cols: string }[] = [
+    {
+      id: "contacts",
+      icon: Users,
+      title: "Seguimiento de Contactos",
+      desc: "Tarjetas vinculadas a contactos. Los nuevos contactos aparecen automáticamente.",
+      cols: "Nuevo Lead → Contactado → Propuesta → Cliente → Post-venta",
+    },
+    {
+      id: "tasks",
+      icon: ListTodo,
+      title: "Tablero de Tareas",
+      desc: "Gestiona tareas con título, descripción y prioridad al estilo Kanban.",
+      cols: "Por hacer → En progreso → Completado",
+    },
+  ];
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); reset(); } }}>
+      <DialogContent className="sm:max-w-[480px]">
+        <DialogHeader>
+          <DialogTitle>Nuevo Pipeline</DialogTitle>
+          <DialogDescription>Elige el tipo y ponle un nombre.</DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 py-1">
+          {/* Type selection */}
+          <div className="grid grid-cols-2 gap-3">
+            {TYPES.map((t) => {
+              const Icon = t.icon;
+              const active = type === t.id;
+              return (
+                <button
+                  key={t.id}
+                  onClick={() => setType(t.id)}
+                  className={`rounded-2xl border p-4 text-left transition-all space-y-2 ${
+                    active ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/30 hover:bg-secondary/30"
+                  }`}
+                >
+                  <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${active ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}>
+                    <Icon size={18} />
+                  </div>
+                  <p className="text-sm font-semibold leading-tight">{t.title}</p>
+                  <p className="text-[10px] text-muted-foreground leading-relaxed">{t.desc}</p>
+                  <p className="text-[9px] text-muted-foreground/60 font-medium mt-1">{t.cols}</p>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Name */}
+          <div className="space-y-1.5">
+            <label className="text-sm font-medium">Nombre del pipeline <span className="text-destructive">*</span></label>
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder={type === "contacts" ? "Ej: Leads 2026" : type === "tasks" ? "Ej: Tareas del equipo" : "Nombre..."}
+              className="h-9"
+              onKeyDown={(e) => { if (e.key === "Enter") handleCreate(); }}
+            />
+          </div>
+        </div>
+
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => { onClose(); reset(); }}>Cancelar</Button>
+          <Button
+            disabled={!name.trim() || !type || saving}
+            onClick={handleCreate}
+            className="gap-2"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+            Crear pipeline
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
+// ─── Main Component ───────────────────────────────────────────
+const CrmPipeline = () => {
+  const { data: pipelines = [], isLoading } = usePipelines();
+  const { data: contacts = [] } = useContacts();
+  const { data: forms = [] } = useForms();
+  const createPipeline = useCreatePipeline();
+  const updatePipeline = useUpdatePipeline();
+  const deletePipeline = useDeletePipeline();
+
+  const [selectedId, setSelectedId]         = useState<string | null>(null);
+  const [showCreate, setShowCreate]         = useState(false);
+  const [dropdownOpen, setDropdownOpen]     = useState(false);
+  const [deleteTarget, setDeleteTarget]     = useState<{ id: string; name: string } | null>(null);
+
+  const selected = useMemo(
+    () => pipelines.find((p) => p.id === selectedId) ?? pipelines[0] ?? null,
+    [pipelines, selectedId]
+  );
+
+  const handleCreate = async (name: string, type: CrmPipeline["type"]) => {
+    const data = await createPipeline.mutateAsync({
+      name,
+      type,
+      column_names: DEFAULT_COLUMNS[type],
+    });
+    setSelectedId(data.id);
+  };
+
+  const handleUpdatePipeline = async (patch: Partial<CrmPipeline>) => {
+    if (!selected) return;
+    await updatePipeline.mutateAsync({ id: selected.id, ...patch });
+  };
+
+  const handleDeletePipeline = async () => {
+    if (!deleteTarget) return;
+    await deletePipeline.mutateAsync({ id: deleteTarget.id, name: deleteTarget.name });
+    setDeleteTarget(null);
+    setSelectedId(null);
+  };
+
+  const TYPE_META: Record<CrmPipeline["type"], { label: string; icon: React.ElementType }> = {
+    contacts: { label: "Seguimiento de Contactos", icon: Users },
+    tasks:    { label: "Tablero de Tareas",         icon: ListTodo },
   };
 
   if (isLoading) {
@@ -216,294 +1008,136 @@ const CrmPipeline = () => {
 
   return (
     <>
-    <DeleteConfirmDialog
-      open={!!deleteTargetId}
-      onOpenChange={(open) => { if (!open) setDeleteTargetId(null); }}
-      onConfirm={handleConfirmDeleteDeal}
-      isPending={deleteDeal.isPending}
-      description="Se eliminará el deal del pipeline permanentemente."
-    />
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold">Pipeline</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Gestiona tus oportunidades y seguimientos</p>
-        </div>
-          <button
-            onClick={() => setAddingCol(true)}
-            className="flex items-center gap-2 text-xs font-semibold border rounded-xl px-4 py-2 hover:bg-secondary transition-colors"
-          >
-            <Plus size={14} />
-            Nueva columna
-          </button>
-      </div>
+      <DeleteConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        onConfirm={handleDeletePipeline}
+        isPending={deletePipeline.isPending}
+        description="Se eliminará el pipeline y todas sus tarjetas permanentemente."
+      />
+      <CreatePipelineDialog
+        open={showCreate}
+        onClose={() => setShowCreate(false)}
+        onCreate={handleCreate}
+      />
 
-      {/* Board */}
-      <div className="overflow-x-auto pb-4">
-        <div className="flex gap-4 min-w-max">
-          {columns.map((col) => (
-            <div
-              key={col.id}
-              className={`flex flex-col w-64 rounded-2xl border bg-secondary/30 overflow-hidden transition-all ${
-                dragOver === col.id ? "ring-2 ring-primary/40" : ""
-              }`}
-              onDragOver={(e) => { e.preventDefault(); setDragOver(col.id); }}
-              onDrop={() => handleDrop(col.id)}
-              onDragLeave={() => setDragOver(null)}
-            >
-              {/* Column header */}
-              <div className="px-4 py-3 flex items-center gap-2 bg-card border-b">
-                {editingCol === col.id ? (
-                  <div className="flex items-center gap-2 flex-1">
-                    <Input
-                      value={editName}
-                      onChange={(e) => setEditName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") saveColName(col.id);
-                        if (e.key === "Escape") setEditingCol(null);
-                      }}
-                      className="h-7 text-xs flex-1"
-                      autoFocus
-                    />
-                    <button
-                      onClick={() => saveColName(col.id)}
-                      className="p-1 rounded hover:bg-secondary transition-colors text-primary"
-                    >
-                      <Check size={13} />
-                    </button>
-                  </div>
-                ) : (
+      <div className="space-y-6">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h1 className="text-xl font-semibold">Pipeline</h1>
+            <p className="text-sm text-muted-foreground mt-0.5">Gestiona tus oportunidades y seguimientos</p>
+          </div>
+          <Button onClick={() => setShowCreate(true)} className="h-9 rounded-xl text-xs font-medium px-4 gap-2">
+            <Plus size={14} /> Nuevo Pipeline
+          </Button>
+        </div>
+
+        {/* Empty state */}
+        {pipelines.length === 0 && (
+          <div className="flex flex-col items-center justify-center py-24 text-center gap-5">
+            <div className="w-14 h-14 rounded-2xl bg-secondary flex items-center justify-center">
+              <CalendarDays size={24} className="text-muted-foreground/40" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold mb-1">No hay pipelines creados</p>
+              <p className="text-xs text-muted-foreground">Crea un pipeline para empezar a organizar tus contactos o tareas.</p>
+            </div>
+            <Button onClick={() => setShowCreate(true)} className="gap-2 rounded-xl px-5">
+              <Plus size={14} /> Crear primer pipeline
+            </Button>
+          </div>
+        )}
+
+        {/* Pipeline selector + board */}
+        {pipelines.length > 0 && selected && (
+          <>
+            {/* Selector */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="relative">
+                <button
+                  onClick={() => setDropdownOpen(!dropdownOpen)}
+                  className="flex items-center gap-2.5 text-base font-semibold text-primary hover:text-primary/80 bg-primary/5 hover:bg-primary/10 px-4 py-2 rounded-xl border border-primary/20 transition-all"
+                >
+                  {(() => { const m = TYPE_META[selected.type]; const Icon = m.icon; return <Icon size={16} className="text-primary" />; })()}
+                  {selected.name}
+                  <ChevronDown size={15} className={`text-primary/60 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
+                </button>
+
+                {dropdownOpen && (
                   <>
-                    <span className="text-xs font-semibold flex-1 truncate">{col.name}</span>
-                    <span className="text-[10px] text-muted-foreground bg-secondary rounded-full px-2 py-0.5 font-medium">
-                      {col.cards.length}
-                    </span>
-                    <button
-                      onClick={() => startEditCol(col)}
-                      className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground"
-                    >
-                      <Settings2 size={12} />
-                    </button>
-                    <button
-                      onClick={() => removeColumn(col.id)}
-                      className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-destructive"
-                    >
-                      <X size={12} />
-                    </button>
+                    <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
+                    <div className="absolute top-full left-0 mt-2 w-80 bg-popover border border-border/80 rounded-2xl shadow-xl z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-150">
+                      <p className="px-4 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Tus pipelines</p>
+                      {pipelines.map((p) => {
+                        const m = TYPE_META[p.type];
+                        const Icon = m.icon;
+                        const isActive = p.id === selected.id;
+                        return (
+                          <button
+                            key={p.id}
+                            onClick={() => { setSelectedId(p.id); setDropdownOpen(false); }}
+                            className={`w-full text-left px-4 py-3 text-sm flex items-center gap-3 transition-all ${
+                              isActive ? "bg-primary/10 text-primary font-semibold border-l-2 border-primary" : "hover:bg-secondary/90 text-foreground"
+                            }`}
+                          >
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isActive ? "bg-primary/20" : "bg-secondary"}`}>
+                              <Icon size={13} className={isActive ? "text-primary" : "text-muted-foreground"} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="truncate">{p.name}</p>
+                              <p className="text-[10px] text-muted-foreground/70 font-normal">{m.label}</p>
+                            </div>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: p.id, name: p.name }); setDropdownOpen(false); }}
+                              className="p-1 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground/40 transition-colors"
+                              title="Eliminar pipeline"
+                            >
+                              <Trash size={12} />
+                            </button>
+                          </button>
+                        );
+                      })}
+                    </div>
                   </>
                 )}
               </div>
-
-              {/* Cards */}
-              <div className="flex-1 p-3 space-y-2 min-h-[150px]">
-                {col.cards.map((card) => (
-                  <div
-                    key={card.id}
-                    draggable
-                    onDragStart={() => handleDragStart(card, col.id)}
-                    className="bg-card border rounded-xl px-3 py-3 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all group"
-                  >
-                    <div className="flex items-start gap-2 relative">
-                      <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 group-hover:text-muted-foreground/60 shrink-0" />
-                      <div className="flex-1 min-w-0 pr-5">
-                        <p className="text-xs font-medium truncate">{card.name}</p>
-                        <p className="text-[10px] text-muted-foreground truncate mt-0.5">{card.email}</p>
-                        {card.value && (
-                          <p className="text-[10px] font-semibold text-primary mt-1">{card.value}</p>
-                        )}
-                        {card.customFields && card.customFields.length > 0 && (
-                          <div className="mt-2.5 space-y-1">
-                            {card.customFields.map((f, i) => (
-                              <div key={i} className="flex justify-between items-center text-[9px] bg-secondary/50 rounded overflow-hidden">
-                                <span className="text-muted-foreground px-1.5 py-1 border-r border-border/40 bg-card/40 shrink-0">{f.label}</span>
-                                <span className="font-semibold text-foreground px-1.5 py-1 truncate">{f.value}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      
-                      <div className="absolute top-0 right-0 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
-                        <button 
-                          onClick={() => openConfig(card)}
-                          className="p-1 hover:bg-secondary rounded-md text-muted-foreground bg-card"
-                          title="Configurar campos de la tarjeta"
-                        >
-                          <Settings2 size={13} />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteDeal(card.id)}
-                          className="p-1 hover:bg-destructive/10 rounded-md text-muted-foreground hover:text-destructive bg-card"
-                          title="Eliminar deal"
-                        >
-                          <X size={13} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Inline Card Creation */}
-                {addingCardToCol === col.id ? (
-                  <div className="bg-card border rounded-xl p-3 space-y-2.5 shadow-sm animate-in fade-in zoom-in-95">
-                    <Input
-                      autoFocus
-                      placeholder="Título del deal (obligatorio)"
-                      value={newCardName}
-                      onChange={(e) => setNewCardName(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter") saveCard(col.id);
-                        if (e.key === "Escape") setAddingCardToCol(null);
-                      }}
-                      className="h-7 text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2"
-                    />
-                    {/* Contact selector */}
-                    <div className="relative">
-                      <select
-                        value={newCardContact}
-                        onChange={(e) => setNewCardContact(e.target.value)}
-                        className="w-full h-7 rounded-md border bg-secondary/50 text-xs pl-2 pr-6 appearance-none focus:outline-none focus:ring-1 focus:ring-primary border-transparent"
-                      >
-                        <option value="">Sin contacto</option>
-                        {contacts.map(c => (
-                          <option key={c.id} value={c.id}>{c.name} — {c.email ?? ""}</option>
-                        ))}
-                      </select>
-                      <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                    </div>
-                    <Input
-                      placeholder="Valor $ (opcional)"
-                      type="number"
-                      value={newCardValue}
-                      onChange={(e) => setNewCardValue(e.target.value)}
-                      className="h-7 text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2"
-                    />
-                    <div className="flex gap-2 pt-1">
-                      <Button 
-                        size="sm" 
-                        className="h-7 text-[11px] flex-1 rounded-lg" 
-                        disabled={!newCardName.trim() || createDeal.isPending}
-                        onClick={() => saveCard(col.id)}
-                      >
-                        {createDeal.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
-                        Guardar
-                      </Button>
-                      <button onClick={() => setAddingCardToCol(null)} className="h-7 px-2.5 rounded-lg border text-muted-foreground hover:bg-secondary"><X size={12}/></button>
-                    </div>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => startAddCard(col.id)}
-                    className="w-full flex items-center justify-center gap-1.5 py-2 mt-2 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors border border-transparent hover:border-border/50 border-dashed"
-                  >
-                    <Plus size={13} /> Añadir tarjeta
-                  </button>
-                )}
-              </div>
+              <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary font-medium">
+                {TYPE_META[selected.type].label}
+              </Badge>
             </div>
-          ))}
 
-          {/* Add column input */}
-          {addingCol ? (
-            <div className="w-64 rounded-2xl border bg-card p-3 h-fit space-y-2">
-              <Input
-                placeholder="Nombre de la columna"
-                value={newColName}
-                onChange={(e) => setNewColName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") addColumn();
-                  if (e.key === "Escape") setAddingCol(false);
-                }}
-                className="h-8 text-xs"
-                autoFocus
+            {/* Board */}
+            {selected.type === "contacts" && (
+              <ContactsBoard
+                pipeline={selected}
+                allContacts={contacts}
+                forms={forms}
+                onUpdatePipeline={handleUpdatePipeline}
               />
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  onClick={addColumn}
-                  className="flex-1 h-8 text-xs rounded-lg"
-                  disabled={!newColName.trim()}
-                >
-                  Añadir
-                </Button>
-                <button
-                  onClick={() => { setAddingCol(false); setNewColName(""); }}
-                  className="px-3 py-1.5 rounded-lg border text-xs text-muted-foreground hover:bg-secondary transition-colors"
-                >
-                  <X size={13} />
-                </button>
-              </div>
-            </div>
-          ) : null}
-        </div>
+            )}
+            {selected.type === "tasks" && (
+              <TasksBoard
+                pipeline={selected}
+                onUpdatePipeline={handleUpdatePipeline}
+              />
+            )}
+
+            <p className="text-[11px] text-muted-foreground italic">
+              Arrastra tarjetas entre columnas · Haz clic en el nombre de una columna para renombrarla
+            </p>
+          </>
+        )}
       </div>
-
-      <p className="text-[11px] text-muted-foreground italic">
-        Puedes arrastrar tarjetas entre columnas. Las columnas y sus nombres son completamente personalizables.
-      </p>
-
-      {/* Card Settings Modal */}
-      <Dialog open={!!configCard} onOpenChange={(open) => !open && setConfigCard(null)}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle>Configurar tarjeta</DialogTitle>
-            <DialogDescription>
-              Selecciona qué variables adicionales de {configCard?.name} deseas visualizar.
-            </DialogDescription>
-          </DialogHeader>
-          
-          {configCard && (
-            <div className="py-2 space-y-6">
-              {/* Fixed fields */}
-              <div className="space-y-4">
-                <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground/60">Campos fijos</p>
-                {([
-                  ["showValue",   "Valor del trato",     "Muestra el monto en la tarjeta ($)"],
-                  ["showService", "Servicio interesado", "Variable recogida del formulario"],
-                  ["showPhone",   "Teléfono principal",  "Variable recogida del formulario"],
-                ] as [keyof typeof cardConfig, string, string][]).map(([key, label, desc]) => (
-                  <div key={key} className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium leading-none">{label}</p>
-                      <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
-                    </div>
-                    <Switch
-                      checked={cardConfig[key]}
-                      onCheckedChange={(val) => setCardConfig((prev) => ({ ...prev, [key]: val }))}
-                    />
-                  </div>
-                ))}
-              </div>
-
-              {/* Form fields */}
-              <div className="space-y-3">
-                <p className="text-[10px] uppercase tracking-widest font-semibold text-muted-foreground/60">Campos de tus formularios</p>
-                {availableFormFields.length === 0 ? (
-                  <p className="text-xs text-muted-foreground italic">No hay formularios creados aún.</p>
-                ) : (
-                  <div className="space-y-2">
-                    {availableFormFields.map((ff) => (
-                      <div key={ff.id} className="flex items-center justify-between gap-4">
-                        <div>
-                          <p className="text-sm font-medium leading-none">{ff.label}</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{ff.formName}</p>
-                        </div>
-                        <Switch
-                          checked={extraFields.includes(ff.id)}
-                          onCheckedChange={() => toggleExtraField(ff.id)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
-    </div>
     </>
   );
 };
+
+// tiny helper referenced in dropdown
+const Trash = ({ size }: { size: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="3 6 5 6 21 6" /><path d="M19 6l-1 14H6L5 6" /><path d="M10 11v6" /><path d="M14 11v6" /><path d="M9 6V4h6v2" />
+  </svg>
+);
 
 export default CrmPipeline;

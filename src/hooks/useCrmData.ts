@@ -11,6 +11,9 @@ import type {
   CrmSale,
   CrmCalendarConfig,
   CrmBusinessProfile,
+  CrmPipeline,
+  CrmTask,
+  CrmContactNote,
 } from "@/lib/supabase";
 import { useCurrentUser } from "./useAuth";
 
@@ -125,13 +128,13 @@ export const useUpdateContact = () => {
 export const useDeleteContact = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id }: { id: string; name: string }) => {
       const { error } = await supabase.from("crm_contacts").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_contacts"] });
-      logAction("delete", "Contacto", "Contacto eliminado", id);
+      logAction("delete", "Contacto", `Contacto eliminado: ${name}`, id);
     },
   });
 };
@@ -197,13 +200,13 @@ export const useUpdateAppointment = () => {
 export const useDeleteAppointment = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id }: { id: string; name: string }) => {
       const { error } = await supabase.from("crm_appointments").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_appointments"] });
-      logAction("delete", "Cita", "Cita eliminada", id);
+      logAction("delete", "Cita", `Cita eliminada: ${name}`, id);
     },
   });
 };
@@ -249,13 +252,13 @@ export const useCreateBlockedSlot = () => {
 export const useDeleteBlockedSlot = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id }: { id: string; name: string }) => {
       const { error } = await supabase.from("crm_blocked_slots").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_blocked_slots"] });
-      logAction("delete", "Bloqueo", "Bloqueo de horario eliminado", id);
+      logAction("delete", "Bloqueo", `Bloqueo de horario eliminado: ${name}`, id);
     },
   });
 };
@@ -321,13 +324,13 @@ export const useUpdateDeal = () => {
 export const useDeleteDeal = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id }: { id: string; name: string }) => {
       const { error } = await supabase.from("crm_pipeline_deals").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_pipeline_deals"] });
-      logAction("delete", "Deal", "Deal eliminado", id);
+      logAction("delete", "Deal", `Deal eliminado: ${name}`, id);
     },
   });
 };
@@ -393,13 +396,13 @@ export const useUpdateForm = () => {
 export const useDeleteForm = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id }: { id: string; name: string }) => {
       const { error } = await supabase.from("crm_forms").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_forms"] });
-      logAction("delete", "Formulario", "Formulario eliminado", id);
+      logAction("delete", "Formulario", `Formulario eliminado: ${name}`, id);
     },
   });
 };
@@ -465,13 +468,13 @@ export const useUpdateService = () => {
 export const useDeleteService = () => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => {
+    mutationFn: async ({ id }: { id: string; name: string }) => {
       const { error } = await supabase.from("crm_services").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: (_, id) => {
+    onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_services"] });
-      logAction("delete", "Servicio", "Servicio eliminado", id);
+      logAction("delete", "Servicio", `Servicio eliminado: ${name}`, id);
     },
   });
 };
@@ -507,7 +510,44 @@ export const useCreateSale = () => {
       if (error) throw error;
       return data as CrmSale;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_sales"] }),
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_sales"] });
+      logAction("create", "Venta", `Venta registrada: ${data.contact_name ?? "—"} — ${data.service_name ?? "—"} ($${data.amount})`, data.id);
+    },
+  });
+};
+
+export const useUpdateSale = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, justification, ...updates }: Partial<CrmSale> & { id: string; justification: string }) => {
+      const { data, error } = await supabase
+        .from("crm_sales")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return { sale: data as CrmSale, justification };
+    },
+    onSuccess: ({ sale, justification }) => {
+      qc.invalidateQueries({ queryKey: ["crm_sales"] });
+      logAction("update", "Venta", `Venta editada: ${sale.contact_name ?? "—"} — $${sale.amount}. Justificación: ${justification}`, sale.id);
+    },
+  });
+};
+
+export const useDeleteSale = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; contactName: string; serviceName: string; amount: number; justification: string }) => {
+      const { error } = await supabase.from("crm_sales").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_, { id, contactName, serviceName, amount, justification }) => {
+      qc.invalidateQueries({ queryKey: ["crm_sales"] });
+      logAction("delete", "Venta", `Venta eliminada: ${contactName} — ${serviceName} ($${amount}). Justificación: ${justification}`, id);
+    },
   });
 };
 
@@ -674,3 +714,277 @@ export const useUpsertBusinessProfile = () => {
     },
   });
 };
+
+// ─── PIPELINES ────────────────────────────────────────────────
+
+export const usePipelines = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_pipelines", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_pipelines")
+        .select("*")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as CrmPipeline[];
+    },
+    enabled: !!user,
+  });
+};
+
+export const useCreatePipeline = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (pipeline: Pick<CrmPipeline, "name" | "type" | "column_names">) => {
+      const { data, error } = await supabase
+        .from("crm_pipelines")
+        .insert({ ...pipeline, user_id: user!.id })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmPipeline;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_pipelines"] });
+      logAction("create", "Pipeline", `Pipeline creado: ${data.name}`, data.id);
+    },
+  });
+};
+
+export const useUpdatePipeline = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: Partial<CrmPipeline> & { id: string }) => {
+      const { data, error } = await supabase
+        .from("crm_pipelines")
+        .update(patch)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmPipeline;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_pipelines"] });
+    },
+  });
+};
+
+export const useDeletePipeline = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; name: string }) => {
+      const { error } = await supabase.from("crm_pipelines").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_, { id, name }) => {
+      qc.invalidateQueries({ queryKey: ["crm_pipelines"] });
+      qc.invalidateQueries({ queryKey: ["crm_tasks"] });
+      logAction("delete", "Pipeline", `Pipeline eliminado: ${name}`, id);
+    },
+  });
+};
+
+// ─── TASKS ────────────────────────────────────────────────────
+
+export const useTasks = (pipelineId: string | null) => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_tasks", pipelineId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_tasks")
+        .select("*")
+        .eq("pipeline_id", pipelineId!)
+        .order("position", { ascending: true })
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as CrmTask[];
+    },
+    enabled: !!user && !!pipelineId,
+  });
+};
+
+export const useCreateTask = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (task: Pick<CrmTask, "pipeline_id" | "title" | "description" | "priority" | "stage">) => {
+      const { data, error } = await supabase
+        .from("crm_tasks")
+        .insert({ ...task, user_id: user!.id, position: 0 })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmTask;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_tasks", data.pipeline_id] });
+    },
+  });
+};
+
+export const useUpdateTask = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: Partial<CrmTask> & { id: string }) => {
+      const { data, error } = await supabase
+        .from("crm_tasks")
+        .update(patch)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmTask;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_tasks", data.pipeline_id] });
+    },
+  });
+};
+
+export const useDeleteTask = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, pipelineId }: { id: string; pipelineId: string; name: string }) => {
+      const { error } = await supabase.from("crm_tasks").delete().eq("id", id);
+      if (error) throw error;
+      return pipelineId;
+    },
+    onSuccess: (pipelineId, { id, name }) => {
+      qc.invalidateQueries({ queryKey: ["crm_tasks", pipelineId] });
+      logAction("delete", "Tarea", `Tarea eliminada: ${name}`, id);
+    },
+  });
+};
+
+// ─── CONTACT NOTES ────────────────────────────────────────────
+
+export const useContactNotes = (contactId: string | null) => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_contact_notes", contactId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_contact_notes")
+        .select("*")
+        .eq("contact_id", contactId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as CrmContactNote[];
+    },
+    enabled: !!user && !!contactId,
+  });
+};
+
+export const useCreateContactNote = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async ({ contactId, body }: { contactId: string; body: string }) => {
+      const { data, error } = await supabase
+        .from("crm_contact_notes")
+        .insert({ contact_id: contactId, user_id: user!.id, body })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmContactNote;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_contact_notes", data.contact_id] });
+    },
+  });
+};
+
+// ─── PUBLIC HOOKS (no auth required) ──────────────────────────────────────────
+
+export const usePublicForm = (formId: string) =>
+  useQuery({
+    queryKey: ["public_form", formId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_forms")
+        .select("*")
+        .eq("id", formId)
+        .single();
+      if (error) throw error;
+      return data as CrmForm;
+    },
+    enabled: !!formId,
+  });
+
+export const usePublicServices = (userId?: string | null, allowedIds?: string[]) =>
+  useQuery({
+    queryKey: ["public_services", userId, allowedIds?.join(",")],
+    queryFn: async () => {
+      if (!userId) return [];
+      const { data, error } = await supabase
+        .from("crm_services")
+        .select("*")
+        .eq("user_id", userId)
+        .eq("active", true)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      const all = data as CrmService[];
+      if (allowedIds?.length) return all.filter((s) => allowedIds.includes(s.id));
+      return all;
+    },
+    enabled: !!userId,
+  });
+
+export const usePublicCalendar = (calendarId: string) =>
+  useQuery({
+    queryKey: ["public_calendar", calendarId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_calendar_config")
+        .select("*")
+        .eq("id", calendarId)
+        .single();
+      if (error) throw error;
+      return data as CrmCalendarConfig;
+    },
+    enabled: !!calendarId,
+  });
+
+export const usePublicAppointments = (
+  userId?: string | null,
+  year?: number,
+  month?: number,
+) =>
+  useQuery({
+    queryKey: ["public_appointments", userId, year, month],
+    queryFn: async () => {
+      if (!userId || year == null || month == null) return [];
+      const startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+      // Use 31 as a safe upper bound — Supabase will just return nothing for invalid dates
+      const endDate = `${year}-${String(month + 1).padStart(2, "0")}-31`;
+      const { data, error } = await supabase
+        .from("crm_appointments")
+        .select("date, hour, duration_min, status")
+        .eq("user_id", userId)
+        .gte("date", startDate)
+        .lte("date", endDate)
+        .neq("status", "cancelled");
+      if (error) throw error;
+      return data as { date: string; hour: number; duration_min: number; status: string }[];
+    },
+    enabled: !!userId && year != null && month != null,
+  });
+
+export const usePublicBlockedSlots = (userId?: string | null) =>
+  useQuery({
+    queryKey: ["public_blocked_slots", userId],
+    queryFn: async () => {
+      if (!userId) return [];
+      const { data, error } = await supabase
+        .from("crm_blocked_slots")
+        .select("*")
+        .eq("user_id", userId);
+      if (error) throw error;
+      return data as CrmBlockedSlot[];
+    },
+    enabled: !!userId,
+  });

@@ -1,8 +1,30 @@
+import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, Globe, Sparkles, Zap, DollarSign, CalendarDays, Hammer, Rocket, Star, Shield, ArrowRight, Users, ChevronLeft, ChevronRight, Clock } from "lucide-react";
+import { Check, Globe, Sparkles, Zap, DollarSign, CalendarDays, Hammer, Rocket, Star, ArrowRight, Users } from "lucide-react";
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
+import CalendarRenderer from "@/components/crm/CalendarRenderer";
+
+/**
+ * Loads the first active calendar in the system (no auth needed — relies on
+ * the public RLS policy "Public can read calendar config").
+ * The admin creates the calendar in the CRM and it shows up here automatically.
+ */
+const useLandingCalendar = () =>
+  useQuery({
+    queryKey: ["landing_calendar"],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("crm_calendar_config")
+        .select("id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      return data?.id ?? null;
+    },
+  });
 
 const plans = [
   {
@@ -74,116 +96,10 @@ const benefits = [
   { icon: DollarSign, title: "Precios para latinos", desc: "Precios para negocios latinos, no corporativos." },
 ];
 
-/* Calendar Mockup Component */
-const CalendarMockup = () => {
-  const days = ["Lu", "Ma", "Mi", "Ju", "Vi", "Sá", "Do"];
-  const dates = [
-    [null, 1, 2, 3, 4, 5, 6],
-    [7, 8, 9, 10, 11, 12, 13],
-    [14, 15, 16, 17, 18, 19, 20],
-    [21, 22, 23, 24, 25, 26, 27],
-    [28, 29, 30, null, null, null, null],
-  ];
-  const available = [3, 5, 10, 12, 17, 19, 24, 26];
-  const selected = 17;
-  const times = ["9:00 AM", "10:00 AM", "11:00 AM", "2:00 PM", "3:00 PM"];
-  const selectedTime = "10:00 AM";
 
+const Index = () => {
+  const { data: landingCalendarId } = useLandingCalendar();
   return (
-    <div className="bg-card border-2 border-slate-200/60 rounded-[28px] shadow-2xl overflow-hidden">
-      {/* Browser bar */}
-      <div className="bg-slate-100/80 flex items-center gap-1.5 px-5 py-3 border-b">
-        <div className="flex gap-1.5">
-          <div className="w-3 h-3 rounded-full bg-red-400" />
-          <div className="w-3 h-3 rounded-full bg-amber-400" />
-          <div className="w-3 h-3 rounded-full bg-emerald-400" />
-        </div>
-        <div className="mx-auto bg-white/60 rounded-full px-4 py-1 text-[10px] font-bold text-muted-foreground flex items-center gap-1.5">
-          <Shield size={9} /> acrosoft-labs.com/reunión
-        </div>
-      </div>
-
-      <div className="p-6 space-y-4">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground">Acrosoft Labs</p>
-            <p className="text-sm font-black text-foreground">Consultoría Gratuita · 30 min</p>
-          </div>
-          <div className="w-9 h-9 rounded-xl bg-primary/10 flex items-center justify-center">
-            <CalendarDays size={18} className="text-primary" />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-[1fr_auto] gap-4">
-          {/* Calendar grid */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-black text-foreground">Abril 2025</span>
-              <div className="flex gap-1">
-                <button className="w-5 h-5 rounded-md bg-secondary flex items-center justify-center hover:bg-primary/10 transition-colors">
-                  <ChevronLeft size={11} className="text-muted-foreground" />
-                </button>
-                <button className="w-5 h-5 rounded-md bg-secondary flex items-center justify-center hover:bg-primary/10 transition-colors">
-                  <ChevronRight size={11} className="text-muted-foreground" />
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-7 gap-0.5">
-              {days.map((d) => (
-                <div key={d} className="text-center text-[9px] font-black text-muted-foreground/60 uppercase py-1">{d}</div>
-              ))}
-              {dates.flat().map((date, i) => {
-                if (!date) return <div key={i} />;
-                const isAvailable = available.includes(date);
-                const isSelected = date === selected;
-                return (
-                  <div
-                    key={i}
-                    className={`aspect-square rounded-lg flex items-center justify-center text-[11px] font-bold transition-all cursor-pointer
-                      ${isSelected ? "bg-primary text-white shadow-md shadow-primary/30" : ""}
-                      ${isAvailable && !isSelected ? "bg-primary/10 text-primary hover:bg-primary/20" : ""}
-                      ${!isAvailable && !isSelected ? "text-muted-foreground/30" : ""}
-                    `}
-                  >
-                    {date}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Time slots */}
-          <div className="space-y-1.5 w-24">
-            <p className="text-[9px] font-black uppercase tracking-widest text-muted-foreground mb-2 flex items-center gap-1">
-              <Clock size={9} /> Hora
-            </p>
-            {times.map((t) => (
-              <div
-                key={t}
-                className={`px-2 py-1.5 rounded-lg text-[10px] font-bold text-center cursor-pointer transition-all
-                  ${t === selectedTime
-                    ? "bg-primary text-white shadow-sm shadow-primary/30"
-                    : "bg-secondary/60 text-muted-foreground hover:bg-primary/10 hover:text-primary"
-                  }`}
-              >
-                {t}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Confirm button */}
-        <div className="bg-primary rounded-xl py-2.5 flex items-center justify-center gap-1.5 text-white text-xs font-black shadow-lg shadow-primary/20">
-          <CalendarDays size={13} /> Confirmar Reunión
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const Index = () => (
   <div className="min-h-screen bg-background selection:bg-primary/10">
     <Navbar />
 
@@ -238,7 +154,30 @@ const Index = () => (
           {/* Calendar — zona de agendado */}
           <div id="agendar" className="relative animate-in fade-in slide-in-from-right-8 duration-1000 delay-300">
             <div className="absolute -inset-4 bg-gradient-to-tr from-primary/20 to-blue-400/20 rounded-[40px] blur-2xl -z-10 opacity-60" />
-            <CalendarMockup />
+            {/* Clean browser frame — neutral so the widget looks embeddable */}
+            <div className="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
+              <div className="bg-slate-50 flex items-center gap-1.5 px-4 py-2.5 border-b border-slate-100">
+                <div className="flex gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-slate-200" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-slate-200" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-slate-200" />
+                </div>
+                <div className="mx-auto text-[10px] text-slate-400 font-mono">
+                  acrosoft-labs.com/reunión
+                </div>
+              </div>
+              <div className="p-6">
+                {landingCalendarId ? (
+                  <CalendarRenderer calendarId={landingCalendarId} />
+                ) : (
+                  <div className="text-center py-8 space-y-2">
+                    <CalendarDays size={28} className="mx-auto text-slate-200 mb-3" />
+                    <p className="text-sm font-medium text-slate-400">Crea un calendario en el CRM</p>
+                    <p className="text-xs text-slate-300">Aparecerá aquí automáticamente.</p>
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -416,6 +355,7 @@ const Index = () => (
 
     <Footer />
   </div>
-);
+  );
+};
 
 export default Index;

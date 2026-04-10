@@ -3,10 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
-  Plus, Trash2, GripVertical, Pencil,
+  Plus, Trash2, GripVertical, Pencil, X,
   Type, AlignLeft, Mail, Phone, MapPin, ChevronDown,
   Calendar, Clock, Link, ClipboardList, ArrowLeft, Settings, Briefcase,
-  Hash, Upload, CheckSquare, Minus, Palette, Circle, Layers,
+  Hash, Upload, CheckSquare, Minus, Palette, Circle, Layers, ChevronUp,
   ExternalLink, Copy, Code, Braces, Link as LinkIcon, Eye, Loader2, List
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -20,6 +20,7 @@ import { toast } from "sonner";
 interface FormSection {
   id: string;
   name: string;
+  subtitle?: string;
   isConfirmation?: boolean; // special: renders a summary of all answers, no fields
 }
 
@@ -36,6 +37,8 @@ interface FormConfig {
   successPopupMessage?: string;
   successImageType?: "icon" | "logo";
   successRedirectUrl?: string;
+  autoTags?: string[];
+  facebookPixelId?: string;
 }
 
 type FieldType =
@@ -181,6 +184,7 @@ const FieldRow = ({
   onDelete: () => void;
 }) => {
   const Icon = typeIcon(field.type);
+  const [pendingDelete, setPendingDelete] = useState(false);
 
   return (
     <div className="bg-card border rounded-2xl p-4 space-y-3">
@@ -233,12 +237,30 @@ const FieldRow = ({
 
         {/* Delete */}
         {!field.locked ? (
-          <button
-            onClick={onDelete}
-            className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
-          >
-            <Trash2 size={13} />
-          </button>
+          pendingDelete ? (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-[11px] text-destructive font-medium">¿Eliminar?</span>
+              <button
+                onClick={onDelete}
+                className="px-2 py-1 rounded-lg bg-destructive text-destructive-foreground text-[11px] font-semibold hover:bg-destructive/90 transition-colors"
+              >
+                Sí
+              </button>
+              <button
+                onClick={() => setPendingDelete(false)}
+                className="px-2 py-1 rounded-lg border text-[11px] font-semibold text-muted-foreground hover:bg-secondary transition-colors"
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <button
+              onClick={() => setPendingDelete(true)}
+              className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+            >
+              <Trash2 size={13} />
+            </button>
+          )
         ) : (
           <div className="w-7 shrink-0" />
         )}
@@ -494,12 +516,17 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
   const [confirmationMessage, setConfirmationMessage]   = useState(form.confirmationMessage ?? "");
   const [sections, setSections]   = useState<FormSection[]>(form.sections ?? [{ id: "sec-1", name: "Página 1" }]);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
+  const [deletingSectionId, setDeletingSectionId] = useState<string | null>(null);
+  const [deletingFieldId, setDeletingFieldId] = useState<string | null>(null);
 
   const [submitButtonText, setSubmitButtonText] = useState(form.submitButtonText || "Enviar mensaje");
   const [successAction, setSuccessAction] = useState<"popup" | "redirect">(form.successAction || "popup");
   const [successPopupMessage, setSuccessPopupMessage] = useState(form.successPopupMessage || "¡Gracias! Hemos recibido tu información.");
   const [successImageType, setSuccessImageType] = useState<"icon" | "logo">(form.successImageType || "icon");
   const [successRedirectUrl, setSuccessRedirectUrl] = useState(form.successRedirectUrl || "");
+  const [autoTags, setAutoTags] = useState<string[]>(form.autoTags ?? []);
+  const [newAutoTag, setNewAutoTag] = useState("");
+  const [facebookPixelId, setFacebookPixelId] = useState(form.facebookPixelId ?? "");
 
   const update = (id: string, patch: Partial<FormField>) =>
     setFields((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)));
@@ -536,7 +563,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
 
   const handleSave = async () => {
     try {
-      onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl });
+      onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId: facebookPixelId || undefined });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -550,16 +577,39 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
   const renameSection = (id: string, newName: string) =>
     setSections(s => s.map(sec => sec.id === id ? { ...sec, name: newName } : sec));
 
+  const updateSectionSubtitle = (id: string, subtitle: string) =>
+    setSections(s => s.map(sec => sec.id === id ? { ...sec, subtitle } : sec));
+
   const removeSection = (id: string) => {
     setSections(s => s.filter(sec => sec.id !== id));
-    setFields(fs => fs.map(f => f.sectionId === id ? { ...f, sectionId: undefined } : f));
+    // Remove fields that belonged to this section (don't leave orphans)
+    setFields(fs => fs.filter(f => f.sectionId !== id || f.locked));
+  };
+
+  const moveSection = (id: string, dir: -1 | 1) => {
+    setSections(s => {
+      const idx = s.findIndex(sec => sec.id === id);
+      const newIdx = idx + dir;
+      if (newIdx < 0 || newIdx >= s.length) return s;
+      const next = [...s];
+      [next[idx], next[newIdx]] = [next[newIdx], next[idx]];
+      return next;
+    });
   };
 
   return (
+    <>
+    <DeleteConfirmDialog
+      open={!!deletingSectionId}
+      onOpenChange={(o) => { if (!o) setDeletingSectionId(null); }}
+      onConfirm={() => { if (deletingSectionId) { removeSection(deletingSectionId); setDeletingSectionId(null); } }}
+      description="Se eliminará esta página y todos sus campos permanentemente."
+    />
+
     <div className="space-y-8">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
-          <button 
+          <button
             onClick={onBack}
             className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-3 transition-colors"
           >
@@ -597,7 +647,11 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
           {/* Multi-page toggle */}
           <div className="flex border rounded-xl overflow-hidden bg-card">
             <button
-              onClick={() => setMultiPage(false)}
+              onClick={() => {
+                setMultiPage(false);
+                // Strip sectionId from all fields so they all appear in flat mode
+                setFields(fs => fs.map(f => ({ ...f, sectionId: undefined })));
+              }}
               className={`px-4 py-2 text-xs font-semibold transition-all ${
                 !multiPage ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
               }`}
@@ -607,10 +661,12 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
             <button
               onClick={() => {
                 setMultiPage(true);
-                // Auto-assign locked fields to first section
+                // Assign ALL fields without a sectionId to the first section
+                // (not just locked ones — otherwise non-locked fields stay "floating"
+                //  and can't be deleted when their page is removed)
                 const firstSec = sections[0];
                 if (firstSec) {
-                  setFields(fs => fs.map(f => f.locked ? { ...f, sectionId: firstSec.id } : f));
+                  setFields(fs => fs.map(f => !f.sectionId ? { ...f, sectionId: firstSec.id } : f));
                 }
               }}
               className={`px-4 py-2 text-xs font-semibold transition-all ${
@@ -678,47 +734,90 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                 return (
                   <div key={sec.id} className={`border rounded-2xl overflow-hidden ${sec.isConfirmation ? "border-amber-300/60 dark:border-amber-700/40 bg-amber-50/30 dark:bg-amber-950/10" : "bg-card"}`}>
                     {/* Section header */}
-                    <div className={`flex items-center gap-3 px-5 py-3 border-b group/secheader ${sec.isConfirmation ? "bg-amber-100/40 dark:bg-amber-900/20 border-amber-200/50 dark:border-amber-800/30" : "bg-secondary/30"}`}>
-                      {sec.isConfirmation
-                        ? <CheckSquare size={14} className="text-amber-500 shrink-0" />
-                        : <Layers size={14} className="text-primary shrink-0" />
-                      }
-                      <div className="flex-1 flex items-center gap-2">
-                        {!sec.isConfirmation && editingSectionId === sec.id ? (
-                          <Input
-                            value={sec.name}
-                            onChange={(e) => renameSection(sec.id, e.target.value)}
-                            onBlur={() => setEditingSectionId(null)}
-                            onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingSectionId(null); }}
-                            autoFocus
-                            className="h-8 text-sm font-semibold border-none bg-background px-2 -ml-2 focus-visible:ring-1 max-w-[250px]"
-                            placeholder="Nombre de la sección"
-                          />
+                    <div className={`border-b group/secheader ${sec.isConfirmation ? "bg-amber-100/40 dark:bg-amber-900/20 border-amber-200/50 dark:border-amber-800/30" : "bg-secondary/30"}`}>
+                      {/* Name row */}
+                      <div className="flex items-center gap-3 px-5 py-3">
+                        {sec.isConfirmation
+                          ? <CheckSquare size={14} className="text-amber-500 shrink-0" />
+                          : <Layers size={14} className="text-primary shrink-0" />
+                        }
+                        <div className="flex-1 flex items-center gap-2">
+                          {!sec.isConfirmation && editingSectionId === sec.id ? (
+                            <Input
+                              value={sec.name}
+                              onChange={(e) => renameSection(sec.id, e.target.value)}
+                              onBlur={() => setEditingSectionId(null)}
+                              onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingSectionId(null); }}
+                              autoFocus
+                              className="h-8 text-sm font-semibold border-none bg-background px-2 -ml-2 focus-visible:ring-1 max-w-[250px]"
+                              placeholder="Nombre de la sección"
+                            />
+                          ) : (
+                            <>
+                              <h2 className="text-sm font-semibold text-foreground leading-8">
+                                {sec.name || "Sin título"}
+                              </h2>
+                              {!sec.isConfirmation && (
+                                <button
+                                  onClick={() => setEditingSectionId(sec.id)}
+                                  className="p-1 rounded-md text-muted-foreground opacity-40 group-hover/secheader:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition-all"
+                                >
+                                  <Pencil size={13} />
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
+                          Página {secIdx + 1}
+                        </span>
+                        {!sec.isConfirmation && (
+                          <div className="flex items-center gap-0.5 shrink-0">
+                            <button
+                              onClick={() => moveSection(sec.id, -1)}
+                              disabled={secIdx === 0}
+                              className="p-1 rounded hover:bg-secondary text-muted-foreground disabled:opacity-20 transition-colors"
+                              title="Mover arriba"
+                            >
+                              <ChevronUp size={13} />
+                            </button>
+                            <button
+                              onClick={() => moveSection(sec.id, 1)}
+                              disabled={secIdx === sections.filter(s => !s.isConfirmation).length - 1}
+                              className="p-1 rounded hover:bg-secondary text-muted-foreground disabled:opacity-20 transition-colors"
+                              title="Mover abajo"
+                            >
+                              <ChevronDown size={13} />
+                            </button>
+                          </div>
+                        )}
+                        {sectionFields.some(f => f.locked) ? (
+                          <div
+                            title="Esta página contiene campos obligatorios del sistema (Nombre y Correo) y no puede eliminarse."
+                            className="p-1.5 rounded-lg text-muted-foreground/25 cursor-not-allowed shrink-0"
+                          >
+                            <Trash2 size={13} />
+                          </div>
                         ) : (
-                          <>
-                            <h2 className="text-sm font-semibold text-foreground leading-8">
-                              {sec.name || "Sin título"}
-                            </h2>
-                            {!sec.isConfirmation && (
-                              <button
-                                onClick={() => setEditingSectionId(sec.id)}
-                                className="p-1 rounded-md text-muted-foreground opacity-40 group-hover/secheader:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition-all"
-                              >
-                                <Pencil size={13} />
-                              </button>
-                            )}
-                          </>
+                          <button
+                            onClick={() => setDeletingSectionId(sec.id)}
+                            className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                          >
+                            <Trash2 size={13} />
+                          </button>
                         )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground shrink-0 font-medium">
-                        Página {secIdx + 1}
-                      </span>
-                      <button
-                        onClick={() => removeSection(sec.id)}
-                        className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0"
-                      >
-                        <Trash2 size={13} />
-                      </button>
+                      {/* Subtitle row — editable, only on non-confirmation sections */}
+                      {!sec.isConfirmation && (
+                        <div className="px-5 pb-2.5 pl-[52px]">
+                          <input
+                            value={sec.subtitle ?? ""}
+                            onChange={(e) => updateSectionSubtitle(sec.id, e.target.value)}
+                            placeholder="Descripción de la página (opcional)…"
+                            className="w-full text-xs text-muted-foreground bg-transparent border-none outline-none placeholder:text-muted-foreground/30 focus:text-foreground transition-colors"
+                          />
+                        </div>
+                      )}
                     </div>
 
                     {/* Confirmation page preview */}
@@ -850,6 +949,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                       rows={3}
                       placeholder="Ej: Al confirmar, nuestro equipo comenzará a trabajar en tu proyecto. Recibirás un correo de confirmación."
                       className="w-full rounded-xl border border-input bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
+
                     />
                     <p className="text-[10px] text-muted-foreground">Si lo dejas vacío, no se mostrará ningún mensaje.</p>
                   </div>
@@ -857,43 +957,87 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
               </div>
             )}
 
-            <div className="grid sm:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Texto del botón enviar</label>
-                <Input 
-                  value={submitButtonText} 
-                  onChange={e => setSubmitButtonText(e.target.value)} 
-                  placeholder="Ej: Agendar Cita" 
-                  className="h-10 text-sm"
-                />
-              </div>
+            {/* Submit button text */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Texto del botón enviar</label>
+              <Input
+                value={submitButtonText}
+                onChange={e => setSubmitButtonText(e.target.value)}
+                placeholder="Ej: Agendar Cita"
+                className="h-10 text-sm"
+              />
+            </div>
 
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Al completar el formulario</label>
-                <div className="flex border rounded-xl overflow-hidden h-10">
-                  <button
-                    onClick={() => setSuccessAction("popup")}
-                    className={`flex-1 text-xs font-semibold transition-all ${
-                      successAction === "popup" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
-                    }`}
-                  >
-                    Mostrar Mensaje
-                  </button>
-                  <button
-                    onClick={() => setSuccessAction("redirect")}
-                    className={`flex-1 text-xs font-semibold transition-all border-l ${
-                      successAction === "redirect" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
-                    }`}
-                  >
-                    Redirigir a URL
-                  </button>
+            {/* Auto-tags */}
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Etiquetas automáticas</label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Se asignarán al contacto cada vez que envíe este formulario.</p>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {autoTags.map((t) => (
+                  <span key={t} className="inline-flex items-center gap-1 text-xs border rounded-full pl-2.5 pr-1 py-0.5 bg-secondary/60 text-foreground">
+                    {t}
+                    <button
+                      onClick={() => setAutoTags(autoTags.filter((x) => x !== t))}
+                      className="rounded-full hover:bg-destructive/20 hover:text-destructive p-0.5 transition-colors"
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                ))}
+                <div className="flex items-center gap-1">
+                  <input
+                    value={newAutoTag}
+                    onChange={(e) => setNewAutoTag(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key !== "Enter") return;
+                      e.preventDefault();
+                      const tag = newAutoTag.trim();
+                      if (!tag || autoTags.includes(tag)) { setNewAutoTag(""); return; }
+                      setAutoTags([...autoTags, tag]);
+                      setNewAutoTag("");
+                    }}
+                    placeholder="+ nueva etiqueta"
+                    className="text-xs h-7 px-2.5 rounded-full border border-dashed bg-transparent text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary w-36"
+                  />
                 </div>
               </div>
             </div>
+          </div>
 
-            <div className="bg-secondary/20 p-4 rounded-xl border border-secondary/50">
+          {/* ── Página de Gracias ──────────────────────────────────── */}
+          <div className="bg-card border rounded-2xl p-6 space-y-6 mt-4">
+            <h2 className="text-sm font-semibold flex items-center gap-2">
+              <CheckSquare size={16} className="text-emerald-500"/> Página de Gracias
+            </h2>
+
+            {/* Al completar el formulario */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Al completar el formulario</label>
+              <div className="flex border rounded-xl overflow-hidden h-10">
+                <button
+                  onClick={() => setSuccessAction("popup")}
+                  className={`flex-1 text-xs font-semibold transition-all ${
+                    successAction === "popup" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
+                  }`}
+                >
+                  Mostrar Mensaje
+                </button>
+                <button
+                  onClick={() => setSuccessAction("redirect")}
+                  className={`flex-1 text-xs font-semibold transition-all border-l ${
+                    successAction === "redirect" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
+                  }`}
+                >
+                  Redirigir a URL
+                </button>
+              </div>
+            </div>
+
+            <div className="bg-secondary/20 p-4 rounded-xl border border-secondary/50 space-y-5">
               {successAction === "popup" ? (
-                <div className="space-y-5">
+                <>
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-muted-foreground">Imagen a mostrar</label>
                     <div className="flex border rounded-xl overflow-hidden h-9 w-max">
@@ -917,29 +1061,48 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-muted-foreground">Mensaje principal de éxito</label>
-                    <Input 
-                      value={successPopupMessage} 
-                      onChange={e => setSuccessPopupMessage(e.target.value)} 
-                      placeholder="¡Gracias! Hemos recibido tu solicitud." 
+                    <Input
+                      value={successPopupMessage}
+                      onChange={e => setSuccessPopupMessage(e.target.value)}
+                      placeholder="¡Gracias! Hemos recibido tu solicitud."
                       className="h-10 text-sm bg-background border-input"
                     />
                     <p className="text-[10px] text-muted-foreground mt-1">
                       Este texto aparecerá en grande {successImageType === "icon" ? "debajo del icono de éxito" : "debajo de tu logotipo"} al enviar la información.
                     </p>
                   </div>
-                </div>
+                </>
               ) : (
                 <div className="space-y-2">
                   <label className="text-xs font-medium text-muted-foreground">URL de redirección (Thank you page)</label>
-                  <Input 
-                    value={successRedirectUrl} 
-                    onChange={e => setSuccessRedirectUrl(e.target.value)} 
-                    placeholder="https://tudominio.com/gracias" 
+                  <Input
+                    value={successRedirectUrl}
+                    onChange={e => setSuccessRedirectUrl(e.target.value)}
+                    placeholder="https://tudominio.com/gracias"
                     className="h-10 text-sm bg-background border-input font-mono"
                   />
                   <p className="text-[10px] text-muted-foreground mt-1">El usuario será redirigido automáticamente a este enlace al completar el formulario.</p>
                 </div>
               )}
+            </div>
+
+            {/* Facebook Pixel */}
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+                <span className="w-3.5 h-3.5 rounded-sm bg-blue-600 inline-flex items-center justify-center shrink-0">
+                  <span className="text-white font-black" style={{ fontSize: 8 }}>f</span>
+                </span>
+                Facebook Pixel ID
+              </label>
+              <Input
+                value={facebookPixelId}
+                onChange={e => setFacebookPixelId(e.target.value)}
+                placeholder="Ej: 1234567890123456"
+                className="h-10 text-sm font-mono"
+              />
+              <p className="text-[10px] text-muted-foreground leading-relaxed">
+                Se dispara <strong>ViewContent</strong> al cargar el formulario y <strong>Lead</strong> al llegar a la Página de Gracias.
+              </p>
             </div>
           </div>
 
@@ -967,13 +1130,23 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                <LinkIcon size={14} className="text-primary"/> Link (directo)
              </div>
              <div className="flex gap-2">
-               <Input 
-                 readOnly 
-                 value={`https://acros.hub/f/${form.id}`} 
-                 className="h-8 text-[11px] bg-secondary/30 font-mono" 
+               <Input
+                 readOnly
+                 value={`${window.location.origin}/f/${form.id}`}
+                 className="h-8 text-[11px] bg-secondary/30 font-mono"
                />
-               <Button variant="secondary" size="icon" className="h-8 w-8 shrink-0"><Copy size={13}/></Button>
-               <Button variant="outline" size="icon" className="h-8 w-8 shrink-0"><ExternalLink size={13}/></Button>
+               <Button
+                 variant="secondary" size="icon" className="h-8 w-8 shrink-0"
+                 onClick={() => navigator.clipboard.writeText(`${window.location.origin}/f/${form.id}`)}
+               >
+                 <Copy size={13}/>
+               </Button>
+               <Button
+                 variant="outline" size="icon" className="h-8 w-8 shrink-0"
+                 onClick={() => window.open(`/f/${form.id}`, "_blank")}
+               >
+                 <ExternalLink size={13}/>
+               </Button>
              </div>
            </div>
 
@@ -983,12 +1156,17 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                <Code size={14} className="text-orange-500"/> Iframe (HTML)
              </div>
              <div className="relative">
-               <textarea 
-                 readOnly 
-                 value={`<iframe src="https://acros.hub/f/${form.id}" width="100%" height="600px" frameborder="0"></iframe>`}
+               <textarea
+                 readOnly
+                 value={`<iframe src="${window.location.origin}/f/${form.id}" width="100%" height="600px" frameborder="0" style="border:none;border-radius:12px;"></iframe>`}
                  className="w-full h-[76px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
                />
-               <Button variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"><Copy size={11}/></Button>
+               <Button
+                 variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"
+                 onClick={() => navigator.clipboard.writeText(`<iframe src="${window.location.origin}/f/${form.id}" width="100%" height="600px" frameborder="0" style="border:none;border-radius:12px;"></iframe>`)}
+               >
+                 <Copy size={11}/>
+               </Button>
              </div>
            </div>
 
@@ -998,17 +1176,23 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                <Braces size={14} className="text-blue-500"/> Javascript Embed
              </div>
              <div className="relative">
-               <textarea 
-                 readOnly 
-                 value={`<script src="https://acros.hub/embed.js"></script>\n<acros-form id="${form.id}"></acros-form>`}
-                 className="w-full h-[76px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+               <textarea
+                 readOnly
+                 value={`<div id="acrosoft-form-${form.id}"></div>\n<script>\n  (function(){\n    var i=document.createElement('iframe');\n    i.src='${window.location.origin}/f/${form.id}';\n    i.width='100%';i.height='600';i.frameBorder='0';\n    i.style.borderRadius='12px';\n    document.getElementById('acrosoft-form-${form.id}').appendChild(i);\n  })();\n</script>`}
+                 className="w-full h-[100px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
                />
-               <Button variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"><Copy size={11}/></Button>
+               <Button
+                 variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"
+                 onClick={() => navigator.clipboard.writeText(`<div id="acrosoft-form-${form.id}"></div>\n<script>\n  (function(){\n    var i=document.createElement('iframe');\n    i.src='${window.location.origin}/f/${form.id}';\n    i.width='100%';i.height='600';i.frameBorder='0';\n    i.style.borderRadius='12px';\n    document.getElementById('acrosoft-form-${form.id}').appendChild(i);\n  })();\n</script>`)}
+               >
+                 <Copy size={11}/>
+               </Button>
              </div>
            </div>
         </div>
       </div>
     </div>
+    </>
   );
 };
 
@@ -1021,7 +1205,7 @@ const CrmForms = () => {
 
   const [view, setView] = useState<"list" | "builder">("list");
   const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
-  const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   // Convert rawForms to FormConfig format
@@ -1038,6 +1222,8 @@ const CrmForms = () => {
     successPopupMessage: f.success_message ?? "",
     successImageType: f.success_image ?? "icon",
     successRedirectUrl: f.redirect_url ?? "",
+    autoTags: (f.auto_tags as string[] | null) ?? [],
+    facebookPixelId: f.facebook_pixel_id ?? "",
   }));
 
   const selectedForm = forms.find(f => f.id === selectedFormId);
@@ -1066,15 +1252,16 @@ const CrmForms = () => {
   };
 
   const handleDelete = (id: string) => {
-    setDeleteTargetId(id);
+    const form = forms.find((f) => f.id === id);
+    setDeleteTarget({ id, name: form?.name ?? id });
     setDeleteConfirmText("");
   };
 
   const handleConfirmDelete = async () => {
-    if (!deleteTargetId) return;
+    if (!deleteTarget) return;
     try {
-      await deleteForm.mutateAsync(deleteTargetId);
-      if (selectedFormId === deleteTargetId) {
+      await deleteForm.mutateAsync({ id: deleteTarget.id, name: deleteTarget.name });
+      if (selectedFormId === deleteTarget.id) {
         setSelectedFormId(null);
         setView("list");
       }
@@ -1082,7 +1269,7 @@ const CrmForms = () => {
     } catch {
       toast.error("Error al eliminar formulario");
     } finally {
-      setDeleteTargetId(null);
+      setDeleteTarget(null);
       setDeleteConfirmText("");
     }
   };
@@ -1103,6 +1290,8 @@ const CrmForms = () => {
           success_message: updated.successPopupMessage ?? null,
           success_image: updated.successImageType ?? "icon",
           redirect_url: updated.successRedirectUrl ?? null,
+          auto_tags: updated.autoTags?.length ? updated.autoTags : null,
+          facebook_pixel_id: updated.facebookPixelId || null,
         });
         toast.success("Formulario guardado");
       } catch {
@@ -1114,8 +1303,8 @@ const CrmForms = () => {
   return (
     <>
     <DeleteConfirmDialog
-      open={!!deleteTargetId}
-      onOpenChange={(open) => { if (!open) { setDeleteTargetId(null); setDeleteConfirmText(""); } }}
+      open={!!deleteTarget}
+      onOpenChange={(open) => { if (!open) { setDeleteTarget(null); setDeleteConfirmText(""); } }}
       onConfirm={handleConfirmDelete}
       isPending={deleteForm.isPending}
       description="Se eliminará el formulario y todos sus campos permanentemente."
