@@ -152,31 +152,19 @@ const Index = () => {
           </div>
 
           {/* Calendar — zona de agendado */}
-          <div id="agendar" className="relative animate-in fade-in slide-in-from-right-8 duration-1000 delay-300">
+          <div id="agendar" className="relative animate-in fade-in slide-in-from-right-8 duration-1000 delay-300 scroll-mt-20">
             <div className="absolute -inset-4 bg-gradient-to-tr from-primary/20 to-blue-400/20 rounded-[40px] blur-2xl -z-10 opacity-60" />
-            {/* Clean browser frame — neutral so the widget looks embeddable */}
-            <div className="bg-white border border-slate-200 rounded-2xl shadow-xl overflow-hidden">
-              <div className="bg-slate-50 flex items-center gap-1.5 px-4 py-2.5 border-b border-slate-100">
-                <div className="flex gap-1.5">
-                  <div className="w-2.5 h-2.5 rounded-full bg-slate-200" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-slate-200" />
-                  <div className="w-2.5 h-2.5 rounded-full bg-slate-200" />
+            {/* Clean calendar widget — minimal, embeddable design */}
+            <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden p-6">
+              {landingCalendarId ? (
+                <CalendarRenderer calendarId={landingCalendarId} />
+              ) : (
+                <div className="text-center py-8 space-y-2">
+                  <CalendarDays size={28} className="mx-auto text-gray-200 mb-3" />
+                  <p className="text-sm font-medium text-gray-400">Crea un calendario en el CRM</p>
+                  <p className="text-xs text-gray-300">Aparecerá aquí automáticamente.</p>
                 </div>
-                <div className="mx-auto text-[10px] text-slate-400 font-mono">
-                  acrosoft-labs.com/reunión
-                </div>
-              </div>
-              <div className="p-6">
-                {landingCalendarId ? (
-                  <CalendarRenderer calendarId={landingCalendarId} />
-                ) : (
-                  <div className="text-center py-8 space-y-2">
-                    <CalendarDays size={28} className="mx-auto text-slate-200 mb-3" />
-                    <p className="text-sm font-medium text-slate-400">Crea un calendario en el CRM</p>
-                    <p className="text-xs text-slate-300">Aparecerá aquí automáticamente.</p>
-                  </div>
-                )}
-              </div>
+              )}
             </div>
           </div>
         </div>

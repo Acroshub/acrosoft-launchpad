@@ -4,8 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { useContacts, useAppointments, useServices, useSales, useCreateSale, useUpdateSale, useDeleteSale } from "@/hooks/useCrmData";
+import { useContacts, useAppointments, useServices, useSales, useCreateSale, useUpdateSale, useDeleteSale, useClientAccounts } from "@/hooks/useCrmData";
 import type { CrmSale } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+import { useCurrentUser } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
 const initialMetrics = [
@@ -22,13 +24,18 @@ const initialMetrics = [
 
 const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   // ─── Supabase hooks ───
+  const { user } = useCurrentUser();
   const { data: contacts = [] } = useContacts();
   const { data: appointments = [] } = useAppointments();
   const { data: services = [] } = useServices();
   const { data: salesData = [], isLoading: loadingSales } = useSales();
+  const { data: clientAccounts = [] } = useClientAccounts();
   const createSale = useCreateSale();
   const updateSale = useUpdateSale();
   const deleteSale = useDeleteSale();
+
+  // Map contact_id → account for quick SaaS status lookup
+  const accountByContact = Object.fromEntries(clientAccounts.map(a => [a.contact_id, a]));
 
   // ─── Edit / delete sale modal state ───
   const [saleModal, setSaleModal] = useState<
@@ -173,7 +180,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
 
   const handleRegisterSale = async () => {
     if (!selectedContact || !selectedService || saleAmount === "" || isNaN(Number(saleAmount))) return;
-    
+
     const contact = contacts.find(c => c.id === selectedContact);
     const service = services.find(s => s.id === selectedService);
     if (!contact || !service) return;
@@ -195,7 +202,26 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
         type: saleType,
         notes: finalNotes || null,
       });
-      toast.success("Venta registrada");
+
+      // ── SaaS trigger: if this is a SaaS service and client has no account yet ──
+      const existingAccount = accountByContact[contact.id];
+      if ((service as any).is_saas && !existingAccount && user) {
+        try {
+          const { error } = await supabase.functions.invoke("create-saas-client", {
+            body: { contact_id: contact.id, admin_user_id: user.id },
+          });
+          if (error) throw error;
+          toast.success(`Venta registrada · Email de invitación enviado a ${contact.email ?? contact.name}`);
+        } catch (saasErr) {
+          // Sale succeeded — log SaaS error but don't block
+          console.error("create-saas-client failed:", saasErr);
+          toast.success("Venta registrada");
+          toast.error("No se pudo crear la cuenta SaaS del cliente. Inténtalo manualmente.");
+        }
+      } else {
+        toast.success("Venta registrada");
+      }
+
       setSelectedContact("");
       setSelectedService("");
       setSaleNotes("");

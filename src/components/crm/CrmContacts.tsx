@@ -9,10 +9,12 @@ import {
   ArrowLeft, FolderOpen, Star, FileText, MessageSquare,
   TrendingUp, Briefcase, Target, ImagePlus, Plus,
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
-  Trash2, ChevronDown,
+  Trash2, ChevronDown, ExternalLink, Bell,
 } from "lucide-react";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote } from "@/hooks/useCrmData";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useDisableSaasClient, useEnableSaasClient } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
+import CreateReminderModal from "@/components/shared/CreateReminderModal";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 
@@ -517,9 +519,37 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const { data: contacts = [], isLoading } = useContacts();
   const { data: forms = [] } = useForms();
   const { data: pipelines = [] } = usePipelines();
+  const { data: clientAccounts = [] } = useClientAccounts();
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
   const deleteContact = useDeleteContact();
+  const disableClient = useDisableSaasClient();
+  const enableClient  = useEnableSaasClient();
+
+  const [accessingCrm, setAccessingCrm]       = useState<string | null>(null);
+  const [reminderContact, setReminderContact] = useState<typeof contacts[0] | null>(null);
+
+  // Map contact_id → client account for O(1) lookup
+  const accountByContact = Object.fromEntries(
+    clientAccounts.map((a) => [a.contact_id, a])
+  );
+
+  const handleAccessCrm = async (contactId: string) => {
+    setAccessingCrm(contactId);
+    try {
+      const { data, error } = await supabase.functions.invoke("generate-magic-link", {
+        body: { contact_id: contactId },
+      });
+      if (error) throw error;
+      if (data?.magic_link) {
+        window.open(data.magic_link, "_blank");
+      }
+    } catch (err) {
+      toast.error("No se pudo generar el acceso. Verifica que el cliente haya activado su cuenta.");
+    } finally {
+      setAccessingCrm(null);
+    }
+  };
 
   // First contacts pipeline — new contacts auto-enter its first column
   const contactsPipeline = pipelines.find((p) => p.type === "contacts") ?? null;
@@ -622,6 +652,15 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       description="Se eliminará el contacto y todos sus datos permanentemente."
     />
 
+    <CreateReminderModal
+      open={!!reminderContact}
+      onOpenChange={(v) => { if (!v) setReminderContact(null); }}
+      contactId={reminderContact?.id}
+      contactEmail={reminderContact?.email}
+      contactPhone={reminderContact?.phone}
+      contactName={reminderContact?.name}
+    />
+
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -710,7 +749,12 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
               </div>
             ) : (
               <div className="divide-y">
-                {filtered.map((c) => (
+                {filtered.map((c) => {
+                  const account = accountByContact[c.id];
+                  const isSaasActive = account?.status === "active";
+                  const isSaasPending = account?.status === "pending";
+
+                  return (
                   <div key={c.id} className="space-y-0">
                     <div
                       className={`px-5 py-4 flex items-center gap-3 hover:bg-secondary/30 transition-colors ${
@@ -725,17 +769,42 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                           {c.name.substring(0, 2).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <p className="text-sm font-medium truncate">{c.name}</p>
                             {c.stage && (
                               <Badge variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-primary/20 bg-primary/5 text-primary">
                                 {c.stage}
                               </Badge>
                             )}
+                            {(isSaasActive || isSaasPending) && (
+                              <Badge className={`text-[10px] px-2 py-0 shrink-0 font-semibold ${
+                                isSaasActive
+                                  ? "bg-amber-100 text-amber-700 border border-amber-200 hover:bg-amber-100"
+                                  : "bg-yellow-50 text-yellow-600 border border-yellow-200 hover:bg-yellow-50"
+                              }`}>
+                                🔐 Booking System
+                              </Badge>
+                            )}
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-0.5">{c.email ?? "Sin email"}</p>
                         </div>
                       </button>
+
+                      {/* Acceder a CRM (only for active SaaS clients) */}
+                      {isSaasActive && (
+                        <button
+                          onClick={() => handleAccessCrm(c.id)}
+                          disabled={accessingCrm === c.id}
+                          className="flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white transition-colors shrink-0 disabled:opacity-60"
+                          title="Acceder al CRM del cliente"
+                        >
+                          {accessingCrm === c.id
+                            ? <Loader2 size={12} className="animate-spin" />
+                            : <ExternalLink size={12} />
+                          }
+                          CRM
+                        </button>
+                      )}
 
                       {/* Delete button */}
                       <button
@@ -747,7 +816,8 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                       </button>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -789,6 +859,56 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                       Ver Ficha Técnica
                     </Button>
                   )}
+
+                  {/* SaaS account actions in detail panel */}
+                  {(() => {
+                    const acc = accountByContact[detail.id];
+                    if (!acc) return null;
+                    return (
+                      <div className="border rounded-xl p-3 space-y-2 bg-amber-50/50 border-amber-200">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase tracking-widest text-amber-700/70 font-semibold">Cuenta SaaS</span>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                            acc.status === "active"   ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                            acc.status === "pending"  ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+                                                        "bg-secondary text-muted-foreground border-border"
+                          }`}>
+                            {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente" : "Deshabilitada"}
+                          </span>
+                        </div>
+                        {acc.status === "active" && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await disableClient.mutateAsync(acc.id);
+                                toast.success("Cuenta SaaS deshabilitada");
+                              } catch { toast.error("Error al deshabilitar"); }
+                            }}
+                            disabled={disableClient.isPending}
+                            className="w-full h-8 rounded-lg text-xs font-medium border border-destructive/30 text-destructive hover:bg-destructive/5 transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            {disableClient.isPending ? <Loader2 size={12} className="animate-spin" /> : null}
+                            Deshabilitar cuenta
+                          </button>
+                        )}
+                        {acc.status === "disabled" && (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await enableClient.mutateAsync(acc.id);
+                                toast.success("Cuenta SaaS reactivada");
+                              } catch { toast.error("Error al reactivar"); }
+                            }}
+                            disabled={enableClient.isPending}
+                            className="w-full h-8 rounded-lg text-xs font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1.5"
+                          >
+                            {enableClient.isPending ? <Loader2 size={12} className="animate-spin" /> : null}
+                            Reactivar cuenta
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* Scrollable body */}
@@ -869,6 +989,16 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                       </button>
                     </div>
                   )}
+                </div>
+
+                {/* Recordatorio rápido */}
+                <div>
+                  <button
+                    onClick={() => setReminderContact(detail)}
+                    className="w-full flex items-center justify-center gap-2 h-8 rounded-xl border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                  >
+                    <Bell size={12} /> Crear recordatorio
+                  </button>
                 </div>
 
                 {/* Formularios */}

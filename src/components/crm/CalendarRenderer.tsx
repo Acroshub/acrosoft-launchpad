@@ -1,7 +1,7 @@
 import { useState, useMemo } from "react";
-import { ChevronLeft, ChevronRight, Loader2, Check } from "lucide-react";
-import { usePublicCalendar, usePublicAppointments, usePublicBlockedSlots, usePublicForm } from "@/hooks/useCrmData";
-import type { CrmCalendarConfig, CrmBlockedSlot } from "@/lib/supabase";
+import { ChevronLeft, ChevronRight, Loader2, Check, Clock, Calendar } from "lucide-react";
+import { usePublicCalendar, usePublicAppointments, usePublicBlockedSlots, usePublicForm, usePublicBusinessProfile } from "@/hooks/useCrmData";
+import type { CrmBlockedSlot } from "@/lib/supabase";
 import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -61,6 +61,28 @@ const formatHour = (h: number) => {
   return `${h - 12}:00 PM`;
 };
 
+// ─── Step indicator ───────────────────────────────────────────────────────────
+
+const StepLabel = ({
+  number,
+  label,
+  primaryColor,
+}: {
+  number: number;
+  label: string;
+  primaryColor: string;
+}) => (
+  <div className="flex items-center gap-2.5 mb-3 md:mb-2">
+    <span
+      className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+      style={{ backgroundColor: primaryColor }}
+    >
+      {number}
+    </span>
+    <span className="text-sm font-semibold text-gray-700">{label}</span>
+  </div>
+);
+
 // ─── Field ────────────────────────────────────────────────────────────────────
 
 const Field = ({
@@ -81,7 +103,7 @@ const Field = ({
 );
 
 const inputCls =
-  "w-full border border-gray-200 rounded px-3 py-2 text-sm text-gray-900 placeholder:text-gray-300 focus:outline-none focus:border-gray-400 transition-colors bg-white";
+  "w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-300 focus:outline-none focus:border-gray-400 transition-colors bg-white";
 
 // ─── Booking Form ─────────────────────────────────────────────────────────────
 
@@ -98,6 +120,7 @@ interface BookingFormProps {
   selectedHour: number;
   calendarName: string;
   durationMin: number;
+  primaryColor: string;
   onSuccess: () => void;
   onBack: () => void;
 }
@@ -109,6 +132,7 @@ const BookingForm = ({
   selectedHour,
   calendarName,
   durationMin,
+  primaryColor,
   onSuccess,
   onBack,
 }: BookingFormProps) => {
@@ -152,18 +176,30 @@ const BookingForm = ({
   };
 
   const [y, m, d] = selectedDate.split("-").map(Number);
-  const dateDisplay = `${d} de ${MONTHS_ES[m - 1]}, ${y}`;
+  const dateLabel = `${d} de ${MONTHS_ES[m - 1]}, ${y}`;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-6 font-sans">
       {/* Appointment summary */}
-      <div className="border border-gray-100 rounded bg-gray-50 px-4 py-3 text-sm">
-        <p className="font-medium text-gray-800">{calendarName}</p>
-        <p className="text-gray-400 text-xs mt-0.5">{dateDisplay} · {formatHour(selectedHour)} · {durationMin} min</p>
+      <div
+        className="rounded-lg px-4 py-3.5 border-l-4"
+        style={{ borderLeftColor: primaryColor, backgroundColor: `${primaryColor}08` }}
+      >
+        <p className="text-sm font-semibold text-gray-800">{calendarName}</p>
+        <div className="flex items-center gap-1.5 mt-1">
+          <Calendar size={11} className="text-gray-400" />
+          <p className="text-xs text-gray-500">{dateLabel}</p>
+          <span className="text-gray-300 text-xs">·</span>
+          <Clock size={11} className="text-gray-400" />
+          <p className="text-xs text-gray-500">{formatHour(selectedHour)}</p>
+          <span className="text-gray-300 text-xs">·</span>
+          <p className="text-xs text-gray-500">{durationMin} min</p>
+        </div>
       </div>
 
       {/* Fields */}
-      <div className="space-y-3">
+      <div className="space-y-3.5">
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Tus datos</p>
         {fields.map((field: any) => (
           <Field key={field.id} label={field.label} required={field.required}>
             {field.type === "textarea" ? (
@@ -188,22 +224,23 @@ const BookingForm = ({
       </div>
 
       {error && (
-        <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded px-3 py-2">{error}</p>
+        <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
       )}
 
-      <div className="flex gap-2 pt-1">
+      <div className="flex gap-2.5">
         <button
           onClick={onBack}
-          className="flex-1 border border-gray-200 rounded px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
+          className="flex-none border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
         >
-          ← Cambiar horario
+          ← Volver
         </button>
         <button
           onClick={handleSubmit}
           disabled={isSubmitting}
-          className="flex-1 bg-gray-900 text-white rounded px-4 py-2.5 text-sm font-medium hover:bg-gray-700 disabled:opacity-50 transition-colors"
+          style={{ backgroundColor: primaryColor }}
+          className="flex-1 text-white rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition-all hover:opacity-90"
         >
-          {isSubmitting ? "Agendando…" : "Confirmar cita"}
+          {isSubmitting ? "Confirmando…" : "Confirmar cita"}
         </button>
       </div>
     </div>
@@ -225,6 +262,9 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
 
   const { data: appointments = [] } = usePublicAppointments(userId, viewYear, viewMonth);
   const { data: blockedSlots   = [] } = usePublicBlockedSlots(userId);
+  const { data: branding } = usePublicBusinessProfile(userId);
+
+  const primaryColor = branding?.color_primary ?? "#3b82f6";
 
   const avail = useMemo((): WeeklySchedule | null => {
     const raw = calendar?.availability;
@@ -232,8 +272,11 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
     return raw as unknown as WeeklySchedule;
   }, [calendar]);
 
-  const firstDay   = new Date(viewYear, viewMonth, 1).getDay();
+  const firstDay    = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+
+  const isCurrentMonth =
+    viewYear === today.getFullYear() && viewMonth === today.getMonth();
 
   const bookedMap = useMemo(() => {
     const map: Record<string, Set<number>> = {};
@@ -250,16 +293,29 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
     const key = toDateKey(viewYear, viewMonth, day);
     if (key < todayKey) return false;
     if (isDayBlockedFully(blockedSlots, key)) return false;
-    return isDayOpen(avail, new Date(viewYear, viewMonth, day).getDay());
+    const dow = new Date(viewYear, viewMonth, day).getDay();
+    if (!isDayOpen(avail, dow)) return false;
+    // Check that at least one hour is actually free
+    const isToday = key === todayKey;
+    const nowHour = today.getHours();
+    const booked  = bookedMap[key] ?? new Set<number>();
+    for (let h = 6; h <= 21; h++) {
+      if (isToday && h <= nowHour) continue;
+      if (!isHourAvailable(avail, dow, h)) continue;
+      if (booked.has(h)) continue;
+      if (isSlotBlocked(blockedSlots, key, h)) continue;
+      return true; // found at least one free slot
+    }
+    return false; // all slots full or blocked
   };
 
   const availableHours = useMemo(() => {
     if (!selectedDate) return [];
     const [y, m, d] = selectedDate.split("-").map(Number);
-    const dayOfWeek  = new Date(y, m - 1, d).getDay();
-    const booked     = bookedMap[selectedDate] ?? new Set<number>();
-    const isToday    = selectedDate === todayKey;
-    const nowHour    = today.getHours();
+    const dayOfWeek = new Date(y, m - 1, d).getDay();
+    const booked    = bookedMap[selectedDate] ?? new Set<number>();
+    const isToday   = selectedDate === todayKey;
+    const nowHour   = today.getHours();
 
     const hours: number[] = [];
     for (let h = 6; h <= 21; h++) {
@@ -273,6 +329,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   }, [selectedDate, avail, bookedMap, blockedSlots, todayKey]);
 
   const prevMonth = () => {
+    if (isCurrentMonth) return;
     if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
     else setViewMonth(m => m - 1);
     setSelectedDate(null); setSelectedHour(null);
@@ -287,8 +344,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   // ── Loading ─────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 size={20} className="animate-spin text-gray-300" />
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={20} className="animate-spin" style={{ color: primaryColor }} />
       </div>
     );
   }
@@ -302,13 +359,18 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   // ── Success ─────────────────────────────────────────────────────────────────
   if (step === "success") {
     return (
-      <div className="text-center py-10 space-y-4">
-        <div className="mx-auto w-12 h-12 rounded-full border-2 border-gray-900 flex items-center justify-center">
-          <Check size={22} strokeWidth={2.5} className="text-gray-900" />
+      <div className="text-center py-12 space-y-5 font-sans">
+        <div
+          className="mx-auto w-14 h-14 rounded-full flex items-center justify-center"
+          style={{ backgroundColor: `${primaryColor}15` }}
+        >
+          <Check size={26} strokeWidth={2.5} style={{ color: primaryColor }} />
         </div>
-        <div>
-          <p className="font-semibold text-gray-900 text-base">Cita confirmada</p>
-          <p className="text-sm text-gray-400 mt-1">Nuestro equipo se pondrá en contacto pronto.</p>
+        <div className="space-y-1.5">
+          <p className="text-lg font-bold text-gray-900">¡Cita confirmada!</p>
+          <p className="text-sm text-gray-400 max-w-xs mx-auto">
+            Hemos registrado tu solicitud. Nuestro equipo se pondrá en contacto contigo pronto.
+          </p>
         </div>
       </div>
     );
@@ -324,42 +386,71 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
         selectedHour={selectedHour}
         calendarName={calendar.name ?? "Cita"}
         durationMin={calendar.duration_min ?? 30}
+        primaryColor={primaryColor}
         onSuccess={() => setStep("success")}
-        onBack={() => { setStep("calendar"); }}
+        onBack={() => setStep("calendar")}
       />
     );
   }
 
   // ── Calendar picker ─────────────────────────────────────────────────────────
   return (
-    <div className="space-y-4 font-sans">
-      {/* Service info */}
-      <div className="pb-3 border-b border-gray-100">
-        <p className="text-sm font-semibold text-gray-800">{calendar.name ?? "Reservar cita"}</p>
-        <p className="text-xs text-gray-400 mt-0.5">
-          {calendar.duration_min ?? 30} min
-          {calendar.description ? ` · ${calendar.description}` : ""}
-        </p>
+    <div className="font-sans space-y-0" style={{ borderTop: `3px solid ${primaryColor}` }}>
+
+      {/* ── Service header ── */}
+      <div className="pt-5 pb-4 md:pt-4 md:pb-3 space-y-2.5">
+        <h2 className="text-xl font-bold text-gray-900 leading-tight">
+          {calendar.name ?? "Reservar cita"}
+        </h2>
+        {calendar.description && (
+          <p className="text-sm text-gray-500 leading-relaxed">{calendar.description}</p>
+        )}
+        {/* Duration badge */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <span
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+            style={{ backgroundColor: `${primaryColor}12`, color: primaryColor }}
+          >
+            <Clock size={11} strokeWidth={2.5} />
+            {calendar.duration_min ?? 30} min por sesión
+          </span>
+          <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">
+            <Calendar size={11} strokeWidth={2} />
+            Agenda online
+          </span>
+        </div>
       </div>
 
-      <div className="grid grid-cols-[1fr_auto] gap-4 items-start">
-        {/* Month grid */}
-        <div>
+      <div className="border-t border-gray-100" />
+
+      {/* ── Step 1 + Step 2 side by side ── */}
+      <div className="pt-4 md:pt-3 flex gap-0 items-stretch">
+
+        {/* Left column: calendar */}
+        <div className="flex-1 min-w-0 pb-1">
+          <StepLabel number={1} label="Elige una fecha" primaryColor={primaryColor} />
+
           {/* Month nav */}
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-medium text-gray-700">
+          <div className="flex items-center justify-between mb-3 md:mb-2">
+            <span className="text-sm font-semibold text-gray-800">
               {MONTHS_ES[viewMonth]} {viewYear}
             </span>
             <div className="flex items-center gap-0.5">
               <button
                 onClick={prevMonth}
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700"
+                disabled={isCurrentMonth}
+                className={[
+                  "w-7 h-7 flex items-center justify-center rounded-md transition-colors",
+                  isCurrentMonth
+                    ? "text-gray-200 cursor-not-allowed"
+                    : "text-gray-400 hover:bg-gray-100 hover:text-gray-700",
+                ].join(" ")}
               >
                 <ChevronLeft size={15} />
               </button>
               <button
                 onClick={nextMonth}
-                className="w-7 h-7 flex items-center justify-center rounded hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700"
+                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700"
               >
                 <ChevronRight size={15} />
               </button>
@@ -367,35 +458,44 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
           </div>
 
           {/* Day headers */}
-          <div className="grid grid-cols-7 mb-1">
+          <div className="grid grid-cols-7 mb-1.5">
             {DAYS_ES.map((d) => (
-              <div key={d} className="text-center text-[10px] text-gray-300 uppercase tracking-wide py-1 font-medium">
+              <div key={d} className="text-center text-[10px] text-gray-300 uppercase tracking-widest py-1 font-semibold">
                 {d}
               </div>
             ))}
           </div>
 
-          {/* Days */}
-          <div className="grid grid-cols-7 gap-y-0.5">
+          {/* Days grid */}
+          <div className="grid grid-cols-7 gap-y-1">
             {Array.from({ length: firstDay }).map((_, i) => <div key={`e-${i}`} />)}
             {Array.from({ length: daysInMonth }).map((_, i) => {
-              const day  = i + 1;
-              const key  = toDateKey(viewYear, viewMonth, day);
-              const avbl = isDayAvailable(day);
-              const sel  = key === selectedDate;
-              const isPast = key < todayKey;
+              const day     = i + 1;
+              const key     = toDateKey(viewYear, viewMonth, day);
+              const avbl    = isDayAvailable(day);
+              const sel     = key === selectedDate;
+              const isToday = key === todayKey;
+              const isPast  = key < todayKey;
 
               return (
                 <button
                   key={day}
-                  onClick={() => { if (avbl) { setSelectedDate(key); setSelectedHour(null); }}}
+                  onClick={() => { if (avbl) { setSelectedDate(key); setSelectedHour(null); } }}
                   disabled={!avbl}
+                  style={
+                    sel
+                      ? { backgroundColor: primaryColor }
+                      : isToday && avbl
+                      ? { boxShadow: `inset 0 0 0 1.5px ${primaryColor}`, color: primaryColor }
+                      : undefined
+                  }
                   className={[
-                    "aspect-square flex items-center justify-center text-xs rounded transition-colors",
-                    sel   ? "bg-gray-900 text-white font-semibold"               : "",
-                    !sel && avbl  ? "text-gray-800 hover:bg-gray-100 cursor-pointer font-medium" : "",
-                    !avbl && !isPast ? "text-gray-200 cursor-not-allowed"        : "",
-                    isPast          ? "text-gray-200 cursor-not-allowed"         : "",
+                    "h-12 w-full flex items-center justify-center text-xs rounded-md transition-all",
+                    sel     ? "text-white font-bold"                                    : "",
+                    !sel && avbl && !isToday ? "text-gray-700 hover:bg-gray-100 cursor-pointer font-medium" : "",
+                    !sel && avbl && isToday  ? "font-bold cursor-pointer hover:opacity-80"                  : "",
+                    isPast           ? "text-gray-200 cursor-not-allowed"               : "",
+                    !avbl && !isPast ? "text-gray-200 cursor-not-allowed"               : "",
                   ].join(" ")}
                 >
                   {day}
@@ -405,40 +505,60 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
           </div>
         </div>
 
-        {/* Time slots */}
-        {selectedDate && (
-          <div className="w-24 space-y-1 pt-0.5">
-            <p className="text-[10px] uppercase tracking-wide text-gray-300 font-medium mb-2">Hora</p>
-            {availableHours.length === 0 ? (
-              <p className="text-[11px] text-gray-300 leading-relaxed">Sin disponibilidad este día</p>
-            ) : (
-              availableHours.map((h) => (
+        {/* Right column: slides in from right when a date is selected */}
+        <div
+          className="shrink-0 flex flex-col overflow-hidden transition-all duration-300 ease-in-out"
+          style={{
+            width:       selectedDate ? 108 : 0,
+            paddingLeft: selectedDate ? 16  : 0,
+            marginLeft:  selectedDate ? 16  : 0,
+            opacity:     selectedDate ? 1   : 0,
+            borderLeftWidth: selectedDate ? 1 : 0,
+            borderLeftColor: '#f3f4f6',
+            borderLeftStyle: 'solid',
+          }}
+        >
+          <StepLabel number={2} label="Horario" primaryColor={primaryColor} />
+          {availableHours.length === 0 ? (
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              Sin disponibilidad.<br />Elige otra fecha.
+            </p>
+          ) : (
+            <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
+              {availableHours.map((h) => (
                 <button
                   key={h}
                   onClick={() => setSelectedHour(h)}
-                  className={[
-                    "w-full text-center py-1.5 rounded text-xs transition-colors border",
+                  style={
                     selectedHour === h
-                      ? "bg-gray-900 text-white border-gray-900 font-semibold"
-                      : "border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900",
+                      ? { backgroundColor: primaryColor, borderColor: primaryColor }
+                      : undefined
+                  }
+                  className={[
+                    "w-full text-center py-2 rounded-lg text-xs font-medium transition-all border shrink-0",
+                    selectedHour === h
+                      ? "text-white"
+                      : "border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 bg-white",
                   ].join(" ")}
                 >
                   {formatHour(h)}
                 </button>
-              ))
-            )}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Confirm button — appears only when both date + hour are selected */}
+      {/* ── CTA ── */}
       {selectedDate && selectedHour !== null && (
-        <div className="pt-2 border-t border-gray-100">
+        <div className="pt-4">
           <button
             onClick={() => setStep("form")}
-            className="w-full bg-gray-900 text-white rounded py-2.5 text-sm font-medium hover:bg-gray-700 transition-colors"
+            style={{ backgroundColor: primaryColor }}
+            className="w-full text-white rounded-lg py-3 text-sm font-semibold transition-all hover:opacity-90 flex items-center justify-center gap-2"
           >
-            Continuar con {formatHour(selectedHour)} →
+            Continuar con {formatHour(selectedHour)}
+            <ChevronRight size={15} strokeWidth={2.5} />
           </button>
         </div>
       )}

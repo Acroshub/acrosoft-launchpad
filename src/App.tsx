@@ -9,6 +9,7 @@ import FormPage from "./pages/FormPage.tsx";
 import BookingPage from "./pages/BookingPage.tsx";
 import Login from "./pages/Login.tsx";
 import Crm from "./pages/Crm.tsx";
+import CrmSetup from "./pages/CrmSetup.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import ProtectedRoute from "./components/shared/ProtectedRoute.tsx";
 
@@ -27,6 +28,9 @@ const App = () => (
           <Route path="/login"         element={<Login />} />
           <Route path="/f/:formId"     element={<FormPage />} />
           <Route path="/book/:calendarId" element={<BookingPage />} />
+
+          {/* Client invitation setup — public (session comes from invite link) */}
+          <Route path="/crm-setup" element={<CrmSetup />} />
 
           {/* Protected routes */}
           <Route path="/crm" element={<ProtectedRoute><Crm /></ProtectedRoute>} />

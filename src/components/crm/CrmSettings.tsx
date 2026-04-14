@@ -1,8 +1,14 @@
 import { useState, useMemo } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, Search, X } from "lucide-react";
-import { useLogs } from "@/hooks/useCrmData";
+import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, ShieldCheck, ToggleLeft, ToggleRight, Briefcase, Rocket, BellOff, CheckCircle2, AlertCircle, Clock, Send } from "lucide-react";
+import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useServices, useUpdateService, useReminderConfig, useUpsertReminderConfig, useReminders } from "@/hooks/useCrmData";
 import type { CrmLog } from "@/hooks/useCrmData";
+import type { CrmStaff, StaffPermission, CrmReminder } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { toast } from "sonner";
+import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 
 // ─── Logs Tab ─────────────────────────────────────────────────────────────────
 
@@ -267,21 +273,625 @@ const LogsTab = () => {
   );
 };
 
+// ─── Staff helpers ────────────────────────────────────────────────────────────
+
+type PermKey = keyof Pick<
+  CrmStaff,
+  | "perm_mi_negocio_datos"
+  | "perm_mi_negocio_personal"
+  | "perm_servicios"
+  | "perm_dashboard"
+  | "perm_ventas"
+  | "perm_calendarios"
+  | "perm_formularios"
+  | "perm_contactos"
+  | "perm_pipeline"
+>;
+
+const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermission)[] }[] = [
+  { key: "perm_mi_negocio_datos",    label: "Mi Negocio — Datos del negocio",  actions: ["read", "edit"] },
+  { key: "perm_mi_negocio_personal", label: "Mi Negocio — Datos personales",   actions: ["read", "edit"] },
+  { key: "perm_servicios",           label: "Servicios",                        actions: ["read", "edit", "create", "delete"] },
+  { key: "perm_dashboard",           label: "Dashboard",                        actions: ["read"] },
+  { key: "perm_ventas",              label: "Registro de Ventas",               actions: ["read", "edit", "create", "delete"] },
+  { key: "perm_calendarios",         label: "Calendarios",                      actions: ["read", "edit", "create", "delete"] },
+  { key: "perm_formularios",         label: "Formularios",                      actions: ["read", "edit", "create", "delete"] },
+  { key: "perm_contactos",           label: "Contactos",                        actions: ["read", "edit", "create", "delete"] },
+  { key: "perm_pipeline",            label: "Pipeline",                         actions: ["read", "edit", "create", "delete"] },
+];
+
+const PERM_ACTION_LABEL: Record<keyof StaffPermission, string> = {
+  read:   "Ver",
+  edit:   "Editar",
+  create: "Crear",
+  delete: "Eliminar",
+};
+
+const DEFAULT_PERMS = (): Pick<CrmStaff,
+  "perm_mi_negocio_datos" | "perm_mi_negocio_personal" | "perm_servicios" |
+  "perm_dashboard" | "perm_ventas" | "perm_calendarios" | "perm_formularios" |
+  "perm_contactos" | "perm_pipeline"
+> => ({
+  perm_mi_negocio_datos:    { read: true,  edit: false },
+  perm_mi_negocio_personal: { read: true,  edit: false },
+  perm_servicios:           { read: true,  edit: false, create: false, delete: false },
+  perm_dashboard:           { read: false },
+  perm_ventas:              { read: false, edit: false, create: false, delete: false },
+  perm_calendarios:         { read: false, edit: false, create: false, delete: false },
+  perm_formularios:         { read: false, edit: false, create: false, delete: false },
+  perm_contactos:           { read: false, edit: false, create: false, delete: false },
+  perm_pipeline:            { read: false, edit: false, create: false, delete: false },
+});
+
+// ─── Permission Matrix ────────────────────────────────────────────────────────
+
+const PermMatrix = ({
+  perms,
+  onChange,
+}: {
+  perms: ReturnType<typeof DEFAULT_PERMS>;
+  onChange: (perms: ReturnType<typeof DEFAULT_PERMS>) => void;
+}) => {
+  const toggle = (key: PermKey, action: keyof StaffPermission) => {
+    const current = perms[key] as StaffPermission;
+    const newVal = !current[action];
+
+    // "read" controls access — if disabling read, disable all others too
+    // If enabling a non-read action, also enable read
+    let updated: StaffPermission;
+    if (action === "read" && !newVal) {
+      updated = Object.fromEntries(
+        Object.keys(current).map((k) => [k, false])
+      ) as StaffPermission;
+    } else if (action !== "read" && newVal) {
+      updated = { ...current, read: true, [action]: true };
+    } else {
+      updated = { ...current, [action]: newVal };
+    }
+
+    onChange({ ...perms, [key]: updated });
+  };
+
+  return (
+    <div className="space-y-1">
+      {PERM_SECTIONS.map((section) => {
+        const perm = perms[section.key] as StaffPermission;
+        return (
+          <div key={section.key} className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-secondary/30 transition-colors">
+            <span className="text-xs text-foreground flex-1 min-w-0">{section.label}</span>
+            <div className="flex items-center gap-1 shrink-0">
+              {section.actions.map((action) => {
+                const checked = !!perm[action];
+                return (
+                  <button
+                    key={action}
+                    type="button"
+                    onClick={() => toggle(section.key, action)}
+                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all ${
+                      checked
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border text-muted-foreground hover:border-primary/40"
+                    }`}
+                  >
+                    {PERM_ACTION_LABEL[action]}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+// ─── Staff Form Dialog ────────────────────────────────────────────────────────
+
+const StaffDialog = ({
+  open,
+  onOpenChange,
+  initial,
+  onSave,
+  isSaving,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  initial?: CrmStaff;
+  onSave: (data: Omit<CrmStaff, "id" | "created_at" | "owner_user_id" | "staff_user_id" | "status">) => void;
+  isSaving: boolean;
+}) => {
+  const [name, setName]           = useState(initial?.name ?? "");
+  const [email, setEmail]         = useState(initial?.email ?? "");
+  const [description, setDesc]    = useState(initial?.description ?? "");
+  const [perms, setPerms]         = useState<ReturnType<typeof DEFAULT_PERMS>>(
+    initial
+      ? {
+          perm_mi_negocio_datos:    initial.perm_mi_negocio_datos,
+          perm_mi_negocio_personal: initial.perm_mi_negocio_personal,
+          perm_servicios:           initial.perm_servicios,
+          perm_dashboard:           initial.perm_dashboard,
+          perm_ventas:              initial.perm_ventas,
+          perm_calendarios:         initial.perm_calendarios,
+          perm_formularios:         initial.perm_formularios,
+          perm_contactos:           initial.perm_contactos,
+          perm_pipeline:            initial.perm_pipeline,
+        }
+      : DEFAULT_PERMS()
+  );
+
+  const handleSubmit = () => {
+    if (!name.trim() || !email.trim()) return;
+    onSave({ name: name.trim(), email: email.trim(), description: description.trim() || null, ...perms });
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg rounded-2xl max-h-[90vh] flex flex-col">
+        <DialogHeader>
+          <DialogTitle className="text-base font-semibold">
+            {initial ? "Editar Staff" : "Agregar Staff"}
+          </DialogTitle>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto space-y-5 py-2 pr-1">
+          {/* Basic info */}
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Nombre *</label>
+              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre completo" className="h-9" autoFocus={!initial} />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Email *</label>
+              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@ejemplo.com" type="email" className="h-9" disabled={!!initial} />
+              {!initial && <p className="text-[10px] text-muted-foreground/60 mt-1">Se enviará un email de invitación para establecer contraseña.</p>}
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Rol / Cargo</label>
+              <Input value={description} onChange={(e) => setDesc(e.target.value)} placeholder="Ej: Asistente, Coordinador..." className="h-9" />
+            </div>
+          </div>
+
+          {/* Permissions */}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">Permisos</p>
+            <div className="border rounded-xl overflow-hidden">
+              <PermMatrix perms={perms} onChange={setPerms} />
+            </div>
+          </div>
+        </div>
+
+        <DialogFooter className="pt-3 border-t">
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
+          <Button
+            onClick={handleSubmit}
+            disabled={!name.trim() || !email.trim() || isSaving}
+            className="rounded-xl"
+          >
+            {isSaving && <Loader2 size={14} className="animate-spin mr-2" />}
+            {initial ? "Guardar cambios" : "Agregar staff"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ─── Staff Tab ────────────────────────────────────────────────────────────────
 
-const StaffTab = () => (
-  <div className="flex flex-col items-center justify-center py-20 text-center bg-card border rounded-2xl">
-    <Users size={30} className="mx-auto text-muted-foreground/20 mb-3" />
-    <p className="text-sm font-medium text-muted-foreground">Gestión de Staff</p>
-    <p className="text-xs text-muted-foreground/60 mt-1">Próximamente podrás añadir y gestionar tu equipo de trabajo.</p>
-  </div>
-);
+const STATUS_STYLE: Record<CrmStaff["status"], string> = {
+  invited:  "bg-yellow-50 text-yellow-700 border-yellow-200",
+  active:   "bg-emerald-50 text-emerald-700 border-emerald-200",
+  inactive: "bg-secondary text-muted-foreground border-border",
+};
+const STATUS_LABEL: Record<CrmStaff["status"], string> = {
+  invited:  "Invitado",
+  active:   "Activo",
+  inactive: "Inactivo",
+};
+
+const StaffTab = () => {
+  const { data: staff = [], isLoading } = useStaff();
+  const createStaff = useCreateStaff();
+  const updateStaff = useUpdateStaff();
+  const deleteStaff = useDeleteStaff();
+
+  const [showCreate, setShowCreate]     = useState(false);
+  const [editing, setEditing]           = useState<CrmStaff | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+
+  const handleCreate = async (data: Parameters<typeof createStaff.mutateAsync>[0]) => {
+    try {
+      await createStaff.mutateAsync(data);
+      toast.success("Staff agregado. Se enviará email de invitación.");
+      setShowCreate(false);
+    } catch {
+      toast.error("Error al crear el staff");
+    }
+  };
+
+  const handleUpdate = async (data: Parameters<typeof createStaff.mutateAsync>[0]) => {
+    if (!editing) return;
+    try {
+      await updateStaff.mutateAsync({ id: editing.id, ...data });
+      toast.success("Staff actualizado");
+      setEditing(null);
+    } catch {
+      toast.error("Error al actualizar el staff");
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      await deleteStaff.mutateAsync(deleteTarget);
+      toast.success("Staff eliminado");
+    } catch {
+      toast.error("Error al eliminar el staff");
+    } finally {
+      setDeleteTarget(null);
+    }
+  };
+
+  const toggleActive = async (member: CrmStaff) => {
+    const next = member.status === "inactive" ? "active" : "inactive";
+    try {
+      await updateStaff.mutateAsync({ id: member.id, status: next });
+      toast.success(next === "active" ? "Staff reactivado" : "Staff desactivado");
+    } catch {
+      toast.error("Error al cambiar el estado");
+    }
+  };
+
+  return (
+    <>
+      <DeleteConfirmDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
+        onConfirm={handleDelete}
+        isPending={deleteStaff.isPending}
+        description="Se eliminará el staff permanentemente. Esta acción no se puede deshacer."
+      />
+
+      {showCreate && (
+        <StaffDialog
+          open
+          onOpenChange={setShowCreate}
+          onSave={handleCreate}
+          isSaving={createStaff.isPending}
+        />
+      )}
+
+      {editing && (
+        <StaffDialog
+          open
+          onOpenChange={(v) => { if (!v) setEditing(null); }}
+          initial={editing}
+          onSave={handleUpdate}
+          isSaving={updateStaff.isPending}
+        />
+      )}
+
+      <div className="space-y-5">
+        <div className="flex items-center justify-between">
+          <p className="text-sm text-muted-foreground">{staff.length} miembro{staff.length !== 1 ? "s" : ""}</p>
+          <Button onClick={() => setShowCreate(true)} className="rounded-xl gap-2 h-9 text-xs font-medium">
+            <Plus size={14} /> Agregar staff
+          </Button>
+        </div>
+
+        {isLoading ? (
+          <div className="flex justify-center py-16">
+            <Loader2 size={22} className="animate-spin text-muted-foreground" />
+          </div>
+        ) : staff.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-center bg-card border rounded-2xl">
+            <Users size={30} className="mx-auto text-muted-foreground/20 mb-3" />
+            <p className="text-sm font-medium text-muted-foreground">Sin miembros de staff</p>
+            <p className="text-xs text-muted-foreground/60 mt-1">Agrega tu equipo y configura sus permisos.</p>
+          </div>
+        ) : (
+          <div className="bg-card border rounded-2xl overflow-hidden">
+            {staff.map((member, i) => (
+              <div key={member.id} className={i < staff.length - 1 ? "border-b" : ""}>
+                <div className="px-5 py-4 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-secondary flex items-center justify-center text-xs font-semibold shrink-0">
+                    {member.name.substring(0, 2).toUpperCase()}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-medium truncate">{member.name}</p>
+                      <Badge className={`text-[10px] px-2 py-0 border shrink-0 ${STATUS_STYLE[member.status]}`}>
+                        {STATUS_LABEL[member.status]}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <Mail size={11} className="text-muted-foreground/50 shrink-0" />
+                      <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                      {member.description && (
+                        <span className="text-[10px] text-muted-foreground/50 truncate">· {member.description}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex items-center gap-1 shrink-0">
+                    {member.status !== "invited" && (
+                      <button
+                        onClick={() => toggleActive(member)}
+                        className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
+                        title={member.status === "active" ? "Desactivar" : "Reactivar"}
+                      >
+                        {member.status === "active"
+                          ? <ToggleRight size={16} className="text-emerald-600" />
+                          : <ToggleLeft size={16} />
+                        }
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setEditing(member)}
+                      className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
+                      title="Editar permisos"
+                    >
+                      <ShieldCheck size={14} />
+                    </button>
+                    <button
+                      onClick={() => setDeleteTarget({ id: member.id, name: member.name })}
+                      className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive"
+                      title="Eliminar"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
+  );
+};
+
+// ─── Reminders Tab ───────────────────────────────────────────────────────────
+
+const STATUS_ICON: Record<CrmReminder["status"], React.ReactNode> = {
+  pending:  <Clock size={12} className="text-yellow-500" />,
+  sent:     <CheckCircle2 size={12} className="text-emerald-500" />,
+  failed:   <AlertCircle size={12} className="text-destructive" />,
+  skipped:  <BellOff size={12} className="text-muted-foreground" />,
+};
+const STATUS_LABEL_R: Record<CrmReminder["status"], string> = {
+  pending: "Pendiente", sent: "Enviado", failed: "Error", skipped: "Omitido",
+};
+
+const RemindersTab = () => {
+  const { data: config, isLoading: loadingConfig } = useReminderConfig();
+  const { data: reminders = [], isLoading: loadingReminders } = useReminders();
+  const upsert = useUpsertReminderConfig();
+
+  const [limit_, setLimit_] = useState<number | "">(config?.email_limit_per_month ?? 100);
+  const [dirty, setDirty] = useState(false);
+
+  useMemo(() => {
+    if (config) setLimit_(config.email_limit_per_month);
+  }, [config?.id]);
+
+  const thisMonth = new Date();
+  thisMonth.setDate(1); thisMonth.setHours(0, 0, 0, 0);
+  const sentThisMonth = reminders.filter(
+    r => r.status === "sent" && new Date(r.sent_at ?? r.created_at) >= thisMonth
+  ).length;
+  const limit = config?.email_limit_per_month ?? 100;
+  const usedPct = Math.min(100, Math.round((sentThisMonth / limit) * 100));
+
+  const handleSaveLimit = async () => {
+    if (limit_ === "" || Number(limit_) < 1) return;
+    try {
+      await upsert.mutateAsync({ email_limit_per_month: Number(limit_) });
+      toast.success("Límite guardado");
+      setDirty(false);
+    } catch { toast.error("Error al guardar"); }
+  };
+
+  if (loadingConfig) return (
+    <div className="flex justify-center py-16">
+      <Loader2 size={22} className="animate-spin text-muted-foreground" />
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+
+      {/* ─── Monthly usage + limit ─── */}
+      <div className="bg-card border rounded-2xl p-5 space-y-4">
+        <p className="text-sm font-semibold">Límite mensual</p>
+        <div className="flex items-center gap-3">
+          <Input
+            type="number"
+            min={1}
+            value={limit_}
+            onChange={(e) => { setLimit_(e.target.value === "" ? "" : Number(e.target.value)); setDirty(true); }}
+            className="h-9 text-sm w-28"
+          />
+          <span className="text-xs text-muted-foreground">recordatorios / mes</span>
+          {dirty && (
+            <Button size="sm" onClick={handleSaveLimit} disabled={upsert.isPending} className="h-8 text-xs ml-auto">
+              {upsert.isPending && <Loader2 size={12} className="animate-spin mr-1.5" />}
+              Guardar
+            </Button>
+          )}
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-xs text-muted-foreground">Uso este mes</span>
+            <span className="text-xs text-muted-foreground tabular-nums">{sentThisMonth} / {limit}</span>
+          </div>
+          <div className="h-2 bg-secondary rounded-full overflow-hidden">
+            <div
+              className={`h-full rounded-full transition-all ${
+                usedPct >= 90 ? "bg-destructive" : usedPct >= 70 ? "bg-yellow-500" : "bg-primary"
+              }`}
+              style={{ width: `${usedPct}%` }}
+            />
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            {limit - sentThisMonth} disponibles este mes
+          </p>
+        </div>
+      </div>
+
+      {/* ─── History ─── */}
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 mb-3">
+          Historial ({reminders.length})
+        </p>
+
+        {loadingReminders ? (
+          <div className="flex justify-center py-10">
+            <Loader2 size={20} className="animate-spin text-muted-foreground" />
+          </div>
+        ) : reminders.length === 0 ? (
+          <div className="text-center py-16 bg-card border rounded-2xl">
+            <Send size={28} className="mx-auto text-muted-foreground/20 mb-3" />
+            <p className="text-sm text-muted-foreground">Sin recordatorios enviados aún.</p>
+          </div>
+        ) : (
+          <div className="bg-card border rounded-2xl overflow-hidden">
+            {reminders.slice(0, 50).map((r, i) => (
+              <div key={r.id} className={`px-5 py-3.5 flex items-center gap-3 ${i < reminders.length - 1 ? "border-b" : ""}`}>
+                <div className="shrink-0">{STATUS_ICON[r.status]}</div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium truncate">{r.message}</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {r.type === "email" ? "Email" : "WhatsApp"}
+                    {r.recipient_email && ` · ${r.recipient_email}`}
+                    {r.recipient_phone && ` · ${r.recipient_phone}`}
+                    {r.is_auto && " · Auto"}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                    r.status === "sent"    ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                    r.status === "failed"  ? "bg-red-50 text-red-700 border-red-200" :
+                    r.status === "skipped" ? "bg-secondary text-muted-foreground border-border" :
+                                            "bg-yellow-50 text-yellow-700 border-yellow-200"
+                  }`}>
+                    {STATUS_LABEL_R[r.status]}
+                  </span>
+                  <p className="text-[10px] text-muted-foreground mt-1 tabular-nums">
+                    {new Date(r.scheduled_at).toLocaleString("es-ES", {
+                      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+                    })}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── SaaS Services Tab ────────────────────────────────────────────────────────
+
+const SaasTab = () => {
+  const { data: services = [], isLoading } = useServices();
+  const updateService = useUpdateService();
+
+  const toggle = async (id: string, current: boolean) => {
+    try {
+      await updateService.mutateAsync({ id, is_saas: !current } as any);
+      toast.success(!current ? "Servicio marcado como SaaS" : "Servicio desmarcado como SaaS");
+    } catch {
+      toast.error("Error al actualizar el servicio");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 size={22} className="animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (services.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center bg-card border rounded-2xl">
+        <Briefcase size={30} className="mx-auto text-muted-foreground/20 mb-3" />
+        <p className="text-sm font-medium text-muted-foreground">Sin servicios configurados</p>
+        <p className="text-xs text-muted-foreground/60 mt-1">Crea servicios desde la sección "Servicios" primero.</p>
+      </div>
+    );
+  }
+
+  const saasCount = services.filter(s => (s as any).is_saas).length;
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+        <div className="flex items-start gap-3">
+          <Rocket size={16} className="text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <p className="text-xs font-semibold text-amber-800">Servicios SaaS activados: {saasCount}</p>
+            <p className="text-[11px] text-amber-700 mt-0.5 leading-relaxed">
+              Al vender un servicio marcado como SaaS, se creará automáticamente una cuenta CRM para el cliente y se le enviará un email de invitación.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-card border rounded-2xl overflow-hidden">
+        {services.map((service, i) => {
+          const isSaas = !!(service as any).is_saas;
+          return (
+            <div key={service.id} className={i < services.length - 1 ? "border-b" : ""}>
+              <div className="px-5 py-4 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium truncate">{service.name}</p>
+                    {isSaas && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 shrink-0">
+                        SaaS
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    ${service.price.toLocaleString()} {service.currency}
+                    {service.is_recurring && <span className="ml-1 text-muted-foreground/60">· Recurrente</span>}
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => toggle(service.id, isSaas)}
+                  disabled={updateService.isPending}
+                  className={`flex items-center gap-2 px-3 h-8 rounded-lg text-xs font-medium border transition-colors shrink-0 ${
+                    isSaas
+                      ? "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
+                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  }`}
+                >
+                  {isSaas ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
+                  {isSaas ? "Vender como SaaS" : "Activar SaaS"}
+                </button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+};
 
 // ─── Settings shell ───────────────────────────────────────────────────────────
 
 const TABS = [
-  { id: "logs",  label: "Logs de Actividad", Component: LogsTab  },
-  { id: "staff", label: "Staff",              Component: StaffTab },
+  { id: "logs",        label: "Logs",          Component: LogsTab       },
+  { id: "staff",       label: "Staff",          Component: StaffTab      },
+  { id: "reminders",   label: "Recordatorios",  Component: RemindersTab  },
+  { id: "saas",        label: "Servicios SaaS", Component: SaasTab       },
 ] as const;
 
 const CrmSettings = () => {

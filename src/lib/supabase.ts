@@ -103,8 +103,10 @@ export type CrmForm = {
   success_image: 'icon' | 'logo'
   redirect_url: string | null
   slug: string | null
-  auto_tags?: string[] | null
+  auto_tags: string[]
   facebook_pixel_id?: string | null
+  pipeline_id?: string | null
+  reminder_rules?: Json[]
 }
 
 export type CrmFormSubmission = {
@@ -126,6 +128,7 @@ export type CrmCalendarConfig = {
   linked_form_id: string | null
   availability: Json
   google_token: Json | null
+  reminder_rules?: Json[]
 }
 
 export type CrmService = {
@@ -145,6 +148,7 @@ export type CrmService = {
   is_recommended: boolean | null
   active: boolean
   sort_order?: number
+  is_saas: boolean
 }
 
 export type CrmSale = {
@@ -191,4 +195,74 @@ export type CrmBusinessProfile = {
   color_primary: string
   color_secondary: string
   color_accent: string
+}
+
+export type CrmReminderConfig = {
+  id: string
+  created_at: string
+  user_id: string
+  auto_enabled: boolean
+  auto_reminder_before_hours: number
+  default_type: 'email' | 'whatsapp'
+  email_limit_per_month: number
+  whatsapp_limit_per_month: number
+}
+
+export type CrmReminder = {
+  id: string
+  created_at: string
+  user_id: string
+  contact_id: string | null
+  appointment_id: string | null
+  type: 'email' | 'whatsapp'
+  recipient_email: string | null
+  recipient_phone: string | null
+  scheduled_at: string
+  message: string
+  status: 'pending' | 'sent' | 'failed' | 'skipped'
+  sent_at: string | null
+  error: string | null
+  is_auto: boolean
+  is_personal?: boolean
+  staff_id?: string | null
+  business_target?: string | null
+}
+
+export type CrmClientAccount = {
+  id: string
+  created_at: string
+  admin_user_id: string
+  contact_id: string
+  client_user_id: string | null
+  client_email: string
+  status: 'pending' | 'active' | 'disabled'
+  disabled_at: string | null
+  deleted_at: string | null
+}
+
+export type StaffPermission = {
+  read: boolean
+  edit?: boolean
+  create?: boolean
+  delete?: boolean
+}
+
+export type CrmStaff = {
+  id: string
+  created_at: string
+  owner_user_id: string
+  staff_user_id: string | null
+  name: string
+  email: string
+  description: string | null
+  status: 'invited' | 'active' | 'inactive'
+  perm_mi_negocio_datos: StaffPermission
+  perm_mi_negocio_personal: StaffPermission
+  perm_servicios: StaffPermission
+  perm_dashboard: StaffPermission
+  perm_ventas: StaffPermission
+  perm_calendarios: StaffPermission
+  perm_formularios: StaffPermission
+  perm_contactos: StaffPermission
+  perm_pipeline: StaffPermission
 }

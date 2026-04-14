@@ -14,6 +14,10 @@ import type {
   CrmPipeline,
   CrmTask,
   CrmContactNote,
+  CrmClientAccount,
+  CrmStaff,
+  CrmReminderConfig,
+  CrmReminder,
 } from "@/lib/supabase";
 import { useCurrentUser } from "./useAuth";
 
@@ -988,3 +992,276 @@ export const usePublicBlockedSlots = (userId?: string | null) =>
     },
     enabled: !!userId,
   });
+
+export const usePublicBusinessProfile = (userId?: string | null) =>
+  useQuery({
+    queryKey: ["public_business_profile", userId],
+    queryFn: async () => {
+      if (!userId) return null;
+      const { data, error } = await supabase
+        .from("crm_business_profile")
+        .select("color_primary, color_secondary, color_accent")
+        .eq("user_id", userId)
+        .single();
+      if (error) return null; // Non-critical — fall back to defaults
+      return data as { color_primary: string; color_secondary: string; color_accent: string } | null;
+    },
+    enabled: !!userId,
+  });
+
+// ─── CLIENT ACCOUNTS ──────────────────────────────────────────────────────────
+
+export const useClientAccounts = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_client_accounts", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_client_accounts")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as CrmClientAccount[];
+    },
+    enabled: !!user,
+  });
+};
+
+export const useDisableSaasClient = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (accountId: string) => {
+      const { data, error } = await supabase
+        .from("crm_client_accounts")
+        .update({ status: "disabled", disabled_at: new Date().toISOString() })
+        .eq("id", accountId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmClientAccount;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_client_accounts"] });
+    },
+  });
+};
+
+export const useEnableSaasClient = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (accountId: string) => {
+      const { data, error } = await supabase
+        .from("crm_client_accounts")
+        .update({ status: "active", disabled_at: null })
+        .eq("id", accountId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmClientAccount;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_client_accounts"] });
+    },
+  });
+};
+
+// ─── STAFF ────────────────────────────────────────────────────────────────────
+
+export const useStaff = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_staff", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_staff")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return data as CrmStaff[];
+    },
+    enabled: !!user,
+  });
+};
+
+export const useCreateStaff = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (staff: Omit<CrmStaff, "id" | "created_at" | "owner_user_id" | "staff_user_id" | "status">) => {
+      const { data, error } = await supabase
+        .from("crm_staff")
+        .insert({ ...staff, owner_user_id: user!.id })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmStaff;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_staff"] });
+      logAction("create", "Staff", `Staff creado: ${data.name}`, data.id);
+    },
+  });
+};
+
+export const useUpdateStaff = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...updates }: Partial<CrmStaff> & { id: string }) => {
+      const { data, error } = await supabase
+        .from("crm_staff")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmStaff;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_staff"] });
+      logAction("update", "Staff", `Staff actualizado: ${data.name}`, data.id);
+    },
+  });
+};
+
+export const useDeleteStaff = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: string; name: string }) => {
+      const { error } = await supabase.from("crm_staff").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: (_, { id, name }) => {
+      qc.invalidateQueries({ queryKey: ["crm_staff"] });
+      logAction("delete", "Staff", `Staff eliminado: ${name}`, id);
+    },
+  });
+};
+
+// ─── REMINDERS ────────────────────────────────────────────────────────────────
+
+export const useReminderConfig = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_reminder_config", user?.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("crm_reminder_config")
+        .select("*")
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      return (data as CrmReminderConfig) ?? null;
+    },
+    enabled: !!user,
+  });
+};
+
+export const useUpsertReminderConfig = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (config: Partial<CrmReminderConfig>) => {
+      const { data, error } = await supabase
+        .from("crm_reminder_config")
+        .upsert({ ...config, user_id: user!.id }, { onConflict: "user_id" })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmReminderConfig;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_reminder_config"] }),
+  });
+};
+
+export const useReminders = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_reminders", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_reminders")
+        .select("*")
+        .order("scheduled_at", { ascending: false })
+        .limit(200);
+      if (error) throw error;
+      return data as CrmReminder[];
+    },
+    enabled: !!user,
+  });
+};
+
+export const usePersonalReminders = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_reminders_personal", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_reminders")
+        .select("*")
+        .eq("is_personal", true)
+        .order("scheduled_at", { ascending: true });
+      if (error) throw error;
+      return data as CrmReminder[];
+    },
+    enabled: !!user,
+  });
+};
+
+export const useCreateReminder = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (reminder: Omit<CrmReminder, "id" | "created_at" | "user_id" | "status" | "sent_at" | "error">) => {
+      const { data, error } = await supabase
+        .from("crm_reminders")
+        .insert({ ...reminder, user_id: user!.id, status: "pending" })
+        .select()
+        .single();
+      if (error) throw error;
+      // Also enqueue it immediately
+      await supabase.from("crm_reminder_queue").insert({ reminder_id: (data as CrmReminder).id });
+      return data as CrmReminder;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_reminders"] });
+      qc.invalidateQueries({ queryKey: ["crm_reminders_personal"] });
+      logAction("create", "Recordatorio", "Recordatorio programado");
+    },
+  });
+};
+
+export const useUpdateReminder = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...updates }: Partial<CrmReminder> & { id: string }) => {
+      const { data, error } = await supabase
+        .from("crm_reminders")
+        .update(updates)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmReminder;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_reminders"] });
+      qc.invalidateQueries({ queryKey: ["crm_reminders_personal"] });
+      logAction("update", "Recordatorio", "Recordatorio actualizado");
+    },
+  });
+};
+
+export const useDeleteReminder = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id }: { id: string }) => {
+      const { error } = await supabase.from("crm_reminders").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_reminders"] });
+      qc.invalidateQueries({ queryKey: ["crm_reminders_personal"] });
+      logAction("delete", "Recordatorio", "Recordatorio eliminado");
+    },
+  });
+};
+

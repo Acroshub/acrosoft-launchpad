@@ -7,6 +7,7 @@ import type { CrmCalendarConfig as CalendarData } from "@/lib/supabase";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import WeeklySchedulePicker, { WeeklySchedule, DEFAULT_WEEKLY_SCHEDULE } from "@/components/shared/WeeklySchedulePicker";
+import ReminderRulesEditor, { ReminderRule } from "@/components/shared/ReminderRulesEditor";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
   const [slug, setSlug]                   = useState("");
   const [linkedFormId, setLinkedFormId]   = useState<string | null>(null);
   const [availability, setAvailability]   = useState<WeeklySchedule>(DEFAULT_WEEKLY_SCHEDULE);
+  const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
   const [isEditingHours, setIsEditingHours] = useState(false);
   const [embedTab, setEmbedTab]           = useState<"iframe" | "js">("iframe");
   const [copied, setCopied]               = useState(false);
@@ -97,6 +99,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
       setSlug(existingCalendar.slug ?? "");
       setLinkedFormId(existingCalendar.linked_form_id ?? null);
       setAvailability(normalizeAvail(existingCalendar.availability));
+      setReminderRules((existingCalendar.reminder_rules as unknown as ReminderRule[] | null) ?? []);
     }
   }, [existingCalendar]);
 
@@ -159,6 +162,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
         slug: slug || null,
         linked_form_id: formId,
         availability,
+        reminder_rules: reminderRules as unknown as any,
       };
 
       if (isNew) {
@@ -446,6 +450,27 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
               <span className="text-xs text-muted-foreground italic">Guarda el calendario primero</span>
             )}
           </div>
+        </div>
+
+        {/* Recordatorios */}
+        <div className="bg-card border rounded-2xl p-6 space-y-4">
+          <div className="flex items-center gap-2">
+            <Clock size={15} className="text-muted-foreground" />
+            <h2 className="text-sm font-semibold">Recordatorios automáticos</h2>
+          </div>
+          <p className="text-xs text-muted-foreground -mt-2">
+            Se enviarán automáticamente antes o después de cada cita agendada en este calendario.
+          </p>
+          <ReminderRulesEditor rules={reminderRules} onChange={setReminderRules} />
+          <Button
+            onClick={handleSave}
+            disabled={saving}
+            variant="outline"
+            className="rounded-xl h-9 font-medium text-sm"
+          >
+            {saving ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
+            Guardar recordatorios
+          </Button>
         </div>
         </>
       )}

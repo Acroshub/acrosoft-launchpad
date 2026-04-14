@@ -22,7 +22,7 @@ const BookingPage = () => {
 
   return (
     <div className="min-h-screen bg-white flex items-start justify-center p-6 sm:p-10 sm:pt-16">
-      <div className="w-full max-w-sm">
+      <div className="w-full max-w-sm md:max-w-md">
         <CalendarRenderer calendarId={calendarId} />
       </div>
     </div>

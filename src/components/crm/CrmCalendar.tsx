@@ -556,6 +556,7 @@ const CrmCalendar = () => {
       status: a.status === "confirmed" ? "Confirmada" : "Cancelada",
       notes: a.notes ?? "",
       rawStatus: a.status,
+      contact_id: a.contact_id ?? null,
     };
   }), [rawAppointments, contacts]);
 
@@ -1006,19 +1007,12 @@ const CrmCalendar = () => {
                     ["Teléfono", detail.phone],
                     ["Fecha",    detail.date],
                     ["Hora",     detail.time],
-                    ["Servicio", detail.service],
-                  ] as [string, string][]).map(([label, value]) => (
+                  ] as [string, string][]).filter(([, v]) => !!v).map(([label, value]) => (
                     <div key={label}>
                       <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">{label}</p>
                       <p className="font-medium mt-0.5 text-sm">{value}</p>
                     </div>
                   ))}
-                  {detail.notes && (
-                    <div>
-                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Notas</p>
-                      <p className="text-muted-foreground mt-0.5 text-xs leading-relaxed">{detail.notes}</p>
-                    </div>
-                  )}
                 </div>
               </div>
             ) : (

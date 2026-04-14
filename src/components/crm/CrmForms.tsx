@@ -11,9 +11,10 @@ import {
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
-import { useForms, useCreateForm, useUpdateForm, useDeleteForm, useServices } from "@/hooks/useCrmData";
+import { useForms, useCreateForm, useUpdateForm, useDeleteForm, useServices, usePipelines } from "@/hooks/useCrmData";
 import type { CrmForm } from "@/lib/supabase";
 import { toast } from "sonner";
+import ReminderRulesEditor, { type ReminderRule } from "@/components/shared/ReminderRulesEditor";
 
 // {VAR_DB} — campos del formulario se guardarán en Supabase por negocio
 
@@ -39,6 +40,8 @@ interface FormConfig {
   successRedirectUrl?: string;
   autoTags?: string[];
   facebookPixelId?: string;
+  pipelineId?: string | null;
+  reminderRules?: ReminderRule[];
 }
 
 type FieldType =
@@ -527,6 +530,9 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
   const [autoTags, setAutoTags] = useState<string[]>(form.autoTags ?? []);
   const [newAutoTag, setNewAutoTag] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState(form.facebookPixelId ?? "");
+  const [pipelineId, setPipelineId] = useState<string | null>(form.pipelineId ?? null);
+  const [reminderRules, setReminderRules] = useState<ReminderRule[]>(form.reminderRules ?? []);
+  const { data: pipelines = [] } = usePipelines();
 
   const update = (id: string, patch: Partial<FormField>) =>
     setFields((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)));
@@ -563,7 +569,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
 
   const handleSave = async () => {
     try {
-      onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId: facebookPixelId || undefined });
+      onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId: facebookPixelId || undefined, pipelineId: pipelineId ?? null, reminderRules });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -1004,13 +1010,27 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                 </div>
               </div>
             </div>
-          </div>
 
-          {/* ── Página de Gracias ──────────────────────────────────── */}
-          <div className="bg-card border rounded-2xl p-6 space-y-6 mt-4">
-            <h2 className="text-sm font-semibold flex items-center gap-2">
-              <CheckSquare size={16} className="text-emerald-500"/> Página de Gracias
-            </h2>
+            {/* Pipeline */}
+            <div className="space-y-2 pt-2">
+              <div>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Agregar al Pipeline</label>
+                <p className="text-[11px] text-muted-foreground mt-0.5">Los nuevos contactos se añadirán automáticamente a la primera columna del pipeline seleccionado.</p>
+              </div>
+              <div className="relative">
+                <select
+                  value={pipelineId ?? ""}
+                  onChange={(e) => setPipelineId(e.target.value || null)}
+                  className="w-full h-10 rounded-xl border border-input bg-background text-sm px-3 pr-8 appearance-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+                >
+                  <option value="">Sin pipeline</option>
+                  {pipelines.map((p: any) => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground text-xs">▾</div>
+              </div>
+            </div>
 
             {/* Al completar el formulario */}
             <div className="space-y-2">
@@ -1114,6 +1134,18 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
               Cada respuesta quedará guardada en la ficha del contacto, visible en la sección <strong>Contactos</strong>.
               Los campos <em>Nombre</em> y <em>Email</em> son fijos y siempre obligatorios.
             </p>
+          </div>
+
+          {/* ── Recordatorios ──────────────────────────────────── */}
+          <div className="bg-card border rounded-2xl p-6 space-y-4 mt-4">
+            <div>
+              <h2 className="text-sm font-semibold flex items-center gap-2">
+                <span className="w-5 h-5 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600 text-xs">🔔</span>
+                Recordatorios automáticos
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">Se enviarán automáticamente después de que alguien complete este formulario o agende una cita vinculada.</p>
+            </div>
+            <ReminderRulesEditor rules={reminderRules} onChange={setReminderRules} />
           </div>
         </div>
 
@@ -1224,6 +1256,8 @@ const CrmForms = () => {
     successRedirectUrl: f.redirect_url ?? "",
     autoTags: (f.auto_tags as string[] | null) ?? [],
     facebookPixelId: f.facebook_pixel_id ?? "",
+    pipelineId: f.pipeline_id ?? null,
+    reminderRules: (f.reminder_rules as any[] | null) ?? [],
   }));
 
   const selectedForm = forms.find(f => f.id === selectedFormId);
@@ -1290,8 +1324,10 @@ const CrmForms = () => {
           success_message: updated.successPopupMessage ?? null,
           success_image: updated.successImageType ?? "icon",
           redirect_url: updated.successRedirectUrl ?? null,
-          auto_tags: updated.autoTags?.length ? updated.autoTags : null,
+          auto_tags: updated.autoTags ?? [],
           facebook_pixel_id: updated.facebookPixelId || null,
+          pipeline_id: updated.pipelineId ?? null,
+          reminder_rules: (updated.reminderRules ?? []) as any,
         });
         toast.success("Formulario guardado");
       } catch {

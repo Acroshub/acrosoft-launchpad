@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
+import type { CrmStaff } from '@/lib/supabase'
+import { buildPermChecker, visibleNavItems } from '@/lib/permissions'
+import type { Section, Action } from '@/lib/permissions'
 
 /**
  * Returns the current authenticated Supabase user and session.
@@ -33,6 +36,49 @@ export const useCurrentUser = () => {
 }
 
 /**
+ * Resolves whether the current user is a staff member and returns their
+ * permission checker.
+ *
+ * - `isStaff`      → true if logged-in user appears in crm_staff
+ * - `staffRecord`  → the crm_staff row (null if not staff)
+ * - `can(section, action)` → permission check (always true for principals)
+ * - `navItems`     → Set of nav ids visible to this user
+ * - `ownerUserId`  → the principal's user_id this staff member belongs to
+ */
+export const useStaffPermissions = () => {
+  const { user } = useCurrentUser()
+  const [staffRecord, setStaffRecord] = useState<CrmStaff | null>(null)
+  const [loading, setLoading]         = useState(true)
+
+  useEffect(() => {
+    if (!user) { setLoading(false); return }
+
+    supabase
+      .from('crm_staff')
+      .select('*')
+      .eq('staff_user_id', user.id)
+      .eq('status', 'active')
+      .maybeSingle()
+      .then(({ data }) => {
+        setStaffRecord((data as CrmStaff) ?? null)
+        setLoading(false)
+      })
+  }, [user?.id])
+
+  const can = (section: Section, action: Action) =>
+    buildPermChecker(staffRecord)(section, action)
+
+  return {
+    isStaff:     staffRecord !== null,
+    staffRecord,
+    ownerUserId: staffRecord?.owner_user_id ?? user?.id ?? null,
+    can,
+    navItems:    visibleNavItems(staffRecord),
+    loading,
+  }
+}
+
+/**
  * Sign in with email and password.
  */
 export const signIn = (email: string, password: string) =>
@@ -42,3 +88,9 @@ export const signIn = (email: string, password: string) =>
  * Sign out the current user.
  */
 export const signOut = () => supabase.auth.signOut()
+
+/**
+ * Update the current user's password.
+ */
+export const updatePassword = (newPassword: string) =>
+  supabase.auth.updateUser({ password: newPassword })
