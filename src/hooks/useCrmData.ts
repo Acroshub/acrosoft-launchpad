@@ -421,6 +421,7 @@ export const useServices = () => {
       const { data, error } = await supabase
         .from("crm_services")
         .select("*")
+        .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
       if (error) throw error;
       return data as CrmService[];
@@ -1027,6 +1028,24 @@ export const useClientAccounts = () => {
   });
 };
 
+export const useCreateSaasClient = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (contactId: string) => {
+      const { data, error } = await supabase.functions.invoke("create-saas-client", {
+        body: { contact_id: contactId, admin_user_id: user!.id },
+      });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { account_id: string; client_user_id: string; email: string; reactivated?: boolean };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_client_accounts"] });
+    },
+  });
+};
+
 export const useDisableSaasClient = () => {
   const qc = useQueryClient();
   return useMutation({
@@ -1229,39 +1248,26 @@ export const useCreateReminder = () => {
   });
 };
 
-export const useUpdateReminder = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, ...updates }: Partial<CrmReminder> & { id: string }) => {
-      const { data, error } = await supabase
-        .from("crm_reminders")
-        .update(updates)
-        .eq("id", id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data as CrmReminder;
+// ─── WHATSAPP CONFIG ────────────────────────────────────────────
+
+export const useWhatsappConfig = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_whatsapp_config", user?.id],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("crm_whatsapp_config")
+        .select("id, status, phone_number")
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      return data as { id: string; status: string; phone_number: string | null } | null;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm_reminders"] });
-      qc.invalidateQueries({ queryKey: ["crm_reminders_personal"] });
-      logAction("update", "Recordatorio", "Recordatorio actualizado");
-    },
+    enabled: !!user,
   });
 };
 
-export const useDeleteReminder = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id }: { id: string }) => {
-      const { error } = await supabase.from("crm_reminders").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm_reminders"] });
-      qc.invalidateQueries({ queryKey: ["crm_reminders_personal"] });
-      logAction("delete", "Recordatorio", "Recordatorio eliminado");
-    },
-  });
+/** Returns true only when a WhatsApp session is actively connected */
+export const useWhatsappEnabled = () => {
+  const { data } = useWhatsappConfig();
+  return data?.status === "connected";
 };
-

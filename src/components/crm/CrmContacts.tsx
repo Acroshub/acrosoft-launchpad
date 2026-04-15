@@ -11,7 +11,7 @@ import {
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
   Trash2, ChevronDown, ExternalLink, Bell,
 } from "lucide-react";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useDisableSaasClient, useEnableSaasClient } from "@/hooks/useCrmData";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import CreateReminderModal from "@/components/shared/CreateReminderModal";
@@ -523,8 +523,9 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
   const deleteContact = useDeleteContact();
-  const disableClient = useDisableSaasClient();
-  const enableClient  = useEnableSaasClient();
+  const createSaasClient = useCreateSaasClient();
+  const disableClient    = useDisableSaasClient();
+  const enableClient     = useEnableSaasClient();
 
   const [accessingCrm, setAccessingCrm]       = useState<string | null>(null);
   const [reminderContact, setReminderContact] = useState<typeof contacts[0] | null>(null);
@@ -863,7 +864,33 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                   {/* SaaS account actions in detail panel */}
                   {(() => {
                     const acc = accountByContact[detail.id];
-                    if (!acc) return null;
+
+                    // No account yet — show activation button (requires email)
+                    if (!acc) {
+                      if (!detail.email) return null;
+                      return (
+                        <button
+                          onClick={async () => {
+                            try {
+                              await createSaasClient.mutateAsync(detail.id);
+                              toast.success("Invitación enviada. El cliente recibirá un email para activar su cuenta.");
+                            } catch (err) {
+                              const msg = err instanceof Error ? err.message : "Error desconocido";
+                              toast.error(`Error al activar: ${msg}`);
+                            }
+                          }}
+                          disabled={createSaasClient.isPending}
+                          className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors flex items-center justify-center gap-2"
+                        >
+                          {createSaasClient.isPending
+                            ? <Loader2 size={12} className="animate-spin" />
+                            : <span>🔐</span>
+                          }
+                          Activar Booking System
+                        </button>
+                      );
+                    }
+
                     return (
                       <div className="border rounded-xl p-3 space-y-2 bg-amber-50/50 border-amber-200">
                         <div className="flex items-center gap-2">
@@ -873,7 +900,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                             acc.status === "pending"  ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
                                                         "bg-secondary text-muted-foreground border-border"
                           }`}>
-                            {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente" : "Deshabilitada"}
+                            {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente de activación" : "Deshabilitada"}
                           </span>
                         </div>
                         {acc.status === "active" && (
@@ -890,6 +917,11 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                             {disableClient.isPending ? <Loader2 size={12} className="animate-spin" /> : null}
                             Deshabilitar cuenta
                           </button>
+                        )}
+                        {acc.status === "pending" && (
+                          <p className="text-[11px] text-muted-foreground">
+                            Esperando que el cliente active su cuenta vía email.
+                          </p>
                         )}
                         {acc.status === "disabled" && (
                           <button

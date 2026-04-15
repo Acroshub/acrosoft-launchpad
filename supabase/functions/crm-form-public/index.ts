@@ -49,64 +49,45 @@ function extractContact(fields: any[], data: Record<string, any>) {
 }
 
 /**
- * Adds a contact to the configured pipeline.
- * - For "contacts" pipelines: sets crm_contacts.stage to the first column.
- * - For "tasks" pipelines: creates a crm_tasks row in the first column.
+ * Contacts pipeline uses crm_contacts.stage — NOT crm_pipeline_deals.
+ * Sets contact.stage to the first column of the specified (or first) contacts pipeline.
  */
 async function addContactToPipeline(
   userId: string,
   contactId: string,
-  contactName: string,
   pipelineId: string | null,
 ): Promise<void> {
   try {
-    let pipeline: { id: string; type: string; column_names: string[] } | null = null;
+    let query = supabase
+      .from("crm_pipelines")
+      .select("id, column_names")
+      .eq("user_id", userId)
+      .eq("type", "contacts")
+      .order("created_at", { ascending: true })
+      .limit(1);
 
+    // If a specific pipeline is requested, filter by id
     if (pipelineId) {
-      // User explicitly chose this pipeline — don't filter by type
-      const { data } = await supabase
+      query = supabase
         .from("crm_pipelines")
-        .select("id, type, column_names")
+        .select("id, column_names")
+        .eq("user_id", userId)
         .eq("id", pipelineId)
-        .eq("user_id", userId)
-        .single();
-      pipeline = data as typeof pipeline;
-    } else {
-      // Fallback: pick first contacts pipeline
-      const { data } = await supabase
-        .from("crm_pipelines")
-        .select("id, type, column_names")
-        .eq("user_id", userId)
         .eq("type", "contacts")
-        .order("created_at", { ascending: true })
         .limit(1);
-      pipeline = (data as typeof pipeline[])?.[0] ?? null;
     }
 
-    if (!pipeline) return;
+    const { data: pipelines } = await query;
+    if (!pipelines?.length) return;
 
-    const firstStage = (pipeline.column_names as string[])?.[0];
+    const firstStage = (pipelines[0].column_names as string[])?.[0];
     if (!firstStage) return;
 
-    if (pipeline.type === "contacts") {
-      // Set the contact's stage to the first column
-      await supabase
-        .from("crm_contacts")
-        .update({ stage: firstStage })
-        .eq("id", contactId)
-        .is("stage", null); // only set if not already in a pipeline
-    } else if (pipeline.type === "tasks") {
-      // Create a task card in the first column of the tasks pipeline
-      await supabase.from("crm_tasks").insert({
-        user_id: userId,
-        pipeline_id: pipeline.id,
-        title: contactName || "Nuevo contacto",
-        description: `Contacto añadido automáticamente desde formulario (ID: ${contactId})`,
-        stage: firstStage,
-        position: 0,
-        priority: null,
-      });
-    }
+    await supabase
+      .from("crm_contacts")
+      .update({ stage: firstStage })
+      .eq("id", contactId)
+      .is("stage", null); // only set if not already in a pipeline
   } catch (e) {
     console.error("addContactToPipeline (non-fatal):", e);
   }
@@ -186,7 +167,7 @@ Deno.serve(async (req) => {
     }
 
     if (isNewContact && contactId) {
-      await addContactToPipeline(form.user_id, contactId, name, form.pipeline_id ?? null);
+      await addContactToPipeline(form.user_id, contactId, form.pipeline_id ?? null);
     }
 
     return respond({ submission_id: submission.id });

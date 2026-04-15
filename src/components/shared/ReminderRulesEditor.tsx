@@ -1,9 +1,8 @@
-import { useState, useEffect } from "react";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Mail, MessageSquare, Clock, User, Building2 } from "lucide-react";
-import { useStaff, useBusinessProfile } from "@/hooks/useCrmData";
-import VariableChipsEditor, { DEFAULT_REMINDER_MESSAGE } from "./VariableChipsEditor";
+import { useStaff, useBusinessProfile, useWhatsappEnabled } from "@/hooks/useCrmData";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -12,31 +11,24 @@ export type ReminderChannel   = "email" | "whatsapp";
 export type ReminderTiming    = "before" | "after";
 export type ReminderUnit      = "minutes" | "hours" | "days";
 
-/**
- * businessTargets (array):
- *   "admin"       → the SaaS admin (owner)
- *   "<staff_id>"  → a specific staff member UUID
- *
- * Backwards-compatible: old `businessTarget: string` is migrated to `businessTargets: string[]`.
- */
 export interface ReminderRule {
   id: string;
-  recipient:        ReminderRecipient;
-  /** @deprecated Use businessTargets */
-  businessTarget?:  "admin" | string;
-  businessTargets?: string[];         // multi-select — new field
-  channel:          ReminderChannel;
-  channelValue:     string;           // the actual email or phone to send to
-  timing:           ReminderTiming;
-  amount:           number;
-  unit:             ReminderUnit;
-  message?:         string;           // note / message template with {{variables}}
+  recipient:       ReminderRecipient;
+  /** Multi-select: ["admin", "<staff_uuid>", ...] */
+  businessTargets?: string[];
+  /** @deprecated kept for backward-compat with rules saved before multi-select */
+  businessTarget?:  string;
+  channel:         ReminderChannel;
+  channelValue:    string;   // comma-joined when multiple targets
+  timing:          ReminderTiming;
+  amount:          number;
+  unit:            ReminderUnit;
 }
 
-/** Normalize old single-target to new multi-target array */
+/** Normalize old single businessTarget to the new array */
 const getTargets = (rule: ReminderRule): string[] => {
   if (rule.businessTargets?.length) return rule.businessTargets;
-  if (rule.businessTarget) return [rule.businessTarget];
+  if (rule.businessTarget)          return [rule.businessTarget];
   return ["admin"];
 };
 
@@ -45,13 +37,13 @@ const getTargets = (rule: ReminderRule): string[] => {
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const DEFAULT_RULE: Omit<ReminderRule, "id"> = {
-  recipient:      "contact",
-  channel:        "email",
-  channelValue:   "",
-  timing:         "before",
-  amount:         24,
-  unit:           "hours",
-  message:        DEFAULT_REMINDER_MESSAGE,
+  recipient:       "contact",
+  businessTargets: ["admin"],
+  channel:         "email",
+  channelValue:    "",
+  timing:          "before",
+  amount:          24,
+  unit:            "hours",
 };
 
 const UNITS: { value: ReminderUnit; label: string }[] = [
@@ -67,17 +59,6 @@ const pill = (active: boolean) =>
       : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
   }`;
 
-// ─── Admin Label Helper ───────────────────────────────────────────────────────
-
-const useAdminLabel = () => {
-  const { data: profile } = useBusinessProfile();
-  const fn = profile?.first_name?.trim() ?? "";
-  const ln = profile?.last_name?.trim() ?? "";
-  const fullName = [fn, ln].filter(Boolean).join(" ") || "Administrador";
-  const role = profile?.role?.trim() || "Admin";
-  return `${fullName} (${role})`;
-};
-
 // ─── Single Rule Row ──────────────────────────────────────────────────────────
 
 const RuleRow = ({
@@ -90,163 +71,203 @@ const RuleRow = ({
   onChange,
   onDelete,
 }: {
-  rule: ReminderRule;
-  businessName?: string;
-  contactEmail?: string | null;
-  contactPhone?: string | null;
-  adminEmail?: string | null;
-  adminPhone?: string | null;
-  onChange: (patch: Partial<ReminderRule>) => void;
-  onDelete: () => void;
+  rule:           ReminderRule;
+  businessName?:  string;
+  contactEmail?:  string | null;
+  contactPhone?:  string | null;
+  adminEmail?:    string | null;
+  adminPhone?:    string | null;
+  onChange:       (patch: Partial<ReminderRule>) => void;
+  onDelete:       () => void;
 }) => {
   const { data: staffList = [] } = useStaff();
-  const { data: profile } = useBusinessProfile();
-  const adminLabel = useAdminLabel();
+  const { data: profile }        = useBusinessProfile();
+  const whatsappEnabled          = useWhatsappEnabled();
+
+  const adminLabel = (() => {
+    const name = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ");
+    if (!name) return "Dueño del negocio";
+    return profile?.role ? `${name} (${profile.role})` : name;
+  })();
 
   const targets = getTargets(rule);
 
-  // Build auto channel values from selected targets
-  const buildChannelValues = (selectedTargets: string[], ch: ReminderChannel): string => {
-    const values: string[] = [];
+  /** Resolve email/phone for each selected target and join with ", " */
+  const buildChannelValue = (selectedTargets: string[], ch: ReminderChannel): string => {
+    const vals: string[] = [];
     for (const t of selectedTargets) {
       if (t === "admin") {
-        const val = ch === "email"
+        const v = ch === "email"
           ? (adminEmail ?? profile?.contact_email ?? "")
           : (adminPhone ?? profile?.contact_phone ?? profile?.whatsapp ?? "");
-        if (val) values.push(val);
+        if (v) vals.push(v);
       } else {
         const staff = staffList.find(s => s.id === t);
-        const val = ch === "email" ? (staff?.email ?? "") : "";
-        if (val) values.push(val);
+        const v = ch === "email" ? (staff?.email ?? "") : "";
+        if (v) vals.push(v);
       }
     }
-    return values.join(", ");
+    return vals.join(", ");
   };
 
-  // Auto-populate channelValue when recipient/channel/targets changes
+  // Auto-suggest channelValue when recipient/channel/targets change
   useEffect(() => {
     if (rule.channelValue) return;
     let suggested = "";
     if (rule.recipient === "contact") {
-      suggested = rule.channel === "email"
-        ? (contactEmail ?? "")
-        : (contactPhone ?? "");
+      suggested = rule.channel === "email" ? (contactEmail ?? "") : (contactPhone ?? "");
     } else {
-      suggested = buildChannelValues(targets, rule.channel);
+      suggested = buildChannelValue(targets, rule.channel);
     }
     if (suggested) onChange({ channelValue: suggested });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rule.recipient, rule.channel, JSON.stringify(targets)]);
 
-  const toggleTarget = (targetId: string) => {
+  const toggleTarget = (id: string) => {
     const current = new Set(targets);
-    if (current.has(targetId)) {
-      current.delete(targetId);
-      if (current.size === 0) current.add("admin"); // at least one
+    if (current.has(id)) {
+      current.delete(id);
+      if (current.size === 0) current.add("admin"); // must have at least one
     } else {
-      current.add(targetId);
+      current.add(id);
     }
-    const newTargets = Array.from(current);
-    const newChannelVal = buildChannelValues(newTargets, rule.channel);
+    const next = Array.from(current);
     onChange({
-      businessTargets: newTargets,
-      businessTarget: newTargets[0], // backwards compat
-      channelValue: newChannelVal,
+      businessTargets: next,
+      businessTarget:  next[0], // backward-compat
+      channelValue:    buildChannelValue(next, rule.channel),
     });
   };
 
-  const channelPlaceholder = rule.channel === "email"
-    ? "correo@ejemplo.com"
-    : "+52 55 1234 5678";
-
-  const channelLabel = rule.channel === "email" ? "Email destino" : "WhatsApp destino";
+  const channelPlaceholder = rule.channel === "email" ? "correo@ejemplo.com" : "+52 55 1234 5678";
+  const channelLabel       = rule.channel === "email" ? "Email destino" : "WhatsApp destino";
 
   return (
     <div className="border border-border/60 rounded-xl p-3.5 space-y-3 bg-card">
-      {/* Recipient */}
+
+      {/* ── Recipient ─────────────────────────────────────────────────────── */}
       <div>
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">Para</p>
         <div className="flex gap-2 flex-wrap">
-          <button type="button" onClick={() => onChange({ recipient: "contact", businessTargets: undefined, businessTarget: undefined })} className={pill(rule.recipient === "contact")}>
+          <button
+            type="button"
+            onClick={() => onChange({ recipient: "contact", businessTargets: undefined, businessTarget: undefined })}
+            className={pill(rule.recipient === "contact")}
+          >
             <User size={11} /> Quien agendó
           </button>
-          <button type="button" onClick={() => onChange({ recipient: "business", businessTargets: ["admin"], businessTarget: "admin" })} className={pill(rule.recipient === "business")}>
+          <button
+            type="button"
+            onClick={() => onChange({ recipient: "business", businessTargets: ["admin"], businessTarget: "admin" })}
+            className={pill(rule.recipient === "business")}
+          >
             <Building2 size={11} /> {businessName || "El negocio"}
           </button>
         </div>
       </div>
 
-      {/* Business sub-target — multi-select checkboxes */}
+      {/* ── Business multi-target checkboxes ──────────────────────────────── */}
       {rule.recipient === "business" && (
         <div>
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Destinatarios del negocio</p>
-          <div className="space-y-1.5 max-h-40 overflow-y-auto">
-            {/* Admin checkbox */}
-            <label className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">
+            Destinatarios
+          </p>
+          <div className="space-y-1 border border-border/60 rounded-xl p-2.5 max-h-44 overflow-y-auto">
+            {/* Admin / Dueño del negocio */}
+            <label className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors">
               <input
                 type="checkbox"
                 checked={targets.includes("admin")}
                 onChange={() => toggleTarget("admin")}
-                className="rounded border-input h-3.5 w-3.5 text-primary"
+                className="h-3.5 w-3.5 rounded border-input text-primary accent-primary"
               />
-              <span className="text-xs font-medium">{adminLabel}</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold leading-none">{adminLabel}</p>
+                {adminEmail && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{adminEmail}</p>
+                )}
+              </div>
             </label>
-            {/* Staff checkboxes */}
+
+            {/* Staff members */}
             {staffList.map((s) => (
-              <label key={s.id} className="flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg hover:bg-secondary/40 transition-colors cursor-pointer">
+              <label
+                key={s.id}
+                className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors"
+              >
                 <input
                   type="checkbox"
                   checked={targets.includes(s.id)}
                   onChange={() => toggleTarget(s.id)}
-                  className="rounded border-input h-3.5 w-3.5 text-primary"
+                  className="h-3.5 w-3.5 rounded border-input text-primary accent-primary"
                 />
-                <span className="text-xs font-medium">{s.name} (Staff)</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold leading-none">{s.name} <span className="font-normal text-muted-foreground">(Staff)</span></p>
+                  {s.email && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{s.email}</p>
+                  )}
+                </div>
               </label>
             ))}
+
+            {staffList.length === 0 && (
+              <p className="text-[11px] text-muted-foreground/50 italic px-2 py-1">Sin staff registrado</p>
+            )}
           </div>
           {targets.length > 1 && (
             <p className="text-[10px] text-muted-foreground mt-1.5">
-              {targets.length} destinatarios seleccionados
+              {targets.length} destinatarios — cada uno recibirá su propio recordatorio
             </p>
           )}
         </div>
       )}
 
-      {/* Channel */}
+      {/* ── Channel ───────────────────────────────────────────────────────── */}
       <div>
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">Canal</p>
         <div className="flex gap-2 flex-wrap">
-          <button type="button" onClick={() => onChange({ channel: "email", channelValue: "" })} className={pill(rule.channel === "email")}>
+          <button
+            type="button"
+            onClick={() => onChange({ channel: "email", channelValue: "" })}
+            className={pill(rule.channel === "email")}
+          >
             <Mail size={11} /> Email
           </button>
-          <button type="button" onClick={() => onChange({ channel: "whatsapp", channelValue: "" })} className={pill(rule.channel === "whatsapp")}>
+          <button
+            type="button"
+            onClick={() => whatsappEnabled && onChange({ channel: "whatsapp", channelValue: "" })}
+            disabled={!whatsappEnabled}
+            title={whatsappEnabled ? undefined : "WhatsApp no está configurado. Ve a Configuración → Integraciones."}
+            className={
+              whatsappEnabled
+                ? pill(rule.channel === "whatsapp")
+                : "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium border-border text-muted-foreground/40 cursor-not-allowed opacity-50"
+            }
+          >
             <MessageSquare size={11} /> WhatsApp
           </button>
         </div>
       </div>
 
-      {/* Channel destination — editable */}
+      {/* ── Channel destination ────────────────────────────────────────────── */}
       <div>
-        <label className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">{channelLabel}</label>
+        <label className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">
+          {channelLabel}
+        </label>
         <Input
           value={rule.channelValue}
           onChange={(e) => onChange({ channelValue: e.target.value })}
           placeholder={channelPlaceholder}
           className="h-8 text-xs mt-1.5"
         />
+        {rule.recipient === "business" && targets.length > 1 && (
+          <p className="text-[10px] text-muted-foreground/60 mt-1">
+            Separados por coma. El CRON también resuelve automáticamente el correo de cada destinatario.
+          </p>
+        )}
       </div>
 
-      {/* Message / Note with variables */}
-      <div>
-        <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">Nota / Mensaje</p>
-        <VariableChipsEditor
-          value={rule.message ?? ""}
-          onChange={(v) => onChange({ message: v })}
-          rows={3}
-        />
-      </div>
-
-      {/* Timing */}
+      {/* ── Timing ────────────────────────────────────────────────────────── */}
       <div>
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">Cuándo</p>
         <div className="flex items-center gap-2 flex-wrap">
@@ -281,7 +302,7 @@ const RuleRow = ({
         </div>
       </div>
 
-      {/* Delete */}
+      {/* ── Delete ────────────────────────────────────────────────────────── */}
       <div className="flex justify-end pt-0.5">
         <button
           type="button"
@@ -298,30 +319,20 @@ const RuleRow = ({
 // ─── Main Editor ──────────────────────────────────────────────────────────────
 
 interface Props {
-  rules: ReminderRule[];
-  onChange: (rules: ReminderRule[]) => void;
+  rules:        ReminderRule[];
+  onChange:     (rules: ReminderRule[]) => void;
   businessName?: string;
   contactEmail?: string | null;
   contactPhone?: string | null;
 }
 
-const ReminderRulesEditor = ({
-  rules,
-  onChange,
-  businessName,
-  contactEmail,
-  contactPhone,
-}: Props) => {
+const ReminderRulesEditor = ({ rules, onChange, businessName, contactEmail, contactPhone }: Props) => {
   const { data: profile } = useBusinessProfile();
 
-  const add = () =>
-    onChange([...rules, { ...DEFAULT_RULE, id: uid() }]);
-
+  const add    = () => onChange([...rules, { ...DEFAULT_RULE, id: uid() }]);
   const update = (id: string, patch: Partial<ReminderRule>) =>
     onChange(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
-
-  const remove = (id: string) =>
-    onChange(rules.filter((r) => r.id !== id));
+  const remove = (id: string) => onChange(rules.filter((r) => r.id !== id));
 
   return (
     <div className="space-y-3">

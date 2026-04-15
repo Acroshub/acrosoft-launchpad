@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Loader2, Mail, MessageSquare, Clock, Send, Bell } from "lucide-react";
 import { useCreateReminder } from "@/hooks/useCrmData";
 import { toast } from "sonner";
-import VariableChipsEditor from "./VariableChipsEditor";
 
 interface Props {
   open: boolean;
@@ -31,31 +31,20 @@ const CreateReminderModal = ({
   const createReminder = useCreateReminder();
 
   const defaultMessage = contactName
-    ? `Hola {{nombre_cliente}}, este es un recordatorio para ti.`
+    ? `Hola ${contactName}, este es un recordatorio para ti.`
     : "Este es un recordatorio para ti.";
 
   const [type,     setType]     = useState<"email" | "whatsapp">("email");
   const [message,  setMessage]  = useState(defaultMessage);
   const [sendMode, setSendMode] = useState<"now" | "schedule">("now");
   const [schedAt,  setSchedAt]  = useState("");
-  const [editEmail, setEditEmail] = useState(contactEmail ?? "");
-  const [editPhone, setEditPhone] = useState(contactPhone ?? "");
 
-  // Sync state when contact props change (modal is reused for different contacts)
-  useEffect(() => {
-    setEditEmail(contactEmail ?? "");
-    setEditPhone(contactPhone ?? "");
-    setMessage(contactName
-      ? `Hola {{nombre_cliente}}, este es un recordatorio para ti.`
-      : "Este es un recordatorio para ti.");
-  }, [contactId, contactEmail, contactPhone, contactName]);
-
-  const recipientEmail = type === "email"     ? editEmail : null;
-  const recipientPhone = type === "whatsapp"  ? editPhone : null;
+  const recipientEmail = type === "email"     ? contactEmail : null;
+  const recipientPhone = type === "whatsapp"  ? contactPhone : null;
 
   const canSend =
     message.trim().length > 0 &&
-    (type === "email" ? !!recipientEmail?.trim() : !!recipientPhone?.trim()) &&
+    (type === "email" ? !!recipientEmail : !!recipientPhone) &&
     (sendMode === "now" || !!schedAt);
 
   const handleSend = async () => {
@@ -70,8 +59,8 @@ const CreateReminderModal = ({
         contact_id:      contactId ?? null,
         appointment_id:  appointmentId ?? null,
         type,
-        recipient_email: recipientEmail?.trim() ?? null,
-        recipient_phone: recipientPhone?.trim() ?? null,
+        recipient_email: recipientEmail ?? null,
+        recipient_phone: recipientPhone ?? null,
         scheduled_at,
         message:         message.trim(),
         is_auto:         false,
@@ -115,44 +104,29 @@ const CreateReminderModal = ({
                 </button>
               ))}
             </div>
-          </div>
-
-          {/* Editable destination */}
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1.5">
-              {type === "email" ? "Email destino" : "WhatsApp destino"}
-            </p>
-            {type === "email" ? (
-              <Input
-                value={editEmail}
-                onChange={(e) => setEditEmail(e.target.value)}
-                placeholder="correo@ejemplo.com"
-                className="h-9 text-sm"
-              />
-            ) : (
-              <Input
-                value={editPhone}
-                onChange={(e) => setEditPhone(e.target.value)}
-                placeholder="+52 55 1234 5678"
-                className="h-9 text-sm"
-              />
+            {type === "email" && !recipientEmail && (
+              <p className="text-[11px] text-destructive mt-1">Este contacto no tiene email registrado.</p>
             )}
-            {type === "email" && !editEmail.trim() && (
-              <p className="text-[11px] text-destructive mt-1">Este contacto no tiene email registrado. Escríbelo manualmente.</p>
+            {type === "whatsapp" && !recipientPhone && (
+              <p className="text-[11px] text-destructive mt-1">Este contacto no tiene teléfono registrado.</p>
             )}
-            {type === "whatsapp" && !editPhone.trim() && (
-              <p className="text-[11px] text-destructive mt-1">Este contacto no tiene teléfono registrado. Escríbelo manualmente.</p>
+            {type === "email" && recipientEmail && (
+              <p className="text-[11px] text-muted-foreground mt-1">→ {recipientEmail}</p>
+            )}
+            {type === "whatsapp" && recipientPhone && (
+              <p className="text-[11px] text-muted-foreground mt-1">→ {recipientPhone}</p>
             )}
           </div>
 
-          {/* Message with variables */}
+          {/* Message */}
           <div>
             <p className="text-xs font-medium text-muted-foreground mb-1.5">Mensaje</p>
-            <VariableChipsEditor
+            <Textarea
               value={message}
-              onChange={setMessage}
+              onChange={(e) => setMessage(e.target.value)}
               rows={3}
               placeholder="Escribe el mensaje del recordatorio..."
+              className="text-sm resize-none"
             />
           </div>
 

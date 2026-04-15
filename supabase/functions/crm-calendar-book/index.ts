@@ -165,7 +165,7 @@ Deno.serve(async (req) => {
       .from("crm_appointments")
       .insert({
         user_id: calendar.user_id, contact_id: contactId,
-        date, hour, duration_min: calendar.duration_min ?? 30,
+        calendar_id, date, hour, duration_min: calendar.duration_min ?? 30,
         service: null, status: "confirmed", notes: null,
       })
       .select("id")

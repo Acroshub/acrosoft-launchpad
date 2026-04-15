@@ -429,24 +429,25 @@ const CrmServices = () => {
 
   const handleDragEnd = async (event: DragEndEvent) => {
     const { active, over } = event;
+    if (!over || active.id === over.id) return;
 
-    if (over && active.id !== over.id) {
-      setLocalServices((items) => {
-        const oldIndex = items.findIndex((i) => i.id === active.id);
-        const newIndex = items.findIndex((i) => i.id === over.id);
-        
-        const newArray = arrayMove(items, oldIndex, newIndex);
-        
-        const updates = newArray.map((item, idx) => ({ id: item.id, sort_order: idx }));
-        
-        Promise.all(updates.filter((u, i) => items[i] && items[i].id !== u.id).map(u => 
-           updateService.mutateAsync(u)
-        )).catch(() => {
-           toast.error("Error al reordenar");
-        });
+    const oldIndex = localServices.findIndex((i) => i.id === active.id);
+    const newIndex = localServices.findIndex((i) => i.id === over.id);
+    const newOrder = arrayMove(localServices, oldIndex, newIndex);
 
-        return newArray;
-      });
+    // Optimistic update
+    setLocalServices(newOrder);
+
+    // Persist all sort_order values to DB
+    try {
+      await Promise.all(
+        newOrder.map((item, idx) =>
+          updateService.mutateAsync({ id: item.id, sort_order: idx })
+        )
+      );
+    } catch {
+      toast.error("Error al reordenar");
+      setLocalServices(localServices); // revert
     }
   };
 
