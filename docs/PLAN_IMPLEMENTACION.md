@@ -1,299 +1,356 @@
-# Plan de Implementación - Roadmap por Complejidad
-
-**Última actualización:** 2026-04-14  
-**Estado:** EN DESARROLLO ACTIVO
+# Plan de Implementación — Acrosoft Labs CRM
+> Última actualización: Abril 2026 · Basado en Q&A completo del proyecto
 
 ---
 
-## 🎯 Resumen Ejecutivo
+## Estado actual del sistema
 
-CRM SaaS multi-tenant sobre Supabase + React. 5 bloques ordenados por complejidad. Los bloques 3.1–3.3 y partes de 1.2, 1.3, 4.1 ya están completados.
+La UI de todos los módulos está completa. El backend (Supabase) está parcialmente conectado. Lo que sigue es conectar la lógica real, corregir bugs arquitectónicos y construir las features faltantes — ordenado de menor a mayor complejidad.
 
 ---
 
-## ENTENDIMIENTO COMÚN DEL SISTEMA
+## BLOQUE 1 — Quick Wins
+> Cambios de 1–4 horas. Sin riesgo. Mejoras inmediatas.
 
-### **Estructura de Usuarios**
+### QW-1 · isSuperAdmin dinámico
+**Problema:** `isSuperAdmin` está hardcodeado como `true` en `Crm.tsx`.
+**Fix:** Comparar `user.email === 'e.daniel.acero.r@gmail.com'` al montar el componente.
+**Archivos:** `src/pages/Crm.tsx`
+
+---
+
+### QW-2 · Eliminar CrmClients.tsx
+**Problema:** Duplicado accidental del Dashboard. Todo con `{VAR_DB}`. No tiene función real.
+**Fix:** Eliminar el archivo. La vista "Clientes" será un filtro dentro de `CrmContacts` (contactos con al menos una venta registrada).
+**Archivos:** `src/components/crm/CrmClients.tsx` → eliminar
+
+---
+
+### QW-3 · Stage del contacto dinámico
+**Problema:** El stage de un contacto se muestra como texto fijo. Ahora es el nombre de la columna del pipeline donde esté. Un contacto puede estar en múltiples pipelines → múltiples stages.
+**Fix:** En la UI de contactos, mostrar todos los stages activos del contacto como badges (uno por pipeline donde aparezca).
+**Archivos:** `src/components/crm/CrmContacts.tsx`
+
+---
+
+### QW-4 · Métricas del Overview — reestructuración
+**Cambios:**
+- Eliminar métrica "Proyectos activos"
+- Renombrar "Entregados (mes)" → "Ventas este mes" (mes calendario, no 30 días rolling)
+- Reemplazar "Proyectos activos" por cards dinámicas de **Ingreso Recurrente Estimado**: una card por cada intervalo de recurrencia configurado en los servicios del negocio (mensual, anual, trimestral, semestral). Se calcula sumando el precio recurrente de los clientes activos con ese intervalo.
+- El orden de métricas (drag) debe guardarse en Supabase — añadir campo `metrics_order jsonb` en `crm_business_profile`.
+- Estas métricas son visibles para todos los Dueños de Negocio y Staff con permiso de dashboard.
+
+**Archivos:** `src/components/crm/CrmOverview.tsx`, migración en `crm_business_profile`
+
+---
+
+### QW-5 · Servicios dinámicos en Landing
+**Problema:** El array `plans` en `Index.tsx` está hardcodeado.
+**Fix:** Cargar todos los servicios activos del Admin desde `crm_services` via `usePublicServices`. Mostrar todos (SaaS y no-SaaS). La UI de cards se adapta dinámicamente a la cantidad de servicios registrados.
+**Archivos:** `src/pages/Index.tsx`
+
+---
+
+### QW-6 · Descuento en servicios
+**Cambio:** Añadir campo `discount_pct numeric DEFAULT 0` en `crm_services`.
+**UI:** Campo de descuento en el editor de `CrmServices`. Mostrar precio tachado + precio con descuento en la landing y en el campo `services` del FormRenderer.
+**Archivos:** migración SQL, `src/components/crm/CrmServices.tsx`, `src/components/crm/FormRenderer.tsx`, `src/pages/Index.tsx`
+
+---
+
+### QW-7 · Heading no cuenta como campo real
+**Fix:** Actualizar validación del builder: al verificar "al menos 1 campo por página", el tipo `heading` no cuenta.
+**Archivos:** `src/components/crm/CrmForms.tsx`
+
+---
+
+## BLOQUE 2 — Fixes de Schema
+> Requieren migración SQL + ajuste de hooks. Impacto bajo en UI.
+
+### S-1 · crm_appointments — añadir campo minute
+**Problema:** Solo hay `hour: int`. Las citas no pueden tener hora exacta con minutos.
+**Fix:** Añadir `minute int NOT NULL DEFAULT 0`. Actualizar todos los hooks y componentes que usan `hour` para incluir `minute`.
+**Archivos:** migración SQL, `src/hooks/useCrmData.ts`, `src/components/crm/CrmCalendar.tsx`, `src/components/crm/CalendarRenderer.tsx`
+
+---
+
+### S-2 · crm_blocked_slots — añadir calendar_id
+**Problema:** Los bloqueos son por calendario específico pero no tienen referencia al calendario. Con multi-calendario bloquea todos.
+**Fix:** Añadir `calendar_id uuid REFERENCES crm_calendar_config ON DELETE CASCADE NOT NULL`.
+**Archivos:** migración SQL, `src/hooks/useCrmData.ts`, `src/components/crm/CrmCalendar.tsx`
+
+---
+
+### S-3 · crm_calendar_config — campos de anticipación
+**Problema:** No hay forma de limitar cuánto tiempo de anticipación necesita una cita ni hasta cuándo mostrar disponibilidad.
+**Fix:** Añadir `min_advance_hours int DEFAULT 1` y `max_future_days int DEFAULT 60`.
+**UI:** Añadir estos campos en `CrmCalendarConfig` como parte de la configuración del calendario.
+**Archivos:** migración SQL, `src/components/crm/CrmCalendarConfig.tsx`
+
+---
+
+### S-4 · crm_services — discount_pct y sync general
+**Añadir:** `discount_pct numeric DEFAULT 0`.
+**Verificar:** Que todos los campos de `CrmService` tengan su columna en la tabla (`is_saas`, `active`, `sort_order`, `recurring_label`, `delivery_time`, `benefits`, `is_recommended`).
+**Archivos:** migración SQL
+
+---
+
+### S-5 · crm_business_profile — metrics_order
+**Añadir:** `metrics_order jsonb DEFAULT '[]'` para persistir el orden de métricas del Overview por usuario.
+**Archivos:** migración SQL
+
+---
+
+## BLOQUE 3 — Fixes de Lógica
+> Bugs que afectan funcionalidad real. 2–6 horas cada uno.
+
+### L-1 · useCalendars — hook multi-calendario
+**Problema:** `useCalendarConfig` hace `.limit(1)` — solo trae 1 calendario.
+**Fix:** Verificar que `useCalendars` (que ya existe) trae todos los calendarios correctamente y reemplazar todos los usos incorrectos de `useCalendarConfig`.
+**Archivos:** `src/hooks/useCrmData.ts`
+
+---
+
+### L-2 · Hooks públicos — filtrar por calendar_id
+**Problema:** `usePublicAppointments` y `usePublicBlockedSlots` filtran por `user_id`. Con multi-calendario muestran datos mezclados de todos los calendarios del usuario.
+**Fix:** Añadir parámetro `calendarId` a ambos hooks. Filtrar por `calendar_id` en vez de `user_id`. Actualizar `CalendarRenderer` para pasar el `calendarId`.
+**Archivos:** `src/hooks/useCrmData.ts`, `src/components/crm/CalendarRenderer.tsx`
+
+---
+
+### L-3 · Pipeline — renombrar columna actualiza stages de contactos
+**Problema:** Al renombrar una columna del pipeline, los contactos en esa columna mantienen el nombre antiguo.
+**Fix:** Al guardar el cambio de nombre en `useUpdatePipeline`, hacer update en batch en `crm_contacts` → todos los contactos con `stage = nombreViejo` actualizan a `stage = nombreNuevo` (filtrado por el pipeline específico).
+**Archivos:** `src/components/crm/CrmPipeline.tsx`, `src/hooks/useCrmData.ts`
+
+---
+
+### L-4 · Formularios — soporte para múltiples pipelines
+**Problema:** `pipeline_id` en `CrmForm` es un solo uuid. Un formulario puede vincularse a múltiples pipelines.
+**Fix:** Cambiar a `pipeline_ids uuid[]`. Actualizar Edge Function `crm-form-public` para agregar el contacto a todos los pipelines vinculados.
+**Archivos:** migración SQL, `supabase/functions/crm-form-public/index.ts`, `src/components/crm/CrmForms.tsx`
+
+---
+
+### L-5 · Venta automática al enviar formulario con campo services
+**Problema:** Cuando alguien llena un formulario con campo `services` y elige un servicio, la venta no se registra automáticamente.
+**Fix:** En `crm-form-public`, detectar campo tipo `services` en los datos, registrar venta en `crm_sales`, y si el servicio tiene `is_saas = true`, disparar `create-saas-client`.
+**Archivos:** `supabase/functions/crm-form-public/index.ts`
+
+---
+
+### L-6 · CrmServices — sincronizar con schema real
+**Problema:** `CrmServices.tsx` tiene tipo local `ServiceConfig` desincronizado con `CrmService` de Supabase.
+**Fix:** Eliminar `ServiceConfig` local. Usar directamente `CrmService`. Añadir en el editor: `is_saas` toggle (solo SuperAdmin), campo `discount_pct`, toggle `active`.
+**Archivos:** `src/components/crm/CrmServices.tsx`
+
+---
+
+### L-7 · isConfirmation en FormRenderer
+**Problema:** La sección con `isConfirmation: true` debería mostrar un resumen de todas las respuestas antes de enviar. No está verificado si funciona.
+**Fix:** Verificar en `FormRenderer`. Si no funciona, implementar: renderizar cada campo respondido en modo solo lectura antes del botón de envío.
+**Archivos:** `src/components/crm/FormRenderer.tsx`
+
+---
+
+## BLOQUE 4 — Features Nuevas (media-alta complejidad)
+> Features que requieren backend + UI nueva. 1–3 días cada uno.
+
+### F-1 · Documento Maestro (.md) — generación automática
+**Descripción:** Al recibir un submission del formulario Onboarding, se genera un `.md` con instrucciones y estructura del proyecto web. Sirve para iniciar el proyecto en Claude Code. No incluye copys — solo instrucciones, referencias, estructura y datos del cliente.
+
+**Reglas por servicio elegido:**
+- **Landing Page** → documento para construir una landing page
+- **Website Completo** → documento para landing + website multi-página
+- **SaaS Booking System** → igual que Website Completo (el CRM se activa por separado)
+
+**Implementación:**
+- Edge Function `generate-master-doc`: lee datos del submission, llama a Claude API (`claude-sonnet-4-6`), genera el `.md`, lo sube a Supabase Storage
+- Columna `master_doc_url text` en `crm_form_submissions` o en `crm_contacts`
+- Botón "Descargar Kit (.zip)" en ficha del contacto: descarga `.md` + imágenes del onboarding
+- La ficha técnica del contacto muestra los datos reales del onboarding organizados (eliminar `{VAR_DB}`)
+
+**Archivos:** `supabase/functions/generate-master-doc/index.ts`, `src/components/crm/CrmContacts.tsx`
+
+---
+
+### F-2 · Formulario multi-página (Stepper en FormRenderer)
+**Descripción:** Un formulario con `multi_page: true` se renderiza como stepper en `FormRenderer`. Cada sección = una página.
+
+**Reglas:**
+- Cada página necesita al menos 1 campo real (`heading` no cuenta)
+- Validación por página antes de avanzar al siguiente
+- La sección `isConfirmation: true` muestra resumen antes de enviar
+
+**Archivos:** `src/components/crm/FormRenderer.tsx`, `src/components/crm/CrmForms.tsx`
+
+---
+
+### F-3 · Staff — invitación por email y acceso real
+**Descripción:** Al crear un Staff en CrmSettings, enviar email de invitación con link para crear contraseña en `/crm-setup`.
+
+**Pendiente:**
+- Verificar si el flujo de `create-saas-client` puede reutilizarse para Staff o si se necesita Edge Function separada `invite-staff-user`
+- Al aceptar la invitación: actualizar `crm_staff.staff_user_id` y `status: 'active'`
+- Confirmar que `/crm-setup` funciona para Staff y para clientes SaaS
+
+**Archivos:** `supabase/functions/invite-staff-user/index.ts`, `src/pages/CrmSetup.tsx`, `src/components/crm/CrmSettings.tsx`
+
+---
+
+### F-4 · /onboarding → FormRenderer del CRM del Admin
+**Descripción:** El stepper hardcodeado de 8 pasos se reemplaza por `FormRenderer` renderizando el formulario "Onboarding" del CRM del Admin (slug: `onboarding`).
+
+**Transición:** Mantener el stepper como fallback hasta que el formulario esté completamente configurado y probado en producción. Luego eliminar los Steps 1–8.
+
+**Archivos:** `src/pages/Onboarding.tsx`, `src/pages/FormPage.tsx`
+
+---
+
+## BLOQUE 5 — Arquitectura crítica
+> Afectan seguridad y aislamiento de datos. Necesarios antes de tener clientes reales.
+
+### A-1 · RLS para Staff (bloqueante)
+**Problema:** Las políticas RLS usan `auth.uid() = user_id`. El Staff tiene su propio `auth.uid()` → recibe datos vacíos en todas las tablas del CRM.
+
+**Fix:** Para cada tabla del CRM, añadir política que permita acceso al Staff del dueño:
+```sql
+-- Ejemplo para crm_contacts:
+CREATE POLICY "Staff accede a datos del dueño"
+ON crm_contacts FOR ALL
+USING (
+  user_id IN (
+    SELECT owner_user_id FROM crm_staff
+    WHERE staff_user_id = auth.uid()
+    AND status = 'active'
+  )
+);
 ```
-Acrosoft (Admin - Usuario Principal)
-├─ CRM propio (independiente)
-├─ Staff del Admin (ven solo datos de Acrosoft)
-├─ Contactos (clientes potenciales + clientes SaaS)
-│  └─ Clientes SaaS (label "Booking System")
-│     └─ Su propio CRM (botón "Acceder a CRM" ámbar)
-│        └─ Staff del Cliente SaaS (permisos granulares)
-```
+Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipelines`, `crm_tasks`, `crm_forms`, `crm_form_submissions`, `crm_services`, `crm_sales`, `crm_calendar_config`, `crm_business_profile`, `crm_logs`, `crm_reminders`, `crm_reminder_config`.
 
-### **Key Points**
-- Admin ve SOLO sus datos, NO puede ver datos de clientes SaaS
-- Cada Cliente SaaS ve SOLO sus datos
-- Staff ve exactamente los datos del cliente que lo contrató
-- Un Contacto puede comprar máximo 1 servicio SaaS ($5000 Booking System)
-- Contacto deshabilitado → no login, datos preservados, eliminación 6 meses
+**Archivos:** `supabase/migrations/rls_staff_access.sql`
 
 ---
 
-## ✅ LO YA IMPLEMENTADO
+### A-2 · Impersonación del Admin (magic link)
+**Problema:** El Admin necesita entrar al CRM de un cliente SaaS sin credenciales.
 
-### Bloque 1 — UI & CRUD
-- ✅ **1.2** Tab "SaaS" en CrmSettings (SaasTab implementado)
-- ✅ **1.3** Staff CRUD con permisos granulares + `permissions.ts` + `useStaffPermissions()`
+**Estado:** Edge Function `generate-magic-link` existe — verificar si está completa y funcional.
 
-### Bloque 3 — Recordatorios
-- ✅ **3.1** DB: `crm_reminders`, `crm_reminder_config`, `crm_reminder_queue`, columnas `reminder_rules` en calendarios y formularios, `pipeline_id` + `auto_tags` en formularios, columnas `is_personal`/`staff_id`/`business_target` en reminders
-- ✅ **3.2** CRON `cron-queue-reminders` (Pass A/B/C) con deduplicación por `rule:sourceId:ruleId:targetId`
-- ✅ **3.3** UI completa de recordatorios:
-  - `ReminderRulesEditor` con destinatario (contacto / negocio), sub-destinatario multi-select (Admin con nombre real + rol + Staff con checkboxes), canal (Email/WhatsApp) con campo editable auto-sugerido, timing (antes/después + cantidad + unidad)
-  - Integrado en config de Calendario y de Formulario
-  - Vista "Recordatorios" en menú izquierdo: paneles Calendario, Formulario y Personal
-  - Recordatorios Personales: grid con countdown, Editar/Eliminar, crear nuevo con destinatario multi-select y canal
-- ✅ **3.4** Edge Function `send-reminders` con Resend API, retry hasta 3 intentos, envío por email y WhatsApp
+**Flujo:**
+1. Admin clic en botón de impersonación junto al contacto SaaS en `CrmContacts`
+2. Llama a `generate-magic-link` con `client_user_id`
+3. Edge Function usa `supabase.auth.admin.generateLink()` con `service_role` key
+4. Link abre en nueva pestaña → sesión temporal como el cliente
+5. Dentro del CRM el Admin se comporta exactamente como el cliente (sin indicador especial)
 
-### Bloque 4 — Google Calendar
-- ✅ **4.1 parcial** UI de conexión en `CrmCalendarConfig`, edge function `google-calendar-oauth` desplegada, token guardado en `crm_calendar_config.google_token`
-
-### Bloque 2 — SaaS Multi-Tenant
-- ✅ **2.1** Badge "🔐 Booking System" en lista de contactos (estado activo/pendiente)
-- ✅ **2.2** Botón "CRM" ámbar que abre link mágico en nueva pestaña
-- ✅ **2.3** Edge Function `create-saas-client`: invitación vía Supabase Auth, crea `crm_client_accounts`, envía email automático
-- ✅ **2.4** Botones "Deshabilitar" / "Reactivar" cuenta SaaS en detalle de contacto
-- ✅ **2.5** Indicador de estado (pending/active/disabled) en contacto
-
-### Correcciones (5.2)
-- ✅ Error envío formularios (columna `auto_tags` faltante)
-- ✅ Contactos no llegaban al pipeline (`crm_contacts.stage` en lugar de `crm_pipeline_deals`)
-- ✅ Datos del formulario vacíos en ficha del contacto (`custom_fields[form_id]`)
-- ✅ Calendario mostraba "Servicio" y "Notas" con datos incorrectos
-- ✅ Agendamiento no aparecía en Log
-- ✅ Pipeline selector en formularios (todos los tipos, sin filtro)
-- ✅ CalendarRenderer oculta slots/días sin disponibilidad real
-- ✅ Botón Bell eliminado del detalle de cita
-- ✅ RemindersTab simplificado (límite mensual + historial)
-- ✅ Admin label mostrando nombre real + rol en ReminderRulesEditor
-- ✅ Drag-drop de servicios: reorden por `sort_order` sincronizado con DB
-- ✅ WhatsApp botón deshabilitado con tooltip cuando no configurado
+**Archivos:** `supabase/functions/generate-magic-link/index.ts`, `src/components/crm/CrmContacts.tsx`
 
 ---
 
-## 🚀 LO QUE SIGUE — ORDENADO DE MÁS FÁCIL A MÁS DIFÍCIL
-
-### ⭐ QUICK WINS (1–2 días cada uno) — COMPLETADOS
-
-#### ✅ QW-1: Envío real de email con Resend
-
-- [x] Edge Function `send-reminders` desplegada: Resend API, retry 3 intentos
-- [x] Cron pg_cron cada 5 min configurado
-- [x] `RESEND_API_KEY` en secrets
-
-#### ✅ QW-2: CRON que genera la cola de recordatorios
-
-- [x] Edge Function `cron-queue-reminders` (Pass A/B/C)
-- [x] Deduplicación por `rule:sourceId:ruleId:targetId`
-- [x] `calendar_id` en `crm_appointments`
-
-#### ✅ QW-3: Sincronización real del orden de servicios
-
-- [x] `sort_order ASC, created_at ASC` en `useServices`
-- [x] Drag-drop con `Promise.all` para update
-
-#### ✅ QW-4: WhatsApp — Bloqueo inteligente de UI
-
-- [x] `useWhatsappEnabled()` gate
-- [x] Botón WhatsApp deshabilitado en `ReminderRulesEditor` y `CrmReminders`
+### A-3 · RLS para crm_client_accounts — acceso del cliente
+**Problema:** La política actual solo permite al Admin leer/escribir `crm_client_accounts`. La página `/crm-setup` necesita que el cliente pueda actualizar su propio registro (`status → active`).
+**Fix:** Añadir política que permita `UPDATE` cuando `client_user_id = auth.uid()`, solo para el campo `status`.
+**Archivos:** migración SQL
 
 ---
 
-### ⭐⭐ MEDIA (2–4 días) — COMPLETADOS
+## BLOQUE 6 — Features avanzadas
+> Requieren infraestructura externa o lógica compleja.
 
-#### ✅ M-1: Indicador "Booking System" + botón "Acceder a CRM"
+### AV-1 · Google Calendar OAuth + Sync
+**Estado:** UI lista. Edge Function `google-calendar-oauth` deployada. Token guardado. Falta el sync real.
 
-- [x] Badge ámbar "🔐 Booking System" en contactos
-- [x] Botón "CRM" llama `generate-magic-link`
-- [x] `accountByContact` map para lookup
+**Pendiente:**
+- Edge Function `sync-to-google`: crear/actualizar/cancelar eventos en Google al operar citas en el CRM
+- Guardar `google_event_id` en `crm_appointments`
+- Refresh automático del token cuando expira
 
-#### ✅ M-2: SaaS Account Creation
-
-- [x] Edge Function `create-saas-client`: Auth invite + email
-- [x] Hook `useCreateSaasClient()`
-- [x] Botón "Activar Booking System" en detalle
-
-#### ✅ M-3: Deshabilitar / Reactivar Cliente SaaS
-
-- [x] Botones "Deshabilitar" / "Reactivar"
-- [x] Indicador de estado (pending/active/disabled)
-- [x] Hooks `useDisableSaasClient` / `useEnableSaasClient`
+**Archivos:** `supabase/functions/sync-to-google/index.ts`, `src/components/crm/CrmCalendar.tsx`
 
 ---
 
-### ⭐⭐ SIGUIENTE PRIORIDAD
+### AV-2 · WhatsApp — UI beta (backend en pausa)
+**Estado:** Solo construir la UI con banner **"Beta: Próximamente"**. No implementar backend hasta tener el primer cliente SaaS de pago.
 
-#### M-3.5: Kit de Descarga + Documento Maestro por Servicio
-**Complejidad:** ⭐⭐⭐ Media  
-**Dependencias:** M-2 (SaaS accounts), Onboarding completo
+**UI a construir:**
+- Tab "WhatsApp" en Configuración con dos opciones:
+  - **Opción A:** Evolution API (QR scan, fácil, riesgo de ban)
+  - **Opción B:** Meta WhatsApp Business API (oficial, sin riesgo, configuración compleja)
+- Banner prominente con advertencia sobre spam y riesgo de ban
+- Todo deshabilitado con estado "Próximamente"
 
-**Descripción:**
-Cuando admin ve ficha técnica de contacto, puede descargar un "Kit" que contiene:
-1. **Documento maestro .md** dinámico según servicio elegido
-2. **Fotos** subidas en onboarding
-3. **Configuración automática** si es Booking System
+**Arquitectura para cuando se implemente (Opción A):**
+- Evolution API self-hosted en Railway (~$10/mes para todos los clientes)
+- 1 servidor maneja N sesiones (una por Dueño de Negocio)
+- Edge Function intermedia para comunicarse con Evolution API
 
-**Implementación por servicio:**
-
-**A) Single Page Website:**
-- [ ] Documento .md listo para developer: estructura landing page con secciones, hero, servicios, contacto
-- [ ] Incluye: nombre negocio, descripción, servicios, precios, referencias, colores, tipografía
-- [ ] Template markdown con placeholders para contenido
-
-**B) Multi Page Website (6 páginas):**
-- [ ] Documento .md con estructura: Landing + 6 páginas (Inicio, Servicios, Equipo, Galería, Blog/Testimonios, Contacto)
-- [ ] Incluye todos los datos del onboarding + fotos en secciones
-- [ ] Información de equipo, horarios, ubicación, redes sociales
-- [ ] Colores, fuentes, logo extraído del onboarding
-
-**C) Booking System (CRM):**
-- [ ] Documento .md: Landing + 6 páginas (igual a Multi Page)
-- [ ] **ADEMÁS:** Crear automáticamente Usuario Cliente SaaS con:
-  - Perfil llenable desde onboarding (nombre negocio, descripción, logo, colores)
-  - Horarios/availability del onboarding
-  - Servicios registrados con precios
-  - Email de bienvenida con link para configurar password
-  - Se puede seguir editando en el CRM del cliente
-
-**Funcionalidades técnicas:**
-- [ ] Edge Function `generate-kit`: toma datos del onboarding + fotos → genera .md + comprime todo en ZIP
-- [ ] UI en `CrmContacts` detail: botón "Descargar Kit" (visible si onboarding completado)
-- [ ] Si es Booking System: al descargar, también crea el usuario SaaS automáticamente
-- [ ] Ficha técnica muestra datos del onboarding de forma completa y organizada
-- [ ] Fotos del onboarding muestran en galería en la ficha técnica
-
-**Archivos:** 
-- `supabase/functions/generate-kit/index.ts`
-- `src/components/crm/CrmContacts.tsx` (button + ficha técnica expanded)
-- Nueva tabla: `crm_onboarding` (si no existe) con todos los datos del onboarding
+**Archivos:** `src/components/crm/CrmSettings.tsx`
 
 ---
 
-#### M-4: WhatsApp QR Setup
-**Complejidad:** ⭐⭐⭐ Media  
-**Dependencias:** QW-1 (para tener el pipeline de envío listo)
-
-- [ ] Setup Evolution API o Z-api (servidor externo)
-- [ ] Edge function para obtener QR en vivo y estado de conexión
-- [ ] UI en CrmSettings → "Integraciones" → "WhatsApp": QR + estado + disclaimer de riesgo de spam
-- [ ] `crm_whatsapp_config`: `user_id`, `session_uuid`, `status`, `phone_number`
-- [ ] Edge Function `send-reminders` envía por WhatsApp cuando canal = "whatsapp" y hay sesión activa
-
-**Archivos:** `src/components/crm/CrmSettings.tsx`, `supabase/functions/send-reminders/index.ts`
+### AV-3 · Google Calendar Sync bidireccional
+**Dependencias:** AV-1 completado.
+**Descripción:** Eventos de Google → `crm_appointments`. CRON cada 15 min con `syncToken`. Acrosoft es source of truth en conflictos.
 
 ---
 
-### ⭐⭐⭐ DIFÍCIL (3–5 días)
+## BLOQUE 7 — Deuda técnica
+> Sin urgencia, pero mejoran la base del código.
 
-#### D-1: Magic Link Login (Admin → Cliente SaaS)
-**Complejidad:** ⭐⭐⭐ Media-Alta  
-**Dependencias:** M-2
+### DT-1 · Tipos TypeScript — eliminar duplicados
+- Reemplazar `ServiceConfig` local en `CrmServices.tsx` por `CrmService` de `supabase.ts`
+- Revisar otros tipos locales que dupliquen tipos del schema
 
-- [ ] Edge Function `generate-magic-link` → JWT temporal 30 min en tabla `crm_magic_links`
-- [ ] Botón ámbar "Acceder a CRM" en contacto llama esta función
-- [ ] Página `/crm-client/login?token=[JWT]` valida y crea sesión Supabase sin password
+### DT-2 · Admin.tsx (legacy)
+- Verificar si `src/pages/Admin.tsx` sigue en uso o puede eliminarse
 
-**Archivos:** `supabase/functions/generate-magic-link/index.ts`, `src/pages/CrmClientLogin.tsx`
+### DT-3 · Var.tsx (legacy)
+- Verificar si `src/components/Var.tsx` sigue en uso o puede eliminarse
 
----
-
-#### D-2: Staff Login & JWT Permissions
-**Complejidad:** ⭐⭐⭐ Media-Alta  
-**Dependencias:** 1.3 (ya hecho)
-
-- [ ] Edge Function `create-staff-user`: crea user en auth con claims `account_type: "staff"` + permisos
-- [ ] Email de invitación al staff (igual que SaaS, link 7 días)
-- [ ] `useStaffPermissions()` ya existe — conectar con JWT real
-
-**Archivos:** `supabase/functions/create-staff-user/index.ts`, `src/hooks/useAuth.ts`
+### DT-4 · Actualizar documento maestro
+- Mantener `acrosoft-master-v3.md` actualizado con cada decisión arquitectónica nueva
 
 ---
 
-#### D-3: Google Calendar Sync (Acrosoft → Google)
-**Complejidad:** ⭐⭐⭐⭐ Muy Alta  
-**Dependencias:** 4.1 (parcialmente listo)
-
-- [ ] Edge Function `sync-to-google-calendar`: create / update / delete eventos
-- [ ] Trigger desde `CrmCalendar` al guardar/cancelar cita
-- [ ] Guardar `google_event_id` en `crm_appointments`
-- [ ] Refresh token automático si está expirado
-
-**Archivos:** `supabase/functions/sync-to-google-calendar/index.ts`, `src/components/crm/CrmCalendar.tsx`
-
----
-
-### ⭐⭐⭐⭐⭐ MUY DIFÍCIL (última fase)
-
-#### MD-1: RLS Policies Multi-tenant
-**Complejidad:** ⭐⭐⭐ Media-Alta (pero bloqueante para producción real)  
-**Dependencias:** M-2, D-2
-
-- [ ] RLS completo: Admin ve solo sus datos, Cliente SaaS sus datos, Staff según permisos
-- [ ] JWT claims: `account_type` + `business_user_id`
-- [ ] Migration grande con policies en todas las tablas CRM
-
-**Archivos:** `supabase/migrations/rls_multitenant.sql`
-
----
-
-#### MD-2: Google Calendar Sync Bidireccional (Google → Acrosoft)
-**Complejidad:** ⭐⭐⭐⭐⭐ Extremadamente Difícil  
-**Dependencias:** D-3
-
-- [ ] CRON cada 15 min con `syncToken` de Google
-- [ ] Resolución de conflictos (Acrosoft = source of truth)
-- [ ] Eventos nuevos desde Google → `crm_appointments` con `sync_only: true`
-
----
-
-## 📅 Estado de ejecución
+## Resumen de prioridades
 
 ```
-✅ COMPLETADOS (Sprint 1-2):
-  ✅ QW-1  Envío real email (Resend)
-  ✅ QW-2  CRON cola de recordatorios
-  ✅ QW-3  Fix sort_order servicios
-  ✅ QW-4  Bloqueo WhatsApp en UI
-  ✅ M-1   Badge + botón "Acceder a CRM"
-  ✅ M-2   SaaS Account Creation
-  ✅ M-3   Deshabilitar cliente SaaS
+URGENTE — antes del primer cliente SaaS:
+  A-1   RLS para Staff
+  A-2   Impersonación del Admin (verificar + completar)
+  A-3   RLS crm_client_accounts fix
 
-📋 PRÓXIMOS (por orden de prioridad):
-  1. M-3.5 Kit descarga + Doc Maestro (⭐⭐⭐ media, 3-4 días) — NUEVO
-  2. M-4   WhatsApp QR Setup (⭐⭐⭐ media complejidad, 2-3 días)
-  3. D-1   Magic Link Login (⭐⭐⭐ media-alta, 2-3 días)
-  4. D-2   Staff JWT Login (⭐⭐⭐ media-alta, 2-3 días)
-  5. MD-1  RLS Policies (⭐⭐⭐ necesario para producción, 3-4 días)
-  6. D-3   Google Sync Acrosoft → Google (⭐⭐⭐⭐ muy alta, 4-5 días)
-  7. MD-2  Google Sync bidireccional (⭐⭐⭐⭐⭐ extremadamente difícil, última fase)
+ALTA PRIORIDAD — mejoran el producto activo:
+  QW-1  isSuperAdmin dinámico
+  QW-2  Eliminar CrmClients.tsx
+  QW-4  Métricas del Overview reestructuradas
+  QW-5  Servicios dinámicos en Landing
+  S-1   crm_appointments + minute
+  S-2   crm_blocked_slots + calendar_id
+  L-1   useCalendars multi-calendario
+  L-2   Hooks públicos por calendar_id
+  L-5   Venta automática desde formulario
+  F-1   Documento Maestro (.md)
+
+MEDIA PRIORIDAD:
+  QW-3  Stage dinámico en contactos
+  QW-6  Descuento en servicios
+  QW-7  Heading no cuenta como campo
+  S-3   crm_calendar_config campos anticipación
+  L-3   Renombrar columna pipeline
+  L-4   Pipeline múltiple en formularios
+  L-6   CrmServices sync con schema
+  L-7   isConfirmation en FormRenderer
+  F-2   FormRenderer multi-página stepper
+  F-3   Staff invitación email
+
+LARGO PLAZO:
+  F-4   /onboarding → FormRenderer
+  AV-1  Google Calendar sync
+  AV-2  WhatsApp UI beta
+  AV-3  Google Calendar bidireccional
+  DT-1/2/3  Limpieza de código
 ```
-
----
-
-## ⚠️ Puntos críticos
-
-| Punto | Descripción | Mitigación |
-|-------|-------------|-----------|
-| **MD-1 RLS** | Sin esto cualquier usuario puede ver datos de otro | Hacer antes del primer cliente SaaS real |
-| **MD-2 Google Sync** | Conflictos de datos, tokens expiran | Acrosoft es source-of-truth, syncToken |
-| **M-4 WhatsApp QR** | Riesgo de ban del número | Disclaimer prominente + límites estrictos |
-| **send-reminders** | `reminder_rules` en JSON deben parsearse bien | Tipado estricto + validación en edge function |
-| **D-2 Staff JWT** | Permisos en token deben ser inmutables | Refresh token revoca permisos viejos |
-
----
-
-## ✅ Decisiones confirmadas
-
-- **WhatsApp:** QR (modo Web) con disclaimer + bloqueo UI si no configurado
-- **Email:** Resend
-- **Google Calendar:** OAuth + Sync bidireccional (bidireccional en sprint final)
-- **Recordatorios:** 100/mes por usuario, reglas por calendario y formulario
-- **Permisos Staff:** Granular R/E/C/D por subsección
-- **Data isolation:** RLS + JWT claims
-- **Admin → Cliente:** Magic link, botón ámbar, sin credenciales
-- **Pipelines en formularios:** Todos los tipos visibles (no solo "contacts")
-- **Destinatario "El negocio":** Nombre real del perfil con rol + staff multi-seleccionable

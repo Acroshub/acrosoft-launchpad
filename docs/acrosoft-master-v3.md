@@ -1,227 +1,498 @@
 # Acrosoft Labs — Documento Maestro del Sistema
-> Versión 3.1 · Uso interno exclusivo · Confidencial
-> Última actualización: Abril 2026 · Módulo CRM completado
+> Versión 3.2 · Uso interno exclusivo · Confidencial
+> Última actualización: Abril 2026
 
 ---
 
 ## 1. Visión General
 
-Acrosoft Labs es una agencia de desarrollo web con vibecoding orientada a negocios latinos en Estados Unidos. Este documento define la arquitectura, flujo de trabajo y estructura técnica del sistema interno de onboarding y gestión de clientes.
+Acrosoft Labs es una agencia de desarrollo web con vibecoding orientada a negocios latinos en Estados Unidos. Construye y opera un CRM SaaS multi-tenant que usa internamente y vende como producto a otros negocios.
 
-**Alcance actual (v3.1):**
-- Single Page Website y Multi Page Website (Producto entregable al cliente)
-- **CRM completo** — sistema de gestión interno para los clientes de Acrosoft (Nuevo)
+**Acrosoft es el primer cliente de su propio CRM.** Esto significa que Daniel (el fundador) usa el mismo sistema que sus clientes, con algunas funciones exclusivas de administrador.
 
-**Próximo update (v4.0):** Integración completa con Supabase (persistencia real de todos los módulos del CRM).
+**Productos actuales:**
+- Landing Page / Single Page Website
+- Multi Page Website (hasta 6 páginas)
+- Custom Booking + CRM (producto SaaS — el sistema descrito en este documento)
 
 ---
 
-## 2. Stack Tecnológico Real
+## 2. Estructura de Usuarios
+
+```
+SuperAdmin (Acrosoft — e.daniel.acero.r@gmail.com)
+├─ CRM propio con features exclusivos de admin
+├─ Staff del Admin (permisos granulares)
+├─ Contactos (leads → clientes de websites o clientes SaaS)
+│   └─ Cliente SaaS → Dueño de Negocio
+│       ├─ Su propio CRM (aislado)
+│       └─ Staff del Dueño (permisos granulares)
+```
+
+### Tipos de usuario
+
+| Tipo | Descripción |
+|---|---|
+| **SuperAdmin** | Email `e.daniel.acero.r@gmail.com`. Features exclusivos: impersonación, control de límites SaaS, marcar servicios como SaaS. |
+| **Dueño de Negocio** | Cliente SaaS con CRM propio. Solo ve sus datos. Puede tener Staff. |
+| **Staff** | Empleado de un Dueño de Negocio. Accede al CRM del dueño con permisos granulares por sección. |
+
+### Reglas importantes
+- No hay recursividad: los Dueños de Negocio no pueden tener sus propios Dueños de Negocio.
+- El SuperAdmin puede entrar al CRM de cualquier cliente vía magic link (sin credenciales). Dentro del CRM se comporta exactamente igual que el cliente — sin indicador especial.
+- Un contacto del Admin puede comprar un website sin CRM (queda como contacto/cliente, no se convierte en Dueño de Negocio).
+- Un contacto se convierte en Dueño de Negocio solo cuando compra un servicio marcado como `is_saas = true`.
+
+---
+
+## 3. Stack Tecnológico
 
 | Capa | Tecnología | Versión | Propósito |
 |---|---|---|---|
 | Framework | Vite + React | 18.3.1 | SPA sin SSR |
 | Lenguaje | TypeScript | 5.8.3 | Tipado estático |
-| Routing | React Router DOM | v6.30.1 | Navegación entre rutas |
+| Routing | React Router DOM | v6.30.1 | Navegación |
 | Estilos | Tailwind CSS | 3.4.17 | UI y branding |
 | Componentes | shadcn/ui (Radix UI) | — | UI components accesibles |
-| Formularios | react-hook-form + zod | 7.61.1 + 3.25.76 | Validación de formularios |
-| Estado servidor | TanStack Query | v5.83.0 | Fetching y caché de datos |
-| Gráficas | Recharts | 2.15.4 | Dashboard de métricas admin |
+| Formularios | react-hook-form + zod | — | Validación |
+| Estado servidor | TanStack Query | v5.83.0 | Fetching y caché |
 | Iconos | Lucide React | 0.462.0 | Iconografía |
 | Toasts | Sonner | 1.7.4 | Notificaciones UI |
 | Temas | next-themes | 0.3.0 | Dark/light mode |
-| Base de datos | Supabase (PostgreSQL) | — | Almacenamiento de submissions y CRM |
-| Autenticación | Supabase Auth | — | Login del panel admin y dashboard |
-| Storage | Supabase Storage | — | Logo y fotos del cliente |
-| API IA | Claude API vía Supabase Edge Function | claude-sonnet-4-20250514 | Generación de copy bilingüe |
-| Emails | Resend vía Supabase Edge Function | — | Notificaciones internas |
-| Deploy | Vercel | — | Hosting del frontend |
-| Dominio | Cliente lo compra | — | Conectado por Acrosoft |
+| Base de datos | Supabase (PostgreSQL) | — | Almacenamiento y auth |
+| Storage | Supabase Storage | — | Logos, fotos, documentos |
+| Auth | Supabase Auth | — | Login de todos los usuarios |
+| API IA | Claude API via Edge Function | claude-sonnet-4-6 | Generación de Documento Maestro |
+| Emails | Resend via Edge Function | — | Recordatorios y notificaciones |
+| WhatsApp | Evolution API (Railway) | — | Recordatorios WhatsApp (pendiente) |
+| Deploy | Vercel | — | Frontend |
 
-> **Importante:** Este proyecto es una SPA pura (Vite, sin servidor Node propio).
-> Toda lógica que requiera claves secretas (Claude API, Resend, Google Calendar OAuth) debe ejecutarse
-> en **Supabase Edge Functions** — nunca exponer API keys en el frontend.
+> **Regla de seguridad:** Toda lógica con claves secretas (Claude API, Resend, Google OAuth, Supabase service_role) debe ejecutarse en Supabase Edge Functions. Nunca en el frontend.
 
 ---
 
-## 3. Dependencias Instaladas (package.json)
+## 4. Rutas del Sistema
 
-### Producción (ya disponibles, no reinstalar)
 ```
-react-router-dom        → routing
-react-hook-form         → formularios
-zod                     → validación de esquemas
-@tanstack/react-query   → fetching y caché
-recharts                → gráficas del dashboard
-lucide-react            → iconos
-sonner                  → toasts
-next-themes             → dark/light mode
-date-fns                → manejo de fechas
-embla-carousel-react    → carrusel (galería de fotos)
-react-day-picker        → date picker en formularios
-tailwind-merge + clsx   → utilidades de clases
-class-variance-authority → variantes de componentes shadcn
-vaul                    → drawer mobile
-cmdk                    → command palette
-input-otp               → inputs OTP (login admin)
-@supabase/supabase-js   → cliente Supabase (ya instalado)
+/                   → Landing page (servicios dinámicos desde Supabase)
+/onboarding         → Formulario de onboarding (migrando a FormRenderer)
+/login              → Login unificado → redirige a /crm
+/crm                → Panel CRM (Admin, Dueños de Negocio, Staff — mismo componente)
+/crm-setup          → Crear contraseña para nuevos Staff o clientes SaaS invitados
+/f/:slug            → FormRenderer público (formularios embebibles)
+/c/:slug            → CalendarRenderer público (calendarios embebibles)
+*                   → 404
 ```
 
-### Variables de entorno requeridas (.env)
-```env
-VITE_SUPABASE_URL=https://vbzpvjikkvwlcadughmm.supabase.co
-VITE_SUPABASE_ANON_KEY=xxxx
-# Las siguientes NUNCA van en el frontend — van en Supabase Edge Functions:
-# ANTHROPIC_API_KEY=xxxx
-# RESEND_API_KEY=xxxx
-# GOOGLE_CLIENT_ID=xxxx       ← para Google Calendar OAuth
-# GOOGLE_CLIENT_SECRET=xxxx   ← para Google Calendar OAuth
-```
+> **Nota:** `/dashboard` fue eliminado. Todo ocurre en `/crm`.
 
 ---
 
-## 4. Estructura de Carpetas del Proyecto
+## 5. Módulos del CRM
 
-```
-src/
-├── main.tsx                  → Entry point
-├── App.tsx                   → Router principal con <Routes>
-├── index.css                 → Estilos globales + variables Tailwind
-│
-├── pages/
-│   ├── Index.tsx             → Ruta / (landing page)
-│   ├── Onboarding.tsx        → Ruta /onboarding (stepper)
-│   ├── Login.tsx             → Ruta /login (login unificado)
-│   ├── Dashboard.tsx         → Ruta /dashboard (panel admin Acrosoft)
-│   ├── Crm.tsx               → Ruta /crm (módulo CRM)
-│   ├── Admin.tsx             → (legacy — reemplazado por Login.tsx)
-│   └── NotFound.tsx          → Ruta * (404)
-│
-├── components/
-│   ├── ui/                   → shadcn/ui (no modificar directamente)
-│   ├── layout/
-│   │   ├── Navbar.tsx
-│   │   └── Footer.tsx
-│   ├── landing/
-│   │   ├── Hero.tsx
-│   │   ├── Plans.tsx
-│   │   ├── HowItWorks.tsx
-│   │   └── WhyAcrosoft.tsx
-│   ├── onboarding/
-│   │   ├── StepperHeader.tsx
-│   │   ├── Step1Business.tsx
-│   │   ├── Step2Plan.tsx
-│   │   ├── Step3Identity.tsx
-│   │   ├── Step4Services.tsx
-│   │   ├── Step5Audience.tsx
-│   │   ├── Step6Content.tsx
-│   │   ├── Step7Contact.tsx  ← incluye selector de horarios
-│   │   └── Step8Confirm.tsx  ← popup/redirect configurable post-envío
-│   ├── crm/
-│   │   ├── CrmOverview.tsx       → Dashboard principal del CRM
-│   │   ├── CrmContacts.tsx       → Gestión de contactos
-│   │   ├── CrmClients.tsx        → Ficha técnica de clientes
-│   │   ├── CrmPipeline.tsx       → Pipeline de ventas (Kanban)
-│   │   ├── CrmCalendar.tsx       → Calendario (Día/Semana/Mes + citas + tiempo reservado)
-│   │   ├── CrmCalendarConfig.tsx → Configuración del calendario + integración Google
-│   │   ├── CrmForms.tsx          → Constructor de formularios personalizados
-│   │   ├── CrmServices.tsx       → Gestión de servicios y precios
-│   │   └── CrmBusiness.tsx       → Configuración del negocio
-│   ├── admin/
-│   │   ├── LoginForm.tsx
-│   │   ├── ClientsTable.tsx
-│   │   ├── MetricsCards.tsx
-│   │   ├── ClientDetail.tsx
-│   │   └── MasterDocPreview.tsx
-│   └── shared/
-│       ├── AcrosoftLogo.tsx  → SVG del logo (reutilizable)
-│       └── LanguageToggle.tsx
-│
-├── hooks/
-│   ├── useOnboardingForm.ts  → Estado global del stepper
-│   ├── useSupabase.ts        → Cliente Supabase
-│   └── useAuth.ts            → Auth del admin
-│
-├── lib/
-│   ├── supabase.ts           → Inicialización del cliente Supabase
-│   ├── utils.ts              → cn() y helpers
-│   └── generateMd.ts        → Función que arma el .md desde los datos
-│
-└── types/
-    └── submission.ts         → Tipos TypeScript del formulario y DB
-```
-
----
-
-## 5. Routing — React Router DOM v6
-
-```tsx
-// src/App.tsx — rutas actuales
-<Route path="/"            element={<Index />} />
-<Route path="/onboarding"  element={<Onboarding />} />
-<Route path="/login"       element={<Login />} />
-<Route path="/dashboard"   element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
-<Route path="/crm"         element={<ProtectedRoute><Crm /></ProtectedRoute>} />
-<Route path="*"            element={<NotFound />} />
-```
-
-El componente `<ProtectedRoute>` verifica la sesión de Supabase Auth.
-Si no hay sesión activa, redirige a `/login`.
-
----
-
-## 6. Módulo CRM — Funcionalidades
-
-El CRM es el panel de gestión operativo del negocio cliente. Está diseñado para ser **agnóstico al nicho** (peluquerías, veterinarias, abogados, constructoras, agencias, etc.) y cubre el ciclo completo del cliente.
-
-### 6A. Módulos implementados (UI completa)
-
-| Módulo | Archivo | Estado |
+| Módulo | Componente | Descripción |
 |---|---|---|
-| Overview / Dashboard | CrmOverview.tsx | ✅ UI lista |
-| Contactos | CrmContacts.tsx | ✅ UI lista |
-| Ficha de Clientes | CrmClients.tsx | ✅ UI lista |
-| Pipeline de Ventas | CrmPipeline.tsx | ✅ UI lista |
-| Calendario | CrmCalendar.tsx | ✅ UI lista |
-| Configuración de Calendario | CrmCalendarConfig.tsx | ✅ UI lista |
-| Constructor de Formularios | CrmForms.tsx | ✅ UI lista |
-| Servicios y Precios | CrmServices.tsx | ✅ UI lista |
-| Configuración del Negocio | CrmBusiness.tsx | ✅ UI lista |
+| Resumen | `CrmOverview` | Métricas, registro de ventas, ingreso recurrente estimado |
+| Mi Negocio | `CrmBusiness` | Info básica, logo, colores, servicios |
+| Calendarios | `CrmCalendar` + `CrmCalendarConfig` | Multi-calendario, citas, bloqueos, Google Calendar |
+| Formularios | `CrmForms` + `FormRenderer` | Constructor de formularios, render público |
+| Contactos | `CrmContacts` | Gestión de contactos, ficha técnica, impersonación SaaS |
+| Pipeline | `CrmPipeline` | Kanban de contactos y tareas |
+| Recordatorios | `CrmReminders` | Recordatorios de citas, formularios y personales |
+| Configuración | `CrmSettings` | Staff, logs, límites de recordatorios, WhatsApp |
 
-### 6B. Funcionalidades clave del Calendario
+### Visibilidad por rol
 
-- **Vistas:** Diaria, Semanal, Mensual
-- **Citas:** Crear, editar fecha/hora, cambiar estado (Confirmada / Cancelada), eliminar
-- **Tiempo Reservado (☕):** Bloquear horas específicas, días completos o rangos de fechas para vacaciones/descanso — sin modificar la disponibilidad general. Se visualiza con tono ámbar consistente en las 3 vistas
-- **Configuración:** Nombre, descripción, duración de cita, tiempo entre citas, horarios de atención editables, URL pública, formulario vinculado
-- **Código de incrustación:** iframe y JavaScript
-- **Integración:** Botón "Conectar cuenta" Google Calendar (UI lista, requiere OAuth en backend)
-
-### 6C. Constructor de Formularios
-
-- Tipos de campo: texto corto, texto largo, email, teléfono, número, selección, casilla, archivo, fecha, URL, selector de horario
-- Configuración post-envío: popup de confirmación (con icono check o logo del negocio) o redirección a URL externa
-- Texto del botón de envío personalizable
-- El formulario de Onboarding de Acrosoft es 100% replicable con esta herramienta
-
----
-
-## 7. Planes Activos (MVP)
-
-| Plan | Setup | Mantenimiento | Entrega |
+| Módulo | SuperAdmin | Dueño de Negocio | Staff |
 |---|---|---|---|
-| Single Page Website | $500 | $50/mes | 3–5 días hábiles |
-| Multi Page Website | $1,500 | $100/mes | 10–14 días hábiles |
-
-> **Custom Booking / CRM** — en desarrollo activo (v3.1). UI completa, backend en progreso.
-
-**Política de pagos:** 50% al inicio · 50% al entregar
-**Dominio:** Lo compra el cliente (recomendado: Namecheap o GoDaddy)
+| Resumen | ✅ | ✅ | Si tiene perm. dashboard |
+| Mi Negocio | ✅ | ✅ | Si tiene perm. mi_negocio_* |
+| Calendarios | ✅ | ✅ | Si tiene perm. calendarios |
+| Formularios | ✅ | ✅ | Si tiene perm. formularios |
+| Contactos | ✅ | ✅ | Si tiene perm. contactos |
+| Pipeline | ✅ | ✅ | Si tiene perm. pipeline |
+| Recordatorios | ✅ | ✅ | ✅ |
+| Configuración | ✅ | ✅ | ❌ (Staff no puede crear más Staff) |
 
 ---
 
-## 8. Branding
+## 6. Módulo Contactos — Reglas de Negocio
+
+- Un contacto tiene `stage` dinámico: el nombre de la columna del pipeline donde esté. Puede aparecer en múltiples pipelines → múltiples stages simultáneos.
+- Un contacto se convierte en **cliente** automáticamente cuando se registra una venta (manual o via formulario con campo `services`). No depende del pipeline.
+- Un contacto SaaS muestra badge especial y botón de impersonación para el SuperAdmin.
+- La vista "Clientes" es un filtro de contactos con al menos una venta registrada — no es un módulo separado.
+- Los contactos que compran solo website/landing no reciben acceso al CRM.
+
+---
+
+## 7. Módulo Calendario — Reglas de Negocio
+
+- **Multi-calendario:** Cada negocio puede tener N calendarios. Cada calendario es completamente independiente: su propio formulario vinculado, URL pública, horario de atención, conexión con Google Calendar, recordatorios y bloqueos.
+- **Bloqueos de tiempo:** Por calendario específico. Tipos: horas específicas, día completo, rango de fechas.
+- **Configuración por calendario:** nombre, descripción, duración de cita, tiempo entre citas, anticipación mínima para reservar, máximo de días hacia el futuro para mostrar disponibilidad, horario de atención, URL pública, formulario vinculado, código de incrustación.
+
+---
+
+## 8. Módulo Pipeline — Reglas de Negocio
+
+- **Tipos:** `contacts` (columnas default: Nuevo Lead, Contactado, Propuesta, Cliente, Post-venta) y `tasks` (columnas default: Por hacer, En progreso, Completado). Crear sin tipo = pipeline vacío.
+- **Toda tarjeta debe tener un contacto vinculado.** Si el contacto se elimina, la tarjeta se elimina.
+- **Renombrar columna:** Actualiza automáticamente el `stage` de todos los contactos en esa columna.
+- Un contacto puede estar en múltiples pipelines simultáneamente.
+
+---
+
+## 9. Módulo Formularios — Reglas de Negocio
+
+- **Multi-página:** `multi_page: true` → cada sección es una página del stepper. Cada página necesita al menos 1 campo real (heading no cuenta).
+- **Sección de confirmación:** `isConfirmation: true` → muestra resumen de respuestas antes de enviar.
+- **Campo tipo `services`:** Solo 1 por formulario. Muestra selección visual de los servicios del negocio. Al enviar, registra la venta automáticamente. Si el servicio es `is_saas`, crea la cuenta CRM del contacto.
+- **Campo tipo `repeatable`:** El usuario puede añadir N instancias de sub-campos (ej: lista de servicios, FAQs, reviews).
+- **`pipeline_ids`:** Un formulario puede vincularse a múltiples pipelines. Al recibir submission, el contacto se añade a todos los pipelines vinculados.
+- **`auto_tags`:** Tags que se acumulan en el contacto al enviar (no reemplazan).
+- **Formulario "Onboarding":** Formulario creado en el CRM del Admin que reemplazará el stepper hardcodeado de `/onboarding`.
+
+---
+
+## 10. Módulo Servicios — Reglas de Negocio
+
+- Cada servicio puede tener precio de setup + precio recurrente con intervalo configurable (mensual, trimestral, semestral, anual).
+- Campo `is_saas`: solo el SuperAdmin puede marcar un servicio como SaaS. Al venderse, crea automáticamente la cuenta CRM del contacto.
+- Campo `discount_pct`: descuento en porcentaje. Se muestra en la landing y en el FormRenderer.
+- Los servicios del Admin son los que aparecen en la landing page de Acrosoft (todos los activos, SaaS y no-SaaS).
+
+---
+
+## 11. Módulo Recordatorios — Reglas de Negocio
+
+- **Tipo calendario:** N reglas configurables por calendario (ej: 24h antes, 1h antes de la cita).
+- **Tipo formulario:** Al recibir submission (inmediato) o X tiempo después.
+- **Tipo personal (to-do):** Fecha, hora, mensaje, destinatario (admin o staff específico), canal. Sin vínculo a cita ni formulario.
+- Los recordatorios se configuran desde el módulo Recordatorios O desde la configuración del calendario/formulario.
+- **Límites mensuales:** Solo el SuperAdmin configura los límites de email/WhatsApp por mes para cada cliente SaaS. El Dueño de Negocio no puede modificar sus propios límites. El Admin puede activar/desactivar el límite por cliente.
+
+---
+
+## 12. WhatsApp
+
+**Estado actual: Solo UI con banner "Beta: Próximamente".**
+
+Cuando se implemente:
+- **Opción A (fácil):** Evolution API self-hosted en Railway (~$10/mes total). QR scan estilo WhatsApp Web. 1 servidor para todos los clientes.
+- **Opción B (oficial):** Meta WhatsApp Business API. Sin riesgo de ban, pero configuración más compleja para el usuario.
+- Banner de advertencia sobre riesgo de ban al activar.
+
+---
+
+## 13. Documento Maestro del Cliente (.md)
+
+Se genera automáticamente cuando un contacto completa el formulario Onboarding.
+
+**Contenido:** instrucciones técnicas, estructura de secciones, datos del negocio, paleta de colores, tipografía, servicios, público objetivo, diferenciadores, referencias. **No incluye copys** — es un brief para iniciar el proyecto en Claude Code.
+
+**Reglas por servicio:**
+- **Landing Page** → documento para construir una landing page
+- **Website Completo** → documento para landing + website multi-página
+- **SaaS Booking System** → igual que Website Completo (el CRM se activa por separado)
+
+**Implementación:** Edge Function `generate-master-doc` → llama a Claude API → sube `.md` a Supabase Storage → guarda URL en el contacto. El botón "Descargar Kit" en la ficha del contacto descarga el `.md` + imágenes como ZIP.
+
+---
+
+## 14. Schema de Supabase — Tablas CRM
+
+### `crm_contacts`
+```sql
+CREATE TABLE crm_contacts (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    timestamptz DEFAULT now(),
+  user_id       uuid REFERENCES auth.users NOT NULL,
+  name          text NOT NULL,
+  email         text,
+  phone         text,
+  company       text,
+  stage         text,           -- nombre de columna del pipeline (dinámico, no fijo)
+  tags          text[] DEFAULT '{}',
+  notes         text,
+  custom_fields jsonb DEFAULT '{}'  -- { [form_id]: { [field_id]: value } }
+);
+```
+
+### `crm_appointments`
+```sql
+CREATE TABLE crm_appointments (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    timestamptz DEFAULT now(),
+  user_id       uuid REFERENCES auth.users NOT NULL,
+  calendar_id   uuid REFERENCES crm_calendar_config,
+  contact_id    uuid REFERENCES crm_contacts,
+  date          date NOT NULL,
+  hour          int NOT NULL,        -- 0–23
+  minute        int NOT NULL DEFAULT 0,  -- 0–59
+  duration_min  int DEFAULT 30,
+  service       text,
+  status        text DEFAULT 'confirmed' CHECK (status IN ('confirmed','cancelled')),
+  notes         text,
+  google_event_id text              -- id del evento en Google Calendar (si sincronizado)
+);
+```
+
+### `crm_blocked_slots`
+```sql
+CREATE TABLE crm_blocked_slots (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    timestamptz DEFAULT now(),
+  user_id       uuid REFERENCES auth.users NOT NULL,
+  calendar_id   uuid REFERENCES crm_calendar_config NOT NULL,
+  type          text NOT NULL CHECK (type IN ('hours','fullday','range')),
+  date          date,
+  start_hour    int,
+  end_hour      int,
+  range_start   date,
+  range_end     date,
+  reason        text
+);
+```
+
+### `crm_calendar_config`
+```sql
+CREATE TABLE crm_calendar_config (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at        timestamptz DEFAULT now(),
+  user_id           uuid REFERENCES auth.users NOT NULL,
+  name              text,
+  description       text,
+  duration_min      int DEFAULT 30,
+  buffer_min        int DEFAULT 10,
+  min_advance_hours int DEFAULT 1,    -- anticipación mínima para reservar
+  max_future_days   int DEFAULT 60,   -- hasta cuántos días mostrar disponibilidad
+  slug              text UNIQUE,
+  linked_form_id    uuid REFERENCES crm_forms,
+  availability      jsonb DEFAULT '{}',
+  google_token      jsonb,
+  reminder_rules    jsonb DEFAULT '[]'
+);
+```
+
+### `crm_pipelines`
+```sql
+CREATE TABLE crm_pipelines (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at   timestamptz DEFAULT now(),
+  user_id      uuid REFERENCES auth.users NOT NULL,
+  name         text NOT NULL,
+  type         text CHECK (type IN ('contacts','tasks')),  -- null = personalizado vacío
+  column_names text[] NOT NULL DEFAULT '{}'
+);
+```
+
+### `crm_tasks`
+```sql
+CREATE TABLE crm_tasks (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at  timestamptz DEFAULT now(),
+  user_id     uuid REFERENCES auth.users NOT NULL,
+  pipeline_id uuid REFERENCES crm_pipelines NOT NULL,
+  contact_id  uuid REFERENCES crm_contacts NOT NULL,  -- siempre requerido
+  title       text NOT NULL,
+  description text,
+  priority    text CHECK (priority IN ('low','medium','high')),
+  stage       text NOT NULL,
+  position    int DEFAULT 0
+);
+```
+
+### `crm_forms`
+```sql
+CREATE TABLE crm_forms (
+  id                    uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at            timestamptz DEFAULT now(),
+  user_id               uuid REFERENCES auth.users NOT NULL,
+  name                  text NOT NULL,
+  fields                jsonb NOT NULL DEFAULT '[]',
+  sections              jsonb DEFAULT '[]',
+  multi_page            boolean DEFAULT false,
+  show_confirmation_step boolean DEFAULT false,
+  confirmation_message  text,
+  submit_label          text DEFAULT 'Enviar',
+  success_action        text DEFAULT 'popup' CHECK (success_action IN ('popup','redirect')),
+  success_message       text,
+  success_image         text DEFAULT 'icon' CHECK (success_image IN ('icon','logo')),
+  redirect_url          text,
+  slug                  text UNIQUE,
+  auto_tags             text[] DEFAULT '{}',
+  facebook_pixel_id     text,
+  pipeline_ids          uuid[] DEFAULT '{}',  -- múltiples pipelines
+  reminder_rules        jsonb DEFAULT '[]'
+);
+```
+
+### `crm_services`
+```sql
+CREATE TABLE crm_services (
+  id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at        timestamptz DEFAULT now(),
+  user_id           uuid REFERENCES auth.users NOT NULL,
+  name              text NOT NULL,
+  description       text,
+  price             numeric DEFAULT 0,
+  currency          text DEFAULT 'USD',
+  discount_pct      numeric DEFAULT 0,      -- porcentaje de descuento
+  is_recurring      boolean DEFAULT false,
+  recurring_price   numeric,
+  recurring_interval text,                  -- 'monthly','quarterly','biannual','annual'
+  recurring_label   text,
+  delivery_time     text,
+  benefits          text[],
+  is_recommended    boolean DEFAULT false,
+  active            boolean DEFAULT true,
+  sort_order        int,
+  is_saas           boolean DEFAULT false   -- solo SuperAdmin puede activar
+);
+```
+
+### `crm_sales`
+```sql
+CREATE TABLE crm_sales (
+  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at    timestamptz DEFAULT now(),
+  user_id       uuid REFERENCES auth.users NOT NULL,
+  contact_id    uuid REFERENCES crm_contacts,
+  contact_name  text,    -- snapshot del nombre al momento de la venta
+  service_id    uuid REFERENCES crm_services,
+  service_name  text,
+  amount        numeric DEFAULT 0,
+  currency      text DEFAULT 'USD',
+  type          text CHECK (type IN ('initial','recurring')),
+  notes         text
+);
+```
+
+### `crm_business_profile`
+```sql
+CREATE TABLE crm_business_profile (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at      timestamptz DEFAULT now(),
+  user_id         uuid REFERENCES auth.users UNIQUE NOT NULL,
+  first_name      text,
+  last_name       text,
+  contact_email   text,
+  contact_phone   text,
+  role            text,
+  business_name   text,
+  industry        text,
+  city            text,
+  country         text,
+  website         text,
+  whatsapp        text,
+  instagram       text,
+  facebook        text,
+  description     text,
+  logo_url        text,
+  color_primary   text DEFAULT '#2563EB',
+  color_secondary text DEFAULT '#1E40AF',
+  color_accent    text DEFAULT '#DBEAFE',
+  metrics_order   jsonb DEFAULT '[]'   -- orden personalizado de métricas del Overview
+);
+```
+
+### `crm_staff`
+```sql
+CREATE TABLE crm_staff (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at      timestamptz DEFAULT now(),
+  owner_user_id   uuid REFERENCES auth.users NOT NULL,
+  staff_user_id   uuid REFERENCES auth.users,  -- se llena al aceptar invitación
+  name            text NOT NULL,
+  email           text NOT NULL,
+  description     text,
+  status          text DEFAULT 'invited' CHECK (status IN ('invited','active','inactive')),
+  -- Permisos granulares (jsonb: { read, edit, create, delete })
+  perm_mi_negocio_datos     jsonb DEFAULT '{"read":true,"edit":false}',
+  perm_mi_negocio_personal  jsonb DEFAULT '{"read":true,"edit":false}',
+  perm_servicios            jsonb DEFAULT '{"read":true,"edit":false,"create":false,"delete":false}',
+  perm_dashboard            jsonb DEFAULT '{"read":false}',
+  perm_ventas               jsonb DEFAULT '{"read":false,"edit":false,"create":false,"delete":false}',
+  perm_calendarios          jsonb DEFAULT '{"read":false,"edit":false,"create":false,"delete":false}',
+  perm_formularios          jsonb DEFAULT '{"read":false,"edit":false,"create":false,"delete":false}',
+  perm_contactos            jsonb DEFAULT '{"read":false,"edit":false,"create":false,"delete":false}',
+  perm_pipeline             jsonb DEFAULT '{"read":false,"edit":false,"create":false,"delete":false}',
+  UNIQUE (owner_user_id, email)
+);
+```
+
+### `crm_client_accounts`
+```sql
+CREATE TABLE crm_client_accounts (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at      timestamptz DEFAULT now(),
+  admin_user_id   uuid REFERENCES auth.users NOT NULL,
+  contact_id      uuid REFERENCES crm_contacts NOT NULL,
+  client_user_id  uuid REFERENCES auth.users,
+  client_email    text NOT NULL,
+  status          text DEFAULT 'pending' CHECK (status IN ('pending','active','disabled')),
+  disabled_at     timestamptz,
+  deleted_at      timestamptz,
+  UNIQUE (admin_user_id, contact_id)
+);
+```
+
+---
+
+## 15. Edge Functions
+
+| Función | Estado | Propósito |
+|---|---|---|
+| `crm-form-public` | ✅ Deployada | Recibe submissions públicos, crea contacto, agrega a pipeline, registra venta si hay campo services |
+| `crm-calendar-book` | ✅ Deployada | Crea cita desde CalendarRenderer público |
+| `create-saas-client` | ✅ Deployada | Crea cuenta en Supabase Auth + `crm_client_accounts`, envía email de invitación |
+| `generate-magic-link` | ✅ Deployada | Genera sesión temporal para impersonación del Admin |
+| `cron-queue-reminders` | ✅ Deployada | CRON que genera la cola de recordatorios (pass A: citas, B: formularios, C: personales) |
+| `send-reminders` | ✅ Deployada | Envía recordatorios via Resend (email) o WhatsApp |
+| `google-calendar-oauth` | ✅ Deployada | OAuth 2.0 con Google Calendar |
+| `generate-master-doc` | ❌ Pendiente | Genera Documento Maestro .md con Claude API al recibir submission del Onboarding |
+| `sync-to-google` | ❌ Pendiente | Sincroniza citas del CRM con Google Calendar |
+| `invite-staff-user` | ❌ Pendiente | Envía invitación por email a nuevo Staff |
+
+---
+
+## 16. Flujo Completo del Sistema
+
+```
+CLIENTE FINAL (lead del negocio)
+  │
+  ├─ 1. Llena formulario público (/f/:slug) o calendario (/c/:slug)
+  ├─ 2. Submit → crm-form-public → crea contacto + submission
+  ├─ 3. Si campo services → registra venta automáticamente
+  ├─ 4. Si servicio is_saas → crea cuenta CRM para el contacto
+  └─ 5. Ve popup de confirmación o es redirigido
+
+NEGOCIO (Dueño de Negocio en /crm)
+  │
+  ├─ 6. Ve nuevo contacto en CrmContacts
+  ├─ 7. Confirma cita → aparece en CrmCalendar
+  ├─ 8. Mueve el contacto por el Pipeline
+  ├─ 9. Registra ventas en CrmOverview
+  └─ 10. Bloquea tiempo en el calendario (☕)
+
+SISTEMA AUTOMÁTICO
+  │
+  ├─ 11. CRON genera cola de recordatorios
+  ├─ 12. send-reminders envía por email o WhatsApp
+  └─ 13. Si Google Calendar conectado → sync de citas
+
+ACROSOFT (SuperAdmin en /crm)
+  │
+  ├─ 14. Gestiona sus propios contactos y ventas
+  ├─ 15. El Onboarding llena su CRM con nuevos leads
+  ├─ 16. Al completar el Onboarding → genera Documento Maestro .md
+  └─ 17. Puede entrar al CRM de cualquier cliente SaaS (magic link)
+```
+
+---
+
+## 17. Branding
 
 | Token | Valor |
 |---|---|
@@ -236,1010 +507,25 @@ El CRM es el panel de gestión operativo del negocio cliente. Está diseñado pa
 | Border radius | `rounded-xl` (12px) |
 | Logo | Matraz flask azul con arco blanco + "Acrosoft Labs" |
 
----
-
-## 9. Formulario de Onboarding — `/onboarding`
-
-### Estado del stepper
-Manejar con `useState` local en `Onboarding.tsx` o con un hook `useOnboardingForm.ts`.
-El estado completo del formulario se acumula en un objeto que al finalizar
-se envía a Supabase en una sola operación.
-
-```ts
-// src/types/submission.ts
-export type OnboardingData = {
-  // Paso 1
-  business_name: string
-  industry: string
-  city_state: string
-  years_operating?: string
-  description: string
-  history?: string
-
-  // Paso 2
-  plan: 'single_page' | 'multi_page'
-  payment_method: 'one_time' | 'installments'
-  project_start_date?: string
-
-  // Paso 3
-  logo_url?: string
-  color_primary?: string
-  color_secondary?: string
-  color_accent?: string
-  typography?: string
-  visual_style?: string
-  reference_urls?: string[]
-
-  // Paso 4
-  services: Array<{
-    name: string
-    description?: string
-    price?: string
-    featured?: boolean
-  }>
-
-  // Paso 5
-  target_audience?: string
-  problem_solved?: string
-  differentiators?: string
-  testimonials?: Array<{ name: string; text: string }>
-  faqs?: Array<{ question: string; answer: string }>
-
-  // Paso 6
-  photo_urls?: string[]
-  team_photo_urls?: string[]
-  video_url?: string
-
-  // Paso 7
-  phone: string
-  email: string
-  address?: string
-  schedule?: string  // horarios de atención (selector visual)
-  instagram?: string
-  facebook?: string
-  tiktok?: string
-  google_maps?: string
-  domain?: string
-}
-```
+> Los colores del negocio (`color_primary`, `color_secondary`, `color_accent`) en `crm_business_profile` se aplican en el `FormRenderer` y `CalendarRenderer` públicos de cada negocio.
 
 ---
 
-## 10. Schema de Supabase (Tablas CRM)
+## 18. Variables de Entorno
 
-> Las tablas del Onboarding (`submissions`) y plataforma educativa (`hubs`, `courses`, etc.) ya existen.
-> Las siguientes son las **nuevas tablas que requiere el CRM**.
-
-### Tabla: `crm_contacts`
-```sql
-CREATE TABLE crm_contacts (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at    timestamptz DEFAULT now(),
-  user_id       uuid REFERENCES auth.users NOT NULL,
-  name          text NOT NULL,
-  email         text,
-  phone         text,
-  company       text,
-  stage         text DEFAULT 'lead',  -- lead, prospect, client, churned
-  tags          text[] DEFAULT '{}',
-  notes         text,
-  custom_fields jsonb DEFAULT '{}'
-);
-```
-
-### Tabla: `crm_appointments`
-```sql
-CREATE TABLE crm_appointments (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at    timestamptz DEFAULT now(),
-  user_id       uuid REFERENCES auth.users NOT NULL,
-  contact_id    uuid REFERENCES crm_contacts,
-  date          date NOT NULL,
-  hour          int NOT NULL,          -- 0–23
-  duration_min  int DEFAULT 30,
-  service       text,
-  status        text DEFAULT 'confirmed' CHECK (status IN ('confirmed','cancelled')),
-  notes         text
-);
-```
-
-### Tabla: `crm_blocked_slots`
-```sql
-CREATE TABLE crm_blocked_slots (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at    timestamptz DEFAULT now(),
-  user_id       uuid REFERENCES auth.users NOT NULL,
-  type          text NOT NULL CHECK (type IN ('hours','fullday','range')),
-  date          date,             -- para hours y fullday
-  start_hour    int,              -- para type = hours
-  end_hour      int,              -- para type = hours
-  range_start   date,             -- para type = range
-  range_end     date,             -- para type = range
-  reason        text
-);
-```
-
-### Tabla: `crm_pipeline_deals`
-```sql
-CREATE TABLE crm_pipeline_deals (
-  id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at    timestamptz DEFAULT now(),
-  user_id       uuid REFERENCES auth.users NOT NULL,
-  contact_id    uuid REFERENCES crm_contacts,
-  title         text NOT NULL,
-  stage         text NOT NULL,   -- según columnas del pipeline del negocio
-  value         numeric DEFAULT 0,
-  currency      text DEFAULT 'USD',
-  notes         text,
-  custom_fields jsonb DEFAULT '{}'
-);
-```
-
-### Tabla: `crm_forms`
-```sql
-CREATE TABLE crm_forms (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at      timestamptz DEFAULT now(),
-  user_id         uuid REFERENCES auth.users NOT NULL,
-  name            text NOT NULL,
-  fields          jsonb NOT NULL DEFAULT '[]',
-  submit_label    text DEFAULT 'Enviar',
-  success_action  text DEFAULT 'popup' CHECK (success_action IN ('popup','redirect')),
-  success_message text,
-  success_image   text DEFAULT 'icon' CHECK (success_image IN ('icon','logo')),
-  redirect_url    text,
-  slug            text UNIQUE
-);
-```
-
-### Tabla: `crm_form_submissions`
-```sql
-CREATE TABLE crm_form_submissions (
-  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at timestamptz DEFAULT now(),
-  form_id    uuid REFERENCES crm_forms NOT NULL,
-  data       jsonb NOT NULL DEFAULT '{}'
-);
-```
-
-### Tabla: `crm_calendar_config`
-```sql
-CREATE TABLE crm_calendar_config (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id         uuid REFERENCES auth.users UNIQUE NOT NULL,
-  name            text,
-  description     text,
-  duration_min    int DEFAULT 30,
-  buffer_min      int DEFAULT 10,
-  slug            text UNIQUE,
-  linked_form_id  uuid REFERENCES crm_forms,
-  availability    jsonb DEFAULT '{}',  -- { mon: {start: 9, end: 18}, ... }
-  google_token    jsonb              -- access_token, refresh_token encriptados
-);
-```
-
----
-
-## 11. Edge Functions — CRM
-
-### Edge Function 3 — `google-calendar-oauth`
-**Propósito:** Manejar el flujo OAuth 2.0 con Google para sincronizar citas.
-```
-GET  /google-calendar-oauth/authorize  → Redirige a Google OAuth consent
-GET  /google-calendar-oauth/callback   → Recibe code, intercambia por tokens, guarda en crm_calendar_config
-POST /google-calendar-oauth/sync       → Sincroniza citas nuevas/editadas con Google Calendar API
-```
-
-### Edge Function 4 — `crm-form-public`
-**Propósito:** Endpoint público para recibir submissions de formularios embebidos en sitios externos.
-```
-POST /crm-form-public → Valida form_id, guarda en crm_form_submissions, opcionalmente notifica al negocio
-```
-
----
-
-## 12. Prompt de Claude API (generación de copy)
-
-(sin cambios — ver versión anterior)
-
----
-
-## 13. Flujo Completo del Sistema
-
-```
-CLIENTE FINAL (del negocio)
-  │
-  ├─ 1. Escanea/abre el enlace del formulario embebido
-  ├─ 2. Llena el formulario (creado con CrmForms)
-  ├─ 3. Elige horario disponible (slot libre, no bloqueado)
-  ├─ 4. Submit → Edge Function crm-form-public → crm_form_submissions
-  └─ 5. Ve popup de confirmación o es redirigido a Thank You Page
-
-NEGOCIO (usuario del CRM)
-  │
-  ├─ 6. Ve nueva solicitud en CrmContacts (estado: Lead)
-  ├─ 7. Confirma la cita → aparece en CrmCalendar
-  ├─ 8. Mueve el contacto por el Pipeline según avanza
-  ├─ 9. Registra la venta con el servicio correspondiente
-  └─ 10. Puede bloquear tiempo propio (☕ Reservar tiempo)
-
-SISTEMA (automático)
-  │
-  ├─ 11. Si Google Calendar conectado → cita se sincroniza automáticamente
-  └─ 12. Notificaciones por email al negocio (Edge Function send-notification)
-
-ACROSOFT (admin del sistema)
-  │
-  ├─ 13. Entra a /dashboard
-  ├─ 14. Ve todos los negocios clientes y su estado
-  └─ 15. Administra planes, límites y facturación
-```
-
----
-
-## 14. Panel Admin — `/login` y `/dashboard`
-
-### Autenticación
-```ts
-// src/hooks/useAuth.ts
-import { supabase } from '@/lib/supabase'
-
-export const signIn = (email: string, password: string) =>
-  supabase.auth.signInWithPassword({ email, password })
-
-export const signOut = () => supabase.auth.signOut()
-
-export const getSession = () => supabase.auth.getSession()
-```
-
-### Métricas del dashboard Acrosoft
-Calculadas con queries a Supabase desde TanStack Query:
-- Total clientes: `COUNT(*) FROM submissions`
-- Activos: `COUNT(*) WHERE status = 'in_progress'`
-- Entregados: `COUNT(*) WHERE status = 'delivered'`
-- MRR: suma de `$50/mes * single_page_count + $100/mes * multi_page_count`
-
----
-
-## 15. Checklist de Desarrollo
-
-### ✅ Completado
-- [x] Proyecto creado y desplegado
-- [x] Repositorio en GitHub
-- [x] Dependencias instaladas (`@supabase/supabase-js` incluido)
-- [x] Landing page `/` (completa)
-- [x] Stepper de onboarding `/onboarding` (8 pasos completos)
-- [x] Panel admin `/login` + `/dashboard`
-- [x] CRM — UI completa (todos los módulos)
-- [x] Calendario con vistas Día/Semana/Mes
-- [x] Función "Reservar tiempo" (bloqueos de horario con estética ámbar)
-- [x] Constructor de formularios con config post-envío
-- [x] Integración Google Calendar (UI lista — botón "Conectar cuenta")
-
-### 🔄 Pendiente — Backend CRM
-- [ ] Crear tablas CRM en Supabase (ver Sección 10)
-- [ ] Conectar CrmContacts con tabla `crm_contacts`
-- [ ] Conectar CrmCalendar (citas + bloqueos) con Supabase
-- [ ] Conectar CrmPipeline con `crm_pipeline_deals`
-- [ ] Conectar CrmForms (builder + submissions) con Supabase
-- [ ] Conectar CrmServices con tabla de servicios
-- [ ] Implementar Edge Function `google-calendar-oauth`
-- [ ] Implementar Edge Function `crm-form-public`
-- [ ] Implementar autenticación real para dashboard de clientes
-- [ ] Deploy actualizado en Vercel con variables de entorno
-
----
-
-## 16. Backlog (v4.0 y v5.0)
-
-### v4.0 — Backend CRM (prioridad inmediata)
-- Persistencia completa de todos los módulos del CRM en Supabase
-- Google Calendar OAuth funcional
-- Formularios embebibles con endpoint público
-- Notificaciones por email al negocio cuando llega un nuevo lead
-
-### v5.0 — Funcionalidades avanzadas
-- App móvil (React Native o PWA) para gestión rápida de citas
-- Reportes y analíticas avanzadas (retención, LTV, tasa de conversión)
-- Automatizaciones: recordatorios de citas por WhatsApp/SMS
-- Multi-usuario: permitir que un negocio tenga múltiples empleados con su propio calendario
-- Marketplace de plantillas de formulario por industria
-
----
-
-*Acrosoft Labs · Documento de uso interno · No compartir con clientes*
-
-
----
-
-## 1. Visión General
-
-Acrosoft Labs es una agencia de desarrollo web con vibecoding orientada a negocios latinos en Estados Unidos. Este documento define la arquitectura, flujo de trabajo y estructura técnica del sistema interno de onboarding y gestión de clientes.
-
-**Alcance actual (MVP):** Single Page Website y Multi Page Website.
-**Próximo update (v4.0):** Custom Booking — sistema de citas + dashboard Supabase.
-
----
-
-## 2. Stack Tecnológico Real
-
-| Capa | Tecnología | Versión | Propósito |
-|---|---|---|---|
-| Framework | Vite + React | 18.3.1 | SPA sin SSR |
-| Lenguaje | TypeScript | 5.8.3 | Tipado estático |
-| Routing | React Router DOM | v6.30.1 | Navegación entre rutas |
-| Estilos | Tailwind CSS | 3.4.17 | UI y branding |
-| Componentes | shadcn/ui (Radix UI) | — | UI components accesibles |
-| Formularios | react-hook-form + zod | 7.61.1 + 3.25.76 | Validación de formularios |
-| Estado servidor | TanStack Query | v5.83.0 | Fetching y caché de datos |
-| Gráficas | Recharts | 2.15.4 | Dashboard de métricas admin |
-| Iconos | Lucide React | 0.462.0 | Iconografía |
-| Toasts | Sonner | 1.7.4 | Notificaciones UI |
-| Temas | next-themes | 0.3.0 | Dark/light mode |
-| Base de datos | Supabase (PostgreSQL) | — | Almacenamiento de submissions |
-| Autenticación | Supabase Auth | — | Login del panel admin |
-| Storage | Supabase Storage | — | Logo y fotos del cliente |
-| API IA | Claude API vía Supabase Edge Function | claude-sonnet-4-20250514 | Generación de copy bilingüe |
-| Emails | Resend vía Supabase Edge Function | — | Notificaciones internas |
-| Deploy | Vercel | — | Hosting del frontend |
-| Dominio | Cliente lo compra | — | Conectado por Acrosoft |
-
-> **Importante:** Este proyecto es una SPA pura (Vite, sin servidor Node propio).
-> Toda lógica que requiera claves secretas (Claude API, Resend) debe ejecutarse
-> en **Supabase Edge Functions** — nunca exponer API keys en el frontend.
-
----
-
-## 3. Dependencias Instaladas (package.json)
-
-### Producción (ya disponibles, no reinstalar)
-```
-react-router-dom        → routing
-react-hook-form         → formularios
-zod                     → validación de esquemas
-@tanstack/react-query   → fetching y caché
-recharts                → gráficas del dashboard
-lucide-react            → iconos
-sonner                  → toasts
-next-themes             → dark/light mode
-date-fns                → manejo de fechas
-embla-carousel-react    → carrusel (galería de fotos)
-react-day-picker        → date picker en formularios
-tailwind-merge + clsx   → utilidades de clases
-class-variance-authority → variantes de componentes shadcn
-vaul                    → drawer mobile
-cmdk                    → command palette
-input-otp               → inputs OTP (login admin)
-```
-
-### Por instalar (cuando se conecte Supabase)
-```bash
-npm install @supabase/supabase-js
-```
-
-### Variables de entorno requeridas (.env)
 ```env
-VITE_SUPABASE_URL=https://xxxx.supabase.co
+# Frontend (.env)
+VITE_SUPABASE_URL=https://vbzpvjikkvwlcadughmm.supabase.co
 VITE_SUPABASE_ANON_KEY=xxxx
-# Las siguientes NUNCA van en el frontend — van en Supabase Edge Functions:
-# ANTHROPIC_API_KEY=xxxx
-# RESEND_API_KEY=xxxx
+
+# Edge Functions (Supabase secrets — nunca en el frontend)
+ANTHROPIC_API_KEY=xxxx          # Generación de Documento Maestro
+RESEND_API_KEY=xxxx             # Envío de emails
+GOOGLE_CLIENT_ID=xxxx           # Google Calendar OAuth
+GOOGLE_CLIENT_SECRET=xxxx       # Google Calendar OAuth
+# EVOLUTION_API_URL=xxxx        # WhatsApp (pendiente)
+# EVOLUTION_API_KEY=xxxx        # WhatsApp (pendiente)
 ```
-
----
-
-## 4. Estructura de Carpetas del Proyecto
-
-```
-src/
-├── main.tsx                  → Entry point
-├── App.tsx                   → Router principal con <Routes>
-├── index.css                 → Estilos globales + variables Tailwind
-│
-├── pages/
-│   ├── Index.tsx             → Ruta / (landing page)
-│   ├── Onboarding.tsx        → Ruta /onboarding (stepper)
-│   ├── Admin.tsx             → Ruta /admin (login)
-│   ├── AdminDashboard.tsx    → Ruta /admin/dashboard
-│   └── AdminClient.tsx       → Ruta /admin/client/:id
-│
-├── components/
-│   ├── ui/                   → shadcn/ui (no modificar directamente)
-│   ├── layout/
-│   │   ├── Navbar.tsx
-│   │   └── Footer.tsx
-│   ├── landing/
-│   │   ├── Hero.tsx
-│   │   ├── Plans.tsx
-│   │   ├── HowItWorks.tsx
-│   │   └── WhyAcrosoft.tsx
-│   ├── onboarding/
-│   │   ├── StepperHeader.tsx
-│   │   ├── Step1Business.tsx
-│   │   ├── Step2Plan.tsx
-│   │   ├── Step3Identity.tsx
-│   │   ├── Step4Services.tsx
-│   │   ├── Step5Audience.tsx
-│   │   ├── Step6Content.tsx
-│   │   ├── Step7Contact.tsx
-│   │   └── Step8Confirm.tsx
-│   ├── admin/
-│   │   ├── LoginForm.tsx
-│   │   ├── ClientsTable.tsx
-│   │   ├── MetricsCards.tsx
-│   │   ├── ClientDetail.tsx
-│   │   └── MasterDocPreview.tsx
-│   └── shared/
-│       ├── AcrosoftLogo.tsx  → SVG del logo (reutilizable)
-│       └── LanguageToggle.tsx
-│
-├── hooks/
-│   ├── useOnboardingForm.ts  → Estado global del stepper
-│   ├── useSupabase.ts        → Cliente Supabase
-│   └── useAuth.ts            → Auth del admin
-│
-├── lib/
-│   ├── supabase.ts           → Inicialización del cliente Supabase
-│   ├── utils.ts              → cn() y helpers
-│   └── generateMd.ts        → Función que arma el .md desde los datos
-│
-├── types/
-│   └── submission.ts         → Tipos TypeScript del formulario y DB
-│
-└── supabase/
-    └── functions/
-        ├── generate-copy/    → Edge Function: llama a Claude API
-        │   └── index.ts
-        └── send-notification/ → Edge Function: llama a Resend
-            └── index.ts
-```
-
----
-
-## 5. Routing — React Router DOM v6
-
-```tsx
-// src/App.tsx
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-
-function App() {
-  return (
-    <BrowserRouter>
-      <Routes>
-        <Route path="/"                    element={<Index />} />
-        <Route path="/onboarding"          element={<Onboarding />} />
-        <Route path="/admin"               element={<Admin />} />
-        <Route path="/admin/dashboard"     element={<ProtectedRoute><AdminDashboard /></ProtectedRoute>} />
-        <Route path="/admin/client/:id"    element={<ProtectedRoute><AdminClient /></ProtectedRoute>} />
-        <Route path="*"                    element={<Navigate to="/" />} />
-      </Routes>
-    </BrowserRouter>
-  )
-}
-```
-
-El componente `<ProtectedRoute>` verifica la sesión de Supabase Auth.
-Si no hay sesión activa, redirige a `/admin`.
-
----
-
-## 6. Planes Activos (MVP)
-
-| Plan | Setup | Mantenimiento | Entrega |
-|---|---|---|---|
-| Single Page Website | $500 | $50/mes | 3–5 días hábiles |
-| Multi Page Website | $1,500 | $100/mes | 10–14 días hábiles |
-
-> **Custom Booking** ($5,000 setup · $250/mes) está definido comercialmente
-> pero fuera del alcance técnico de este MVP. Se desarrolla en v4.0.
-
-**Política de pagos:** 50% al inicio · 50% al entregar
-**Dominio:** Lo compra el cliente (recomendado: Namecheap o GoDaddy)
-
----
-
-## 7. Branding
-
-| Token | Valor |
-|---|---|
-| Color primario | `#2563EB` |
-| Color primario dark | `#1E40AF` |
-| Color acento | `#DBEAFE` |
-| Fondo claro | `#F8FAFC` |
-| Texto principal | `#0F172A` |
-| Texto secundario | `#64748B` |
-| Fuente | Inter (Google Fonts) |
-| Border radius | `rounded-xl` (12px) |
-| Logo | Matraz flask azul con arco blanco + "Acrosoft Labs" |
-
-El logo vive en `src/components/shared/AcrosoftLogo.tsx` como SVG inline
-y se usa en Navbar, Admin login y Footer.
-
----
-
-## 8. Formulario de Onboarding — `/onboarding`
-
-### Estado del stepper
-Manejar con `useState` local en `Onboarding.tsx` o con un hook `useOnboardingForm.ts`.
-El estado completo del formulario se acumula en un objeto que al finalizar
-se envía a Supabase en una sola operación.
-
-```ts
-// src/types/submission.ts
-export type OnboardingData = {
-  // Paso 1
-  business_name: string
-  industry: string
-  city_state: string
-  years_operating?: string
-  description: string
-  history?: string
-
-  // Paso 2
-  plan: 'single_page' | 'multi_page'
-  payment_method: 'one_time' | 'installments'
-  project_start_date?: string
-
-  // Paso 3
-  logo_url?: string
-  color_primary?: string
-  color_secondary?: string
-  color_accent?: string
-  typography?: string
-  visual_style?: string
-  reference_urls?: string[]
-
-  // Paso 4
-  services: Array<{
-    name: string
-    description?: string
-    price?: string
-    featured?: boolean
-  }>
-
-  // Paso 5
-  target_audience?: string
-  problem_solved?: string
-  differentiators?: string
-  testimonials?: Array<{ name: string; text: string }>
-  faqs?: Array<{ question: string; answer: string }>
-
-  // Paso 6
-  photo_urls?: string[]
-  team_photo_urls?: string[]
-  video_url?: string
-
-  // Paso 7
-  phone: string
-  email: string
-  address?: string
-  schedule?: string
-  instagram?: string
-  facebook?: string
-  tiktok?: string
-  google_maps?: string
-  domain?: string
-}
-```
-
-### Validación con Zod
-Cada paso tiene su propio schema Zod.
-Se valida solo el paso actual antes de avanzar al siguiente.
-
-```ts
-// Ejemplo Paso 1
-const step1Schema = z.object({
-  business_name: z.string().min(2, 'Requerido'),
-  industry:      z.string().min(1, 'Selecciona un rubro'),
-  city_state:    z.string().min(2, 'Requerido'),
-  description:   z.string().min(20, 'Mínimo 20 caracteres'),
-})
-```
-
-### Upload de archivos a Supabase Storage
-```ts
-// Patrón para subir logo/fotos
-const uploadFile = async (file: File, submissionId: string, type: 'logo' | 'photo') => {
-  const path = `${submissionId}/${type}-${Date.now()}.${file.name.split('.').pop()}`
-  const { data, error } = await supabase.storage
-    .from('client-assets')
-    .upload(path, file, { upsert: true })
-  return supabase.storage.from('client-assets').getPublicUrl(path).data.publicUrl
-}
-```
-
----
-
-## 9. Supabase Edge Functions
-
-Como el proyecto es una SPA sin servidor, toda la lógica con APIs secretas
-vive en Edge Functions de Supabase (Deno).
-
-### Edge Function 1 — `generate-copy`
-**Trigger:** Se llama desde el frontend después de guardar el submission en la DB.
-**Propósito:** Llama a Claude API, genera el copy bilingüe y actualiza el campo `generated_md`.
-
-```ts
-// supabase/functions/generate-copy/index.ts
-import Anthropic from 'npm:@anthropic-ai/sdk'
-
-Deno.serve(async (req) => {
-  const { submissionId, data } = await req.json()
-
-  const client = new Anthropic({ apiKey: Deno.env.get('ANTHROPIC_API_KEY') })
-
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 4000,
-    messages: [{
-      role: 'user',
-      content: buildCopyPrompt(data) // ver sección 11
-    }]
-  })
-
-  const generatedMd = buildMasterDoc(data, message.content[0].text)
-
-  // Guardar el .md en Supabase
-  await supabaseAdmin
-    .from('submissions')
-    .update({ generated_md: generatedMd, status: 'received' })
-    .eq('id', submissionId)
-
-  return new Response(JSON.stringify({ ok: true }), { status: 200 })
-})
-```
-
-### Edge Function 2 — `send-notification`
-**Trigger:** Se llama después de `generate-copy`.
-**Propósito:** Envía email interno a Acrosoft con Resend.
-
-```ts
-// supabase/functions/send-notification/index.ts
-import { Resend } from 'npm:resend'
-
-Deno.serve(async (req) => {
-  const { businessName, plan, submissionId } = await req.json()
-  const resend = new Resend(Deno.env.get('RESEND_API_KEY'))
-
-  await resend.emails.send({
-    from: 'sistema@acrosoftlabs.com',
-    to: 'admin@acrosoftlabs.com',
-    subject: `Nuevo cliente: ${businessName} (${plan})`,
-    html: `<p>ID: ${submissionId}<br>Plan: ${plan}<br>Revisar en /admin/client/${submissionId}</p>`
-  })
-
-  return new Response(JSON.stringify({ ok: true }), { status: 200 })
-})
-```
-
----
-
-## 10. Schema de Supabase
-
-### Tabla: `submissions`
-```sql
-CREATE TABLE submissions (
-  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  created_at      timestamptz DEFAULT now(),
-  plan            text NOT NULL CHECK (plan IN ('single_page', 'multi_page')),
-  status          text NOT NULL DEFAULT 'received'
-                  CHECK (status IN ('received', 'in_progress', 'delivered')),
-
-  -- Negocio
-  business_name   text NOT NULL,
-  industry        text,
-  city_state      text,
-  years_operating text,
-  description     text,
-  history         text,
-
-  -- Identidad
-  color_primary   text,
-  color_secondary text,
-  color_accent    text,
-  typography      text,
-  visual_style    text,
-  reference_urls  text[],
-
-  -- Servicios
-  services        jsonb DEFAULT '[]',
-
-  -- Audiencia
-  target_audience text,
-  problem_solved  text,
-  differentiators text,
-  testimonials    jsonb DEFAULT '[]',
-  faqs            jsonb DEFAULT '[]',
-
-  -- Contacto
-  phone           text,
-  email           text,
-  address         text,
-  schedule        text,
-  instagram       text,
-  facebook        text,
-  tiktok          text,
-  google_maps     text,
-  domain          text,
-
-  -- Assets (URLs de Supabase Storage)
-  logo_url        text,
-  photo_urls      text[] DEFAULT '{}',
-  team_photo_urls text[] DEFAULT '{}',
-  video_url       text,
-
-  -- Output
-  generated_md    text,
-  admin_notes     text
-);
-
--- Row Level Security
-ALTER TABLE submissions ENABLE ROW LEVEL SECURITY;
-
--- Solo el service role (Edge Functions) puede escribir
-CREATE POLICY "Service role full access"
-  ON submissions USING (auth.role() = 'service_role');
-```
-
-### Storage Bucket: `client-assets`
-```
-Bucket: client-assets (público para lectura)
-
-Estructura:
-client-assets/
-└── {submission_id}/
-    ├── logo.png
-    ├── photo-1.jpg
-    ├── photo-2.jpg
-    └── team-1.jpg
-```
-
----
-
-## 11. Prompt de Claude API (generación de copy)
-
-```
-Eres un experto en copywriting para negocios latinos en Estados Unidos.
-Recibirás los datos de un negocio en JSON y generarás todo el contenido
-bilingüe (español e inglés) para su sitio web.
-
-El copy debe ser:
-- Cercano, profesional y orientado al beneficio del cliente
-- Pensado para el mercado latino en EE.UU. (no traducción literal)
-- Sin tecnicismos ni lenguaje corporativo
-- Optimizado para SEO local con keywords naturales
-
-Datos del negocio:
-{JSON_DATA}
-
-Responde ÚNICAMENTE con un JSON válido (sin markdown, sin explicaciones)
-con estas claves exactas:
-
-{
-  "hero_headline_es": "",
-  "hero_headline_en": "",
-  "hero_subheadline_es": "",
-  "hero_subheadline_en": "",
-  "about_es": "",
-  "about_en": "",
-  "services": [{ "name": "", "description_es": "", "description_en": "" }],
-  "differentiator_1_es": "", "differentiator_1_en": "",
-  "differentiator_2_es": "", "differentiator_2_en": "",
-  "differentiator_3_es": "", "differentiator_3_en": "",
-  "testimonials": [{ "name": "", "text_en": "" }],
-  "faqs": [{ "question_en": "", "answer_en": "" }],
-  "seo_keyword_es": "",
-  "seo_keyword_en": "",
-  "meta_title_es": "",
-  "meta_title_en": "",
-  "meta_description_es": "",
-  "meta_description_en": ""
-}
-```
-
----
-
-## 12. Plantillas del Documento Maestro
-
-Generado en `src/lib/generateMd.ts` como función pura TypeScript.
-Recibe `OnboardingData + AIGeneratedCopy` y retorna un string `.md`.
-
-### 12A — Single Page Website ($500 · $50/mes)
-
-```markdown
-# {business_name} — Brief de Proyecto
-**Plan:** Single Page Website · $500 setup · $50/mes mantenimiento
-**Fecha:** {created_at}
-**Desarrollador:** Acrosoft Labs
-
----
-
-## BRIEF DE DISEÑO
-- Rubro: {industry}
-- Ubicación: {city_state}
-- Colores: Primario {color_primary} · Secundario {color_secondary} · Acento {color_accent}
-- Estilo visual: {visual_style}
-- Tipografía: {typography}
-- Referencias: {reference_urls}
-- Dominio: {domain}
-- Logo: {logo_url}
-- Fotos: {photo_urls}
-
----
-
-## CONTENIDO DEL SITIO
-
-### Hero
-**Headline ES:** {hero_headline_es}
-**Headline EN:** {hero_headline_en}
-**Subheadline ES:** {hero_subheadline_es}
-**Subheadline EN:** {hero_subheadline_en}
-**CTA ES:** Contáctanos hoy
-**CTA EN:** Contact us today
-
-### Sobre Nosotros
-**ES:** {about_es}
-**EN:** {about_en}
-
-### Servicios
-| Servicio | Descripción ES | Descripción EN | Precio |
-|---|---|---|---|
-{services_table}
-
-### Por qué elegirnos
-1. {differentiator_1_es} / {differentiator_1_en}
-2. {differentiator_2_es} / {differentiator_2_en}
-3. {differentiator_3_es} / {differentiator_3_en}
-
-### Testimonios
-{testimonials_table}
-
-### Contacto
-- WhatsApp: {phone}
-- Email: {email}
-- Dirección: {address}
-- Horario: {schedule}
-- Instagram: {instagram}
-- Facebook: {facebook}
-- TikTok: {tiktok}
-
----
-
-## NOTAS TÉCNICAS
-- Deploy: Vercel
-- Formulario de contacto: Resend → {email}
-- Revisiones incluidas: 3 rondas
-- Entrega estimada: 3–5 días hábiles
-```
-
-### 12B — Multi Page Website ($1,500 · $100/mes)
-
-Incluye todo lo anterior más:
-
-```markdown
-## PÁGINAS DEL SITIO
-| Página | Slug | Propósito |
-|---|---|---|
-| Inicio | / | Hero + resumen |
-| Servicios | /servicios | Detalle completo |
-| Galería | /galeria | Fotos del negocio |
-| Sobre Nosotros | /nosotros | Historia y equipo |
-| FAQ | /faq | Preguntas frecuentes |
-| Contacto | /contacto | Formulario + mapa |
-
-## SEO LOCAL
-- Keyword ES: {seo_keyword_es}
-- Keyword EN: {seo_keyword_en}
-- Meta title ES: {meta_title_es}
-- Meta title EN: {meta_title_en}
-- Meta description ES: {meta_description_es}
-- Meta description EN: {meta_description_en}
-
-## FAQ
-{faqs_table}
-
-## NOTAS TÉCNICAS
-- Galería: Supabase Storage (imágenes dinámicas)
-- SEO: sitemap.xml + robots.txt + meta tags
-- Revisiones incluidas: 5 rondas
-- Entrega estimada: 10–14 días hábiles
-```
-
----
-
-## 13. Flujo Completo del Sistema
-
-```
-CLIENTE
-  │
-  ├─ 1. Recibe link /onboarding
-  ├─ 2. Llena stepper (8 pasos, bilingüe)
-  ├─ 3. Sube logo y fotos → Supabase Storage
-  ├─ 4. Submit → POST a Supabase (tabla submissions)
-  └─ 5. Ve pantalla de confirmación con ID de seguimiento
-
-SISTEMA (automático)
-  │
-  ├─ 6. Edge Function generate-copy → Claude API
-  ├─ 7. Claude genera JSON con copy bilingüe
-  ├─ 8. generateMd() arma el documento maestro .md
-  ├─ 9. .md se guarda en submissions.generated_md
-  └─ 10. Edge Function send-notification → Resend → email a admin
-
-ACROSOFT (admin)
-  │
-  ├─ 11. Entra a /admin/dashboard
-  ├─ 12. Ve nuevo cliente con estado "Recibido"
-  ├─ 13. Entra a /admin/client/:id
-  ├─ 14. Descarga el .md
-  ├─ 15. Construye el sitio con el brief
-  └─ 16. Cambia estado: Recibido → En progreso → Entregado
-```
-
----
-
-## 14. Panel Admin — `/admin`
-
-### Autenticación
-```ts
-// src/hooks/useAuth.ts
-import { supabase } from '@/lib/supabase'
-
-export const signIn = (email: string, password: string) =>
-  supabase.auth.signInWithPassword({ email, password })
-
-export const signOut = () => supabase.auth.signOut()
-
-export const getSession = () => supabase.auth.getSession()
-```
-
-### Métricas del dashboard
-Calculadas con queries a Supabase desde TanStack Query:
-- Total clientes: `COUNT(*) FROM submissions`
-- Activos: `COUNT(*) WHERE status = 'in_progress'`
-- Entregados: `COUNT(*) WHERE status = 'delivered'`
-- MRR: suma de `$50/mes * single_page_count + $100/mes * multi_page_count`
-
-### Estados del proyecto
-| Estado | Badge color | Descripción |
-|---|---|---|
-| `received` | Amarillo | Formulario recibido, pendiente de revisión |
-| `in_progress` | Azul | Sitio en construcción |
-| `delivered` | Verde | Sitio entregado al cliente |
-
----
-
-## 15. Checklist de Desarrollo
-
-- [x] Proyecto creado en Lovable
-- [x] Repositorio en GitHub
-- [x] Clonado y dependencias instaladas en Cursor
-- [ ] Configurar proyecto en Supabase (crear tablas + storage + auth)
-- [ ] Instalar `@supabase/supabase-js` y configurar `src/lib/supabase.ts`
-- [ ] Crear archivo `.env` con variables de Supabase
-- [ ] Implementar rutas en `App.tsx` con React Router DOM v6
-- [ ] Construir componente `AcrosoftLogo.tsx` (SVG reutilizable)
-- [ ] Construir landing page `/`
-- [ ] Construir stepper de onboarding `/onboarding` (8 pasos)
-- [ ] Implementar upload de archivos a Supabase Storage
-- [ ] Crear Edge Function `generate-copy` (Claude API)
-- [ ] Crear Edge Function `send-notification` (Resend)
-- [ ] Construir panel admin `/admin` (login + dashboard + cliente)
-- [ ] Implementar descarga del .md desde el admin
-- [ ] Deploy en Vercel (conectar repo de GitHub)
-- [ ] Configurar variables de entorno en Vercel
-- [ ] Activar campañas en Facebook Ads
-
----
-
-## 16. Backlog (v4.0)
-
-**Custom Booking**
-- Sistema de citas propio (calendario + disponibilidad)
-- Dashboard de gestión de citas en Supabase
-- Notificaciones automáticas por email al cliente y negocio
-- Panel de administración de clientes del negocio
-- Precio: $5,000 setup · $250/mes mantenimiento
 
 ---
 
