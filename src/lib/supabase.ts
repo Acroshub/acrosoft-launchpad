@@ -25,6 +25,7 @@ export type CrmContact = {
   tags: string[]
   notes: string | null
   custom_fields: Json
+  master_doc_url?: string | null
 }
 
 export type CrmPipeline = {
@@ -53,8 +54,10 @@ export type CrmAppointment = {
   created_at: string
   user_id: string
   contact_id: string | null
+  calendar_id: string | null
   date: string          // 'YYYY-MM-DD'
   hour: number          // 0-23
+  minute: number        // 0-59
   duration_min: number
   service: string | null
   status: 'confirmed' | 'cancelled'
@@ -65,10 +68,13 @@ export type CrmBlockedSlot = {
   id: string
   created_at: string
   user_id: string
+  calendar_id: string
   type: 'hours' | 'fullday' | 'range'
   date: string | null
   start_hour: number | null
+  start_minute: number | null
   end_hour: number | null
+  end_minute: number | null
   range_start: string | null
   range_end: string | null
   reason: string | null
@@ -105,7 +111,7 @@ export type CrmForm = {
   slug: string | null
   auto_tags: string[]
   facebook_pixel_id?: string | null
-  pipeline_id?: string | null
+  pipeline_ids?: string[]
   reminder_rules?: Json[]
 }
 
@@ -129,6 +135,8 @@ export type CrmCalendarConfig = {
   availability: Json
   google_token: Json | null
   reminder_rules?: Json[]
+  min_advance_hours: number
+  max_future_days: number
 }
 
 export type CrmService = {
@@ -149,6 +157,7 @@ export type CrmService = {
   active: boolean
   sort_order?: number
   is_saas: boolean
+  discount_pct: number
 }
 
 export type CrmSale = {
@@ -195,6 +204,7 @@ export type CrmBusinessProfile = {
   color_primary: string
   color_secondary: string
   color_accent: string
+  metrics_order?: Json
 }
 
 export type CrmReminderConfig = {

@@ -1,10 +1,10 @@
-import { CalendarDays, Users, Clock, FolderOpen, CheckCircle, DollarSign, GripVertical, Settings2, Plus, Loader2, Pencil, Trash2, X, Check, TrendingUp } from "lucide-react";
-import { useState, useMemo } from "react";
+import { CalendarDays, Users, Clock, CheckCircle, DollarSign, GripVertical, Settings2, Plus, Loader2, Pencil, Trash2, TrendingUp, RefreshCcw } from "lucide-react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { useContacts, useAppointments, useServices, useSales, useCreateSale, useUpdateSale, useDeleteSale, useClientAccounts } from "@/hooks/useCrmData";
+import { useContacts, useAppointments, useServices, useSales, useCreateSale, useUpdateSale, useDeleteSale, useClientAccounts, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmSale } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
@@ -12,15 +12,21 @@ import { toast } from "sonner";
 
 const initialMetrics = [
   // Métricas de Admin
-  { id: "proyectos-activos", icon: FolderOpen,   label: "Proyectos activos", isAdmin: true },
-  { id: "entregados-mes", icon: CheckCircle,  label: "Entregados (mes)",  isAdmin: true },
-  { id: "total-vendido", icon: DollarSign, label: "Total Vendido", isAdmin: true },
+  { id: "ventas-mes",    icon: CheckCircle,  label: "Ventas este mes", isAdmin: true },
+  { id: "total-vendido", icon: DollarSign,   label: "Total Vendido",   isAdmin: true },
   // Métricas de CRM
-  { id: "citas-hoy", icon: CalendarDays, label: "Citas hoy",       isAdmin: false },
+  { id: "citas-hoy",       icon: CalendarDays, label: "Citas hoy",       isAdmin: false },
   { id: "total-contactos", icon: Users,        label: "Total contactos", isAdmin: false },
-  { id: "proxima-cita", icon: Clock,        label: "Próxima cita", isAdmin: false },
-  { id: "conversion", icon: TrendingUp, label: "% Conversión", isAdmin: false },
+  { id: "proxima-cita",    icon: Clock,        label: "Próxima cita",    isAdmin: false },
+  { id: "conversion",      icon: TrendingUp,   label: "% Conversión",    isAdmin: false },
 ];
+
+const INTERVAL_LABELS: Record<string, string> = {
+  monthly:    "Mensual",
+  annual:     "Anual",
+  quarterly:  "Trimestral",
+  semiannual: "Semestral",
+};
 
 const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   // ─── Supabase hooks ───
@@ -90,9 +96,29 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
     } catch { toast.error("Error al eliminar la venta"); }
   };
 
+  const { data: businessProfile } = useBusinessProfile();
+  const upsertProfile = useUpsertBusinessProfile();
+
   const [isEditing, setIsEditing] = useState(false);
   const [metrics, setMetrics] = useState(initialMetrics);
   const [draggedId, setDraggedId] = useState<string | null>(null);
+  const orderInitialized = useRef(false);
+
+  // Restore saved metric order from Supabase on first load
+  useEffect(() => {
+    if (!businessProfile || orderInitialized.current) return;
+    orderInitialized.current = true;
+    const saved = Array.isArray(businessProfile.metrics_order) ? businessProfile.metrics_order as string[] : [];
+    if (saved.length > 0) {
+      setMetrics(prev => {
+        const ordered = saved
+          .map(id => prev.find(m => m.id === id))
+          .filter(Boolean) as typeof initialMetrics;
+        const rest = prev.filter(m => !saved.includes(m.id as string));
+        return [...ordered, ...rest];
+      });
+    }
+  }, [businessProfile]);
 
   const [currentPage, setCurrentPage] = useState(1);
   const salesPerPage = 10;
@@ -135,6 +161,39 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
     return salesData.reduce((sum, s) => sum + s.amount, 0);
   }, [salesData]);
 
+  const salesThisMonth = useMemo(() => {
+    const now = new Date();
+    return salesData.filter(s => {
+      const d = new Date(s.created_at);
+      return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+    }).length;
+  }, [salesData]);
+
+  // Ingreso Recurrente Estimado: unique (contact, service) pairs grouped by recurring_interval
+  const recurringByInterval = useMemo(() => {
+    const serviceInfo: Record<string, { interval: string; recPrice: number }> = {};
+    for (const s of services) {
+      if (s.is_recurring && s.recurring_interval) {
+        serviceInfo[s.id] = {
+          interval: s.recurring_interval,
+          recPrice: s.recurring_price ?? s.price,
+        };
+      }
+    }
+    const seen = new Set<string>();
+    const totals: Record<string, number> = {};
+    for (const sale of salesData) {
+      if (!sale.service_id || !sale.contact_id) continue;
+      const info = serviceInfo[sale.service_id];
+      if (!info) continue;
+      const key = `${sale.contact_id}|${sale.service_id}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      totals[info.interval] = (totals[info.interval] ?? 0) + info.recPrice;
+    }
+    return Object.entries(totals).map(([interval, total]) => ({ interval, total }));
+  }, [services, salesData]);
+
   const conversionRate = useMemo(() => {
     if (contacts.length === 0) return null;
     const contactsWithSale = new Set(salesData.map(s => s.contact_id).filter(Boolean));
@@ -157,8 +216,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       }
       case "total-vendido": return `$${totalVendido.toFixed(0)}`;
       case "conversion": return conversionRate !== null ? `${conversionRate}%` : "—";
-      case "proyectos-activos": return String(contacts.filter(c => c.stage === "client").length);
-      case "entregados-mes": return "—";
+      case "ventas-mes": return String(salesThisMonth);
       default: return "—";
     }
   };
@@ -261,11 +319,14 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
     const sourceIndex = items.findIndex((m) => m.id === draggedId);
     const targetIndex = items.findIndex((m) => m.id === targetId);
     if (sourceIndex < 0 || targetIndex < 0) return;
-    
+
     const [draggedItem] = items.splice(sourceIndex, 1);
     items.splice(targetIndex, 0, draggedItem);
     setMetrics(items);
     setDraggedId(null);
+
+    // Persist order to Supabase
+    upsertProfile.mutate({ metrics_order: items.map(m => m.id) });
   };
 
   return (
@@ -381,8 +442,8 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       <div className={isEditing ? "p-4 border-2 border-dashed border-primary/20 rounded-3xl bg-primary/5" : ""}>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           {visibleMetrics.map((m) => (
-            <div 
-              key={m.id} 
+            <div
+              key={m.id}
               className={`bg-card border rounded-2xl p-5 relative transition-all ${
                 isEditing ? "cursor-grab active:cursor-grabbing hover:border-primary/50 shadow-sm" : ""
               } ${draggedId === m.id ? "opacity-50 scale-95" : ""}`}
@@ -400,6 +461,17 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
               <m.icon size={16} className={`mb-4 ${isEditing ? "text-primary" : "text-muted-foreground"}`} />
               <p className="text-2xl font-semibold text-foreground">{getMetricValue(m.id)}</p>
               <p className="text-xs text-muted-foreground mt-1">{m.label}</p>
+            </div>
+          ))}
+
+          {/* Ingreso Recurrente Estimado — una card por intervalo */}
+          {isSuperAdmin && recurringByInterval.map(({ interval, total }) => (
+            <div key={`ire-${interval}`} className="bg-card border border-primary/20 rounded-2xl p-5 relative">
+              <RefreshCcw size={16} className="mb-4 text-primary/60" />
+              <p className="text-2xl font-semibold text-foreground">${total.toFixed(0)}</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                IRE {INTERVAL_LABELS[interval] ?? interval}
+              </p>
             </div>
           ))}
         </div>

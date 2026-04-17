@@ -40,7 +40,7 @@ interface FormConfig {
   successRedirectUrl?: string;
   autoTags?: string[];
   facebookPixelId?: string;
-  pipelineId?: string | null;
+  pipelineIds?: string[];
   reminderRules?: ReminderRule[];
 }
 
@@ -530,7 +530,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
   const [autoTags, setAutoTags] = useState<string[]>(form.autoTags ?? []);
   const [newAutoTag, setNewAutoTag] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState(form.facebookPixelId ?? "");
-  const [pipelineId, setPipelineId] = useState<string | null>(form.pipelineId ?? null);
+  const [pipelineIds, setPipelineIds] = useState<string[]>(form.pipelineIds ?? []);
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>(form.reminderRules ?? []);
   const { data: pipelines = [] } = usePipelines();
 
@@ -568,8 +568,20 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
     ]);
 
   const handleSave = async () => {
+    // Validate: each non-confirmation section must have at least 1 real field (heading doesn't count)
+    if (multiPage) {
+      const invalidSection = sections.find((sec) => {
+        if (sec.isConfirmation) return false;
+        const realFields = fields.filter((f) => f.sectionId === sec.id && f.type !== "heading");
+        return realFields.length === 0;
+      });
+      if (invalidSection) {
+        toast.error(`La página "${invalidSection.name}" necesita al menos un campo real (un Título no cuenta).`);
+        return;
+      }
+    }
     try {
-      onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId: facebookPixelId || undefined, pipelineId: pipelineId ?? null, reminderRules });
+      onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId: facebookPixelId || undefined, pipelineIds, reminderRules });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -837,7 +849,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                             <div key={s.id} className="flex items-center gap-2 text-xs text-muted-foreground">
                               <div className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
                               <span className="font-medium text-foreground">{s.name}</span>
-                              <span className="text-muted-foreground/60">— {fields.filter(f => f.sectionId === s.id).length} campo{fields.filter(f => f.sectionId === s.id).length !== 1 ? "s" : ""}</span>
+                              <span className="text-muted-foreground/60">— {fields.filter(f => f.sectionId === s.id && f.type !== "heading").length} campo{fields.filter(f => f.sectionId === s.id && f.type !== "heading").length !== 1 ? "s" : ""}</span>
                             </div>
                           ))}
                         </div>
@@ -861,9 +873,9 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                     ) : (
                     /* Section fields */
                     <div className="p-4 space-y-3">
-                      {sectionFields.length === 0 && (
+                      {sectionFields.filter(f => f.type !== "heading").length === 0 && (
                         <p className="text-xs text-muted-foreground text-center py-4">
-                          Sin campos. Añade uno abajo.
+                          Sin campos reales. Añade al menos uno (los títulos no cuentan).
                         </p>
                       )}
                       {sectionFields.map((field) => (
@@ -890,6 +902,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                             update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
                           }
                           {...subFieldCallbacks(field.id)}
+                          {...serviceCallbacks(field.id)}
                           onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
                         />
                       ))}
@@ -1011,25 +1024,41 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
               </div>
             </div>
 
-            {/* Pipeline */}
+            {/* Pipelines (multi-select) */}
             <div className="space-y-2 pt-2">
               <div>
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Agregar al Pipeline</label>
-                <p className="text-[11px] text-muted-foreground mt-0.5">Los nuevos contactos se añadirán automáticamente a la primera columna del pipeline seleccionado.</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  Los nuevos contactos se añadirán a la primera columna de cada pipeline seleccionado.
+                </p>
               </div>
-              <div className="relative">
-                <select
-                  value={pipelineId ?? ""}
-                  onChange={(e) => setPipelineId(e.target.value || null)}
-                  className="w-full h-10 rounded-xl border border-input bg-background text-sm px-3 pr-8 appearance-none focus:outline-none focus:ring-2 focus:ring-primary/20"
-                >
-                  <option value="">Sin pipeline</option>
-                  {pipelines.map((p: any) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-                <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-muted-foreground text-xs">▾</div>
-              </div>
+              {pipelines.filter((p: any) => p.type === "contacts").length === 0 ? (
+                <p className="text-xs text-muted-foreground italic">No hay pipelines de contactos creados.</p>
+              ) : (
+                <div className="space-y-2">
+                  {pipelines
+                    .filter((p: any) => p.type === "contacts")
+                    .map((p: any) => {
+                      const checked = pipelineIds.includes(p.id);
+                      return (
+                        <label key={p.id} className="flex items-center gap-2.5 cursor-pointer group/pl">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() =>
+                              setPipelineIds(checked
+                                ? pipelineIds.filter((id) => id !== p.id)
+                                : [...pipelineIds, p.id]
+                              )
+                            }
+                            className="rounded border-input h-3.5 w-3.5 text-primary focus:ring-primary"
+                          />
+                          <span className="text-sm group-hover/pl:text-primary transition-colors">{p.name}</span>
+                        </label>
+                      );
+                    })}
+                </div>
+              )}
             </div>
 
             {/* Al completar el formulario */}
@@ -1256,7 +1285,7 @@ const CrmForms = () => {
     successRedirectUrl: f.redirect_url ?? "",
     autoTags: (f.auto_tags as string[] | null) ?? [],
     facebookPixelId: f.facebook_pixel_id ?? "",
-    pipelineId: f.pipeline_id ?? null,
+    pipelineIds: (f.pipeline_ids as string[] | null) ?? [],
     reminderRules: (f.reminder_rules as any[] | null) ?? [],
   }));
 
@@ -1326,7 +1355,7 @@ const CrmForms = () => {
           redirect_url: updated.successRedirectUrl ?? null,
           auto_tags: updated.autoTags ?? [],
           facebook_pixel_id: updated.facebookPixelId || null,
-          pipeline_id: updated.pipelineId ?? null,
+          pipeline_ids: updated.pipelineIds ?? [],
           reminder_rules: (updated.reminderRules ?? []) as any,
         });
         toast.success("Formulario guardado");

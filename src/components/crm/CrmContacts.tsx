@@ -11,7 +11,7 @@ import {
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
   Trash2, ChevronDown, ExternalLink, Bell,
 } from "lucide-react";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient } from "@/hooks/useCrmData";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import CreateReminderModal from "@/components/shared/CreateReminderModal";
@@ -308,10 +308,53 @@ const FormDataPanel = ({
 };
 
 // ─── Ficha técnica (solo admin) ───────────────────────────────────────────────
-const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => void }) => {
+const ONBOARDING_FORM_ID = "b733e0c5-60d4-414d-896a-5ce459b07eaf";
+
+const ClientDetail = ({
+  contact,
+  onBack,
+  stages = [],
+}: {
+  contact: CrmContact;
+  onBack: () => void;
+  stages?: { pipelineName: string; stage: string }[];
+}) => {
+  const [downloading, setDownloading] = useState(false);
   const cf = (contact.custom_fields as Record<string, any>) ?? {};
 
-  const val = (key: string) => cf[key] || "—";
+  // Form data is stored nested: custom_fields[form_id][field_id]
+  const ob = (cf[ONBOARDING_FORM_ID] as Record<string, any>) ?? {};
+
+  const val = (fieldId: string) => {
+    const v = ob[fieldId];
+    if (v === undefined || v === null || v === "") return "—";
+    if (typeof v === "object") return JSON.stringify(v);
+    return String(v).trim() || "—";
+  };
+
+  const handleDownloadDoc = async () => {
+    if (!contact.master_doc_url) {
+      toast.error("El documento maestro aún no ha sido generado");
+      return;
+    }
+    setDownloading(true);
+    try {
+      const { data, error } = await supabase.storage
+        .from("master-docs")
+        .createSignedUrl(contact.master_doc_url, 60);
+      if (error || !data?.signedUrl) throw error ?? new Error("No URL");
+      const a = document.createElement("a");
+      a.href = data.signedUrl;
+      a.download = `documento-maestro-${contact.name.toLowerCase().replace(/\s+/g, "-")}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (e) {
+      toast.error("Error al descargar el documento");
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -322,9 +365,18 @@ const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => 
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-base font-semibold">{contact.name}</h1>
-            <Badge variant="outline" className="bg-primary/8 text-primary border-primary/20 text-[10px]">
-              {contact.stage}
-            </Badge>
+            {stages.length > 0
+              ? stages.map((s, i) => (
+                  <Badge key={i} variant="outline" className="bg-primary/8 text-primary border-primary/20 text-[10px]" title={s.pipelineName}>
+                    {s.stage}
+                  </Badge>
+                ))
+              : contact.stage && (
+                  <Badge variant="outline" className="bg-primary/8 text-primary border-primary/20 text-[10px]">
+                    {contact.stage}
+                  </Badge>
+                )
+            }
           </div>
           <p className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
             <Calendar size={11} /> Recibido el{" "}
@@ -342,30 +394,30 @@ const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => 
               title: "Información del Negocio",
               icon: FolderOpen,
               fields: [
-                ["Rubro", val("rubro")],
-                ["Ciudad", contact.company || "—"],
-                ["Años", val("anos_operacion")],
-                ["Plan", val("plan")],
+                ["Negocio", val("ob-1-1")],
+                ["Rubro", val("ob-1-2")],
+                ["Ciudad", val("ob-1-3")],
+                ["Años operando", val("ob-1-4")],
               ],
             },
             {
               title: "Datos de Contacto",
               icon: Phone,
               fields: [
-                ["WhatsApp", val("whatsapp")],
+                ["WhatsApp", val("ob-0-phone") !== "—" ? val("ob-0-phone") : (contact.phone || "—")],
                 ["Email", contact.email || "—"],
-                ["Instagram", val("instagram")],
-                ["Facebook", val("facebook")],
+                ["Instagram", val("ob-7-5")],
+                ["Facebook", val("ob-7-6")],
               ],
             },
             {
               title: "Identidad & Marca",
               icon: Star,
               fields: [
-                ["Estilo", val("estilo_visual")],
-                ["Color Primario", val("color_primario")],
-                ["Color Acento", val("color_acento")],
-                ["Tipografía", val("tipografia")],
+                ["Estilo visual", val("ob-3-6")],
+                ["Color Primario", val("ob-3-2")],
+                ["Color Secundario", val("ob-3-3")],
+                ["Tipografía", val("ob-3-5")],
               ],
             },
           ].map((section) => (
@@ -399,10 +451,10 @@ const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => 
               </h3>
             </div>
             <p className="text-sm leading-relaxed text-muted-foreground bg-secondary/30 p-5 rounded-xl border border-dashed border-border/60 min-h-[120px]">
-              {val("descripcion") === "—" ? (
+              {val("ob-1-5") === "—" ? (
                 <span className="italic opacity-50">Sin descripción registrada</span>
               ) : (
-                val("descripcion")
+                val("ob-1-5")
               )}
             </p>
           </div>
@@ -412,16 +464,29 @@ const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => 
               <Archive size={28} className="text-primary" />
             </div>
             <div>
-              <h3 className="text-sm font-bold">Kit del Cliente</h3>
-              <Badge variant="outline" className="mt-2 bg-background/50 border-primary/20 text-[10px] text-primary">
-                Pendiente de generar
+              <h3 className="text-sm font-bold">Documento Maestro</h3>
+              <Badge
+                variant="outline"
+                className={`mt-2 bg-background/50 border-primary/20 text-[10px] ${contact.master_doc_url ? "text-green-600 border-green-500/30" : "text-primary"}`}
+              >
+                {contact.master_doc_url ? "Listo para descargar" : "Pendiente de generar"}
               </Badge>
               <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
-                Incluye Documento Maestro (.md), Logo e Imágenes.
+                Generado automáticamente con IA al completar el formulario de onboarding.
               </p>
             </div>
-            <Button variant="default" className="w-full h-10 rounded-xl font-bold text-[10px] uppercase tracking-wider">
-              <Download size={13} className="mr-2" /> DESCARGAR TODO (.ZIP)
+            <Button
+              variant="default"
+              className="w-full h-10 rounded-xl font-bold text-[10px] uppercase tracking-wider"
+              disabled={!contact.master_doc_url || downloading}
+              onClick={handleDownloadDoc}
+            >
+              {downloading ? (
+                <Loader2 size={13} className="mr-2 animate-spin" />
+              ) : (
+                <Download size={13} className="mr-2" />
+              )}
+              DESCARGAR (.MD)
             </Button>
           </div>
 
@@ -432,7 +497,30 @@ const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => 
                 Servicios & Oferta
               </h3>
             </div>
-            <p className="text-sm text-muted-foreground/50 italic">Sin servicios registrados</p>
+            {Array.isArray(ob["ob-4-1"]) && ob["ob-4-1"].length > 0 ? (
+              <div className="space-y-2">
+                {(ob["ob-4-1"] as any[]).map((s: any, i: number) => {
+                  const sName  = s?.["ob-4-1-1"] || `Servicio ${i + 1}`;
+                  const sDesc  = s?.["ob-4-1-2"] || "";
+                  const sPrice = s?.["ob-4-1-3"] ? `$${s["ob-4-1-3"]}` : "";
+                  const isStar = s?.["ob-4-1-4"];
+                  return (
+                    <div key={i} className="flex items-start gap-3 bg-secondary/20 border border-border/50 rounded-xl p-3">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm font-semibold">{sName}</span>
+                          {isStar && <Badge variant="outline" className="text-[10px] text-yellow-600 border-yellow-500/40 bg-yellow-50/50">⭐ Estrella</Badge>}
+                          {sPrice && <span className="text-xs text-muted-foreground ml-auto">Desde {sPrice}</span>}
+                        </div>
+                        {sDesc && <p className="text-xs text-muted-foreground mt-0.5">{sDesc}</p>}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground/50 italic">Sin servicios registrados</p>
+            )}
           </div>
 
           <div className="md:col-span-1 bg-background border rounded-2xl p-5 border-border/50 shadow-sm flex flex-col">
@@ -455,8 +543,9 @@ const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => 
             </div>
             <div className="grid sm:grid-cols-2 gap-4">
               {[
-                ["Perfil general", val("cliente_ideal")],
-                ["Problema que resolvemos", val("problema_resuelve")],
+                ["Cliente ideal", val("ob-5-1")],
+                ["Problema que resuelven", val("ob-5-2")],
+                ["Diferenciador", val("ob-5-3")],
               ].map(([l, v]) => (
                 <div key={l} className="bg-secondary/20 border border-border/50 rounded-xl p-4">
                   <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest mb-1 block">
@@ -477,10 +566,10 @@ const ClientDetail = ({ contact, onBack }: { contact: CrmContact; onBack: () => 
               <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest block">
                 Sitios de Referencia
               </span>
-              {[val("referencia_1"), val("referencia_2")].every((v) => v === "—") ? (
+              {[val("ob-3-7"), val("ob-3-8"), val("ob-3-9")].every((v) => v === "—") ? (
                 <p className="text-xs text-muted-foreground/50 italic">Sin referencias</p>
               ) : (
-                [val("referencia_1"), val("referencia_2")]
+                [val("ob-3-7"), val("ob-3-8"), val("ob-3-9")]
                   .filter((u) => u !== "—")
                   .map((url) => (
                     <div
@@ -520,6 +609,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const { data: forms = [] } = useForms();
   const { data: pipelines = [] } = usePipelines();
   const { data: clientAccounts = [] } = useClientAccounts();
+  const { data: contactStagesMap = {} } = useAllContactStages();
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
   const deleteContact = useDeleteContact();
@@ -571,7 +661,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   // Superadmin: show full ficha técnica
   const viewingContact = contacts.find((c) => c.id === viewing);
   if (viewing && viewingContact && isSuperAdmin) {
-    return <ClientDetail contact={viewingContact} onBack={() => setViewing(null)} />;
+    return <ClientDetail contact={viewingContact} stages={contactStagesMap[viewingContact.id] ?? []} onBack={() => setViewing(null)} />;
   }
 
   const q = search.toLowerCase();
@@ -772,11 +862,18 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 flex-wrap">
                             <p className="text-sm font-medium truncate">{c.name}</p>
-                            {c.stage && (
-                              <Badge variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-primary/20 bg-primary/5 text-primary">
-                                {c.stage}
-                              </Badge>
-                            )}
+                            {(contactStagesMap[c.id]?.length ?? 0) > 0
+                              ? contactStagesMap[c.id].map((s, i) => (
+                                  <Badge key={i} variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-primary/20 bg-primary/5 text-primary" title={s.pipelineName}>
+                                    {s.stage}
+                                  </Badge>
+                                ))
+                              : c.stage && (
+                                  <Badge variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-primary/20 bg-primary/5 text-primary">
+                                    {c.stage}
+                                  </Badge>
+                                )
+                            }
                             {(isSaasActive || isSaasPending) && (
                               <Badge className={`text-[10px] px-2 py-0 shrink-0 font-semibold ${
                                 isSaasActive
@@ -946,12 +1043,21 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                 {/* Scrollable body */}
                 <div className="p-5 overflow-y-auto flex-1 space-y-5">
 
-                {detail.stage && (
-                  <div className="flex items-center gap-2">
-                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Etapa</span>
-                    <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary">
-                      {detail.stage}
-                    </Badge>
+                {((contactStagesMap[detail.id]?.length ?? 0) > 0 || detail.stage) && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium shrink-0">Etapa</span>
+                    {(contactStagesMap[detail.id]?.length ?? 0) > 0
+                      ? contactStagesMap[detail.id].map((s, i) => (
+                          <Badge key={i} variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary" title={s.pipelineName}>
+                            {s.stage}
+                          </Badge>
+                        ))
+                      : (
+                          <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary">
+                            {detail.stage}
+                          </Badge>
+                        )
+                    }
                   </div>
                 )}
 

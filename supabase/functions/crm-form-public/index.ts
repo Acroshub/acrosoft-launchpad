@@ -10,11 +10,24 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+
 function respond(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+/** Flatten all fields from the form, whether in form.fields or form.sections[].fields */
+function getAllFields(form: any): any[] {
+  const flat: any[] = [];
+  if (Array.isArray(form.fields)) flat.push(...form.fields);
+  if (Array.isArray(form.sections)) {
+    for (const section of form.sections) {
+      if (Array.isArray(section?.fields)) flat.push(...section.fields);
+    }
+  }
+  return flat;
 }
 
 function extractContact(fields: any[], data: Record<string, any>) {
@@ -50,46 +63,129 @@ function extractContact(fields: any[], data: Record<string, any>) {
 
 /**
  * Contacts pipeline uses crm_contacts.stage — NOT crm_pipeline_deals.
- * Sets contact.stage to the first column of the specified (or first) contacts pipeline.
+ * Sets contact.stage to the first column of the first matched pipeline.
+ * If pipelineIds is empty, falls back to the user's first contacts pipeline.
  */
-async function addContactToPipeline(
+async function addContactToPipelines(
   userId: string,
   contactId: string,
-  pipelineId: string | null,
+  pipelineIds: string[],
 ): Promise<void> {
   try {
-    let query = supabase
-      .from("crm_pipelines")
-      .select("id, column_names")
-      .eq("user_id", userId)
-      .eq("type", "contacts")
-      .order("created_at", { ascending: true })
-      .limit(1);
+    let pipelines: { id: string; column_names: string[] }[] | null = null;
 
-    // If a specific pipeline is requested, filter by id
-    if (pipelineId) {
-      query = supabase
+    if (pipelineIds.length > 0) {
+      const { data } = await supabase
         .from("crm_pipelines")
         .select("id, column_names")
         .eq("user_id", userId)
-        .eq("id", pipelineId)
         .eq("type", "contacts")
+        .in("id", pipelineIds);
+      pipelines = data ?? [];
+    } else {
+      // Fallback: first contacts pipeline
+      const { data } = await supabase
+        .from("crm_pipelines")
+        .select("id, column_names")
+        .eq("user_id", userId)
+        .eq("type", "contacts")
+        .order("created_at", { ascending: true })
         .limit(1);
+      pipelines = data ?? [];
     }
 
-    const { data: pipelines } = await query;
     if (!pipelines?.length) return;
 
+    // Set contact.stage to the first column of the first pipeline (if not already staged)
     const firstStage = (pipelines[0].column_names as string[])?.[0];
-    if (!firstStage) return;
-
-    await supabase
-      .from("crm_contacts")
-      .update({ stage: firstStage })
-      .eq("id", contactId)
-      .is("stage", null); // only set if not already in a pipeline
+    if (firstStage) {
+      await supabase
+        .from("crm_contacts")
+        .update({ stage: firstStage })
+        .eq("id", contactId)
+        .is("stage", null); // only set if not already in a pipeline
+    }
   } catch (e) {
-    console.error("addContactToPipeline (non-fatal):", e);
+    console.error("addContactToPipelines (non-fatal):", e);
+  }
+}
+
+/**
+ * Registers a sale when a `services` field is submitted.
+ * If the service has is_saas = true, calls create-saas-client.
+ */
+async function handleServicesField(
+  userId: string,
+  contactId: string,
+  contactName: string,
+  serviceId: string,
+  siteUrl: string,
+): Promise<void> {
+  try {
+    const { data: service, error } = await supabase
+      .from("crm_services")
+      .select("id, name, price, currency, is_saas, is_recurring")
+      .eq("id", serviceId)
+      .eq("user_id", userId)
+      .single();
+
+    if (error || !service) {
+      console.error("handleServicesField — service not found:", serviceId, error);
+      return;
+    }
+
+    // ── Register the sale ──────────────────────────────────────────────────
+    await supabase.from("crm_sales").insert({
+      user_id: userId,
+      contact_id: contactId,
+      contact_name: contactName,
+      service_id: service.id,
+      service_name: service.name,
+      amount: service.price,
+      currency: service.currency ?? "USD",
+      type: "initial",
+      notes: "[Venta automática via formulario]",
+    });
+
+    // ── If SaaS service, create client account ─────────────────────────────
+    if (service.is_saas) {
+      // Verify no existing account first
+      const { data: existing } = await supabase
+        .from("crm_client_accounts")
+        .select("id, status")
+        .eq("contact_id", contactId)
+        .maybeSingle();
+
+      if (!existing) {
+        // Load contact email for invite
+        const { data: contact } = await supabase
+          .from("crm_contacts")
+          .select("email")
+          .eq("id", contactId)
+          .single();
+
+        if (contact?.email) {
+          const { data: inviteData, error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(
+            contact.email,
+            {
+              redirectTo: `${siteUrl}/crm-setup`,
+              data: { full_name: contactName, account_type: "saas_client", admin_user_id: userId },
+            }
+          );
+          if (!inviteErr && inviteData) {
+            await supabase.from("crm_client_accounts").insert({
+              admin_user_id: userId,
+              contact_id: contactId,
+              client_user_id: inviteData.user.id,
+              client_email: contact.email,
+              status: "pending",
+            });
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error("handleServicesField (non-fatal):", e);
   }
 }
 
@@ -102,7 +198,7 @@ Deno.serve(async (req) => {
 
     const { data: form, error: formError } = await supabase
       .from("crm_forms")
-      .select("user_id, fields, auto_tags, pipeline_id")
+      .select("user_id, fields, sections, auto_tags, pipeline_ids, slug")
       .eq("id", form_id)
       .single();
 
@@ -117,25 +213,27 @@ Deno.serve(async (req) => {
 
     if (submissionError) return respond({ error: `Submission insert failed: ${submissionError.message}` }, 500);
 
-    const fields = Array.isArray(form.fields) ? (form.fields as any[]) : [];
-    const { name, email, phone } = extractContact(fields, data ?? {});
+    const allFields = getAllFields(form);
+    const { name, email, phone } = extractContact(allFields, data ?? {});
     const formDataToStore = data && Object.keys(data).length > 0 ? { [form_id]: data } : {};
     const autoTags: string[] = Array.isArray(form.auto_tags) ? form.auto_tags : [];
 
     let contactId: string | null = null;
+    let contactName = name;
     let isNewContact = false;
 
     try {
       if (email) {
         const { data: existing } = await supabase
           .from("crm_contacts")
-          .select("id, tags, custom_fields")
+          .select("id, name, tags, custom_fields")
           .eq("user_id", form.user_id)
           .eq("email", email)
           .maybeSingle();
 
         if (existing) {
           contactId = existing.id;
+          contactName = existing.name;
           const mergedTags = Array.from(new Set([...(existing.tags ?? []), ...autoTags]));
           const mergedFields = { ...((existing.custom_fields as object) ?? {}), ...formDataToStore };
           await supabase.from("crm_contacts").update({
@@ -167,7 +265,43 @@ Deno.serve(async (req) => {
     }
 
     if (isNewContact && contactId) {
-      await addContactToPipeline(form.user_id, contactId, form.pipeline_id ?? null);
+      const pipelineIds: string[] = Array.isArray(form.pipeline_ids) ? form.pipeline_ids : [];
+      await addContactToPipelines(form.user_id, contactId, pipelineIds);
+    }
+
+    // ── Handle `services` field type — register sale automatically ─────────
+    if (contactId) {
+      const servicesField = allFields.find((f: any) => f.type === "services");
+      if (servicesField) {
+        const selectedServiceId = data?.[servicesField.id];
+        if (selectedServiceId && typeof selectedServiceId === "string") {
+          // deno-lint-ignore no-explicit-any
+          const siteUrl = (globalThis as any).Deno?.env?.get("SITE_URL") ?? "http://localhost:5173";
+          await handleServicesField(form.user_id, contactId, contactName || name || "Sin nombre", selectedServiceId, siteUrl);
+        }
+      }
+    }
+
+    // ── Trigger master doc generation for onboarding forms ────────────────────
+    const formSlug: string = (form as any).slug ?? "";
+    if (contactId && formSlug.toLowerCase().includes("onboarding")) {
+      // Use globalThis pattern (consistent with rest of file — no Deno types in workspace)
+      const supabaseUrl = (globalThis as any).Deno?.env?.get("SUPABASE_URL") ?? "";
+      const serviceKey  = (globalThis as any).Deno?.env?.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+      // Fire-and-forget — does not block the form submission response
+      fetch(`${supabaseUrl}/functions/v1/generate-master-doc`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${serviceKey}`,
+        },
+        body: JSON.stringify({
+          contact_id: contactId,
+          form_id,
+          data: data ?? {},
+          user_id: form.user_id,
+        }),
+      }).catch((e) => console.error("generate-master-doc trigger (non-fatal):", e));
     }
 
     return respond({ submission_id: submission.id });

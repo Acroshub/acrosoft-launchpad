@@ -84,6 +84,8 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
   const [linkedFormId, setLinkedFormId]   = useState<string | null>(null);
   const [availability, setAvailability]   = useState<WeeklySchedule>(DEFAULT_WEEKLY_SCHEDULE);
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
+  const [minAdvanceHours, setMinAdvanceHours] = useState(1);
+  const [maxFutureDays, setMaxFutureDays]     = useState(60);
   const [isEditingHours, setIsEditingHours] = useState(false);
   const [embedTab, setEmbedTab]           = useState<"iframe" | "js">("iframe");
   const [copied, setCopied]               = useState(false);
@@ -100,11 +102,16 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
       setLinkedFormId(existingCalendar.linked_form_id ?? null);
       setAvailability(normalizeAvail(existingCalendar.availability));
       setReminderRules((existingCalendar.reminder_rules as unknown as ReminderRule[] | null) ?? []);
+      setMinAdvanceHours(existingCalendar.min_advance_hours ?? 1);
+      setMaxFutureDays(existingCalendar.max_future_days ?? 60);
     }
   }, [existingCalendar]);
 
   const calendarUid = existingCalendar?.id ?? "";
-  const publicUrl   = calendarUid ? `${window.location.origin}/book/${calendarUid}` : "";
+  // Public URL: slug when available, UUID as fallback. Embed code always uses UUID (stable).
+  const publicUrl   = calendarUid
+    ? `${window.location.origin}/book/${slug.trim() || calendarUid}`
+    : "";
   const iframeCode  = calendarUid
     ? `<iframe\n  src="${window.location.origin}/book/${calendarUid}"\n  width="100%"\n  height="700"\n  frameborder="0"\n  style="border:none;border-radius:12px;"\n></iframe>`
     : "";
@@ -159,6 +166,8 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
         description: description || null,
         duration_min: duration,
         buffer_min: bufferTime,
+        min_advance_hours: minAdvanceHours,
+        max_future_days: maxFutureDays,
         slug: slug || null,
         linked_form_id: formId,
         availability,
@@ -296,6 +305,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
             <Field label="Duración de la cita (min)">
               <Input
                 type="number"
+                min={5}
                 value={duration}
                 onChange={(e) => setDuration(Number(e.target.value))}
                 className="h-10 text-sm"
@@ -304,10 +314,38 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
             <Field label="Tiempo entre citas (min)">
               <Input
                 type="number"
+                min={0}
                 value={bufferTime}
                 onChange={(e) => setBufferTime(Number(e.target.value))}
                 className="h-10 text-sm"
               />
+            </Field>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Anticipación mínima (hs)">
+              <Input
+                type="number"
+                min={0}
+                value={minAdvanceHours}
+                onChange={(e) => setMinAdvanceHours(Number(e.target.value))}
+                className="h-10 text-sm"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Horas mínimas antes de una cita para poder reservarla.
+              </p>
+            </Field>
+            <Field label="Disponibilidad futura (días)">
+              <Input
+                type="number"
+                min={1}
+                value={maxFutureDays}
+                onChange={(e) => setMaxFutureDays(Number(e.target.value))}
+                className="h-10 text-sm"
+              />
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Cuántos días hacia adelante se pueden ver en el calendario.
+              </p>
             </Field>
           </div>
 
@@ -403,11 +441,51 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
           </div>
         </div>
 
+        {/* URL Pública */}
+        <div className="bg-card border rounded-2xl p-6 space-y-3">
+          <div className="flex items-center gap-2">
+            <Globe size={15} className="text-muted-foreground" />
+            <h2 className="text-sm font-semibold">URL pública del calendario</h2>
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Comparte este enlace para que tus clientes agenden directamente.
+            {slug.trim() && " Usando el slug personalizado configurado arriba."}
+          </p>
+          <div className="flex items-center gap-2 bg-secondary/40 border rounded-xl px-4 py-3">
+            <a
+              href={publicUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="text-sm font-medium text-primary hover:underline truncate flex-1"
+            >
+              {publicUrl}
+            </a>
+            <button
+              onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success("URL copiada"); }}
+              className="flex items-center gap-1.5 text-[11px] font-medium border rounded-lg px-3 py-1.5 bg-background hover:bg-secondary transition-all shrink-0"
+            >
+              <Copy size={12} /> Copiar
+            </button>
+          </div>
+          {slug.trim() && (
+            <p className="text-[10px] text-muted-foreground">
+              URL alternativa estable (ID):&nbsp;
+              <a href={`${window.location.origin}/book/${calendarUid}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                {window.location.origin}/book/{calendarUid}
+              </a>
+            </p>
+          )}
+        </div>
+
+        {/* Embed en sitio web */}
         <div className="bg-card border rounded-2xl p-6 space-y-4">
           <div className="flex items-center gap-2">
             <Code size={15} className="text-muted-foreground" />
             <h2 className="text-sm font-semibold">Incrustar en tu sitio web</h2>
           </div>
+          <p className="text-[11px] text-muted-foreground -mt-1">
+            El código siempre usa el ID del calendario (estable aunque cambies el slug).
+          </p>
           <div className="flex gap-2">
             {(["iframe", "js"] as const).map((tab) => (
               <button
@@ -439,16 +517,6 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
               {copied ? <Check size={12} className="text-primary" /> : <Copy size={12} />}
               {copied ? "Copiado" : "Copiar"}
             </button>
-          </div>
-          <div className="flex items-center gap-3 pt-2 border-t">
-            <span className="text-xs text-muted-foreground">URL directa:</span>
-            {publicUrl ? (
-              <a href={publicUrl} target="_blank" rel="noreferrer" className="text-xs font-medium text-primary hover:underline truncate">
-                {publicUrl}
-              </a>
-            ) : (
-              <span className="text-xs text-muted-foreground italic">Guarda el calendario primero</span>
-            )}
           </div>
         </div>
 

@@ -183,8 +183,15 @@ const ServicesField = ({
                 <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-6">
                   <div className="shrink-0">
                     <h3 className="font-semibold text-base text-foreground">{svc.name}</h3>
-                    <div className="flex items-baseline gap-1.5 mt-2">
-                      <span className="text-2xl font-bold text-foreground">${svc.price}</span>
+                    <div className="flex items-baseline gap-1.5 mt-2 flex-wrap">
+                      {svc.discount_pct > 0 ? (
+                        <>
+                          <span className="text-base font-bold text-muted-foreground/50 line-through">${svc.price}</span>
+                          <span className="text-2xl font-bold text-primary">${(svc.price * (1 - svc.discount_pct / 100)).toFixed(0)}</span>
+                        </>
+                      ) : (
+                        <span className="text-2xl font-bold text-foreground">${svc.price}</span>
+                      )}
                       <span className="text-xs text-muted-foreground uppercase tracking-tight">setup</span>
                     </div>
                     {svc.recurring_price && (

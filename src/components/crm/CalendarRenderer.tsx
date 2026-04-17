@@ -33,10 +33,14 @@ const isDayOpen = (avail: WeeklySchedule | null | undefined, dayOfWeek: number):
   return !!(avail as any)[SCHEDULE_KEY[dayOfWeek]]?.open;
 };
 
-const isSlotBlocked = (blocked: CrmBlockedSlot[], dayKey: string, hour: number): boolean =>
+const isSlotBlocked = (blocked: CrmBlockedSlot[], dayKey: string, hour: number, minute = 0): boolean =>
   blocked.some((b) => {
-    if (b.type === "hours" && b.date === dayKey && b.start_hour != null && b.end_hour != null)
-      return hour >= b.start_hour && hour < b.end_hour;
+    if (b.type === "hours" && b.date === dayKey && b.start_hour != null && b.end_hour != null) {
+      const slotTotal  = hour * 60 + minute;
+      const startTotal = b.start_hour * 60 + (b.start_minute ?? 0);
+      const endTotal   = b.end_hour   * 60 + (b.end_minute   ?? 0);
+      return slotTotal >= startTotal && slotTotal < endTotal;
+    }
     if (b.type === "fullday" && b.date === dayKey) return true;
     if (b.type === "range" && b.range_start && b.range_end)
       return dayKey >= b.range_start && dayKey <= b.range_end;
@@ -59,6 +63,14 @@ const formatHour = (h: number) => {
   if (h < 12) return `${h}:00 AM`;
   if (h === 12) return "12:00 PM";
   return `${h - 12}:00 PM`;
+};
+
+const formatSlot = (h: number, m: number): string => {
+  const mm = String(m).padStart(2, "0");
+  if (h === 0)  return `12:${mm} AM`;
+  if (h < 12)  return `${h}:${mm} AM`;
+  if (h === 12) return `12:${mm} PM`;
+  return `${h - 12}:${mm} PM`;
 };
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
@@ -118,6 +130,7 @@ interface BookingFormProps {
   linkedFormId: string | null;
   selectedDate: string;
   selectedHour: number;
+  selectedMinute: number;
   calendarName: string;
   durationMin: number;
   primaryColor: string;
@@ -130,6 +143,7 @@ const BookingForm = ({
   linkedFormId,
   selectedDate,
   selectedHour,
+  selectedMinute,
   calendarName,
   durationMin,
   primaryColor,
@@ -164,7 +178,7 @@ const BookingForm = ({
           "Content-Type": "application/json",
           "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ calendar_id: calendarId, date: selectedDate, hour: selectedHour, form_data: values }),
+        body: JSON.stringify({ calendar_id: calendarId, date: selectedDate, hour: selectedHour, minute: selectedMinute, form_data: values }),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? "Error al agendar");
       onSuccess();
@@ -191,7 +205,7 @@ const BookingForm = ({
           <p className="text-xs text-gray-500">{dateLabel}</p>
           <span className="text-gray-300 text-xs">·</span>
           <Clock size={11} className="text-gray-400" />
-          <p className="text-xs text-gray-500">{formatHour(selectedHour)}</p>
+          <p className="text-xs text-gray-500">{formatSlot(selectedHour, selectedMinute)}</p>
           <span className="text-gray-300 text-xs">·</span>
           <p className="text-xs text-gray-500">{durationMin} min</p>
         </div>
@@ -254,14 +268,14 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   const [viewYear, setViewYear]   = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [selectedHour, setSelectedHour] = useState<number | null>(null);
+  const [selectedSlot, setSelectedSlot] = useState<{ hour: number; minute: number } | null>(null);
   const [step, setStep] = useState<"calendar" | "form" | "success">("calendar");
 
   const { data: calendar, isLoading } = usePublicCalendar(calendarId);
   const userId = (calendar as any)?.user_id as string | undefined;
 
-  const { data: appointments = [] } = usePublicAppointments(userId, viewYear, viewMonth);
-  const { data: blockedSlots   = [] } = usePublicBlockedSlots(userId);
+  const { data: appointments = [] } = usePublicAppointments(calendarId, viewYear, viewMonth);
+  const { data: blockedSlots   = [] } = usePublicBlockedSlots(calendarId);
   const { data: branding } = usePublicBusinessProfile(userId);
 
   const primaryColor = branding?.color_primary ?? "#3b82f6";
@@ -278,11 +292,22 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   const isCurrentMonth =
     viewYear === today.getFullYear() && viewMonth === today.getMonth();
 
+  const slotStep        = (calendar as any)?.duration_min    ?? 30;
+  const minAdvanceHours = (calendar as any)?.min_advance_hours ?? 1;
+  const maxFutureDays   = (calendar as any)?.max_future_days   ?? 60;
+
+  // Absolute cutoff: slots before this timestamp cannot be booked
+  const minBookableMs = today.getTime() + minAdvanceHours * 3600 * 1000;
+
+  // Last bookable date key
+  const maxDate    = new Date(today.getFullYear(), today.getMonth(), today.getDate() + maxFutureDays);
+  const maxDateKey = toDateKey(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate());
+
   const bookedMap = useMemo(() => {
-    const map: Record<string, Set<number>> = {};
+    const map: Record<string, Set<string>> = {};
     for (const a of appointments) {
       if (!map[a.date]) map[a.date] = new Set();
-      map[a.date].add(a.hour);
+      map[a.date].add(`${a.hour}:${a.minute ?? 0}`);
     }
     return map;
   }, [appointments]);
@@ -292,53 +317,66 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   const isDayAvailable = (day: number) => {
     const key = toDateKey(viewYear, viewMonth, day);
     if (key < todayKey) return false;
+    if (key > maxDateKey) return false;
     if (isDayBlockedFully(blockedSlots, key)) return false;
     const dow = new Date(viewYear, viewMonth, day).getDay();
     if (!isDayOpen(avail, dow)) return false;
-    // Check that at least one hour is actually free
-    const isToday = key === todayKey;
-    const nowHour = today.getHours();
-    const booked  = bookedMap[key] ?? new Set<number>();
-    for (let h = 6; h <= 21; h++) {
-      if (isToday && h <= nowHour) continue;
+    const booked = bookedMap[key] ?? new Set<string>();
+    for (let totalMin = 6 * 60; totalMin < 21 * 60; totalMin += slotStep) {
+      const h  = Math.floor(totalMin / 60);
+      const m  = totalMin % 60;
+      const slotMs = new Date(viewYear, viewMonth, day, h, m).getTime();
+      if (slotMs < minBookableMs) continue;
       if (!isHourAvailable(avail, dow, h)) continue;
-      if (booked.has(h)) continue;
-      if (isSlotBlocked(blockedSlots, key, h)) continue;
-      return true; // found at least one free slot
+      if (booked.has(`${h}:${m}`)) continue;
+      if (isSlotBlocked(blockedSlots, key, h, m)) continue;
+      return true;
     }
-    return false; // all slots full or blocked
+    return false;
   };
 
-  const availableHours = useMemo(() => {
+  const availableSlots = useMemo(() => {
     if (!selectedDate) return [];
     const [y, m, d] = selectedDate.split("-").map(Number);
     const dayOfWeek = new Date(y, m - 1, d).getDay();
-    const booked    = bookedMap[selectedDate] ?? new Set<number>();
+    const booked    = bookedMap[selectedDate] ?? new Set<string>();
     const isToday   = selectedDate === todayKey;
-    const nowHour   = today.getHours();
+    const nowMin    = today.getHours() * 60 + today.getMinutes();
 
-    const hours: number[] = [];
-    for (let h = 6; h <= 21; h++) {
-      if (isToday && h <= nowHour) continue;
+    const slots: { hour: number; minute: number }[] = [];
+    for (let totalMin = 6 * 60; totalMin < 21 * 60; totalMin += slotStep) {
+      const h      = Math.floor(totalMin / 60);
+      const mn     = totalMin % 60;
+      const slotMs = new Date(y, m - 1, d, h, mn).getTime();
+      if (slotMs < minBookableMs) continue;
       if (!isHourAvailable(avail, dayOfWeek, h)) continue;
-      if (booked.has(h)) continue;
-      if (isSlotBlocked(blockedSlots, selectedDate, h)) continue;
-      hours.push(h);
+      if (booked.has(`${h}:${mn}`)) continue;
+      if (isSlotBlocked(blockedSlots, selectedDate, h, mn)) continue;
+      slots.push({ hour: h, minute: mn });
     }
-    return hours;
-  }, [selectedDate, avail, bookedMap, blockedSlots, todayKey]);
+    return slots;
+  }, [selectedDate, avail, bookedMap, blockedSlots, minBookableMs, slotStep]);
+
+  // First day of the next view-month — used to block navigation past maxFutureDays
+  const nextMonthFirstKey = (() => {
+    const nm = viewMonth === 11 ? 0 : viewMonth + 1;
+    const ny = viewMonth === 11 ? viewYear + 1 : viewYear;
+    return toDateKey(ny, nm, 1);
+  })();
+  const isLastAllowedMonth = nextMonthFirstKey > maxDateKey;
 
   const prevMonth = () => {
     if (isCurrentMonth) return;
     if (viewMonth === 0) { setViewYear(y => y - 1); setViewMonth(11); }
     else setViewMonth(m => m - 1);
-    setSelectedDate(null); setSelectedHour(null);
+    setSelectedDate(null); setSelectedSlot(null);
   };
 
   const nextMonth = () => {
+    if (isLastAllowedMonth) return;
     if (viewMonth === 11) { setViewYear(y => y + 1); setViewMonth(0); }
     else setViewMonth(m => m + 1);
-    setSelectedDate(null); setSelectedHour(null);
+    setSelectedDate(null); setSelectedSlot(null);
   };
 
   // ── Loading ─────────────────────────────────────────────────────────────────
@@ -377,13 +415,14 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   }
 
   // ── Booking form ────────────────────────────────────────────────────────────
-  if (step === "form" && selectedDate && selectedHour !== null) {
+  if (step === "form" && selectedDate && selectedSlot !== null) {
     return (
       <BookingForm
         calendarId={calendarId}
         linkedFormId={calendar.linked_form_id}
         selectedDate={selectedDate}
-        selectedHour={selectedHour}
+        selectedHour={selectedSlot.hour}
+        selectedMinute={selectedSlot.minute}
         calendarName={calendar.name ?? "Cita"}
         durationMin={calendar.duration_min ?? 30}
         primaryColor={primaryColor}
@@ -450,7 +489,13 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
               </button>
               <button
                 onClick={nextMonth}
-                className="w-7 h-7 flex items-center justify-center rounded-md hover:bg-gray-100 transition-colors text-gray-400 hover:text-gray-700"
+                disabled={isLastAllowedMonth}
+                className={[
+                  "w-7 h-7 flex items-center justify-center rounded-md transition-colors",
+                  isLastAllowedMonth
+                    ? "text-gray-200 cursor-not-allowed"
+                    : "text-gray-400 hover:bg-gray-100 hover:text-gray-700",
+                ].join(" ")}
               >
                 <ChevronRight size={15} />
               </button>
@@ -480,7 +525,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
               return (
                 <button
                   key={day}
-                  onClick={() => { if (avbl) { setSelectedDate(key); setSelectedHour(null); } }}
+                  onClick={() => { if (avbl) { setSelectedDate(key); setSelectedSlot(null); } }}
                   disabled={!avbl}
                   style={
                     sel
@@ -519,45 +564,44 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
           }}
         >
           <StepLabel number={2} label="Horario" primaryColor={primaryColor} />
-          {availableHours.length === 0 ? (
+          {availableSlots.length === 0 ? (
             <p className="text-[11px] text-gray-400 leading-relaxed">
               Sin disponibilidad.<br />Elige otra fecha.
             </p>
           ) : (
             <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
-              {availableHours.map((h) => (
-                <button
-                  key={h}
-                  onClick={() => setSelectedHour(h)}
-                  style={
-                    selectedHour === h
-                      ? { backgroundColor: primaryColor, borderColor: primaryColor }
-                      : undefined
-                  }
-                  className={[
-                    "w-full text-center py-2 rounded-lg text-xs font-medium transition-all border shrink-0",
-                    selectedHour === h
-                      ? "text-white"
-                      : "border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 bg-white",
-                  ].join(" ")}
-                >
-                  {formatHour(h)}
-                </button>
-              ))}
+              {availableSlots.map(({ hour: h, minute: m }) => {
+                const isSelected = selectedSlot?.hour === h && selectedSlot?.minute === m;
+                return (
+                  <button
+                    key={`${h}:${m}`}
+                    onClick={() => setSelectedSlot({ hour: h, minute: m })}
+                    style={isSelected ? { backgroundColor: primaryColor, borderColor: primaryColor } : undefined}
+                    className={[
+                      "w-full text-center py-2 rounded-lg text-xs font-medium transition-all border shrink-0",
+                      isSelected
+                        ? "text-white"
+                        : "border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 bg-white",
+                    ].join(" ")}
+                  >
+                    {formatSlot(h, m)}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
       </div>
 
       {/* ── CTA ── */}
-      {selectedDate && selectedHour !== null && (
+      {selectedDate && selectedSlot !== null && (
         <div className="pt-4">
           <button
             onClick={() => setStep("form")}
             style={{ backgroundColor: primaryColor }}
             className="w-full text-white rounded-lg py-3 text-sm font-semibold transition-all hover:opacity-90 flex items-center justify-center gap-2"
           >
-            Continuar con {formatHour(selectedHour)}
+            Continuar con {formatSlot(selectedSlot.hour, selectedSlot.minute)}
             <ChevronRight size={15} strokeWidth={2.5} />
           </button>
         </div>

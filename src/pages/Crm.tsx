@@ -12,8 +12,7 @@ import CrmBusiness from "@/components/crm/CrmBusiness";
 import CrmSettings from "@/components/crm/CrmSettings";
 import CrmReminders from "@/components/crm/CrmReminders";
 
-// {VAR_DB} — isSuperAdmin vendrá del perfil del usuario en Supabase
-const isSuperAdmin = true;
+const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
 type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "reminders" | "settings";
 
@@ -37,7 +36,7 @@ const Crm = () => {
   const [view, setView]             = useState<View>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // For staff, isSuperAdmin is always false
+  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
   const effectiveIsAdmin = isSuperAdmin && !isStaff;
 
   const handleSignOut = async () => {

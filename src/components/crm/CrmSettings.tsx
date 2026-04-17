@@ -891,7 +891,6 @@ const TABS = [
   { id: "logs",        label: "Logs",          Component: LogsTab       },
   { id: "staff",       label: "Staff",          Component: StaffTab      },
   { id: "reminders",   label: "Recordatorios",  Component: RemindersTab  },
-  { id: "saas",        label: "Servicios SaaS", Component: SaasTab       },
 ] as const;
 
 const CrmSettings = () => {

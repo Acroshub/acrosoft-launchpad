@@ -6,6 +6,7 @@ import { Check, Globe, Sparkles, Zap, DollarSign, CalendarDays, Hammer, Rocket, 
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CalendarRenderer from "@/components/crm/CalendarRenderer";
+import { useLandingServices } from "@/hooks/useCrmData";
 
 /**
  * Loads the first active calendar in the system (no auth needed — relies on
@@ -26,62 +27,6 @@ const useLandingCalendar = () =>
     },
   });
 
-const plans = [
-  {
-    name: "Single Page Website",
-    setup: "$500",
-    monthly: "Mantenimiento $50/Mes ",
-    features: [
-      "1 página profesional bilingüe (ES / EN)",
-      "Diseño moderno enfocado en conversión",
-      "Textos optimizados",
-      "Formulario de contacto integrado",
-      "Botones directos (WhatsApp / llamada)",
-      "100% adaptable a celular",
-      "Publicación online incluida",
-    ],
-    delivery: "3–5 días hábiles",
-    popular: false,
-    color: "from-blue-500/10 to-blue-600/5",
-    border: "hover:border-blue-400/50",
-  },
-  {
-    name: "Multi Page Website",
-    setup: "$1,500",
-    monthly: "Mantenimiento $100/mes",
-    features: [
-      "Todo lo incluido en Single Page",
-      "Hasta 6 páginas completas",
-      "SEO local (para aparecer en Google)",
-      "Galería dinámica de imágenes",
-      "Integración de analytics y píxeles",
-      "Optimización de Velocidad",
-      "Primer Año de Dominio Gratis",
-    ],
-    delivery: "10–14 días hábiles",
-    popular: false,
-    color: "from-primary/10 to-primary/5",
-    border: "hover:border-primary/50",
-  },
-  {
-    name: "Custom Booking System",
-    setup: "$5,000",
-    monthly: "Mantenimiento $250/mes",
-    features: [
-      "Todo lo incluido en Multi Page",
-      "Sistema de Calendario online 24/7",
-      "Integración con Google Calendar*",
-      "Panel de Administración de Clientes",
-      "Base de datos de clientes organizada",
-      "Recordatorios automáticos por email",
-      "Soporte prioritario por WhatsApp",
-    ],
-    delivery: "21–30 días hábiles",
-    popular: true,
-    color: "from-amber-500/10 to-amber-600/5",
-    border: "border-amber-400/60 shadow-xl shadow-amber-500/10",
-  },
-];
 
 const steps = [
   { icon: CalendarDays, title: "Agendas una llamada", desc: "Reserva 30 minutos con nuestro equipo para contarnos sobre tu negocio." },
@@ -99,6 +44,7 @@ const benefits = [
 
 const Index = () => {
   const { data: landingCalendarId } = useLandingCalendar();
+  const { data: services = [] } = useLandingServices();
   return (
   <div className="min-h-screen bg-background selection:bg-primary/10">
     <Navbar />
@@ -190,61 +136,83 @@ const Index = () => {
           <p className="text-lg text-muted-foreground">Selecciona el plan que se adapte a tu etapa actual. Escala cuando estés listo.</p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-          {plans.map((plan) => (
-            <div
-              key={plan.name}
-              className={`flex flex-col bg-background rounded-[32px] p-8 border-2 transition-all duration-500 hover:-translate-y-2 relative group ${plan.border}`}
-            >
-              <div className={`absolute inset-0 bg-gradient-to-b ${plan.color} opacity-0 group-hover:opacity-100 transition-opacity rounded-[32px] -z-10`} />
+        <div className={`grid gap-8 max-w-6xl mx-auto ${services.length === 2 ? "md:grid-cols-2" : services.length >= 3 ? "md:grid-cols-3" : "md:grid-cols-1 max-w-sm"}`}>
+          {services.map((svc) => {
+            const popular = svc.is_recommended ?? false;
+            const features = svc.benefits ?? [];
+            return (
+              <div
+                key={svc.id}
+                className={`flex flex-col bg-background rounded-[32px] p-8 border-2 transition-all duration-500 hover:-translate-y-2 relative group ${
+                  popular
+                    ? "border-amber-400/60 shadow-xl shadow-amber-500/10"
+                    : "hover:border-primary/50"
+                }`}
+              >
+                <div className={`absolute inset-0 bg-gradient-to-b ${popular ? "from-amber-500/10 to-amber-600/5" : "from-primary/10 to-primary/5"} opacity-0 group-hover:opacity-100 transition-opacity rounded-[32px] -z-10`} />
 
-              {plan.popular && (
-                <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-amber-500 text-white text-xs font-bold shadow-lg shadow-amber-500/30">MÁS RECOMENDADO</Badge>
-              )}
-
-              <div className="space-y-2 mb-8">
-                <h3 className="text-xl font-bold">{plan.name}</h3>
-                <div className="flex items-baseline gap-2">
-                  <span className="text-4xl font-black text-foreground">{plan.setup}</span>
-                  <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Setup inicial</span>
-                </div>
-                <div className="flex items-center gap-2 font-bold">
-                  <Badge variant="secondary" className={plan.popular ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary"}>
-                    {plan.monthly}
+                {popular && (
+                  <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-amber-500 text-white text-xs font-bold shadow-lg shadow-amber-500/30">
+                    MÁS RECOMENDADO
                   </Badge>
-                </div>
-              </div>
+                )}
 
-              <ul className="space-y-4 mb-10 flex-grow">
-                {plan.features.map((f) => (
-                  <li key={f} className="flex items-start gap-3 text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">
-                    <div className={`mt-1 w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${plan.popular ? "bg-amber-500/10" : "bg-primary/10"}`}>
-                      <Check size={12} className={plan.popular ? "text-amber-500" : "text-primary"} />
+                <div className="space-y-2 mb-8">
+                  <h3 className="text-xl font-bold">{svc.name}</h3>
+                  <div className="flex items-baseline gap-2 flex-wrap">
+                    {svc.discount_pct > 0 ? (
+                      <>
+                        <span className="text-xl font-bold text-muted-foreground/50 line-through">${svc.price.toLocaleString()}</span>
+                        <span className="text-4xl font-black text-primary">${(svc.price * (1 - svc.discount_pct / 100)).toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                      </>
+                    ) : (
+                      <span className="text-4xl font-black text-foreground">${svc.price.toLocaleString()}</span>
+                    )}
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Setup inicial</span>
+                  </div>
+                  {svc.is_recurring && svc.recurring_price != null && (
+                    <div className="flex items-center gap-2 font-bold">
+                      <Badge variant="secondary" className={popular ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary"}>
+                        {svc.recurring_label ?? `$${svc.recurring_price.toLocaleString()}/${svc.recurring_interval ?? "mes"}`}
+                      </Badge>
                     </div>
-                    {f}
-                  </li>
-                ))}
-              </ul>
-
-              <div className="space-y-6 pt-6 border-t border-border/50">
-                <div className="flex items-center justify-between text-xs font-bold">
-                  <span className="text-muted-foreground uppercase tracking-tight">Tiempo de entrega:</span>
-                  <span className="text-foreground">{plan.delivery}</span>
+                  )}
+                  {svc.description && (
+                    <p className="text-sm text-muted-foreground pt-1">{svc.description}</p>
+                  )}
                 </div>
-                <Button
-                  asChild
-                  className={`w-full h-14 rounded-2xl font-black text-base transition-all hover:scale-[1.02] ${
-                    plan.popular
-                      ? "bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/25"
-                      : ""
-                  }`}
-                  variant={plan.popular ? "default" : "outline"}
-                >
-                  <a href="#agendar">Agendar Llamada</a>
-                </Button>
+
+                <ul className="space-y-4 mb-10 flex-grow">
+                  {features.map((f) => (
+                    <li key={f} className="flex items-start gap-3 text-sm font-medium text-muted-foreground group-hover:text-foreground transition-colors">
+                      <div className={`mt-1 w-5 h-5 rounded-full flex items-center justify-center shrink-0 ${popular ? "bg-amber-500/10" : "bg-primary/10"}`}>
+                        <Check size={12} className={popular ? "text-amber-500" : "text-primary"} />
+                      </div>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="space-y-6 pt-6 border-t border-border/50">
+                  {svc.delivery_time && (
+                    <div className="flex items-center justify-between text-xs font-bold">
+                      <span className="text-muted-foreground uppercase tracking-tight">Tiempo de entrega:</span>
+                      <span className="text-foreground">{svc.delivery_time}</span>
+                    </div>
+                  )}
+                  <Button
+                    asChild
+                    className={`w-full h-14 rounded-2xl font-black text-base transition-all hover:scale-[1.02] ${
+                      popular ? "bg-amber-500 hover:bg-amber-600 text-white shadow-lg shadow-amber-500/25" : ""
+                    }`}
+                    variant={popular ? "default" : "outline"}
+                  >
+                    <a href="#agendar">Agendar Llamada</a>
+                  </Button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </section>

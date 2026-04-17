@@ -79,7 +79,8 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { calendar_id, date, hour, form_data } = await req.json();
+    const { calendar_id, date, hour, minute: rawMinute, form_data } = await req.json();
+    const minute: number = typeof rawMinute === "number" ? rawMinute : 0;
     if (!calendar_id || !date || hour == null) {
       return respond({ error: "calendar_id, date and hour are required" }, 400);
     }
@@ -98,6 +99,7 @@ Deno.serve(async (req) => {
       .eq("user_id", calendar.user_id)
       .eq("date", date)
       .eq("hour", hour)
+      .eq("minute", minute)
       .neq("status", "cancelled")
       .maybeSingle();
 
@@ -165,7 +167,7 @@ Deno.serve(async (req) => {
       .from("crm_appointments")
       .insert({
         user_id: calendar.user_id, contact_id: contactId,
-        calendar_id, date, hour, duration_min: calendar.duration_min ?? 30,
+        calendar_id, date, hour, minute, duration_min: calendar.duration_min ?? 30,
         service: null, status: "confirmed", notes: null,
       })
       .select("id")
@@ -179,7 +181,7 @@ Deno.serve(async (req) => {
         action: "create",
         entity: "appointment",
         entity_id: appointment.id,
-        description: `Cita agendada con ${name || email || "cliente"} el ${date} a las ${String(hour).padStart(2, "0")}:00 hs vía ${calendar.name ?? "calendario"}`,
+        description: `Cita agendada con ${name || email || "cliente"} el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs vía ${calendar.name ?? "calendario"}`,
       });
     } catch (e) {
       console.error("Log insert (non-fatal):", e);

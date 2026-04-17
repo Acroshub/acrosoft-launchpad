@@ -24,7 +24,9 @@ interface BlockedSlot {
   reason: string;
   date?: string;
   startHour?: number;
+  startMinute?: number;
   endHour?: number;
+  endMinute?: number;
   startDate?: string;
   endDate?: string;
 }
@@ -32,7 +34,12 @@ interface BlockedSlot {
 function isHourBlocked(blocked: BlockedSlot[], dayKey: string, hour: number): BlockedSlot | undefined {
   return blocked.find(b => {
     if (b.type === "hours" && b.date === dayKey && b.startHour !== undefined && b.endHour !== undefined) {
-      return hour >= b.startHour && hour < b.endHour;
+      // Hour row is blocked if the block overlaps with [hour:00, hour+1:00)
+      const hourStart  = hour * 60;
+      const hourEnd    = (hour + 1) * 60;
+      const startTotal = b.startHour * 60 + (b.startMinute ?? 0);
+      const endTotal   = b.endHour   * 60 + (b.endMinute   ?? 0);
+      return hourStart < endTotal && hourEnd > startTotal;
     }
     if (b.type === "fullday" && b.date === dayKey) return true;
     if (b.type === "range" && b.startDate && b.endDate) {
@@ -84,6 +91,7 @@ const statusStyles: Record<string, string> = {
 const DAYS_ES   = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const HOURS     = Array.from({ length: 13 }, (_, i) => i + 7); // 7:00 – 19:00
+const MINUTES   = [0, 15, 30, 45];
 
 function startOfWeek(date: Date) {
   const d = new Date(date);
@@ -105,28 +113,37 @@ function dateKey(d: Date) {
 // ─── Slot Dialog (two-tab: Agendar / Reservar) ───────────────
 
 interface SlotDialogProps {
-  newAppt: { open: boolean; date: string; hour: number; contactId: string; notes: string; service: string } | null;
+  newAppt: { open: boolean; date: string; hour: number; minute: number; contactId: string; notes: string; service: string } | null;
   contacts: any[];
   onClose: () => void;
-  onChangeAppt: (patch: Partial<{ date: string; hour: number; contactId: string; notes: string; service: string }>) => void;
+  onChangeAppt: (patch: Partial<{ date: string; hour: number; minute: number; contactId: string; notes: string; service: string }>) => void;
   onSaveAppt: () => Promise<void>;
-  onSaveBlock: (payload: { type: "hours" | "fullday" | "range"; date: string; startHour: number; endHour: number; reason: string }) => Promise<void>;
+  onSaveBlock: (payload: { type: "hours" | "fullday" | "range"; date: string; startHour: number; startMinute: number; endHour: number; endMinute: number; reason: string }) => Promise<void>;
   isSavingAppt: boolean;
   isSavingBlock: boolean;
 }
 
 const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSaveBlock, isSavingAppt, isSavingBlock }: SlotDialogProps) => {
   const [slotTab, setSlotTab] = useState<"appt" | "block">("appt");
-  const [blockType, setBlockType] = useState<"hours" | "fullday">("hours");
-  const [blockReason, setBlockReason] = useState("");
+  const [blockType, setBlockType]       = useState<"hours" | "fullday">("hours");
+  const [blockReason, setBlockReason]   = useState("");
   const [blockEndHour, setBlockEndHour] = useState((newAppt?.hour ?? 12) + 1);
+  const [blockEndMinute, setBlockEndMinute] = useState(0);
 
   if (!newAppt) return null;
 
   const canSave = !!newAppt.contactId && !!newAppt.date && newAppt.hour >= 0;
 
   const handleSaveBlock = () =>
-    onSaveBlock({ type: blockType, date: newAppt.date, startHour: newAppt.hour, endHour: blockEndHour, reason: blockReason });
+    onSaveBlock({
+      type: blockType,
+      date: newAppt.date,
+      startHour: newAppt.hour,
+      startMinute: newAppt.minute ?? 0,
+      endHour: blockEndHour,
+      endMinute: blockEndMinute,
+      reason: blockReason,
+    });
 
   return (
     <>
@@ -136,7 +153,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
         </DialogTitle>
         <DialogDescription>
           {slotTab === "appt"
-            ? `${newAppt.date} · ${String(newAppt.hour).padStart(2, "0")}:00`
+            ? `${newAppt.date} · ${String(newAppt.hour).padStart(2, "0")}:${String(newAppt.minute).padStart(2, "0")}`
             : "Bloquea este horario. No se aceptarán citas en este espacio."}
         </DialogDescription>
       </DialogHeader>
@@ -176,7 +193,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Fecha <span className="text-destructive">*</span></label>
               <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
@@ -189,7 +206,20 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                   onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })}
                   className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
                 >
-                  {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
+                  {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                </select>
+                <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Min.</label>
+              <div className="relative">
+                <select
+                  value={newAppt.minute}
+                  onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })}
+                  className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {MINUTES.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                 </select>
                 <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
               </div>
@@ -243,20 +273,36 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Desde</label>
-                  <div className="relative">
-                    <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
-                      {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
-                    </select>
-                    <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="relative">
+                      <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                        {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                      </select>
+                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
+                    <div className="relative">
+                      <select value={newAppt.minute ?? 0} onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                        {MINUTES.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                      </select>
+                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Hasta</label>
-                  <div className="relative">
-                    <select value={blockEndHour} onChange={(e) => setBlockEndHour(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
-                      {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
-                    </select>
-                    <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="relative">
+                      <select value={blockEndHour} onChange={(e) => setBlockEndHour(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                        {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                      </select>
+                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
+                    <div className="relative">
+                      <select value={blockEndMinute} onChange={(e) => setBlockEndMinute(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                        {MINUTES.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                      </select>
+                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -533,8 +579,13 @@ const CrmCalendar = () => {
   const createForm    = useCreateForm();
   const updateConfig  = useUpdateCalendarConfig();
   const { data: rawAppointments = [], isLoading: loadingAppts } = useAppointments();
-  const { data: rawBlocked = [], isLoading: loadingBlocked } = useBlockedSlots();
   const { data: contacts = [] } = useContacts();
+
+  // Which calendar is selected — declared early so hooks below can use it
+  const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
+  const selectedCalendar = calendars.find((c) => c.id === selectedCalendarId) ?? calendars[0] ?? null;
+
+  const { data: rawBlocked = [], isLoading: loadingBlocked } = useBlockedSlots(selectedCalendar?.id);
   const createAppointment = useCreateAppointment();
   const updateAppointment = useUpdateAppointment();
   const deleteAppointment = useDeleteAppointment();
@@ -542,23 +593,28 @@ const CrmCalendar = () => {
   const deleteBlockedSlotMut = useDeleteBlockedSlot();
 
   // Map raw appointments to the shape the view components expect
-  const appointments = useMemo(() => rawAppointments.map(a => {
-    const contact = contacts.find(c => c.id === a.contact_id);
-    return {
-      id: a.id,
-      name: contact?.name ?? "Sin contacto",
-      email: contact?.email ?? "",
-      phone: contact?.phone ?? "",
-      date: a.date,
-      time: `${String(a.hour).padStart(2, "0")}:00`,
-      hour: a.hour,
-      service: a.service ?? "",
-      status: a.status === "confirmed" ? "Confirmada" : "Cancelada",
-      notes: a.notes ?? "",
-      rawStatus: a.status,
-      contact_id: a.contact_id ?? null,
-    };
-  }), [rawAppointments, contacts]);
+  // Only show appointments that belong to the selected calendar
+  const appointments = useMemo(() => rawAppointments
+    .filter(a => selectedCalendar ? a.calendar_id === selectedCalendar.id : true)
+    .map(a => {
+      const contact = contacts.find(c => c.id === a.contact_id);
+      const min = a.minute ?? 0;
+      return {
+        id: a.id,
+        name: contact?.name ?? "Sin contacto",
+        email: contact?.email ?? "",
+        phone: contact?.phone ?? "",
+        date: a.date,
+        time: `${String(a.hour).padStart(2, "0")}:${String(min).padStart(2, "0")}`,
+        hour: a.hour,
+        minute: min,
+        service: a.service ?? "",
+        status: a.status === "confirmed" ? "Confirmada" : "Cancelada",
+        notes: a.notes ?? "",
+        rawStatus: a.status,
+        contact_id: a.contact_id ?? null,
+      };
+    }), [rawAppointments, contacts, selectedCalendar]);
 
   // Map raw blocked slots to the local BlockedSlot shape
   const blockedSlots: BlockedSlot[] = useMemo(() => rawBlocked.map(b => ({
@@ -566,10 +622,12 @@ const CrmCalendar = () => {
     type: b.type,
     reason: b.reason ?? "",
     date: b.date ?? undefined,
-    startHour: b.start_hour ?? undefined,
-    endHour: b.end_hour ?? undefined,
+    startHour:   b.start_hour   ?? undefined,
+    startMinute: b.start_minute ?? undefined,
+    endHour:     b.end_hour     ?? undefined,
+    endMinute:   b.end_minute   ?? undefined,
     startDate: b.range_start ?? undefined,
-    endDate: b.range_end ?? undefined,
+    endDate:   b.range_end   ?? undefined,
   })), [rawBlocked]);
 
   const [view, setView] = useState<ViewMode>(() =>
@@ -585,13 +643,14 @@ const CrmCalendar = () => {
   const [editingApptId, setEditingApptId] = useState<string | null>(null);
   const [editDate, setEditDate]           = useState("");
   const [editHour, setEditHour]           = useState(10);
+  const [editMinute, setEditMinute]       = useState(0);
   const [deleteApptTarget, setDeleteApptTarget] = useState<{ id: string; name: string } | null>(null);
 
   // New appointment modal
-  const [newAppt, setNewAppt] = useState<{ open: boolean; date: string; hour: number; contactId: string; notes: string; service: string } | null>(null);
+  const [newAppt, setNewAppt] = useState<{ open: boolean; date: string; hour: number; minute: number; contactId: string; notes: string; service: string } | null>(null);
 
   const openNewAppt = (date: string, hour: number) =>
-    setNewAppt({ open: true, date, hour, contactId: "", notes: "", service: "" });
+    setNewAppt({ open: true, date, hour, minute: 0, contactId: "", notes: "", service: "" });
 
   const closeNewAppt = () => setNewAppt(null);
 
@@ -600,7 +659,9 @@ const CrmCalendar = () => {
     type: "hours" | "fullday" | "range";
     date: string;
     startHour: number;
+    startMinute: number;
     endHour: number;
+    endMinute: number;
     startDate: string;
     endDate: string;
     reason: string;
@@ -608,7 +669,9 @@ const CrmCalendar = () => {
 
   const openBlockModal = () => setBlockModal({
     open: true, type: "hours",
-    date: dateKey(current), startHour: 12, endHour: 14,
+    date: dateKey(current),
+    startHour: 12, startMinute: 0,
+    endHour: 14,   endMinute: 0,
     startDate: dateKey(current), endDate: dateKey(current),
     reason: "",
   });
@@ -616,16 +679,19 @@ const CrmCalendar = () => {
   const closeBlockModal = () => setBlockModal(null);
 
   const saveBlock = async () => {
-    if (!blockModal) return;
+    if (!blockModal || !selectedCalendar) return;
     try {
       await createBlockedSlot.mutateAsync({
+        calendar_id: selectedCalendar.id,
         type: blockModal.type,
         reason: blockModal.reason || null,
         date: blockModal.type !== "range" ? blockModal.date : null,
-        start_hour: blockModal.type === "hours" ? blockModal.startHour : null,
-        end_hour: blockModal.type === "hours" ? blockModal.endHour : null,
+        start_hour:   blockModal.type === "hours" ? blockModal.startHour   : null,
+        start_minute: blockModal.type === "hours" ? blockModal.startMinute : null,
+        end_hour:     blockModal.type === "hours" ? blockModal.endHour     : null,
+        end_minute:   blockModal.type === "hours" ? blockModal.endMinute   : null,
         range_start: blockModal.type === "range" ? blockModal.startDate : null,
-        range_end: blockModal.type === "range" ? blockModal.endDate : null,
+        range_end:   blockModal.type === "range" ? blockModal.endDate   : null,
       });
       toast.success("Tiempo reservado");
       closeBlockModal();
@@ -634,12 +700,9 @@ const CrmCalendar = () => {
     }
   };
 
-  // Which calendar is selected in the dropdown
-  const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
   // null = new calendar form; CalendarData = edit form; undefined = not in config mode
   const [editingCalendar, setEditingCalendar] = useState<CalendarData | null | undefined>(undefined);
 
-  const selectedCalendar = calendars.find((c) => c.id === selectedCalendarId) ?? calendars[0] ?? null;
   const availability = selectedCalendar?.availability as WeeklySchedule | null | undefined;
   const detail = appointments.find((a) => a.id === selected);
 
@@ -1088,11 +1151,14 @@ const CrmCalendar = () => {
             onChangeAppt={(patch) => setNewAppt((p) => p && ({ ...p, ...patch }))}
             onSaveAppt={async () => {
               if (!newAppt) return;
+              if (!selectedCalendar) { toast.error("Selecciona un calendario primero"); return; }
               try {
                 await createAppointment.mutateAsync({
+                  calendar_id: selectedCalendar.id,
                   contact_id: newAppt.contactId || null,
                   date: newAppt.date,
                   hour: newAppt.hour,
+                  minute: newAppt.minute,
                   service: newAppt.service || null,
                   notes: newAppt.notes || null,
                   status: "confirmed",
@@ -1103,16 +1169,20 @@ const CrmCalendar = () => {
                 toast.error("Error al agendar cita");
               }
             }}
-            onSaveBlock={async ({ type, date, startHour, endHour, reason }) => {
+            onSaveBlock={async ({ type, date, startHour, startMinute, endHour, endMinute, reason }) => {
+              if (!selectedCalendar) { toast.error("Selecciona un calendario primero"); return; }
               try {
                 await createBlockedSlot.mutateAsync({
+                  calendar_id: selectedCalendar.id,
                   type,
                   reason: reason || null,
                   date: type !== "range" ? date : null,
-                  start_hour: type === "hours" ? startHour : null,
-                  end_hour: type === "hours" ? endHour : null,
+                  start_hour:   type === "hours" ? startHour   : null,
+                  start_minute: type === "hours" ? startMinute : null,
+                  end_hour:     type === "hours" ? endHour     : null,
+                  end_minute:   type === "hours" ? endMinute   : null,
                   range_start: type === "range" ? date : null,
-                  range_end: type === "range" ? date : null,
+                  range_end:   type === "range" ? date : null,
                 });
                 toast.success("Tiempo reservado");
                 closeNewAppt();
@@ -1130,7 +1200,7 @@ const CrmCalendar = () => {
         if (!open) setEditingApptId(null);
         else {
           const appt = appointments.find(a => a.id === editingApptId);
-          if (appt) { setEditDate(appt.date); setEditHour(appt.hour); }
+          if (appt) { setEditDate(appt.date); setEditHour(appt.hour); setEditMinute(appt.minute ?? 0); }
         }
       }}>
         <DialogContent className="sm:max-w-[400px]">
@@ -1140,30 +1210,47 @@ const CrmCalendar = () => {
               Modifica la fecha u hora agendada para {appointments.find(a => a.id === editingApptId)?.name}.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <label htmlFor="edit-date" className="text-right text-sm font-medium">Fecha</label>
-              <Input 
-                id="edit-date" 
-                type="date" 
+          <div className="space-y-4 py-4">
+            <div className="space-y-1.5">
+              <label htmlFor="edit-date" className="text-sm font-medium">Fecha</label>
+              <Input
+                id="edit-date"
+                type="date"
                 value={editDate || appointments.find(a => a.id === editingApptId)?.date || ""}
                 onChange={(e) => setEditDate(e.target.value)}
-                className="col-span-3 h-9 text-sm" 
+                className="h-9 text-sm"
               />
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <label htmlFor="edit-hour" className="text-right text-sm font-medium">Hora</label>
-              <div className="col-span-3 relative">
-                <select
-                  value={editHour || appointments.find(a => a.id === editingApptId)?.hour || 10}
-                  onChange={(e) => setEditHour(Number(e.target.value))}
-                  className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  {HOURS.map((h) => (
-                    <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>
-                  ))}
-                </select>
-                <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="space-y-1.5">
+                <label htmlFor="edit-hour" className="text-sm font-medium">Hora</label>
+                <div className="relative">
+                  <select
+                    value={editHour || appointments.find(a => a.id === editingApptId)?.hour || 10}
+                    onChange={(e) => setEditHour(Number(e.target.value))}
+                    className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    {HOURS.map((h) => (
+                      <option key={h} value={h}>{String(h).padStart(2, "0")}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <label htmlFor="edit-minute" className="text-sm font-medium">Min.</label>
+                <div className="relative">
+                  <select
+                    value={editMinute}
+                    onChange={(e) => setEditMinute(Number(e.target.value))}
+                    className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
+                  >
+                    {MINUTES.map((m) => (
+                      <option key={m} value={m}>{String(m).padStart(2, "0")}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                </div>
               </div>
             </div>
           </div>
@@ -1178,6 +1265,7 @@ const CrmCalendar = () => {
                     id: editingApptId,
                     date: editDate,
                     hour: editHour,
+                    minute: editMinute,
                   });
                   toast.success("Cita actualizada");
                   setEditingApptId(null);
@@ -1239,28 +1327,52 @@ const CrmCalendar = () => {
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium">Desde</label>
-                      <div className="relative">
-                        <select
-                          value={blockModal.startHour}
-                          onChange={e => setBlockModal(prev => prev && ({ ...prev, startHour: Number(e.target.value) }))}
-                          className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
-                        >
-                          {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
-                        </select>
-                        <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <div className="relative">
+                          <select
+                            value={blockModal.startHour}
+                            onChange={e => setBlockModal(prev => prev && ({ ...prev, startHour: Number(e.target.value) }))}
+                            className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+                          >
+                            {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                          </select>
+                          <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        </div>
+                        <div className="relative">
+                          <select
+                            value={blockModal.startMinute}
+                            onChange={e => setBlockModal(prev => prev && ({ ...prev, startMinute: Number(e.target.value) }))}
+                            className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+                          >
+                            {MINUTES.map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                          </select>
+                          <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        </div>
                       </div>
                     </div>
                     <div className="space-y-1.5">
                       <label className="text-sm font-medium">Hasta</label>
-                      <div className="relative">
-                        <select
-                          value={blockModal.endHour}
-                          onChange={e => setBlockModal(prev => prev && ({ ...prev, endHour: Number(e.target.value) }))}
-                          className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
-                        >
-                          {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}:00</option>)}
-                        </select>
-                        <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                      <div className="grid grid-cols-2 gap-1.5">
+                        <div className="relative">
+                          <select
+                            value={blockModal.endHour}
+                            onChange={e => setBlockModal(prev => prev && ({ ...prev, endHour: Number(e.target.value) }))}
+                            className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+                          >
+                            {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                          </select>
+                          <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        </div>
+                        <div className="relative">
+                          <select
+                            value={blockModal.endMinute}
+                            onChange={e => setBlockModal(prev => prev && ({ ...prev, endMinute: Number(e.target.value) }))}
+                            className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+                          >
+                            {MINUTES.map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                          </select>
+                          <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1321,6 +1433,7 @@ const CrmCalendar = () => {
             <Button variant="outline" onClick={closeBlockModal} className="h-9">Cancelar</Button>
             <Button
               onClick={saveBlock}
+              disabled={!selectedCalendar || createBlockedSlot.isPending}
               className="h-9 bg-amber-500 hover:bg-amber-600 text-white"
             >
               <Coffee size={14} className="mr-1.5" /> Reservar tiempo

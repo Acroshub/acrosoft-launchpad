@@ -176,7 +176,7 @@ export const useCreateAppointment = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_appointments"] });
-      logAction("create", "Cita", `Cita agendada: ${data.date} ${data.hour}h`, data.id);
+      logAction("create", "Cita", `Cita agendada: ${data.date} ${String(data.hour).padStart(2, "0")}:${String(data.minute ?? 0).padStart(2, "0")}`, data.id);
     },
   });
 };
@@ -217,15 +217,17 @@ export const useDeleteAppointment = () => {
 
 // ─── BLOCKED SLOTS ─────────────────────────────────────────────
 
-export const useBlockedSlots = () => {
+export const useBlockedSlots = (calendarId?: string | null) => {
   const { user } = useCurrentUser();
   return useQuery({
-    queryKey: ["crm_blocked_slots", user?.id],
+    queryKey: ["crm_blocked_slots", user?.id, calendarId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("crm_blocked_slots")
         .select("*")
         .order("created_at", { ascending: false });
+      if (calendarId) q = q.eq("calendar_id", calendarId);
+      const { data, error } = await q;
       if (error) throw error;
       return data as CrmBlockedSlot[];
     },
@@ -575,23 +577,6 @@ export const useCalendars = () => {
   });
 };
 
-/** @deprecated Use useCalendars() instead */
-export const useCalendarConfig = () => {
-  const { user } = useCurrentUser();
-  return useQuery({
-    queryKey: ["crm_calendar_config", user?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("crm_calendar_config")
-        .select("*")
-        .order("created_at", { ascending: true })
-        .limit(1);
-      if (error) throw error;
-      return ((data ?? [])[0] as CrmCalendarConfig) ?? null;
-    },
-    enabled: !!user,
-  });
-};
 
 export const useCreateCalendarConfig = () => {
   const qc = useQueryClient();
@@ -794,6 +779,49 @@ export const useDeletePipeline = () => {
 
 // ─── TASKS ────────────────────────────────────────────────────
 
+/**
+ * Builds a map of contact_id → [{pipelineName, stage}] by matching
+ * crm_contacts.stage against crm_pipelines.column_names.
+ * A contact appears in a pipeline when its stage value is one of that pipeline's columns.
+ */
+export const useAllContactStages = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_all_contact_stages", user?.id],
+    queryFn: async () => {
+      // Fetch all contacts-type pipelines
+      const { data: pipelines, error: pErr } = await supabase
+        .from("crm_pipelines")
+        .select("id, name, column_names")
+        .eq("user_id", user!.id)
+        .eq("type", "contacts");
+      if (pErr) throw pErr;
+
+      // Fetch all contacts that have a stage
+      const { data: contacts, error: cErr } = await supabase
+        .from("crm_contacts")
+        .select("id, stage")
+        .eq("user_id", user!.id)
+        .not("stage", "is", null);
+      if (cErr) throw cErr;
+
+      // Build map: contact_id → [{pipelineName, stage}]
+      const map: Record<string, { pipelineName: string; stage: string }[]> = {};
+      for (const contact of contacts ?? []) {
+        if (!contact.stage) continue;
+        for (const pipeline of pipelines ?? []) {
+          if ((pipeline.column_names as string[]).includes(contact.stage)) {
+            if (!map[contact.id]) map[contact.id] = [];
+            map[contact.id].push({ pipelineName: pipeline.name, stage: contact.stage });
+          }
+        }
+      }
+      return map;
+    },
+    enabled: !!user,
+  });
+};
+
 export const useTasks = (pipelineId: string | null) => {
   const { user } = useCurrentUser();
   return useQuery({
@@ -939,14 +967,31 @@ export const usePublicServices = (userId?: string | null, allowedIds?: string[])
     enabled: !!userId,
   });
 
+export const useLandingServices = () =>
+  useQuery({
+    queryKey: ["landing_services"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_services")
+        .select("*")
+        .eq("active", true)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmService[];
+    },
+  });
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export const usePublicCalendar = (calendarId: string) =>
   useQuery({
     queryKey: ["public_calendar", calendarId],
     queryFn: async () => {
+      const isUUID = UUID_RE.test(calendarId);
       const { data, error } = await supabase
         .from("crm_calendar_config")
         .select("*")
-        .eq("id", calendarId)
+        .eq(isUUID ? "id" : "slug", calendarId)
         .single();
       if (error) throw error;
       return data as CrmCalendarConfig;
@@ -955,43 +1000,43 @@ export const usePublicCalendar = (calendarId: string) =>
   });
 
 export const usePublicAppointments = (
-  userId?: string | null,
+  calendarId?: string | null,
   year?: number,
   month?: number,
 ) =>
   useQuery({
-    queryKey: ["public_appointments", userId, year, month],
+    queryKey: ["public_appointments", calendarId, year, month],
     queryFn: async () => {
-      if (!userId || year == null || month == null) return [];
+      if (!calendarId || year == null || month == null) return [];
       const startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
       // Use 31 as a safe upper bound — Supabase will just return nothing for invalid dates
       const endDate = `${year}-${String(month + 1).padStart(2, "0")}-31`;
       const { data, error } = await supabase
         .from("crm_appointments")
-        .select("date, hour, duration_min, status")
-        .eq("user_id", userId)
+        .select("date, hour, minute, duration_min, status")
+        .eq("calendar_id", calendarId)
         .gte("date", startDate)
         .lte("date", endDate)
         .neq("status", "cancelled");
       if (error) throw error;
-      return data as { date: string; hour: number; duration_min: number; status: string }[];
+      return data as { date: string; hour: number; minute: number; duration_min: number; status: string }[];
     },
-    enabled: !!userId && year != null && month != null,
+    enabled: !!calendarId && year != null && month != null,
   });
 
-export const usePublicBlockedSlots = (userId?: string | null) =>
+export const usePublicBlockedSlots = (calendarId?: string | null) =>
   useQuery({
-    queryKey: ["public_blocked_slots", userId],
+    queryKey: ["public_blocked_slots", calendarId],
     queryFn: async () => {
-      if (!userId) return [];
+      if (!calendarId) return [];
       const { data, error } = await supabase
         .from("crm_blocked_slots")
         .select("*")
-        .eq("user_id", userId);
+        .eq("calendar_id", calendarId);
       if (error) throw error;
       return data as CrmBlockedSlot[];
     },
-    enabled: !!userId,
+    enabled: !!calendarId,
   });
 
 export const usePublicBusinessProfile = (userId?: string | null) =>

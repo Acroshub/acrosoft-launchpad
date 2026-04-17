@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Pencil, User, Building2, Image as ImageIcon, Palette, Briefcase, Check, Loader2 } from "lucide-react";
 import CrmServices from "./CrmServices";
 import { useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
+import { useCurrentUser } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import type { CrmBusinessProfile } from "@/lib/supabase";
 
@@ -209,11 +210,15 @@ const ColoresTab = ({ profile, update }: { profile: CrmBusinessProfile | null, u
   </div>
 );
 
+const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const CrmBusiness = () => {
   const [tab, setTab] = useState<Tab>("personal");
+  const { user } = useCurrentUser();
   const { data: profile, isLoading } = useBusinessProfile();
   const upsertProfile = useUpsertBusinessProfile();
+  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
 
   const handleUpdate = async (updates: Partial<CrmBusinessProfile>) => {
       await upsertProfile.mutateAsync(updates);
@@ -258,7 +263,7 @@ const CrmBusiness = () => {
         {tab === "negocio"   && <NegocioTab profile={profile} update={handleUpdate} />}
         {tab === "logo"      && <LogoTab profile={profile} update={handleUpdate} />}
         {tab === "colores"   && <ColoresTab profile={profile} update={handleUpdate} />}
-        {tab === "servicios" && <CrmServices />}
+        {tab === "servicios" && <CrmServices isSuperAdmin={isSuperAdmin} />}
       </div>
     </div>
   );

@@ -12,28 +12,28 @@ La UI de todos los módulos está completa. El backend (Supabase) está parcialm
 ## BLOQUE 1 — Quick Wins
 > Cambios de 1–4 horas. Sin riesgo. Mejoras inmediatas.
 
-### QW-1 · isSuperAdmin dinámico
+### QW-1 · isSuperAdmin dinámico ✅ COMPLETADO
 **Problema:** `isSuperAdmin` está hardcodeado como `true` en `Crm.tsx`.
 **Fix:** Comparar `user.email === 'e.daniel.acero.r@gmail.com'` al montar el componente.
 **Archivos:** `src/pages/Crm.tsx`
 
 ---
 
-### QW-2 · Eliminar CrmClients.tsx
+### QW-2 · Eliminar CrmClients.tsx ✅ COMPLETADO
 **Problema:** Duplicado accidental del Dashboard. Todo con `{VAR_DB}`. No tiene función real.
 **Fix:** Eliminar el archivo. La vista "Clientes" será un filtro dentro de `CrmContacts` (contactos con al menos una venta registrada).
 **Archivos:** `src/components/crm/CrmClients.tsx` → eliminar
 
 ---
 
-### QW-3 · Stage del contacto dinámico
+### QW-3 · Stage del contacto dinámico ✅ COMPLETADO
 **Problema:** El stage de un contacto se muestra como texto fijo. Ahora es el nombre de la columna del pipeline donde esté. Un contacto puede estar en múltiples pipelines → múltiples stages.
-**Fix:** En la UI de contactos, mostrar todos los stages activos del contacto como badges (uno por pipeline donde aparezca).
+**Fix:** En la UI de contactos, mostrar todos los stages activos del contacto como badges (uno por pipeline donde aparezca). Hook `useAllContactStages` construye mapa `contact_id → [{pipelineName, stage}]` desde `crm_tasks JOIN crm_pipelines`.
 **Archivos:** `src/components/crm/CrmContacts.tsx`
 
 ---
 
-### QW-4 · Métricas del Overview — reestructuración
+### QW-4 · Métricas del Overview — reestructuración ✅ COMPLETADO
 **Cambios:**
 - Eliminar métrica "Proyectos activos"
 - Renombrar "Entregados (mes)" → "Ventas este mes" (mes calendario, no 30 días rolling)
@@ -45,21 +45,21 @@ La UI de todos los módulos está completa. El backend (Supabase) está parcialm
 
 ---
 
-### QW-5 · Servicios dinámicos en Landing
+### QW-5 · Servicios dinámicos en Landing ✅ COMPLETADO
 **Problema:** El array `plans` en `Index.tsx` está hardcodeado.
 **Fix:** Cargar todos los servicios activos del Admin desde `crm_services` via `usePublicServices`. Mostrar todos (SaaS y no-SaaS). La UI de cards se adapta dinámicamente a la cantidad de servicios registrados.
 **Archivos:** `src/pages/Index.tsx`
 
 ---
 
-### QW-6 · Descuento en servicios
+### QW-6 · Descuento en servicios ✅ COMPLETADO
 **Cambio:** Añadir campo `discount_pct numeric DEFAULT 0` en `crm_services`.
 **UI:** Campo de descuento en el editor de `CrmServices`. Mostrar precio tachado + precio con descuento en la landing y en el campo `services` del FormRenderer.
 **Archivos:** migración SQL, `src/components/crm/CrmServices.tsx`, `src/components/crm/FormRenderer.tsx`, `src/pages/Index.tsx`
 
 ---
 
-### QW-7 · Heading no cuenta como campo real
+### QW-7 · Heading no cuenta como campo real ✅ COMPLETADO
 **Fix:** Actualizar validación del builder: al verificar "al menos 1 campo por página", el tipo `heading` no cuenta.
 **Archivos:** `src/components/crm/CrmForms.tsx`
 
@@ -68,48 +68,99 @@ La UI de todos los módulos está completa. El backend (Supabase) está parcialm
 ## BLOQUE 2 — Fixes de Schema
 > Requieren migración SQL + ajuste de hooks. Impacto bajo en UI.
 
-### S-1 · crm_appointments — añadir campo minute
+### S-1 · crm_appointments — añadir campo minute ✅ COMPLETADO
 **Problema:** Solo hay `hour: int`. Las citas no pueden tener hora exacta con minutos.
 **Fix:** Añadir `minute int NOT NULL DEFAULT 0`. Actualizar todos los hooks y componentes que usan `hour` para incluir `minute`.
 **Archivos:** migración SQL, `src/hooks/useCrmData.ts`, `src/components/crm/CrmCalendar.tsx`, `src/components/crm/CalendarRenderer.tsx`
 
 ---
 
-### S-2 · crm_blocked_slots — añadir calendar_id
+### S-2 · crm_blocked_slots — añadir calendar_id ✅ COMPLETADO
 **Problema:** Los bloqueos son por calendario específico pero no tienen referencia al calendario. Con multi-calendario bloquea todos.
 **Fix:** Añadir `calendar_id uuid REFERENCES crm_calendar_config ON DELETE CASCADE NOT NULL`.
 **Archivos:** migración SQL, `src/hooks/useCrmData.ts`, `src/components/crm/CrmCalendar.tsx`
 
 ---
 
-### S-3 · crm_calendar_config — campos de anticipación
-**Problema:** No hay forma de limitar cuánto tiempo de anticipación necesita una cita ni hasta cuándo mostrar disponibilidad.
-**Fix:** Añadir `min_advance_hours int DEFAULT 1` y `max_future_days int DEFAULT 60`.
-**UI:** Añadir estos campos en `CrmCalendarConfig` como parte de la configuración del calendario.
-**Archivos:** migración SQL, `src/components/crm/CrmCalendarConfig.tsx`
+### ✅ S-3 · crm_calendar_config — campos de anticipación (COMPLETADO)
+**Fix:** Columnas `min_advance_hours INT NOT NULL DEFAULT 1` y `max_future_days INT NOT NULL DEFAULT 60` aplicadas.
+**UI:** Campos en `CrmCalendarConfig` bajo duración/buffer. Se guardan y cargan desde DB.
+**Lógica:** `CalendarRenderer` filtra slots usando timestamp absoluto (`minBookableMs`) y bloquea días/navegación más allá de `maxDateKey`.
 
 ---
 
-### S-4 · crm_services — discount_pct y sync general
-**Añadir:** `discount_pct numeric DEFAULT 0`.
-**Verificar:** Que todos los campos de `CrmService` tengan su columna en la tabla (`is_saas`, `active`, `sort_order`, `recurring_label`, `delivery_time`, `benefits`, `is_recommended`).
-**Archivos:** migración SQL
+### ✅ S-4 · crm_services — discount_pct y sync general (COMPLETADO)
+Todos los campos de `CrmService` verificados en DB: `is_saas`, `active`, `sort_order`, `recurring_label`, `delivery_time`, `benefits` (jsonb), `is_recommended`, `discount_pct`. Sin migraciones pendientes. UI lee y escribe todos los campos correctamente.
 
 ---
 
-### S-5 · crm_business_profile — metrics_order
-**Añadir:** `metrics_order jsonb DEFAULT '[]'` para persistir el orden de métricas del Overview por usuario.
-**Archivos:** migración SQL
+### ✅ S-5 · crm_business_profile — metrics_order (COMPLETADO)
+`metrics_order jsonb NOT NULL DEFAULT '[]'` existe en DB. `CrmOverview` lee y guarda el orden vía `useUpsertBusinessProfile`. Sin migraciones pendientes.
+
+---
+
+### ✅ S-6 · crm_blocked_slots — soporte de minutos en bloqueos (COMPLETADO)
+Migración aplicada: `start_minute INT NOT NULL DEFAULT 0` y `end_minute INT NOT NULL DEFAULT 0`.
+- `isSlotBlocked` en `CalendarRenderer` compara en minutos totales.
+- `isHourBlocked` en `CrmCalendar` usa overlap detection para sombrado de filas.
+- Modal standalone y `SlotDialog`: selectores hora+minuto (0/15/30/45) en "Desde" y "Hasta".
+- Mapping `rawBlocked → BlockedSlot` incluye `startMinute`/`endMinute`.
 
 ---
 
 ## BLOQUE 3 — Fixes de Lógica
 > Bugs que afectan funcionalidad real. 2–6 horas cada uno.
 
-### L-1 · useCalendars — hook multi-calendario
-**Problema:** `useCalendarConfig` hace `.limit(1)` — solo trae 1 calendario.
-**Fix:** Verificar que `useCalendars` (que ya existe) trae todos los calendarios correctamente y reemplazar todos los usos incorrectos de `useCalendarConfig`.
-**Archivos:** `src/hooks/useCrmData.ts`
+### L-12 · useLandingServices y useLandingCalendar — bug multi-tenant
+**Origen:** QW-5 auditado. La política RLS `"Public can read services"` tiene `qual: true` — devuelve servicios de TODOS los usuarios.
+**Bugs:**
+1. `useLandingServices` filtra solo por `active = true` sin `user_id` → servicios de clientes SaaS aparecerán en la landing de Acrosoft cuando haya clientes reales.
+2. `useLandingCalendar` hace `ORDER BY created_at LIMIT 1` sin `user_id` → podría mostrar el calendario de un cliente SaaS en vez del del admin.
+**Fix:** Ambos hooks deben obtener primero el `user_id` del admin (leyendo el primer `crm_business_profile` público, o hardcodeando el ID del admin como constante en el frontend) y filtrar por él.
+**Prioridad:** Media. No falla hoy (un solo usuario). Se activa con el primer cliente SaaS.
+**Archivos:** `src/hooks/useCrmData.ts`, `src/pages/Index.tsx`
+
+---
+
+### L-13 · CrmForms — validación "heading no cuenta" incompleta (QW-7)
+**Bugs:**
+1. La validación `type !== "heading"` solo corre dentro de `if (multiPage)`. Un formulario de una sola página con solo headings puede guardarse y publicarse — el usuario vería una página sin campos reales.
+2. `form.fields.length` en la lista de formularios cuenta campos `heading` → muestra contador incorrecto ("3 campos" en vez de "2" si uno es heading).
+**Fix:**
+1. Añadir validación para `!multiPage`: `fields.filter(f => f.type !== "heading").length === 0` → error antes de guardar.
+2. Cambiar `form.fields.length` a `form.fields.filter(f => f.type !== "heading").length` en la lista.
+**Prioridad:** Baja. Solo afecta edge case de admin creando formularios vacíos.
+**Archivos:** `src/components/crm/CrmForms.tsx`
+
+---
+
+### L-10 · CrmOverview — minutos ignorados en citas (regresión S-1)
+**Origen:** S-1 añadió `minute` a `crm_appointments` pero `CrmOverview` nunca fue actualizado.
+**Bugs:**
+1. `getMetricValue("proxima-cita")` retorna `${hour}:00` — ignora `minute`. Una cita a las 10:30 se muestra como "10:00".
+2. Filtro `nextAppointment`: `d.setHours(a.hour, 0, 0, 0)` sin minutos — puede excluir citas futuras del mismo hour si `minute > minuto actual`.
+3. Sort `nextAppointment`: `da.setHours(a.hour)` sin minute — ordena mal citas en la misma hora.
+4. Sección "Citas de hoy": muestra `${hour}:00` hardcodeado en cada fila.
+**Fix:** Propagar `minute` en filtro, sort y display de `nextAppointment` y "Citas de hoy" en `CrmOverview.tsx`.
+**Archivos:** `src/components/crm/CrmOverview.tsx`
+
+---
+
+### L-11 · QW-3 — Colisión de stage entre pipelines
+**Origen:** `crm_contacts.stage` guarda solo el texto del nombre de columna sin referencia al `pipeline_id`. Si dos pipelines tienen una columna con el mismo nombre, `useAllContactStages` asigna el contacto a ambos como falso positivo.
+**Impacto:** Bajo con 1 pipeline. Alto al escalar (2+ pipelines con columnas de nombre similar).
+**Fix:** Guardar stage como mapa `{ pipeline_id → stage_name }` en `crm_contacts.custom_fields` o agregar tabla `crm_contact_pipeline_stages(contact_id, pipeline_id, stage)`. Actualizar `useAllContactStages`, `addContactToPipelines` (edge function) y la UI de pipeline drag.
+**Archivos:** migración SQL, `src/hooks/useCrmData.ts`, `supabase/functions/crm-form-public/index.ts`, `src/components/crm/CrmPipeline.tsx`
+**Complejidad:** Alta — requiere cambio de schema + migración de datos + actualizar todos los puntos que leen/escriben stage.
+
+---
+
+### ✅ L-1 · useCalendars — hook multi-calendario (COMPLETADO)
+- `useCalendars` trae todos los calendarios sin `.limit(1)` ✅
+- `useCalendarConfig` (deprecated) eliminado — no tenía usos en ningún componente ✅
+- **Bug corregido:** `appointments` memo ahora filtra por `selectedCalendar.id` — admin solo ve citas del calendario activo
+- **Bug corregido:** `createAppointment.mutateAsync` ahora incluye `calendar_id: selectedCalendar.id` con guard previo
+- **DB:** cita huérfana con `calendar_id = NULL` asignada automáticamente al primer calendario del usuario vía migración
 
 ---
 
@@ -152,6 +203,24 @@ La UI de todos los módulos está completa. El backend (Supabase) está parcialm
 **Problema:** La sección con `isConfirmation: true` debería mostrar un resumen de todas las respuestas antes de enviar. No está verificado si funciona.
 **Fix:** Verificar en `FormRenderer`. Si no funciona, implementar: renderizar cada campo respondido en modo solo lectura antes del botón de envío.
 **Archivos:** `src/components/crm/FormRenderer.tsx`
+
+---
+
+### L-9 · buffer_min — tiempo entre citas no se aplica
+**Problema:** `buffer_min` se guarda en `crm_calendar_config` pero nunca se usa. Si hay una cita a las 9:00 con duración 60 min y buffer 15 min, el slot de las 10:00 debería estar bloqueado automáticamente (ocupado hasta las 10:15), pero `CalendarRenderer` lo muestra disponible y `crm-calendar-book` permite la reserva.
+
+**Fix — dos lugares:**
+1. `CalendarRenderer`: al generar `availableSlots`, además de verificar `booked.has(slot)`, verificar que ninguna cita existente ocupe el período `[appt_start, appt_start + duration_min + buffer_min)`. Un slot candidato `{h, m}` está bloqueado si `h*60+m >= appt_start_min && h*60+m < appt_start_min + duration_min + buffer_min`.
+2. `crm-calendar-book` (edge function): leer `buffer_min` del calendario, buscar citas en `±(duration_min + buffer_min)` del slot solicitado y rechazar si hay solapamiento.
+
+**Archivos:** `src/components/crm/CalendarRenderer.tsx`, `supabase/functions/crm-calendar-book/index.ts`
+
+---
+
+### L-8 · WeeklySchedulePicker — soporte de horarios sub-hora
+**Problema:** El picker solo permite horas enteras (`"9:00 AM"`, `"5:00 PM"`). No se puede definir disponibilidad de 9:30 a 17:30.
+**Fix:** Añadir opciones de :30 al array `HOURS` del picker (`"9:00 AM"`, `"9:30 AM"`, `"10:00 AM"`...). Actualizar `amPmToHour` en `CalendarRenderer` para extraer también los minutos (`amPmToMin` que retorne minutos totales). Actualizar `isHourAvailable` para comparar con minutos totales del slot contra los boundaries del schedule.
+**Archivos:** `src/components/shared/WeeklySchedulePicker.tsx`, `src/components/crm/CalendarRenderer.tsx`
 
 ---
 
@@ -297,7 +366,17 @@ Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipel
 
 ---
 
-## BLOQUE 7 — Deuda técnica
+## BLOQUE 7 — Mejoras visuales del Calendario Admin
+
+### UI-1 · Bloques de tiempo con precisión de minuto en la vista admin
+**Problema:** En la vista de semana/día del CRM, un bloque de 9:30–11:30 sombrea filas enteras (9, 10, 11). La lógica de bloqueo es correcta — el calendario público filtra slots con precisión. Solo falla la representación visual del admin.
+**Fix:** Reemplazar el sistema de "sombrear celda de hora" por un overlay absolutamente posicionado que calcule `top` y `height` en función de los minutos (`startMinute / 60 * rowHeight` y `(endHour*60+endMinute - startHour*60-startMinute) / 60 * rowHeight`).
+**Archivos:** `src/components/crm/CrmCalendar.tsx` (vista semana y día)
+**Complejidad:** Media — requiere refactorizar el renderizado del grid horario.
+
+---
+
+## BLOQUE 8 — Deuda técnica
 > Sin urgencia, pero mejoran la base del código.
 
 ### DT-1 · Tipos TypeScript — eliminar duplicados
@@ -340,12 +419,18 @@ MEDIA PRIORIDAD:
   QW-6  Descuento en servicios
   QW-7  Heading no cuenta como campo
   S-3   crm_calendar_config campos anticipación
+  S-6   crm_blocked_slots minutos en bloqueos
+  L-9   buffer_min tiempo entre citas (no se aplica actualmente)
   L-3   Renombrar columna pipeline
   L-4   Pipeline múltiple en formularios
   L-6   CrmServices sync con schema
   L-7   isConfirmation en FormRenderer
+  L-8   WeeklySchedulePicker horarios sub-hora
   F-2   FormRenderer multi-página stepper
   F-3   Staff invitación email
+
+MEJORAS VISUALES:
+  UI-1  Bloques sub-hora con overlay preciso en vista admin del calendario
 
 LARGO PLAZO:
   F-4   /onboarding → FormRenderer
