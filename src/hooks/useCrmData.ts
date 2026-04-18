@@ -139,6 +139,8 @@ export const useDeleteContact = () => {
     },
     onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_contacts"] });
+      qc.invalidateQueries({ queryKey: ["crm_contact_memberships"] });
+      qc.invalidateQueries({ queryKey: ["crm_all_contact_stages"] });
       logAction("delete", "Contacto", `Contacto eliminado: ${name}`, id);
     },
   });
@@ -773,6 +775,8 @@ export const useDeletePipeline = () => {
     onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_pipelines"] });
       qc.invalidateQueries({ queryKey: ["crm_tasks"] });
+      qc.invalidateQueries({ queryKey: ["crm_contact_memberships"] });
+      qc.invalidateQueries({ queryKey: ["crm_all_contact_stages"] });
       logAction("delete", "Pipeline", `Pipeline eliminado: ${name}`, id);
     },
   });

@@ -224,7 +224,6 @@ Deno.serve(async (req) => {
 
     let contactId: string | null = null;
     let contactName = name;
-    let isNewContact = false;
 
     try {
       if (email) {
@@ -247,7 +246,6 @@ Deno.serve(async (req) => {
             custom_fields: mergedFields,
           }).eq("id", existing.id);
         } else {
-          isNewContact = true;
           const { data: nc } = await supabase.from("crm_contacts").insert({
             user_id: form.user_id, name: name || "Sin nombre", email,
             phone: phone || null, tags: autoTags, stage: null,
@@ -268,7 +266,7 @@ Deno.serve(async (req) => {
       console.error("Contact upsert (non-fatal):", e);
     }
 
-    if (isNewContact && contactId) {
+    if (contactId) {
       const pipelineIds: string[] = Array.isArray(form.pipeline_ids) ? form.pipeline_ids : [];
       await addContactToPipelines(form.user_id, contactId, pipelineIds);
     }

@@ -615,7 +615,16 @@ const FormRenderer = ({ formId }: { formId: string }) => {
     return (form.fields as any[]).map(f => f as PublicField);
   }, [form]);
 
-  const activeSections = useMemo(() => sections.filter(s => !s.isConfirmation), [sections]);
+  const activeSections = useMemo(() => {
+    const real = sections.filter(s => !s.isConfirmation);
+    if (real.length > 0) return real;
+    if (fields.length > 0) {
+      const virtualId = "__virtual__";
+      fields.forEach(f => { if (!f.sectionId) f.sectionId = virtualId; });
+      return [{ id: virtualId, name: form?.name ?? "", subtitle: "", isConfirmation: false } as PublicSection];
+    }
+    return [];
+  }, [sections, fields, form?.name]);
   const confirmSection = useMemo(() => sections.find(s => s.isConfirmation), [sections]);
 
   const [currentStep, setCurrentStep] = useState(0);
@@ -748,8 +757,8 @@ const FormRenderer = ({ formId }: { formId: string }) => {
 
   return (
     <>
-      {/* Stepper Progress */}
-      <div className="bg-card/50 border-b py-6 mb-8">
+      {/* Stepper Progress — only show when multi-step */}
+      {totalSteps > 1 && <div className="bg-card/50 border-b py-6 mb-8">
         <div className="container mx-auto px-4 max-w-4xl">
           <div className="flex items-center justify-between mb-4">
             <div className="flex flex-col">
@@ -775,7 +784,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
             ))}
           </div>
         </div>
-      </div>
+      </div>}
 
       {/* Main Content */}
       <main className="container mx-auto px-4 pb-20">
@@ -840,18 +849,20 @@ const FormRenderer = ({ formId }: { formId: string }) => {
 
             {/* Navigation */}
             <div className="flex items-center justify-between mt-12 pt-8 border-t border-border/50">
-              <Button
-                variant="ghost"
-                onClick={prev}
-                disabled={currentStep === 0}
-                className="rounded-xl h-12 px-6 font-bold text-muted-foreground hover:text-foreground transition-all"
-              >
-                <ChevronLeft size={18} className="mr-2" /> Anterior
-              </Button>
-
-              {isOnConfirm ? (
+              {totalSteps > 1 ? (
                 <Button
-                  onClick={handleSubmit}
+                  variant="ghost"
+                  onClick={prev}
+                  disabled={currentStep === 0}
+                  className="rounded-xl h-12 px-6 font-bold text-muted-foreground hover:text-foreground transition-all"
+                >
+                  <ChevronLeft size={18} className="mr-2" /> Anterior
+                </Button>
+              ) : <div />}
+
+              {isOnConfirm || (!confirmSection && currentStep === activeSections.length - 1) ? (
+                <Button
+                  onClick={isOnConfirm ? handleSubmit : () => { if (validate()) handleSubmit(); }}
                   disabled={isSubmitting}
                   className="rounded-xl h-12 px-8 font-black shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
                 >
