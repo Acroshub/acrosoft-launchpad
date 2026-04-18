@@ -26,6 +26,7 @@ export type CrmContact = {
   notes: string | null
   custom_fields: Json
   master_doc_url?: string | null
+  pipeline_position?: Record<string, number> | null
 }
 
 export type CrmPipeline = {
@@ -42,6 +43,7 @@ export type CrmTask = {
   created_at: string
   user_id: string
   pipeline_id: string
+  contact_id: string | null
   title: string
   description: string | null
   priority: 'low' | 'medium' | 'high' | null
@@ -205,6 +207,7 @@ export type CrmBusinessProfile = {
   color_secondary: string
   color_accent: string
   metrics_order?: Json
+  landing_calendar_id?: string | null
 }
 
 export type CrmReminderConfig = {
@@ -236,6 +239,15 @@ export type CrmReminder = {
   is_personal?: boolean
   staff_id?: string | null
   business_target?: string | null
+}
+
+export type CrmContactPipelineMembership = {
+  id: string
+  created_at: string
+  contact_id: string
+  pipeline_id: string
+  stage: string
+  position: number
 }
 
 export type CrmClientAccount = {

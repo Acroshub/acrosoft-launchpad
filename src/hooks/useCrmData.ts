@@ -18,6 +18,7 @@ import type {
   CrmStaff,
   CrmReminderConfig,
   CrmReminder,
+  CrmContactPipelineMembership,
 } from "@/lib/supabase";
 import { useCurrentUser } from "./useAuth";
 
@@ -780,45 +781,170 @@ export const useDeletePipeline = () => {
 // ─── TASKS ────────────────────────────────────────────────────
 
 /**
- * Builds a map of contact_id → [{pipelineName, stage}] by matching
- * crm_contacts.stage against crm_pipelines.column_names.
- * A contact appears in a pipeline when its stage value is one of that pipeline's columns.
+ * Builds a map of contact_id → [{pipelineName, stage}] from crm_contact_pipeline_memberships.
+ * Source of truth for multi-pipeline membership (replaces matching crm_contacts.stage).
  */
 export const useAllContactStages = () => {
   const { user } = useCurrentUser();
   return useQuery({
     queryKey: ["crm_all_contact_stages", user?.id],
     queryFn: async () => {
-      // Fetch all contacts-type pipelines
-      const { data: pipelines, error: pErr } = await supabase
-        .from("crm_pipelines")
-        .select("id, name, column_names")
-        .eq("user_id", user!.id)
-        .eq("type", "contacts");
-      if (pErr) throw pErr;
+      const { data, error } = await supabase
+        .from("crm_contact_pipeline_memberships")
+        .select("contact_id, stage, crm_pipelines!inner(name)");
+      if (error) throw error;
 
-      // Fetch all contacts that have a stage
-      const { data: contacts, error: cErr } = await supabase
-        .from("crm_contacts")
-        .select("id, stage")
-        .eq("user_id", user!.id)
-        .not("stage", "is", null);
-      if (cErr) throw cErr;
-
-      // Build map: contact_id → [{pipelineName, stage}]
       const map: Record<string, { pipelineName: string; stage: string }[]> = {};
-      for (const contact of contacts ?? []) {
-        if (!contact.stage) continue;
-        for (const pipeline of pipelines ?? []) {
-          if ((pipeline.column_names as string[]).includes(contact.stage)) {
-            if (!map[contact.id]) map[contact.id] = [];
-            map[contact.id].push({ pipelineName: pipeline.name, stage: contact.stage });
-          }
-        }
+      for (const row of data ?? []) {
+        const pipeline = row.crm_pipelines as unknown as { name: string } | null;
+        if (!pipeline) continue;
+        if (!map[row.contact_id]) map[row.contact_id] = [];
+        map[row.contact_id].push({ pipelineName: pipeline.name, stage: row.stage });
       }
       return map;
     },
     enabled: !!user,
+  });
+};
+
+// ─── CONTACT PIPELINE MEMBERSHIPS ─────────────────────────────
+
+/** Fetches all memberships for a specific contacts pipeline. */
+export const useContactMemberships = (pipelineId: string | null) => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_contact_memberships", pipelineId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_contact_pipeline_memberships")
+        .select("*")
+        .eq("pipeline_id", pipelineId!)
+        .order("position", { ascending: true });
+      if (error) throw error;
+      return data as CrmContactPipelineMembership[];
+    },
+    enabled: !!user && !!pipelineId,
+  });
+};
+
+/** Adds (or updates) a contact's membership in a pipeline. */
+export const useAddContactMembership = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      contactId,
+      pipelineId,
+      stage,
+      position = 0,
+    }: {
+      contactId: string;
+      pipelineId: string;
+      stage: string;
+      position?: number;
+    }) => {
+      const { data, error } = await supabase
+        .from("crm_contact_pipeline_memberships")
+        .upsert(
+          { contact_id: contactId, pipeline_id: pipelineId, stage, position },
+          { onConflict: "contact_id,pipeline_id" }
+        )
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmContactPipelineMembership;
+    },
+    onSuccess: (_, { pipelineId }) => {
+      qc.invalidateQueries({ queryKey: ["crm_contact_memberships", pipelineId] });
+      qc.invalidateQueries({ queryKey: ["crm_all_contact_stages"] });
+    },
+  });
+};
+
+/** Removes a contact from a pipeline (deletes the membership row). */
+export const useRemoveContactMembership = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ membershipId }: { membershipId: string; pipelineId: string }) => {
+      const { error } = await supabase
+        .from("crm_contact_pipeline_memberships")
+        .delete()
+        .eq("id", membershipId);
+      if (error) throw error;
+    },
+    onSuccess: (_, { pipelineId }) => {
+      qc.invalidateQueries({ queryKey: ["crm_contact_memberships", pipelineId] });
+      qc.invalidateQueries({ queryKey: ["crm_all_contact_stages"] });
+    },
+  });
+};
+
+/** Moves a contact to a different column within the same pipeline. */
+export const useUpdateMembershipStage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ membershipId, stage }: { membershipId: string; stage: string; pipelineId: string }) => {
+      const { data, error } = await supabase
+        .from("crm_contact_pipeline_memberships")
+        .update({ stage })
+        .eq("id", membershipId)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmContactPipelineMembership;
+    },
+    onSuccess: (_, { pipelineId }) => {
+      qc.invalidateQueries({ queryKey: ["crm_contact_memberships", pipelineId] });
+      qc.invalidateQueries({ queryKey: ["crm_all_contact_stages"] });
+    },
+  });
+};
+
+/** Renames a stage on all memberships in a pipeline (used when renaming a column). */
+export const useBatchUpdateMembershipStage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      pipelineId,
+      oldStage,
+      newStage,
+    }: {
+      pipelineId: string;
+      oldStage: string;
+      newStage: string;
+    }) => {
+      const { error } = await supabase
+        .from("crm_contact_pipeline_memberships")
+        .update({ stage: newStage })
+        .eq("pipeline_id", pipelineId)
+        .eq("stage", oldStage);
+      if (error) throw error;
+    },
+    onSuccess: (_, { pipelineId }) => {
+      qc.invalidateQueries({ queryKey: ["crm_contact_memberships", pipelineId] });
+      qc.invalidateQueries({ queryKey: ["crm_all_contact_stages"] });
+    },
+  });
+};
+
+/** Updates position on multiple memberships (for within-column reorder). */
+export const useBatchUpdateMembershipPositions = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (updates: { id: string; position: number; pipelineId: string }[]) => {
+      for (const { id, position } of updates) {
+        const { error } = await supabase
+          .from("crm_contact_pipeline_memberships")
+          .update({ position })
+          .eq("id", id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: (_, updates) => {
+      const pipelineIds = [...new Set(updates.map((u) => u.pipelineId))];
+      pipelineIds.forEach((pid) =>
+        qc.invalidateQueries({ queryKey: ["crm_contact_memberships", pid] })
+      );
+    },
   });
 };
 
@@ -844,10 +970,10 @@ export const useCreateTask = () => {
   const qc = useQueryClient();
   const { user } = useCurrentUser();
   return useMutation({
-    mutationFn: async (task: Pick<CrmTask, "pipeline_id" | "title" | "description" | "priority" | "stage">) => {
+    mutationFn: async (task: Pick<CrmTask, "pipeline_id" | "title" | "description" | "priority" | "stage"> & { contact_id?: string | null; position?: number }) => {
       const { data, error } = await supabase
         .from("crm_tasks")
-        .insert({ ...task, user_id: user!.id, position: 0 })
+        .insert({ ...task, user_id: user!.id, position: task.position ?? 0 })
         .select()
         .single();
       if (error) throw error;
@@ -889,6 +1015,102 @@ export const useDeleteTask = () => {
     onSuccess: (pipelineId, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_tasks", pipelineId] });
       logAction("delete", "Tarea", `Tarea eliminada: ${name}`, id);
+    },
+  });
+};
+
+/**
+ * Batch-updates stage on multiple contacts by ID.
+ * Used when renaming a pipeline column — avoids N individual mutations.
+ */
+export const useBatchUpdateContactStage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ ids, newStage }: { ids: string[]; newStage: string }) => {
+      if (ids.length === 0) return;
+      const { error } = await supabase
+        .from("crm_contacts")
+        .update({ stage: newStage })
+        .in("id", ids);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_contacts"] });
+      qc.invalidateQueries({ queryKey: ["crm_all_contact_stages"] });
+    },
+  });
+};
+
+/**
+ * Batch-updates position on multiple tasks (for within-column reorder).
+ * Runs N sequential updates since Supabase doesn't support bulk upsert with different values.
+ */
+export const useBatchUpdateTaskPositions = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (positions: { id: string; position: number; pipelineId: string }[]) => {
+      for (const { id, position } of positions) {
+        const { error } = await supabase
+          .from("crm_tasks")
+          .update({ position })
+          .eq("id", id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: (_, updates) => {
+      const pipelineIds = [...new Set(updates.map((u) => u.pipelineId))];
+      pipelineIds.forEach((pid) => qc.invalidateQueries({ queryKey: ["crm_tasks", pid] }));
+    },
+  });
+};
+
+/**
+ * Batch-updates pipeline_position on multiple contacts (for within-column reorder).
+ * Each update receives the full merged pipeline_position map to avoid a read-before-write.
+ */
+export const useBatchUpdateContactPositions = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (updates: { id: string; pipelinePosition: Record<string, number> }[]) => {
+      for (const { id, pipelinePosition } of updates) {
+        const { error } = await supabase
+          .from("crm_contacts")
+          .update({ pipeline_position: pipelinePosition })
+          .eq("id", id);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_contacts"] });
+    },
+  });
+};
+
+/**
+ * Batch-updates stage on all tasks in a pipeline that match oldStage.
+ * Used when renaming a pipeline column — single DB call.
+ */
+export const useBatchUpdateTaskStage = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      pipelineId,
+      oldStage,
+      newStage,
+    }: {
+      pipelineId: string;
+      oldStage: string;
+      newStage: string;
+    }) => {
+      const { error } = await supabase
+        .from("crm_tasks")
+        .update({ stage: newStage })
+        .eq("pipeline_id", pipelineId)
+        .eq("stage", oldStage);
+      if (error) throw error;
+    },
+    onSuccess: (_, { pipelineId }) => {
+      qc.invalidateQueries({ queryKey: ["crm_tasks", pipelineId] });
     },
   });
 };
@@ -1009,8 +1231,9 @@ export const usePublicAppointments = (
     queryFn: async () => {
       if (!calendarId || year == null || month == null) return [];
       const startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
-      // Use 31 as a safe upper bound — Supabase will just return nothing for invalid dates
-      const endDate = `${year}-${String(month + 1).padStart(2, "0")}-31`;
+      // Use the actual last day of the month — PostgreSQL rejects invalid dates like "2026-04-31"
+      const lastDay = new Date(year, month + 1, 0).getDate();
+      const endDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
       const { data, error } = await supabase
         .from("crm_appointments")
         .select("date, hour, minute, duration_min, status")

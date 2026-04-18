@@ -274,8 +274,14 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   const { data: calendar, isLoading } = usePublicCalendar(calendarId);
   const userId = (calendar as any)?.user_id as string | undefined;
 
-  const { data: appointments = [] } = usePublicAppointments(calendarId, viewYear, viewMonth);
-  const { data: blockedSlots   = [] } = usePublicBlockedSlots(calendarId);
+  // Always use the resolved UUID from the calendar record, not the raw prop.
+  // The prop may be a slug (e.g. "acrosoft-pruebas"). Passing a slug to
+  // usePublicAppointments / usePublicBlockedSlots would make Supabase try to
+  // compare a text slug against a uuid column → 400 error.
+  const resolvedCalendarId = calendar?.id ?? null;
+
+  const { data: appointments = [] } = usePublicAppointments(resolvedCalendarId, viewYear, viewMonth);
+  const { data: blockedSlots   = [] } = usePublicBlockedSlots(resolvedCalendarId);
   const { data: branding } = usePublicBusinessProfile(userId);
 
   const primaryColor = branding?.color_primary ?? "#3b82f6";
@@ -418,7 +424,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   if (step === "form" && selectedDate && selectedSlot !== null) {
     return (
       <BookingForm
-        calendarId={calendarId}
+        calendarId={resolvedCalendarId ?? calendarId}
         linkedFormId={calendar.linked_form_id}
         selectedDate={selectedDate}
         selectedHour={selectedSlot.hour}

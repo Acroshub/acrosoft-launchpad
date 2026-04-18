@@ -53,7 +53,7 @@ const Crm = () => {
       case "contacts":  return can("contactos", "read")    ? <CrmContacts isSuperAdmin={effectiveIsAdmin} /> : null;
       case "pipeline":   return can("pipeline", "read")     ? <CrmPipeline />   : null;
       case "reminders":  return <CrmReminders />;
-      case "settings":   return !isStaff                   ? <CrmSettings />   : null;
+      case "settings":   return !isStaff                   ? <CrmSettings isSuperAdmin={effectiveIsAdmin} />   : null;
     }
   };
 

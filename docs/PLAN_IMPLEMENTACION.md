@@ -101,59 +101,15 @@ Todos los campos de `CrmService` verificados en DB: `is_saas`, `active`, `sort_o
 
 ### ✅ S-6 · crm_blocked_slots — soporte de minutos en bloqueos (COMPLETADO)
 Migración aplicada: `start_minute INT NOT NULL DEFAULT 0` y `end_minute INT NOT NULL DEFAULT 0`.
-- `isSlotBlocked` en `CalendarRenderer` compara en minutos totales.
-- `isHourBlocked` en `CrmCalendar` usa overlap detection para sombrado de filas.
-- Modal standalone y `SlotDialog`: selectores hora+minuto (0/15/30/45) en "Desde" y "Hasta".
-- Mapping `rawBlocked → BlockedSlot` incluye `startMinute`/`endMinute`.
+- `isSlotBlocked` en `CalendarRenderer` compara en minutos totales ✅
+- `isHourBlocked` en `CrmCalendar` usa overlap detection con minutos ✅
+- Modal standalone y `SlotDialog`: selectores hora+minuto (0/15/30/45) en "Desde" y "Hasta" ✅
+- Mapping `rawBlocked → BlockedSlot` incluye `startMinute`/`endMinute` ✅
 
 ---
 
 ## BLOQUE 3 — Fixes de Lógica
 > Bugs que afectan funcionalidad real. 2–6 horas cada uno.
-
-### L-12 · useLandingServices y useLandingCalendar — bug multi-tenant
-**Origen:** QW-5 auditado. La política RLS `"Public can read services"` tiene `qual: true` — devuelve servicios de TODOS los usuarios.
-**Bugs:**
-1. `useLandingServices` filtra solo por `active = true` sin `user_id` → servicios de clientes SaaS aparecerán en la landing de Acrosoft cuando haya clientes reales.
-2. `useLandingCalendar` hace `ORDER BY created_at LIMIT 1` sin `user_id` → podría mostrar el calendario de un cliente SaaS en vez del del admin.
-**Fix:** Ambos hooks deben obtener primero el `user_id` del admin (leyendo el primer `crm_business_profile` público, o hardcodeando el ID del admin como constante en el frontend) y filtrar por él.
-**Prioridad:** Media. No falla hoy (un solo usuario). Se activa con el primer cliente SaaS.
-**Archivos:** `src/hooks/useCrmData.ts`, `src/pages/Index.tsx`
-
----
-
-### L-13 · CrmForms — validación "heading no cuenta" incompleta (QW-7)
-**Bugs:**
-1. La validación `type !== "heading"` solo corre dentro de `if (multiPage)`. Un formulario de una sola página con solo headings puede guardarse y publicarse — el usuario vería una página sin campos reales.
-2. `form.fields.length` en la lista de formularios cuenta campos `heading` → muestra contador incorrecto ("3 campos" en vez de "2" si uno es heading).
-**Fix:**
-1. Añadir validación para `!multiPage`: `fields.filter(f => f.type !== "heading").length === 0` → error antes de guardar.
-2. Cambiar `form.fields.length` a `form.fields.filter(f => f.type !== "heading").length` en la lista.
-**Prioridad:** Baja. Solo afecta edge case de admin creando formularios vacíos.
-**Archivos:** `src/components/crm/CrmForms.tsx`
-
----
-
-### L-10 · CrmOverview — minutos ignorados en citas (regresión S-1)
-**Origen:** S-1 añadió `minute` a `crm_appointments` pero `CrmOverview` nunca fue actualizado.
-**Bugs:**
-1. `getMetricValue("proxima-cita")` retorna `${hour}:00` — ignora `minute`. Una cita a las 10:30 se muestra como "10:00".
-2. Filtro `nextAppointment`: `d.setHours(a.hour, 0, 0, 0)` sin minutos — puede excluir citas futuras del mismo hour si `minute > minuto actual`.
-3. Sort `nextAppointment`: `da.setHours(a.hour)` sin minute — ordena mal citas en la misma hora.
-4. Sección "Citas de hoy": muestra `${hour}:00` hardcodeado en cada fila.
-**Fix:** Propagar `minute` en filtro, sort y display de `nextAppointment` y "Citas de hoy" en `CrmOverview.tsx`.
-**Archivos:** `src/components/crm/CrmOverview.tsx`
-
----
-
-### L-11 · QW-3 — Colisión de stage entre pipelines
-**Origen:** `crm_contacts.stage` guarda solo el texto del nombre de columna sin referencia al `pipeline_id`. Si dos pipelines tienen una columna con el mismo nombre, `useAllContactStages` asigna el contacto a ambos como falso positivo.
-**Impacto:** Bajo con 1 pipeline. Alto al escalar (2+ pipelines con columnas de nombre similar).
-**Fix:** Guardar stage como mapa `{ pipeline_id → stage_name }` en `crm_contacts.custom_fields` o agregar tabla `crm_contact_pipeline_stages(contact_id, pipeline_id, stage)`. Actualizar `useAllContactStages`, `addContactToPipelines` (edge function) y la UI de pipeline drag.
-**Archivos:** migración SQL, `src/hooks/useCrmData.ts`, `supabase/functions/crm-form-public/index.ts`, `src/components/crm/CrmPipeline.tsx`
-**Complejidad:** Alta — requiere cambio de schema + migración de datos + actualizar todos los puntos que leen/escriben stage.
-
----
 
 ### ✅ L-1 · useCalendars — hook multi-calendario (COMPLETADO)
 - `useCalendars` trae todos los calendarios sin `.limit(1)` ✅
@@ -164,24 +120,135 @@ Migración aplicada: `start_minute INT NOT NULL DEFAULT 0` y `end_minute INT NOT
 
 ---
 
-### L-2 · Hooks públicos — filtrar por calendar_id
-**Problema:** `usePublicAppointments` y `usePublicBlockedSlots` filtran por `user_id`. Con multi-calendario muestran datos mezclados de todos los calendarios del usuario.
-**Fix:** Añadir parámetro `calendarId` a ambos hooks. Filtrar por `calendar_id` en vez de `user_id`. Actualizar `CalendarRenderer` para pasar el `calendarId`.
-**Archivos:** `src/hooks/useCrmData.ts`, `src/components/crm/CalendarRenderer.tsx`
+### ✅ L-2 · Hooks públicos — filtrar por calendar_id (COMPLETADO)
+- `usePublicAppointments` filtra por `.eq("calendar_id", resolvedCalendarId)` usando UUID resuelto ✅
+- `usePublicBlockedSlots` filtra por `.eq("calendar_id", resolvedCalendarId)` ✅
+- `CalendarRenderer` usa `resolvedCalendarId = calendar?.id ?? null` en lugar del prop crudo (que puede ser slug) ✅
+- `BookingForm` recibe `resolvedCalendarId ?? calendarId` → edge function `crm-calendar-book` siempre recibe UUID ✅
+- `endDate` en `usePublicAppointments` usa `new Date(year, month+1, 0).getDate()` para obtener el último día real del mes — PostgreSQL rechazaba "2026-04-31" con error 400 ✅
+- Bloqueos tipo "fullday" y "range" pasaban `start_minute: null` / `end_minute: null` contra columnas NOT NULL → fix: enviar `0` ✅
+- `BookingPage` pasa `calendarId` desde URL params ✅
+- **Bugs pendientes encontrados:** A-4 (RLS públicas), L-14 (duplicate check sin calendar_id en edge fn), L-15 (S-3 constraints solo client-side)
 
 ---
 
-### L-3 · Pipeline — renombrar columna actualiza stages de contactos
-**Problema:** Al renombrar una columna del pipeline, los contactos en esa columna mantienen el nombre antiguo.
-**Fix:** Al guardar el cambio de nombre en `useUpdatePipeline`, hacer update en batch en `crm_contacts` → todos los contactos con `stage = nombreViejo` actualizan a `stage = nombreNuevo` (filtrado por el pipeline específico).
-**Archivos:** `src/components/crm/CrmPipeline.tsx`, `src/hooks/useCrmData.ts`
+### ✅ L-3 · Pipeline — renombrar columna actualiza stages de contactos (COMPLETADO)
+- `handleRenameCol` en `ContactsBoard`: reemplazado N mutations individuales por `useBatchUpdateContactStage` → un solo UPDATE por IDs ✅
+- `handleRenameCol` en `TasksBoard`: reemplazado N mutations individuales por `useBatchUpdateTaskStage` → un solo UPDATE por `pipeline_id + stage` ✅
+- Ambos: siempre muestran toast (antes solo si `affected.length > 0`) ✅
+- Ambos: envueltos en try/catch con error toast ✅
+- Hooks añadidos: `useBatchUpdateContactStage`, `useBatchUpdateTaskStage` en `useCrmData.ts` ✅
 
 ---
 
-### L-4 · Formularios — soporte para múltiples pipelines
-**Problema:** `pipeline_id` en `CrmForm` es un solo uuid. Un formulario puede vincularse a múltiples pipelines.
-**Fix:** Cambiar a `pipeline_ids uuid[]`. Actualizar Edge Function `crm-form-public` para agregar el contacto a todos los pipelines vinculados.
-**Archivos:** migración SQL, `supabase/functions/crm-form-public/index.ts`, `src/components/crm/CrmForms.tsx`
+### ✅ L-3b · Tasks pipeline — contacto vinculado opcional (COMPLETADO)
+- Migración aplicada: `contact_id uuid REFERENCES crm_contacts ON DELETE SET NULL` (nullable) ✅
+- `CrmTask` type actualizado con `contact_id: string | null` ✅
+- `useCreateTask` acepta `contact_id?: string | null` ✅
+- `TasksBoard` recibe `allContacts` desde el componente padre ✅
+- Formulario de creación: selector de contacto opcional (visible solo si hay contactos) ✅
+- `TaskCard` muestra badge con nombre del contacto si está vinculado ✅
+- Reset de `newContactId` al abrir/cerrar el formulario ✅
+
+---
+
+### ✅ L-3c · TaskCard — expand/collapse + ordenar por prioridad (COMPLETADO)
+**Contexto:** Complemento directo de L-3b. Las tarjetas de tareas actualmente son siempre compactas (solo título, descripción truncada, prioridad, contacto). El usuario quiere el mismo patrón toggle que `ContactCard`: un triangulito para expandir/ocultar detalles.
+
+**Fix — dos partes:**
+
+**Parte 1: Expand/collapse en TaskCard**
+- Añadir `expanded` state con `useState(false)` dentro de `TaskCard`
+- Header siempre visible: título + badge prioridad + badge contacto (compacto)
+- Al expandir: descripción completa (sin `line-clamp`), datos del contacto (email, teléfono, empresa si existen — consultando `allContacts`)
+- Botón toggle: `ChevronDown` que rota 180° al expandir (igual que `ContactCard`)
+- Animación `animate-in fade-in slide-in-from-top-1` al expandir (igual que `ContactCard`)
+- `TaskCard` necesita recibir el objeto `CrmContact | undefined` en lugar de solo `contactName: string`
+
+**Parte 2: Ordenar automáticamente por prioridad dentro de cada columna**
+- Al renderizar `tasks.filter((t) => t.stage === col)`, ordenarlos con: `high` → `medium` → `low` → sin prioridad
+- Orden constante: `const PRIORITY_ORDER = { high: 0, medium: 1, low: 2, null: 3 }`
+- No afecta el `position` guardado en DB — es solo ordenación visual client-side
+- El drag entre columnas sigue funcionando igual
+
+**Archivos:** `src/components/crm/CrmPipeline.tsx`
+**Complejidad:** Baja
+
+---
+
+### ✅ L-3d · TaskCard — editar contenido de una tarjeta (COMPLETADO)
+- Edición inline (mismo formulario que creación, sin modal) ✅
+- Todos los botones siempre visibles — sin opacity-0/hover inconsistente ✅
+**Contexto:** El usuario puede crear tareas con título, descripción, prioridad y contacto opcional. Falta poder editar esos campos después de creada.
+
+**UX propuesta:** Botón "Editar" (lápiz) en el header de la tarjeta, junto al toggle y al eliminar. Al hacer clic abre un modal (mismo patrón que `StaffDialog` en CrmSettings) con los campos pre-rellenados. Al guardar hace `useUpdateTask` y cierra el modal. Sin cambio de route ni de vista.
+
+**Campos editables:**
+- Título (obligatorio)
+- Descripción (opcional)
+- Prioridad: selector de botones igual al formulario de creación
+- Contacto vinculado: selector desplegable con todos los contactos (igual al de creación, con opción "Sin contacto")
+
+**Fix:**
+1. Añadir ícono `Pencil` al header de `TaskCard` (ya importado en el archivo)
+2. Nuevo componente `EditTaskDialog` dentro de `CrmPipeline.tsx` con los 4 campos
+3. `TaskCard` necesita recibir `allContacts` para el selector del modal, o levantar el estado de edición al `TasksBoard` (recomendado para no pasar contacts a cada card)
+4. `TasksBoard` maneja `editingTask: CrmTask | null` + el modal a nivel board (igual que `deleteTarget`)
+5. Al guardar: `useUpdateTask.mutateAsync({ id, title, description, priority, contact_id })`
+
+**Archivos:** `src/components/crm/CrmPipeline.tsx`
+**Complejidad:** Baja-media
+
+---
+
+### L-3e · Pipeline — confirmación al eliminar columna ✅ COMPLETADO
+**Problema:** Al hacer clic en el ícono de eliminar de una columna, la columna se borra inmediatamente sin pedir confirmación. Solo hay protección si la columna tiene tarjetas (muestra error). Para columnas vacías no hay ninguna advertencia.
+**Fix:** Usar `DeleteConfirmDialog` (ya importado en ambos boards) antes de ejecutar `handleDeleteCol`. Añadir estado `deleteColTarget: string | null` en `ContactsBoard` y en `TasksBoard`. Al confirmar, ejecutar el delete real.
+**Archivos:** `src/components/crm/CrmPipeline.tsx`
+**Complejidad:** Baja
+
+---
+
+### L-3f · Drag-to-reorder dentro de una columna (ambos pipelines) ✅ COMPLETADO
+**Decisión tomada (Opción C):** Prioridad siempre primero; dentro de cada grupo de prioridad el usuario puede reordenar manualmente. Reordenar entre grupos de prioridad distintos no está permitido.
+
+**Implementado:**
+
+**Tasks pipeline:**
+- Sort: `priority_group ASC → position ASC → created_at ASC` (tiebreaker para estabilidad inicial)
+- Nuevas tareas se crean con `position = max_position_en_grupo + 10` para aparecer al final de su grupo
+- Hook `useBatchUpdateTaskPositions` en `useCrmData.ts` — N updates secuenciales por grupo reordenado
+- `handleReorder` en `TasksBoard`: valida mismo grupo de prioridad, reordena, persiste
+
+**Contacts pipeline:**
+- Migración aplicada: `ALTER TABLE crm_contacts ADD COLUMN pipeline_position jsonb DEFAULT '{}'`
+- Mapa `{ pipeline_id: position }` por contacto — soporta multi-pipeline sin tabla adicional
+- Sort por `pipeline_position[pipeline.id]`, fallback a `created_at ASC` para contactos sin posición asignada
+- Hook `useBatchUpdateContactPositions` en `useCrmData.ts`
+- `handleReorder` en `ContactsBoard`: reordena libremente (sin grupos de prioridad)
+
+**Indicador visual:** línea azul encima de la tarjeta destino al arrastrar (solo cuando el drop es válido — mismo grupo de prioridad en tareas)
+**Drag cancelado:** `onDragEnd` en tarjetas y `onDragLeave` en columnas limpian `dragOverCardId` para evitar estado sucio
+
+**Archivos:** migración SQL, `src/lib/supabase.ts`, `src/hooks/useCrmData.ts`, `src/components/crm/CrmPipeline.tsx`
+
+---
+
+### L-4 · Formularios — soporte para múltiples pipelines ✅ COMPLETADO
+**Decisión:** Opción B — arquitectura correcta con tabla junction. Un contacto puede estar en múltiples pipelines simultáneamente.
+
+**Implementado:**
+- **Migración**: `crm_contact_pipeline_memberships(id, contact_id, pipeline_id, stage, position)` con `UNIQUE(contact_id, pipeline_id)` + RLS + datos históricos migrados desde `crm_contacts.stage`
+- **`supabase.ts`**: nuevo tipo `CrmContactPipelineMembership`
+- **`useCrmData.ts`**: 6 hooks nuevos: `useContactMemberships`, `useAddContactMembership`, `useRemoveContactMembership`, `useUpdateMembershipStage`, `useBatchUpdateMembershipStage`, `useBatchUpdateMembershipPositions`
+- **`useAllContactStages`**: reescrito para usar la tabla junction en lugar de matchear `crm_contacts.stage` contra column_names
+- **`ContactsBoard` en `CrmPipeline.tsx`**: completamente reescrito — usa `useContactMemberships(pipeline.id)` como fuente de verdad. Drag entre columnas, reordenamiento dentro de columna, añadir/eliminar contactos — todo opera sobre memberships
+- **Edge function `crm-form-public`**: `addContactToPipelines` ahora inserta una membership por CADA pipeline seleccionado (upsert con `ignoreDuplicates: true` para idempotencia)
+- **`crm_contacts.stage`**: campo heredado, ya no es la fuente de verdad para pipeline membership
+
+**Nota pendiente**: `crm_contacts.stage` sigue en el schema por compatibilidad. `CrmContacts.tsx` muestra `detail.stage` como fallback solo cuando `contactStagesMap` está vacío — con la nueva tabla, el mapa estará siempre poblado para contactos en pipelines, por lo que el fallback prácticamente nunca se activa.
+
+**Archivos:** migración SQL, `src/lib/supabase.ts`, `src/hooks/useCrmData.ts`, `src/components/crm/CrmPipeline.tsx`, `supabase/functions/crm-form-public/index.ts`
 
 ---
 
@@ -206,6 +273,13 @@ Migración aplicada: `start_minute INT NOT NULL DEFAULT 0` y `end_minute INT NOT
 
 ---
 
+### L-8 · WeeklySchedulePicker — soporte de horarios sub-hora
+**Problema:** El picker solo permite horas enteras (`"9:00 AM"`, `"5:00 PM"`). No se puede definir disponibilidad de 9:30 a 17:30.
+**Fix:** Añadir opciones de :30 al array `HOURS` del picker (`"9:00 AM"`, `"9:30 AM"`, `"10:00 AM"`...). Actualizar `amPmToHour` en `CalendarRenderer` para extraer también los minutos (`amPmToMin` que retorne minutos totales). Actualizar `isHourAvailable` para comparar con minutos totales del slot contra los boundaries del schedule.
+**Archivos:** `src/components/shared/WeeklySchedulePicker.tsx`, `src/components/crm/CalendarRenderer.tsx`
+
+---
+
 ### L-9 · buffer_min — tiempo entre citas no se aplica
 **Problema:** `buffer_min` se guarda en `crm_calendar_config` pero nunca se usa. Si hay una cita a las 9:00 con duración 60 min y buffer 15 min, el slot de las 10:00 debería estar bloqueado automáticamente (ocupado hasta las 10:15), pero `CalendarRenderer` lo muestra disponible y `crm-calendar-book` permite la reserva.
 
@@ -217,10 +291,153 @@ Migración aplicada: `start_minute INT NOT NULL DEFAULT 0` y `end_minute INT NOT
 
 ---
 
-### L-8 · WeeklySchedulePicker — soporte de horarios sub-hora
-**Problema:** El picker solo permite horas enteras (`"9:00 AM"`, `"5:00 PM"`). No se puede definir disponibilidad de 9:30 a 17:30.
-**Fix:** Añadir opciones de :30 al array `HOURS` del picker (`"9:00 AM"`, `"9:30 AM"`, `"10:00 AM"`...). Actualizar `amPmToHour` en `CalendarRenderer` para extraer también los minutos (`amPmToMin` que retorne minutos totales). Actualizar `isHourAvailable` para comparar con minutos totales del slot contra los boundaries del schedule.
-**Archivos:** `src/components/shared/WeeklySchedulePicker.tsx`, `src/components/crm/CalendarRenderer.tsx`
+### L-10 · CrmOverview — minutos ignorados en citas (regresión S-1)
+**Origen:** S-1 añadió `minute` a `crm_appointments` pero `CrmOverview` nunca fue actualizado.
+**Bugs:**
+1. `getMetricValue("proxima-cita")` retorna `${hour}:00` — ignora `minute`. Una cita a las 10:30 se muestra como "10:00".
+2. Filtro `nextAppointment`: `d.setHours(a.hour, 0, 0, 0)` sin minutos — puede excluir citas futuras del mismo hour si `minute > minuto actual`.
+3. Sort `nextAppointment`: `da.setHours(a.hour)` sin minute — ordena mal citas en la misma hora.
+4. Sección "Citas de hoy": muestra `${hour}:00` hardcodeado en cada fila.
+**Fix:** Propagar `minute` en filtro, sort y display de `nextAppointment` y "Citas de hoy" en `CrmOverview.tsx`.
+**Archivos:** `src/components/crm/CrmOverview.tsx`
+
+---
+
+### L-11 · QW-3 — Colisión de stage entre pipelines
+**Origen:** `crm_contacts.stage` guarda solo el texto del nombre de columna sin referencia al `pipeline_id`. Si dos pipelines tienen una columna con el mismo nombre, `useAllContactStages` asigna el contacto a ambos como falso positivo.
+**Impacto:** Bajo con 1 pipeline. Alto al escalar (2+ pipelines con columnas de nombre similar).
+**Fix:** Guardar stage como mapa `{ pipeline_id → stage_name }` en `crm_contacts.custom_fields` o agregar tabla `crm_contact_pipeline_stages(contact_id, pipeline_id, stage)`. Actualizar `useAllContactStages`, `addContactToPipelines` (edge function) y la UI de pipeline drag.
+**Archivos:** migración SQL, `src/hooks/useCrmData.ts`, `supabase/functions/crm-form-public/index.ts`, `src/components/crm/CrmPipeline.tsx`
+**Complejidad:** Alta — requiere cambio de schema + migración de datos + actualizar todos los puntos que leen/escriben stage.
+
+---
+
+### L-12 · useLandingServices y useLandingCalendar — bug multi-tenant
+**Origen:** QW-5 auditado. La política RLS `"Public can read services"` tiene `qual: true` — devuelve servicios de TODOS los usuarios.
+**Bugs:**
+1. `useLandingServices` filtra solo por `active = true` sin `user_id` → servicios de clientes SaaS aparecerán en la landing de Acrosoft cuando haya clientes reales.
+2. `useLandingCalendar` hace `ORDER BY created_at LIMIT 1` sin `user_id` → podría mostrar el calendario de un cliente SaaS en vez del del admin.
+**Fix:** Ambos hooks deben obtener primero el `user_id` del admin (leyendo el primer `crm_business_profile` público, o hardcodeando el ID del admin como constante en el frontend) y filtrar por él.
+**Prioridad:** Media. No falla hoy (un solo usuario). Se activa con el primer cliente SaaS.
+**Archivos:** `src/hooks/useCrmData.ts`, `src/pages/Index.tsx`
+
+---
+
+### L-13 · CrmForms — validación "heading no cuenta" incompleta (QW-7)
+**Bugs:**
+1. La validación `type !== "heading"` solo corre dentro de `if (multiPage)`. Un formulario de una sola página con solo headings puede guardarse y publicarse — el usuario vería una página sin campos reales.
+2. `form.fields.length` en la lista de formularios cuenta campos `heading` → muestra contador incorrecto ("3 campos" en vez de "2" si uno es heading).
+**Fix:**
+1. Añadir validación para `!multiPage`: `fields.filter(f => f.type !== "heading").length === 0` → error antes de guardar.
+2. Cambiar `form.fields.length` a `form.fields.filter(f => f.type !== "heading").length` en la lista.
+**Prioridad:** Baja. Solo afecta edge case de admin creando formularios vacíos.
+**Archivos:** `src/components/crm/CrmForms.tsx`
+
+---
+
+### L-14 · crm-calendar-book — duplicate check sin calendar_id (regresión S-1)
+**Origen:** S-1 añadió `minute` y multi-calendario, pero `crm-calendar-book` no fue actualizado para filtrar por `calendar_id` al verificar duplicados.
+**Bug (crítico):** El check de slot duplicado en la edge function usa:
+```ts
+.eq("user_id", user_id).eq("date", date).eq("hour", hour).eq("minute", minute)
+```
+Sin `.eq("calendar_id", calendar_id)`. Con 2+ calendarios para el mismo usuario, reservar un slot en el Calendario A bloquea el mismo slot en el Calendario B con un error 409 falso.
+**Fix:** Añadir `.eq("calendar_id", calendar_id)` al query de duplicate check en `crm-calendar-book/index.ts` (~línea 96-104).
+**Prioridad:** Alta. Rompe la reserva pública cuando el admin tiene 2 o más calendarios.
+**Archivos:** `supabase/functions/crm-calendar-book/index.ts`
+
+---
+
+### L-15 · crm-calendar-book — S-3 constraints solo client-side
+**Origen:** S-3 añadió `min_advance_hours` y `max_future_days` a `crm_calendar_config`, pero la edge function no los lee.
+**Bug:** `crm-calendar-book` hace `SELECT user_id, duration_min, name, linked_form_id` del calendario — no lee `min_advance_hours`, `max_future_days` ni `buffer_min`. Un cliente que llame directamente a la edge function (bypass del `CalendarRenderer`) puede:
+1. Reservar con menos anticipación de la configurada (ej: 0 horas si `min_advance_hours = 24`)
+2. Reservar más días en el futuro de los permitidos
+3. Reservar sin respetar el buffer entre citas
+**Fix:** En `crm-calendar-book`, añadir los 3 campos al SELECT y validar server-side:
+- `scheduled_ts < Date.now() + min_advance_hours * 3600000` → 422
+- `scheduled_date > today + max_future_days` → 422
+- Solapamiento con buffer: `appt_end + buffer_min > requested_start` → 409
+**Prioridad:** Media. No falla en uso normal (UI respeta las reglas), pero es bypasseable.
+**Archivos:** `supabase/functions/crm-calendar-book/index.ts`
+
+---
+
+### L-16 · crm_calendar_config — DB default de availability incompatible con código
+**Origen:** S-3 — el DB default de la columna `availability` usa estructura diferente a la que lee el código.
+**Bug (bajo impacto):** El default de DB es:
+```json
+{"fri": {"end": 18, "start": 9, "active": true}, "mon": {...}, ...}
+```
+Keys en inglés (`mon`, `tue`...) y estructura `{active, start, end}`. El código espera:
+```json
+{"Lun": {"open": true, "slots": [{"from": "9:00 AM", "to": "6:00 PM"}]}, ...}
+```
+Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta un calendario sin configurar el `WeeklySchedulePicker`, todos los días aparecerán cerrados en `CalendarRenderer` (`undefined?.open === false`).
+**Fix:** Actualizar el DB default con la estructura correcta en español, o asegurarse que el modal de crear calendario siempre guarda la disponibilidad con `DEFAULT_WEEKLY_SCHEDULE` al crear.
+**Prioridad:** Baja. Solo afecta calendarios recién creados antes de que el admin configure el horario.
+**Archivos:** migración SQL (`ALTER TABLE crm_calendar_config ALTER COLUMN availability SET DEFAULT ...`), opcionalmente `src/components/crm/CrmCalendarConfig.tsx`
+
+---
+
+### L-17 · DayView / WeekView — múltiples citas en la misma hora invisibles (regresión S-1)
+**Origen:** S-1 habilitó `minute != 0`. Ahora es válido tener dos citas en la misma hora (ej: 10:00 y 10:30 con `duration_min = 30`). Pero `DayView` y `WeekView` usan `appointments.find(a => a.hour === hour)` — solo muestra la primera cita encontrada en esa franja horaria. La segunda queda invisible para el admin.
+**Bugs:**
+1. `DayView` (línea ~360): `dayAppts.find(a => a.hour === hour)` — solo 1 resultado.
+2. `WeekView` (línea ~446): `appointments.find(a => a.date === key && a.hour === hour)` — solo 1 resultado.
+**Fix:** Cambiar `find` por `filter` en ambas vistas y renderizar todas las citas de la misma franja horaria como bloques apilados dentro de la misma fila.
+**Prioridad:** Baja. Solo afecta si `duration_min < 60` (slots de 30 min o menos). No afecta la integridad de datos, solo la visualización admin.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`
+
+---
+
+### L-19 · CrmCalendar — calendario seleccionado no se persiste al navegar (auditoría L-1)
+**Origen:** L-1 implementó multi-calendario, pero `selectedCalendarId` se inicializa como `null` y nunca se guarda.
+**Bug:** Al navegar fuera del tab Calendario y volver, siempre se muestra `calendars[0]` (el más antiguo) sin importar cuál estaba seleccionado. El modo de vista sí se persiste (`crm_calendar_view` en localStorage), pero no el calendario.
+**Fix:** Inicializar `selectedCalendarId` desde `localStorage.getItem("crm_selected_calendar_id")` y guardar al cambiar de calendario (mismo patrón que `handleSetView`).
+**Prioridad:** Baja. Molestia de UX, no rompe datos.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`
+
+---
+
+### L-20 · CrmCalendar — nuevo calendario no queda seleccionado tras su creación (auditoría L-1)
+**Origen:** L-1 implementó creación de calendarios, pero no comunicó el ID del calendario creado de vuelta al componente padre.
+**Bug:** Después de guardar un calendario nuevo en `CrmCalendarConfig`, se llama a `onBack()` → `setEditingCalendar(undefined)`. En ese momento `selectedCalendarId` sigue siendo `null`, por lo que cae en `calendars[0]` (el más antiguo). El nuevo calendario (el más reciente en la lista `ORDER BY created_at ASC`) NO queda seleccionado — el usuario tiene que buscarlo manualmente en el dropdown.
+**Fix:** Pasar prop `onCreated?: (id: string) => void` de `CrmCalendar` a `CrmCalendarConfig`. En `handleSave` (rama `isNew`), llamar `onCreated(data.id)` después del `mutateAsync`. En `CrmCalendar`, usar ese callback para hacer `setSelectedCalendarId(id)` y guardarlo en localStorage.
+**Prioridad:** Baja. Confunde al usuario pero no pierde datos.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`, `src/components/crm/CrmCalendarConfig.tsx`
+
+---
+
+### L-21 · useAppointments — carga todas las citas sin filtro de calendario (auditoría L-1)
+**Origen:** L-1 añadió filtrado client-side en CrmCalendar, pero el hook sigue trayendo todo desde la DB.
+**Bugs:**
+1. `useAppointments()` (línea 148 useCrmData.ts) no acepta `calendarId` — trae todas las citas del usuario. Con 2+ calendarios se carga el doble de datos para descartar la mitad en el memo.
+2. `useBlockedSlots(selectedCalendar?.id)` se llama con `undefined` durante la carga inicial (antes de que `calendars` resuelva) → dispara una query sin filtro de `calendar_id` que devuelve todos los bloques del usuario y se descarta al completar la carga real.
+**Fix:**
+1. Añadir parámetro opcional `calendarId` a `useAppointments`. Incluir en `queryKey`. Aplicar `.eq("calendar_id", calendarId)` si se provee. Actualizar `CrmCalendar` para pasar `selectedCalendar?.id`.
+2. Añadir `enabled: !!user && !!calendarId` a `useBlockedSlots` para no disparar la query sin filtro.
+**Prioridad:** Baja ahora (pocos calendarios/citas). Media cuando el volumen escale.
+**Archivos:** `src/hooks/useCrmData.ts`, `src/components/crm/CrmCalendar.tsx`
+
+---
+
+### L-18 · isSlotBlocked — solo verifica inicio del slot, no su duración (regresión S-1/S-6)
+**Origen:** S-1 habilitó minutos en citas y S-6 habilitó minutos en bloqueos. Ahora es posible que el START de un slot esté antes de un bloqueo pero su END caiga dentro del bloqueo.
+**Bug (medio):** `isSlotBlocked` en `CalendarRenderer.tsx` verifica únicamente si el inicio del slot está dentro del rango bloqueado:
+```ts
+return slotTotal >= startTotal && slotTotal < endTotal;
+```
+Si un slot de 30 min comienza a las 9:30 (termina a las 10:00) y hay un bloqueo de 9:45 a 11:00, el slot 9:30 NO queda bloqueado (9:30 < 9:45). Pero la cita agendada correría de 9:30 a 10:00, solapándose con el bloqueo de 9:45 en adelante. El usuario público puede reservar ese slot incorrectamente.
+**Condición:** Se activa cuando el admin crea un bloque con inicio que NO coincide con un límite de slot (ej: 9:45 con slots de 30 min en :00/:30). Posible desde la UI (selectores de minuto en 0/15/30/45).
+**Fix:** Cambiar la condición en `isSlotBlocked` para verificar si el intervalo del slot `[slotStart, slotStart + duration_min)` se solapa con `[blockStart, blockEnd)`:
+```ts
+const slotEnd = slotTotal + durationMin;
+return slotTotal < endTotal && slotEnd > startTotal;
+```
+Requiere pasar `durationMin` como parámetro adicional a `isSlotBlocked`.
+**Prioridad:** Media. Afecta cuando bloqueos usan minutos no múltiplos del `duration_min` del calendario.
+**Archivos:** `src/components/crm/CalendarRenderer.tsx`
 
 ---
 
@@ -326,6 +543,18 @@ Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipel
 
 ---
 
+### A-4 · RLS públicas exponen campos sensibles de citas (auditoría L-2)
+**Origen:** L-2 auditado. Las políticas `"Public can read appointments"` y `"Public can read blocked slots"` tienen `qual: true` — devuelven TODAS las filas del sistema a queries anónimas.
+**Bug:**
+- `crm_appointments`: expone `notes` y `contact_id` de todas las citas de todos los usuarios ante un `curl` directo a la API de Supabase (el frontend solo selecciona campos seguros, pero la DB no lo impone).
+- `crm_blocked_slots`: expone el campo `reason` de todos los bloqueos (e.g., "De vacaciones", información privada del negocio).
+- `crm_calendar_config`: expone configuraciones de todos los calendarios del sistema (menor impacto — datos no personales).
+**Fix:** Crear una DB Function o View `public_appointments_view` que solo exponga `date, hour, minute, duration_min, status, calendar_id` y asignar la política pública a esa view en vez de la tabla completa. Alternativa mínima: cambiar la política `"Public can read appointments"` para restringir el rol anon con `WITH CHECK` que bloquee `notes` y `contact_id` — pero RLS no soporta columnas. La solución correcta es una view + policy, o aceptar el riesgo y documentarlo hasta que haya clientes reales.
+**Prioridad:** Media. Exposición real pero limitada (anon key es semi-pública, solo expone datos de availability + metadatos). Se vuelve crítico con clientes SaaS reales con citas privadas.
+**Archivos:** migración SQL (view o policy update en `crm_appointments`, `crm_blocked_slots`)
+
+---
+
 ## BLOQUE 6 — Features avanzadas
 > Requieren infraestructura externa o lógica compleja.
 
@@ -391,6 +620,11 @@ Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipel
 
 ### DT-4 · Actualizar documento maestro
 - Mantener `acrosoft-master-v3.md` actualizado con cada decisión arquitectónica nueva
+
+### DT-5 · useUpsertCalendarConfig — exportación muerta
+- `useUpsertCalendarConfig` en `useCrmData.ts` está marcado como `@deprecated` y nunca es importado en ningún componente (grep confirmado). La nota "kept for CrmCalendar missing-form recovery" es incorrecta — ese código usa `useUpdateCalendarConfig`.
+- Eliminar la función completa.
+- **Archivo:** `src/hooks/useCrmData.ts`
 
 ---
 

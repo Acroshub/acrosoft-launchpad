@@ -687,9 +687,9 @@ const CrmCalendar = () => {
         reason: blockModal.reason || null,
         date: blockModal.type !== "range" ? blockModal.date : null,
         start_hour:   blockModal.type === "hours" ? blockModal.startHour   : null,
-        start_minute: blockModal.type === "hours" ? blockModal.startMinute : null,
+        start_minute: blockModal.type === "hours" ? blockModal.startMinute : 0,
         end_hour:     blockModal.type === "hours" ? blockModal.endHour     : null,
-        end_minute:   blockModal.type === "hours" ? blockModal.endMinute   : null,
+        end_minute:   blockModal.type === "hours" ? blockModal.endMinute   : 0,
         range_start: blockModal.type === "range" ? blockModal.startDate : null,
         range_end:   blockModal.type === "range" ? blockModal.endDate   : null,
       });
@@ -1178,9 +1178,9 @@ const CrmCalendar = () => {
                   reason: reason || null,
                   date: type !== "range" ? date : null,
                   start_hour:   type === "hours" ? startHour   : null,
-                  start_minute: type === "hours" ? startMinute : null,
+                  start_minute: type === "hours" ? startMinute : 0,
                   end_hour:     type === "hours" ? endHour     : null,
-                  end_minute:   type === "hours" ? endMinute   : null,
+                  end_minute:   type === "hours" ? endMinute   : 0,
                   range_start: type === "range" ? date : null,
                   range_end:   type === "range" ? date : null,
                 });

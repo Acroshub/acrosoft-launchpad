@@ -136,9 +136,10 @@ SuperAdmin (Acrosoft — e.daniel.acero.r@gmail.com)
 
 ## 8. Módulo Pipeline — Reglas de Negocio
 
-- **Tipos:** `contacts` (columnas default: Nuevo Lead, Contactado, Propuesta, Cliente, Post-venta) y `tasks` (columnas default: Por hacer, En progreso, Completado). Crear sin tipo = pipeline vacío.
-- **Toda tarjeta debe tener un contacto vinculado.** Si el contacto se elimina, la tarjeta se elimina.
-- **Renombrar columna:** Actualiza automáticamente el `stage` de todos los contactos en esa columna.
+- **Tipos:**
+  - `contacts` (columnas default: Nuevo Lead, Contactado, Propuesta, Cliente, Post-venta): cada tarjeta ES un contacto. El contacto es obligatorio.
+  - `tasks` (columnas default: Por hacer, En progreso, Completado): cada tarjeta es una tarea libre. Campos: título (obligatorio), descripción (opcional), prioridad (opcional), contacto vinculado (opcional). Si el contacto vinculado se elimina, la tarea queda sin contacto pero no se elimina.
+- **Renombrar columna:** Actualiza automáticamente el `stage` de todos los contactos/tareas en esa columna.
 - Un contacto puede estar en múltiples pipelines simultáneamente.
 
 ---
@@ -294,7 +295,7 @@ CREATE TABLE crm_tasks (
   created_at  timestamptz DEFAULT now(),
   user_id     uuid REFERENCES auth.users NOT NULL,
   pipeline_id uuid REFERENCES crm_pipelines NOT NULL,
-  contact_id  uuid REFERENCES crm_contacts NOT NULL,  -- siempre requerido
+  contact_id  uuid REFERENCES crm_contacts,  -- opcional; NULL si la tarea no está vinculada a un contacto
   title       text NOT NULL,
   description text,
   priority    text CHECK (priority IN ('low','medium','high')),

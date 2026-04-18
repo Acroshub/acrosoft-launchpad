@@ -62,9 +62,10 @@ function extractContact(fields: any[], data: Record<string, any>) {
 }
 
 /**
- * Contacts pipeline uses crm_contacts.stage — NOT crm_pipeline_deals.
- * Sets contact.stage to the first column of the first matched pipeline.
+ * Adds the contact to ALL selected contacts pipelines via crm_contact_pipeline_memberships.
+ * Each pipeline gets its own membership row (stage = first column of that pipeline).
  * If pipelineIds is empty, falls back to the user's first contacts pipeline.
+ * Uses upsert so re-submissions don't create duplicates or overwrite existing stage.
  */
 async function addContactToPipelines(
   userId: string,
@@ -72,7 +73,7 @@ async function addContactToPipelines(
   pipelineIds: string[],
 ): Promise<void> {
   try {
-    let pipelines: { id: string; column_names: string[] }[] | null = null;
+    let pipelines: { id: string; column_names: string[] }[] = [];
 
     if (pipelineIds.length > 0) {
       const { data } = await supabase
@@ -94,16 +95,19 @@ async function addContactToPipelines(
       pipelines = data ?? [];
     }
 
-    if (!pipelines?.length) return;
+    if (!pipelines.length) return;
 
-    // Set contact.stage to the first column of the first pipeline (if not already staged)
-    const firstStage = (pipelines[0].column_names as string[])?.[0];
-    if (firstStage) {
+    // Insert a membership row for EACH selected pipeline
+    for (const pipeline of pipelines) {
+      const firstStage = (pipeline.column_names as string[])?.[0];
+      if (!firstStage) continue;
+
       await supabase
-        .from("crm_contacts")
-        .update({ stage: firstStage })
-        .eq("id", contactId)
-        .is("stage", null); // only set if not already in a pipeline
+        .from("crm_contact_pipeline_memberships")
+        .upsert(
+          { contact_id: contactId, pipeline_id: pipeline.id, stage: firstStage, position: 0 },
+          { onConflict: "contact_id,pipeline_id", ignoreDuplicates: true }
+        );
     }
   } catch (e) {
     console.error("addContactToPipelines (non-fatal):", e);

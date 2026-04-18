@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, ShieldCheck, ToggleLeft, ToggleRight, Briefcase, Rocket, BellOff, CheckCircle2, AlertCircle, Clock, Send } from "lucide-react";
-import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useServices, useUpdateService, useReminderConfig, useUpsertReminderConfig, useReminders } from "@/hooks/useCrmData";
+import { useState, useMemo, useEffect } from "react";
+import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, ShieldCheck, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays } from "lucide-react";
+import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmLog } from "@/hooks/useCrmData";
 import type { CrmStaff, StaffPermission, CrmReminder } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
@@ -794,22 +794,34 @@ const RemindersTab = () => {
   );
 };
 
-// ─── SaaS Services Tab ────────────────────────────────────────────────────────
+// ─── General Tab (admin only) ─────────────────────────────────────────────────
 
-const SaasTab = () => {
-  const { data: services = [], isLoading } = useServices();
-  const updateService = useUpdateService();
+const GeneralTab = () => {
+  const { data: calendars = [], isLoading: loadingCals } = useCalendars();
+  const { data: profile, isLoading: loadingProfile }     = useBusinessProfile();
+  const upsert = useUpsertBusinessProfile();
 
-  const toggle = async (id: string, current: boolean) => {
+  const [selected, setSelected] = useState<string>("");
+  const [dirty, setDirty]       = useState(false);
+
+  useEffect(() => {
+    if (profile !== undefined) {
+      setSelected(profile?.landing_calendar_id ?? "");
+      setDirty(false);
+    }
+  }, [profile?.landing_calendar_id]);
+
+  const handleSave = async () => {
     try {
-      await updateService.mutateAsync({ id, is_saas: !current } as any);
-      toast.success(!current ? "Servicio marcado como SaaS" : "Servicio desmarcado como SaaS");
+      await upsert.mutateAsync({ landing_calendar_id: selected || null });
+      toast.success("Calendario de landing actualizado");
+      setDirty(false);
     } catch {
-      toast.error("Error al actualizar el servicio");
+      toast.error("Error al guardar");
     }
   };
 
-  if (isLoading) {
+  if (loadingCals || loadingProfile) {
     return (
       <div className="flex justify-center py-16">
         <Loader2 size={22} className="animate-spin text-muted-foreground" />
@@ -817,69 +829,108 @@ const SaasTab = () => {
     );
   }
 
-  if (services.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center bg-card border rounded-2xl">
-        <Briefcase size={30} className="mx-auto text-muted-foreground/20 mb-3" />
-        <p className="text-sm font-medium text-muted-foreground">Sin servicios configurados</p>
-        <p className="text-xs text-muted-foreground/60 mt-1">Crea servicios desde la sección "Servicios" primero.</p>
-      </div>
-    );
-  }
-
-  const saasCount = services.filter(s => (s as any).is_saas).length;
-
   return (
-    <div className="space-y-4">
-      <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+    <div className="space-y-6">
+      <div className="bg-card border rounded-2xl p-5 space-y-4">
         <div className="flex items-start gap-3">
-          <Rocket size={16} className="text-amber-600 mt-0.5 shrink-0" />
+          <Globe size={16} className="text-primary mt-0.5 shrink-0" />
           <div>
-            <p className="text-xs font-semibold text-amber-800">Servicios SaaS activados: {saasCount}</p>
-            <p className="text-[11px] text-amber-700 mt-0.5 leading-relaxed">
-              Al vender un servicio marcado como SaaS, se creará automáticamente una cuenta CRM para el cliente y se le enviará un email de invitación.
+            <p className="text-sm font-semibold">Calendario de la Landing Page</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Elige qué calendario se mostrará en la página pública de reservas.
             </p>
           </div>
         </div>
-      </div>
 
-      <div className="bg-card border rounded-2xl overflow-hidden">
-        {services.map((service, i) => {
-          const isSaas = !!(service as any).is_saas;
-          return (
-            <div key={service.id} className={i < services.length - 1 ? "border-b" : ""}>
-              <div className="px-5 py-4 flex items-center gap-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-medium truncate">{service.name}</p>
-                    {isSaas && (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 border border-amber-200 shrink-0">
-                        SaaS
+        {calendars.length === 0 ? (
+          <div className="text-center py-8 bg-secondary/30 rounded-xl">
+            <CalendarDays size={24} className="mx-auto text-muted-foreground/30 mb-2" />
+            <p className="text-sm text-muted-foreground">No hay calendarios creados aún.</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              {calendars.map((cal) => {
+                const isActive = selected === cal.id;
+                return (
+                  <button
+                    key={cal.id}
+                    type="button"
+                    onClick={() => { setSelected(cal.id); setDirty(true); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
+                      isActive
+                        ? "border-primary bg-primary/5"
+                        : "border-border hover:border-primary/40 hover:bg-secondary/30"
+                    }`}
+                  >
+                    <CalendarDays
+                      size={15}
+                      className={isActive ? "text-primary shrink-0" : "text-muted-foreground/50 shrink-0"}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium truncate ${isActive ? "text-primary" : ""}`}>
+                        {cal.name ?? "Sin nombre"}
+                      </p>
+                      {cal.slug && (
+                        <p className="text-[10px] text-muted-foreground/60 mt-0.5 truncate font-mono">
+                          /{cal.slug}
+                        </p>
+                      )}
+                    </div>
+                    {isActive && (
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary text-primary-foreground shrink-0">
+                        Activo
                       </span>
                     )}
-                  </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    ${service.price.toLocaleString()} {service.currency}
-                    {service.is_recurring && <span className="ml-1 text-muted-foreground/60">· Recurrente</span>}
+                  </button>
+                );
+              })}
+
+              {/* Option to clear selection (use fallback) */}
+              <button
+                type="button"
+                onClick={() => { setSelected(""); setDirty(true); }}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
+                  selected === ""
+                    ? "border-primary bg-primary/5"
+                    : "border-border hover:border-primary/40 hover:bg-secondary/30"
+                }`}
+              >
+                <Globe
+                  size={15}
+                  className={selected === "" ? "text-primary shrink-0" : "text-muted-foreground/50 shrink-0"}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className={`text-sm font-medium ${selected === "" ? "text-primary" : "text-muted-foreground"}`}>
+                    Automático (más antiguo)
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                    Usa el primer calendario creado como fallback.
                   </p>
                 </div>
-
-                <button
-                  onClick={() => toggle(service.id, isSaas)}
-                  disabled={updateService.isPending}
-                  className={`flex items-center gap-2 px-3 h-8 rounded-lg text-xs font-medium border transition-colors shrink-0 ${
-                    isSaas
-                      ? "bg-amber-50 border-amber-200 text-amber-700 hover:bg-amber-100"
-                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                  }`}
-                >
-                  {isSaas ? <ToggleRight size={14} /> : <ToggleLeft size={14} />}
-                  {isSaas ? "Vender como SaaS" : "Activar SaaS"}
-                </button>
-              </div>
+                {selected === "" && (
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary text-primary-foreground shrink-0">
+                    Activo
+                  </span>
+                )}
+              </button>
             </div>
-          );
-        })}
+
+            {dirty && (
+              <div className="flex justify-end pt-1">
+                <Button
+                  size="sm"
+                  onClick={handleSave}
+                  disabled={upsert.isPending}
+                  className="h-8 text-xs rounded-xl"
+                >
+                  {upsert.isPending && <Loader2 size={12} className="animate-spin mr-1.5" />}
+                  Guardar cambios
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -887,15 +938,22 @@ const SaasTab = () => {
 
 // ─── Settings shell ───────────────────────────────────────────────────────────
 
-const TABS = [
-  { id: "logs",        label: "Logs",          Component: LogsTab       },
-  { id: "staff",       label: "Staff",          Component: StaffTab      },
-  { id: "reminders",   label: "Recordatorios",  Component: RemindersTab  },
-] as const;
+type TabId = "general" | "logs" | "staff" | "reminders" | "saas";
 
-const CrmSettings = () => {
-  const [tab, setTab] = useState<(typeof TABS)[number]["id"]>("logs");
-  const { Component } = TABS.find((t) => t.id === tab)!;
+const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; adminOnly?: boolean }[] = [
+  { id: "general",   label: "General",        Component: GeneralTab,   adminOnly: true },
+  { id: "logs",      label: "Logs",           Component: LogsTab       },
+  { id: "staff",     label: "Staff",          Component: StaffTab      },
+  { id: "reminders", label: "Recordatorios",  Component: RemindersTab  },
+];
+
+const CrmSettings = ({ isSuperAdmin }: { isSuperAdmin?: boolean }) => {
+  const visibleTabs = ALL_TABS.filter((t) => !t.adminOnly || isSuperAdmin);
+  const defaultTab  = isSuperAdmin ? "general" : "logs";
+  const [tab, setTab] = useState<TabId>(defaultTab);
+
+  const activeTab = visibleTabs.find((t) => t.id === tab) ?? visibleTabs[0];
+  const { Component } = activeTab;
 
   return (
     <div className="space-y-6">
@@ -905,13 +963,13 @@ const CrmSettings = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-0 border-b">
-        {TABS.map((t) => (
+      <div className="flex gap-0 border-b overflow-x-auto">
+        {visibleTabs.map((t) => (
           <button
             key={t.id}
             onClick={() => setTab(t.id)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t.id
+            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+              activeTab.id === t.id
                 ? "border-primary text-primary"
                 : "border-transparent text-muted-foreground hover:text-foreground"
             }`}

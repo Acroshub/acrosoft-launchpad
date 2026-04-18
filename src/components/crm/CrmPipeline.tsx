@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -7,12 +7,15 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import {
   Plus, X, GripVertical, Check, ChevronDown, Loader2,
   Mail, Phone, Tag, User, Users, ListTodo, CalendarDays,
-  AlertCircle, AlertTriangle, Minus, Pencil,
+  AlertCircle, AlertTriangle, Minus, Pencil, Building2,
 } from "lucide-react";
 import {
   usePipelines, useCreatePipeline, useUpdatePipeline, useDeletePipeline,
   useTasks, useCreateTask, useUpdateTask, useDeleteTask,
   useContacts, useUpdateContact, useForms,
+  useBatchUpdateTaskStage, useBatchUpdateTaskPositions,
+  useContactMemberships, useAddContactMembership, useRemoveContactMembership,
+  useUpdateMembershipStage, useBatchUpdateMembershipStage, useBatchUpdateMembershipPositions,
 } from "@/hooks/useCrmData";
 import type { CrmPipeline, CrmContact, CrmTask, CrmForm } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -30,17 +33,24 @@ const PRIORITY_STYLES: Record<string, { label: string; className: string; icon: 
   high:   { label: "Alta",  className: "bg-destructive/10 text-destructive border-destructive/20",         icon: AlertCircle },
 };
 
+// high → medium → low → sin prioridad
+const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
+
 // ─── Contact Card ─────────────────────────────────────────────
 const ContactCard = ({
   contact,
   forms,
   onDelete,
   onDragStart,
+  onDragOverCard,
+  onDragEnd,
 }: {
   contact: CrmContact;
   forms: CrmForm[];
   onDelete: () => void;
   onDragStart: () => void;
+  onDragOverCard: () => void;
+  onDragEnd: () => void;
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [expandedForms, setExpandedForms] = useState<Set<string>>(new Set());
@@ -52,7 +62,7 @@ const ContactCard = ({
   const toggleForm = (id: string) =>
     setExpandedForms((prev) => {
       const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
       return next;
     });
 
@@ -68,6 +78,8 @@ const ContactCard = ({
     <div
       draggable
       onDragStart={onDragStart}
+      onDragOver={(e) => { e.preventDefault(); onDragOverCard(); }}
+      onDragEnd={onDragEnd}
       className="bg-card border rounded-xl cursor-grab active:cursor-grabbing hover:shadow-sm transition-all group"
     >
       {/* Always visible */}
@@ -178,7 +190,7 @@ const ContactCard = ({
             <div className={`space-y-1 ${hasBasicInfo ? "pt-1 border-t border-border/40" : ""}`}>
               {formsWithData.map((form) => {
                 const vals = customFields[form.id] ?? {};
-                const filledFields = (form.fields as any[]).filter(
+                const filledFields = (form.fields as Array<{ id: string; label: string }>).filter(
                   (f) => vals[f.id] && String(vals[f.id]).trim()
                 );
                 const isFormOpen = expandedForms.has(form.id);
@@ -224,46 +236,236 @@ const ContactCard = ({
 // ─── Task Card ────────────────────────────────────────────────
 const TaskCard = ({
   task,
+  contact,
+  allContacts,
   onDelete,
   onDragStart,
+  onDragOverCard,
+  onDragEnd,
 }: {
   task: CrmTask;
+  contact?: CrmContact | null;
+  allContacts: CrmContact[];
   onDelete: () => void;
   onDragStart: () => void;
+  onDragOverCard: () => void;
+  onDragEnd: () => void;
 }) => {
-  const priority = task.priority ? PRIORITY_STYLES[task.priority] : null;
-  const PriorityIcon = priority?.icon;
+  const updateTask = useUpdateTask();
 
+  const [expanded,    setExpanded]    = useState(false);
+  const [isEditing,   setIsEditing]   = useState(false);
+  const [editTitle,   setEditTitle]   = useState(task.title);
+  const [editDesc,    setEditDesc]    = useState(task.description ?? "");
+  const [editPri,     setEditPri]     = useState<CrmTask["priority"]>(task.priority);
+  const [editContact, setEditContact] = useState(task.contact_id ?? "");
+
+  const openEdit = () => {
+    setEditTitle(task.title);
+    setEditDesc(task.description ?? "");
+    setEditPri(task.priority);
+    setEditContact(task.contact_id ?? "");
+    setExpanded(false);
+    setIsEditing(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editTitle.trim()) return;
+    try {
+      await updateTask.mutateAsync({
+        id:          task.id,
+        title:       editTitle.trim(),
+        description: editDesc.trim() || null,
+        priority:    editPri,
+        contact_id:  editContact || null,
+      });
+      setIsEditing(false);
+    } catch {
+      toast.error("Error al guardar los cambios");
+    }
+  };
+
+  const priority     = task.priority ? PRIORITY_STYLES[task.priority] : null;
+  const PriorityIcon = priority?.icon;
+  const hasExpandable = !!(task.description || contact);
+
+  // ── Inline edit mode ──────────────────────────────────────────
+  if (isEditing) {
+    return (
+      <div
+        className="bg-card border rounded-xl p-3 space-y-2 shadow-sm animate-in fade-in zoom-in-95"
+        onKeyDown={(e) => { if (e.key === "Escape") setIsEditing(false); }}
+      >
+        <Input
+          autoFocus
+          value={editTitle}
+          onChange={(e) => setEditTitle(e.target.value)}
+          placeholder="Título *"
+          className="h-7 text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2"
+        />
+        <Textarea
+          value={editDesc}
+          onChange={(e) => setEditDesc(e.target.value)}
+          placeholder="Descripción (opcional)"
+          rows={2}
+          className="text-xs bg-secondary/50 border-transparent focus-visible:border-primary px-2 py-1.5 resize-none min-h-0"
+        />
+        {/* Priority */}
+        <div className="flex gap-1.5">
+          {(["", "low", "medium", "high"] as const).map((p) => {
+            const style  = p ? PRIORITY_STYLES[p] : null;
+            const active = editPri === (p || null);
+            return (
+              <button
+                key={p}
+                type="button"
+                onClick={() => setEditPri(p || null)}
+                className={`flex-1 text-[9px] font-semibold rounded-lg border px-1 py-1 transition-all ${
+                  active
+                    ? p ? style!.className : "bg-secondary text-foreground border-border"
+                    : "text-muted-foreground border-transparent hover:bg-secondary/50"
+                }`}
+              >
+                {p ? style!.label : "Sin prioridad"}
+              </button>
+            );
+          })}
+        </div>
+        {/* Contact */}
+        {allContacts.length > 0 && (
+          <div className="relative">
+            <select
+              value={editContact}
+              onChange={(e) => setEditContact(e.target.value)}
+              className="w-full h-7 rounded-md border bg-secondary/50 border-transparent text-xs pl-2 pr-6 appearance-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-muted-foreground"
+            >
+              <option value="">Sin contacto</option>
+              {allContacts.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}{c.email ? ` — ${c.email}` : ""}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          </div>
+        )}
+        <div className="flex gap-2 pt-0.5">
+          <Button
+            size="sm"
+            className="h-7 text-[11px] flex-1 rounded-lg"
+            disabled={!editTitle.trim() || updateTask.isPending}
+            onClick={handleSaveEdit}
+          >
+            {updateTask.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+            Guardar
+          </Button>
+          <button
+            onClick={() => setIsEditing(false)}
+            className="h-7 px-2.5 rounded-lg border text-muted-foreground hover:bg-secondary"
+          >
+            <X size={12} />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── View mode ─────────────────────────────────────────────────
   return (
     <div
       draggable
       onDragStart={onDragStart}
-      className="bg-card border rounded-xl px-3 py-2.5 cursor-grab active:cursor-grabbing hover:shadow-sm transition-all group"
+      onDragOver={(e) => { e.preventDefault(); onDragOverCard(); }}
+      onDragEnd={onDragEnd}
+      className="bg-card border rounded-xl cursor-grab active:cursor-grabbing hover:shadow-sm transition-all"
     >
-      <div className="flex items-start gap-2">
-        <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 group-hover:text-muted-foreground/60 shrink-0" />
+      {/* Always-visible header */}
+      <div className="px-3 pt-3 pb-2.5 flex items-start gap-2">
+        <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 shrink-0" />
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-semibold leading-tight">{task.title}</p>
-          {task.description && (
-            <p className="text-[10px] text-muted-foreground mt-1 line-clamp-2 leading-relaxed">{task.description}</p>
-          )}
-          {priority && PriorityIcon && (
-            <div className="mt-2">
-              <span className={`inline-flex items-center gap-1 text-[9px] font-medium border rounded-full px-1.5 py-0.5 ${priority.className}`}>
-                <PriorityIcon size={9} />
-                {priority.label}
-              </span>
+          <p className="text-xs font-semibold leading-tight truncate">{task.title}</p>
+          {(priority || contact) && (
+            <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+              {priority && PriorityIcon && (
+                <span className={`inline-flex items-center gap-1 text-[9px] font-medium border rounded-full px-1.5 py-0.5 ${priority.className}`}>
+                  <PriorityIcon size={9} />
+                  {priority.label}
+                </span>
+              )}
+              {contact && (
+                <span className="inline-flex items-center gap-1 text-[9px] font-medium border rounded-full px-1.5 py-0.5 bg-secondary text-muted-foreground border-border">
+                  <User size={9} />
+                  {contact.name}
+                </span>
+              )}
             </div>
           )}
         </div>
-        <button
-          onClick={onDelete}
-          className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors opacity-0 group-hover:opacity-100 shrink-0"
-          title="Eliminar tarea"
-        >
-          <X size={13} />
-        </button>
+        {/* Action buttons — always visible */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button
+            onClick={openEdit}
+            title="Editar tarea"
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          >
+            <Pencil size={12} />
+          </button>
+          {hasExpandable && (
+            <button
+              onClick={() => setExpanded((v) => !v)}
+              title={expanded ? "Ocultar detalles" : "Ver detalles"}
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            >
+              <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
+            </button>
+          )}
+          <button
+            onClick={onDelete}
+            title="Eliminar tarea"
+            className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+          >
+            <X size={13} />
+          </button>
+        </div>
       </div>
+
+      {/* Expandable details */}
+      {expanded && hasExpandable && (
+        <div className="border-t mx-3 mb-3 pt-2.5 space-y-2 animate-in fade-in slide-in-from-top-1 duration-150">
+          {task.description && (
+            <p className="text-[10px] text-muted-foreground leading-relaxed">{task.description}</p>
+          )}
+          {contact && (
+            <div className="space-y-1.5 pt-1 border-t">
+              <p className="text-[9px] uppercase tracking-widest text-muted-foreground/50 font-semibold">Contacto</p>
+              {contact.email && (
+                <div className="flex items-center gap-1.5">
+                  <Mail size={10} className="shrink-0 text-muted-foreground/40" />
+                  <a href={`mailto:${contact.email}`} onClick={(e) => e.stopPropagation()}
+                    className="text-[10px] text-muted-foreground hover:text-foreground truncate transition-colors">
+                    {contact.email}
+                  </a>
+                </div>
+              )}
+              {contact.phone && (
+                <div className="flex items-center gap-1.5">
+                  <Phone size={10} className="shrink-0 text-muted-foreground/40" />
+                  <a href={`tel:${contact.phone}`} onClick={(e) => e.stopPropagation()}
+                    className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+                    {contact.phone}
+                  </a>
+                </div>
+              )}
+              {contact.company && (
+                <div className="flex items-center gap-1.5">
+                  <Building2 size={10} className="shrink-0 text-muted-foreground/40" />
+                  <span className="text-[10px] text-muted-foreground truncate">{contact.company}</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 };
@@ -389,42 +591,108 @@ const ContactsBoard = ({
   forms: CrmForm[];
   onUpdatePipeline: (patch: Partial<CrmPipeline>) => Promise<void>;
 }) => {
-  const updateContact = useUpdateContact();
+  const { data: memberships = [] }  = useContactMemberships(pipeline.id);
+  const addContactMembership        = useAddContactMembership();
+  const removeContactMembership     = useRemoveContactMembership();
+  const updateMembershipStage       = useUpdateMembershipStage();
+  const batchUpdateMembershipStage  = useBatchUpdateMembershipStage();
+  const batchUpdateMembershipPos    = useBatchUpdateMembershipPositions();
+  // Still needed to optionally write notes when adding a contact
+  const updateContact               = useUpdateContact();
 
-  const [dragCard, setDragCard]       = useState<{ id: string; fromCol: string } | null>(null);
-  const [dragOver, setDragOver]       = useState<string | null>(null);
-  const [addingTo, setAddingTo]       = useState<string | null>(null);
-  const [pickedId, setPickedId]       = useState("");
-  const [newNotes, setNewNotes]       = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [dragCard, setDragCard]             = useState<{ id: string; fromCol: string } | null>(null);
+  const [dragOver, setDragOver]             = useState<string | null>(null);
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
+  const [addingTo, setAddingTo]             = useState<string | null>(null);
+  const [pickedId, setPickedId]             = useState("");
+  const [newNotes, setNewNotes]             = useState("");
+  const [deleteTarget, setDeleteTarget]     = useState<string | null>(null); // membership id
+
+  const resetDrag = () => { setDragCard(null); setDragOver(null); setDragOverCardId(null); };
 
   const columns = pipeline.column_names;
 
-  // Contacts currently in this pipeline
-  const pipelineContacts = allContacts.filter((c) => columns.includes(c.stage ?? ""));
-  // Contacts available to add (not already in any column of this pipeline)
-  const availableContacts = allContacts.filter((c) => !columns.includes(c.stage ?? ""));
+  // Set of contact IDs already in this pipeline
+  const membershipContactIds = useMemo(
+    () => new Set(memberships.map((m) => m.contact_id)),
+    [memberships]
+  );
+  // Contacts not yet in this pipeline
+  const availableContacts = useMemo(
+    () => allContacts.filter((c) => !membershipContactIds.has(c.id)),
+    [allContacts, membershipContactIds]
+  );
+  // Fast lookup: contact_id → CrmContact
+  const contactMap = useMemo(() => {
+    const map: Record<string, CrmContact> = {};
+    for (const c of allContacts) map[c.id] = c;
+    return map;
+  }, [allContacts]);
+
+  const handleReorder = async (col: string, draggedId: string, targetId: string) => {
+    const sorted = memberships
+      .filter((m) => m.stage === col)
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+
+    const dragged = sorted.find((m) => m.id === draggedId);
+    if (!dragged) return;
+
+    const without = sorted.filter((m) => m.id !== draggedId);
+    const targetIdx = without.findIndex((m) => m.id === targetId);
+    if (targetIdx === -1) return;
+
+    without.splice(targetIdx, 0, dragged);
+
+    const updates = without.map((m, idx) => ({ id: m.id, position: idx * 10, pipelineId: pipeline.id }));
+    try {
+      await batchUpdateMembershipPos.mutateAsync(updates);
+    } catch {
+      toast.error("Error al reordenar");
+    }
+  };
 
   const handleDrop = async (toCol: string) => {
-    if (!dragCard || dragCard.fromCol === toCol) { setDragCard(null); setDragOver(null); return; }
-    try { await updateContact.mutateAsync({ id: dragCard.id, stage: toCol }); }
-    catch { toast.error("Error al mover contacto"); }
-    setDragCard(null);
-    setDragOver(null);
+    if (!dragCard) { resetDrag(); return; }
+    if (dragCard.fromCol === toCol) {
+      if (dragOverCardId && dragOverCardId !== dragCard.id) {
+        await handleReorder(toCol, dragCard.id, dragOverCardId);
+      }
+    } else {
+      try {
+        await updateMembershipStage.mutateAsync({ membershipId: dragCard.id, stage: toCol, pipelineId: pipeline.id });
+      } catch { toast.error("Error al mover contacto"); }
+    }
+    resetDrag();
   };
 
   const handleRenameCol = async (oldName: string, newName: string) => {
     const newCols = columns.map((c) => (c === oldName ? newName : c));
-    await onUpdatePipeline({ column_names: newCols });
-    const affected = pipelineContacts.filter((c) => c.stage === oldName);
-    await Promise.all(affected.map((c) => updateContact.mutateAsync({ id: c.id, stage: newName })));
-    if (affected.length > 0) toast.success("Columna renombrada");
+    try {
+      await onUpdatePipeline({ column_names: newCols });
+      await batchUpdateMembershipStage.mutateAsync({ pipelineId: pipeline.id, oldStage: oldName, newStage: newName });
+      toast.success("Columna renombrada");
+    } catch {
+      toast.error("Error al renombrar la columna");
+    }
   };
 
-  const handleDeleteCol = async (colName: string) => {
-    const count = pipelineContacts.filter((c) => c.stage === colName).length;
+  const [deleteColTarget, setDeleteColTarget] = useState<string | null>(null);
+
+  const handleDeleteCol = (colName: string) => {
+    const count = memberships.filter((m) => m.stage === colName).length;
     if (count > 0) { toast.error(`"${colName}" tiene ${count} contactos — muévelos antes de eliminar.`); return; }
-    await onUpdatePipeline({ column_names: columns.filter((c) => c !== colName) });
+    setDeleteColTarget(colName);
+  };
+
+  const handleConfirmDeleteCol = async () => {
+    if (!deleteColTarget) return;
+    try {
+      await onUpdatePipeline({ column_names: columns.filter((c) => c !== deleteColTarget) });
+      toast.success(`Columna "${deleteColTarget}" eliminada`);
+    } catch {
+      toast.error("Error al eliminar la columna");
+    }
+    setDeleteColTarget(null);
   };
 
   const handleAddCol = async (name: string) => {
@@ -435,13 +703,13 @@ const ContactsBoard = ({
   const handleSaveCard = async (colName: string) => {
     if (!pickedId) return;
     const contact = allContacts.find((c) => c.id === pickedId);
+    const colMemberships = memberships.filter((m) => m.stage === colName);
+    const maxPos = colMemberships.length > 0 ? Math.max(...colMemberships.map((m) => m.position ?? 0)) : -10;
     try {
-      await updateContact.mutateAsync({
-        id: pickedId,
-        stage: colName,
-        // Only overwrite notes if the user typed something
-        ...(newNotes.trim() ? { notes: newNotes.trim() } : {}),
-      });
+      await addContactMembership.mutateAsync({ contactId: pickedId, pipelineId: pipeline.id, stage: colName, position: maxPos + 10 });
+      if (newNotes.trim()) {
+        await updateContact.mutateAsync({ id: pickedId, notes: newNotes.trim() });
+      }
       toast.success(`${contact?.name ?? "Contacto"} añadido a "${colName}"`);
       setAddingTo(null);
     } catch { toast.error("Error al añadir contacto"); }
@@ -450,7 +718,7 @@ const ContactsBoard = ({
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return;
     try {
-      await updateContact.mutateAsync({ id: deleteTarget, stage: null });
+      await removeContactMembership.mutateAsync({ membershipId: deleteTarget, pipelineId: pipeline.id });
       toast.success("Contacto removido del pipeline");
     } catch { toast.error("Error al remover"); }
     setDeleteTarget(null);
@@ -462,31 +730,57 @@ const ContactsBoard = ({
         open={!!deleteTarget}
         onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
         onConfirm={handleConfirmDelete}
-        isPending={updateContact.isPending}
+        isPending={removeContactMembership.isPending}
         description="El contacto se removerá del pipeline pero no se eliminará del CRM."
+      />
+      <DeleteConfirmDialog
+        open={!!deleteColTarget}
+        onOpenChange={(open) => { if (!open) setDeleteColTarget(null); }}
+        onConfirm={handleConfirmDeleteCol}
+        isPending={false}
+        description={`¿Eliminar la columna "${deleteColTarget}"? Esta acción no se puede deshacer.`}
       />
       <BoardGrid
         columns={columns}
         dragOver={dragOver}
         onDragOver={setDragOver}
         onDrop={handleDrop}
-        onDragLeave={() => setDragOver(null)}
+        onDragLeave={() => { setDragOver(null); setDragOverCardId(null); }}
         onRenameCol={handleRenameCol}
         onDeleteCol={handleDeleteCol}
         onAddCol={handleAddCol}
         onReorderCols={(newOrder) => onUpdatePipeline({ column_names: newOrder })}
-        getCount={(col) => pipelineContacts.filter((c) => c.stage === col).length}
-        renderCards={(col) =>
-          pipelineContacts.filter((c) => c.stage === col).map((contact) => (
-            <ContactCard
-              key={contact.id}
-              contact={contact}
-              forms={forms}
-              onDelete={() => setDeleteTarget(contact.id)}
-              onDragStart={() => setDragCard({ id: contact.id, fromCol: col })}
-            />
-          ))
-        }
+        getCount={(col) => memberships.filter((m) => m.stage === col).length}
+        renderCards={(col) => {
+          const sorted = memberships
+            .filter((m) => m.stage === col)
+            .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
+          return (
+            <>
+              {sorted.map((membership) => {
+                const contact = contactMap[membership.contact_id];
+                if (!contact) return null;
+                const showIndicator =
+                  dragCard?.fromCol === col &&
+                  dragOverCardId === membership.id &&
+                  dragCard.id !== membership.id;
+                return (
+                  <Fragment key={membership.id}>
+                    {showIndicator && <div className="h-0.5 bg-primary/60 rounded-full mx-1" />}
+                    <ContactCard
+                      contact={contact}
+                      forms={forms}
+                      onDelete={() => setDeleteTarget(membership.id)}
+                      onDragStart={() => { setDragCard({ id: membership.id, fromCol: col }); setDragOverCardId(null); }}
+                      onDragOverCard={() => setDragOverCardId(membership.id)}
+                      onDragEnd={resetDrag}
+                    />
+                  </Fragment>
+                );
+              })}
+            </>
+          );
+        }}
         renderCreation={(col) =>
           addingTo === col ? (
             <div className="bg-card border rounded-xl p-3 space-y-2 shadow-sm animate-in fade-in zoom-in-95">
@@ -496,7 +790,6 @@ const ContactsBoard = ({
                 </p>
               ) : (
                 <>
-                  {/* Contact selector */}
                   <div className="relative">
                     <select
                       autoFocus
@@ -513,8 +806,6 @@ const ContactsBoard = ({
                     </select>
                     <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                   </div>
-
-                  {/* Notes */}
                   <Textarea
                     placeholder="Notas (opcional)"
                     value={newNotes}
@@ -524,15 +815,14 @@ const ContactsBoard = ({
                   />
                 </>
               )}
-
               <div className="flex gap-2 pt-0.5">
                 <Button
                   size="sm"
                   className="h-7 text-[11px] flex-1 rounded-lg"
-                  disabled={!pickedId || updateContact.isPending}
+                  disabled={!pickedId || addContactMembership.isPending}
                   onClick={() => handleSaveCard(col)}
                 >
-                  {updateContact.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
+                  {addContactMembership.isPending ? <Loader2 size={12} className="animate-spin mr-1" /> : null}
                   Añadir
                 </Button>
                 <button onClick={() => setAddingTo(null)} className="h-7 px-2.5 rounded-lg border text-muted-foreground hover:bg-secondary">
@@ -557,46 +847,112 @@ const ContactsBoard = ({
 // ─── Tasks Board ──────────────────────────────────────────────
 const TasksBoard = ({
   pipeline,
+  allContacts,
   onUpdatePipeline,
 }: {
   pipeline: CrmPipeline;
+  allContacts: CrmContact[];
   onUpdatePipeline: (patch: Partial<CrmPipeline>) => Promise<void>;
 }) => {
   const { data: tasks = [] } = useTasks(pipeline.id);
-  const createTask  = useCreateTask();
-  const updateTask  = useUpdateTask();
-  const deleteTask  = useDeleteTask();
+  const createTask            = useCreateTask();
+  const updateTask            = useUpdateTask();
+  const deleteTask            = useDeleteTask();
+  const batchUpdateTasks      = useBatchUpdateTaskStage();
+  const batchUpdateTaskPos    = useBatchUpdateTaskPositions();
 
-  const [dragCard, setDragCard]   = useState<{ id: string; fromCol: string } | null>(null);
-  const [dragOver, setDragOver]   = useState<string | null>(null);
-  const [addingTo, setAddingTo]   = useState<string | null>(null);
-  const [newTitle, setNewTitle]   = useState("");
-  const [newDesc, setNewDesc]     = useState("");
-  const [newPri, setNewPri]       = useState<"low" | "medium" | "high" | "">("");
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [dragCard, setDragCard]             = useState<{ id: string; fromCol: string } | null>(null);
+  const [dragOver, setDragOver]             = useState<string | null>(null);
+  const [dragOverCardId, setDragOverCardId] = useState<string | null>(null);
+  const [addingTo, setAddingTo]             = useState<string | null>(null);
+  const [newTitle, setNewTitle]             = useState("");
+  const [newDesc, setNewDesc]               = useState("");
+  const [newPri, setNewPri]                 = useState<"low" | "medium" | "high" | "">("");
+  const [newContactId, setNewContactId]     = useState("");
+  const [deleteTarget, setDeleteTarget]     = useState<{ id: string; name: string } | null>(null);
+
+  const resetDrag = () => { setDragCard(null); setDragOver(null); setDragOverCardId(null); };
+
+  // Sort tasks: priority group first (Opción C), then position, then created_at as tiebreaker
+  const sortTasks = (list: CrmTask[]) =>
+    [...list].sort((a, b) =>
+      (PRIORITY_ORDER[a.priority ?? ""] ?? 3) - (PRIORITY_ORDER[b.priority ?? ""] ?? 3) ||
+      (a.position ?? 0) - (b.position ?? 0) ||
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+    );
 
   const columns = pipeline.column_names;
 
+  const handleReorder = async (col: string, draggedId: string, targetId: string) => {
+    const sorted = sortTasks(tasks.filter((t) => t.stage === col));
+    const draggedTask = sorted.find((t) => t.id === draggedId);
+    const targetTask  = sorted.find((t) => t.id === targetId);
+    if (!draggedTask || !targetTask) return;
+
+    // Opción C: only reorder within the same priority group
+    if (draggedTask.priority !== targetTask.priority) return;
+
+    const group   = sorted.filter((t) => t.priority === draggedTask.priority);
+    const without = group.filter((t) => t.id !== draggedId);
+    const targetIdx = without.findIndex((t) => t.id === targetId);
+    if (targetIdx === -1) return;
+
+    without.splice(targetIdx, 0, draggedTask);
+
+    const updates = without.map((t, idx) => ({
+      id: t.id,
+      position: idx * 10,
+      pipelineId: pipeline.id,
+    }));
+
+    try {
+      await batchUpdateTaskPos.mutateAsync(updates);
+    } catch {
+      toast.error("Error al reordenar");
+    }
+  };
+
   const handleDrop = async (toCol: string) => {
-    if (!dragCard || dragCard.fromCol === toCol) { setDragCard(null); setDragOver(null); return; }
-    try { await updateTask.mutateAsync({ id: dragCard.id, stage: toCol }); }
-    catch { toast.error("Error al mover tarea"); }
-    setDragCard(null);
-    setDragOver(null);
+    if (!dragCard) { resetDrag(); return; }
+    if (dragCard.fromCol === toCol) {
+      if (dragOverCardId && dragOverCardId !== dragCard.id) {
+        await handleReorder(toCol, dragCard.id, dragOverCardId);
+      }
+    } else {
+      try { await updateTask.mutateAsync({ id: dragCard.id, stage: toCol }); }
+      catch { toast.error("Error al mover tarea"); }
+    }
+    resetDrag();
   };
 
   const handleRenameCol = async (oldName: string, newName: string) => {
     const newCols = columns.map((c) => (c === oldName ? newName : c));
-    await onUpdatePipeline({ column_names: newCols });
-    const affected = tasks.filter((t) => t.stage === oldName);
-    await Promise.all(affected.map((t) => updateTask.mutateAsync({ id: t.id, stage: newName })));
-    if (affected.length > 0) toast.success("Columna renombrada");
+    try {
+      await onUpdatePipeline({ column_names: newCols });
+      await batchUpdateTasks.mutateAsync({ pipelineId: pipeline.id, oldStage: oldName, newStage: newName });
+      toast.success("Columna renombrada");
+    } catch {
+      toast.error("Error al renombrar la columna");
+    }
   };
 
-  const handleDeleteCol = async (colName: string) => {
+  const [deleteColTarget, setDeleteColTarget] = useState<string | null>(null);
+
+  const handleDeleteCol = (colName: string) => {
     const count = tasks.filter((t) => t.stage === colName).length;
     if (count > 0) { toast.error(`"${colName}" tiene ${count} tareas — muévelas antes de eliminar.`); return; }
-    await onUpdatePipeline({ column_names: columns.filter((c) => c !== colName) });
+    setDeleteColTarget(colName);
+  };
+
+  const handleConfirmDeleteCol = async () => {
+    if (!deleteColTarget) return;
+    try {
+      await onUpdatePipeline({ column_names: columns.filter((c) => c !== deleteColTarget) });
+      toast.success(`Columna "${deleteColTarget}" eliminada`);
+    } catch {
+      toast.error("Error al eliminar la columna");
+    }
+    setDeleteColTarget(null);
   };
 
   const handleAddCol = async (name: string) => {
@@ -606,13 +962,19 @@ const TasksBoard = ({
 
   const handleSaveCard = async (col: string) => {
     if (!newTitle.trim()) return;
+    const priority = newPri || null;
+    // Place new task at the end of its priority group within the column
+    const group = tasks.filter((t) => t.stage === col && t.priority === priority);
+    const maxPos = group.length > 0 ? Math.max(...group.map((t) => t.position ?? 0)) : -10;
     try {
       await createTask.mutateAsync({
         pipeline_id: pipeline.id,
-        title: newTitle.trim(),
+        title:       newTitle.trim(),
         description: newDesc.trim() || null,
-        priority: newPri || null,
-        stage: col,
+        priority,
+        stage:       col,
+        contact_id:  newContactId || null,
+        position:    maxPos + 10,
       });
       toast.success("Tarea creada");
       setAddingTo(null);
@@ -635,27 +997,58 @@ const TasksBoard = ({
         isPending={deleteTask.isPending}
         description="Se eliminará la tarea permanentemente."
       />
+      <DeleteConfirmDialog
+        open={!!deleteColTarget}
+        onOpenChange={(open) => { if (!open) setDeleteColTarget(null); }}
+        onConfirm={handleConfirmDeleteCol}
+        isPending={false}
+        description={`¿Eliminar la columna "${deleteColTarget}"? Esta acción no se puede deshacer.`}
+      />
       <BoardGrid
         columns={columns}
         dragOver={dragOver}
         onDragOver={setDragOver}
         onDrop={handleDrop}
-        onDragLeave={() => setDragOver(null)}
+        onDragLeave={() => { setDragOver(null); setDragOverCardId(null); }}
         onRenameCol={handleRenameCol}
         onDeleteCol={handleDeleteCol}
         onAddCol={handleAddCol}
         onReorderCols={(newOrder) => onUpdatePipeline({ column_names: newOrder })}
         getCount={(col) => tasks.filter((t) => t.stage === col).length}
-        renderCards={(col) =>
-          tasks.filter((t) => t.stage === col).map((task) => (
-            <TaskCard
-              key={task.id}
-              task={task}
-              onDelete={() => setDeleteTarget({ id: task.id, name: task.title })}
-              onDragStart={() => setDragCard({ id: task.id, fromCol: col })}
-            />
-          ))
-        }
+        renderCards={(col) => {
+          const sorted = sortTasks(tasks.filter((t) => t.stage === col));
+          const draggedTask = dragCard ? tasks.find((t) => t.id === dragCard.id) : null;
+          return (
+            <>
+              {sorted.map((task) => {
+                const showIndicator =
+                  dragCard?.fromCol === col &&
+                  dragOverCardId === task.id &&
+                  dragCard.id !== task.id &&
+                  draggedTask?.priority === task.priority;
+                return (
+                  <Fragment key={task.id}>
+                    {showIndicator && (
+                      <div className="h-0.5 bg-primary/60 rounded-full mx-1" />
+                    )}
+                    <TaskCard
+                      task={task}
+                      contact={task.contact_id
+                        ? (allContacts.find((c) => c.id === task.contact_id) ?? null)
+                        : null
+                      }
+                      allContacts={allContacts}
+                      onDelete={() => setDeleteTarget({ id: task.id, name: task.title })}
+                      onDragStart={() => { setDragCard({ id: task.id, fromCol: col }); setDragOverCardId(null); }}
+                      onDragOverCard={() => setDragOverCardId(task.id)}
+                      onDragEnd={resetDrag}
+                    />
+                  </Fragment>
+                );
+              })}
+            </>
+          );
+        }}
         renderCreation={(col) =>
           addingTo === col ? (
             <div className="bg-card border rounded-xl p-3 space-y-2 shadow-sm animate-in fade-in zoom-in-95">
@@ -693,6 +1086,24 @@ const TasksBoard = ({
                   );
                 })}
               </div>
+              {/* Contact selector (optional) */}
+              {allContacts.length > 0 && (
+                <div className="relative">
+                  <select
+                    value={newContactId}
+                    onChange={(e) => setNewContactId(e.target.value)}
+                    className="w-full h-7 rounded-md border bg-secondary/50 border-transparent text-xs pl-2 pr-6 appearance-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary text-muted-foreground"
+                  >
+                    <option value="">Contacto (opcional)</option>
+                    {allContacts.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}{c.email ? ` — ${c.email}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                </div>
+              )}
               <div className="flex gap-2 pt-0.5">
                 <Button
                   size="sm"
@@ -710,7 +1121,7 @@ const TasksBoard = ({
             </div>
           ) : (
             <button
-              onClick={() => { setAddingTo(col); setNewTitle(""); setNewDesc(""); setNewPri(""); }}
+              onClick={() => { setAddingTo(col); setNewTitle(""); setNewDesc(""); setNewPri(""); setNewContactId(""); }}
               className="w-full flex items-center justify-center gap-1.5 py-2 mt-1 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors border border-transparent hover:border-border/50 border-dashed"
             >
               <Plus size={13} /> Añadir tarea
@@ -801,9 +1212,9 @@ const BoardGrid = ({
               onColDragEnd={() => { setDraggingCol(null); setColDragOver(null); }}
               onRename={(next) => onRenameCol(col, next)}
               onDelete={() => onDeleteCol(col)}
+              footer={renderCreation(col)}
             >
               {renderCards(col)}
-              {renderCreation(col)}
             </BoardColumn>
           </div>
         ))}
@@ -1119,6 +1530,7 @@ const CrmPipeline = () => {
             {selected.type === "tasks" && (
               <TasksBoard
                 pipeline={selected}
+                allContacts={contacts}
                 onUpdatePipeline={handleUpdatePipeline}
               />
             )}

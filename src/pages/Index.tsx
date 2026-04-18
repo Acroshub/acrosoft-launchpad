@@ -9,14 +9,26 @@ import CalendarRenderer from "@/components/crm/CalendarRenderer";
 import { useLandingServices } from "@/hooks/useCrmData";
 
 /**
- * Loads the first active calendar in the system (no auth needed — relies on
- * the public RLS policy "Public can read calendar config").
- * The admin creates the calendar in the CRM and it shows up here automatically.
+ * Returns the calendar ID to embed on the landing page.
+ * Priority: admin-configured landing_calendar_id in crm_business_profile.
+ * Fallback: oldest calendar by created_at (original behavior).
+ * No auth needed — relies on public RLS policies.
  */
 const useLandingCalendar = () =>
   useQuery({
     queryKey: ["landing_calendar"],
     queryFn: async () => {
+      // 1. Check if admin has explicitly configured a landing calendar
+      const { data: profile } = await supabase
+        .from("crm_business_profile")
+        .select("landing_calendar_id")
+        .not("landing_calendar_id", "is", null)
+        .limit(1)
+        .maybeSingle();
+
+      if (profile?.landing_calendar_id) return profile.landing_calendar_id as string;
+
+      // 2. Fallback: first calendar ordered by created_at
       const { data } = await supabase
         .from("crm_calendar_config")
         .select("id")
