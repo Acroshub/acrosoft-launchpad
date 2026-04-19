@@ -252,10 +252,34 @@ Migración aplicada: `start_minute INT NOT NULL DEFAULT 0` y `end_minute INT NOT
 
 ---
 
-### L-5 · Venta automática al enviar formulario con campo services
+### L-5 · Venta automática al enviar formulario con campo services ✅ COMPLETADO
 **Problema:** Cuando alguien llena un formulario con campo `services` y elige un servicio, la venta no se registra automáticamente.
 **Fix:** En `crm-form-public`, detectar campo tipo `services` en los datos, registrar venta en `crm_sales`, y si el servicio tiene `is_saas = true`, disparar `create-saas-client`.
 **Archivos:** `supabase/functions/crm-form-public/index.ts`
+
+**Implementación:**
+- `handleServicesField()` busca el servicio, calcula precio con descuento (`discount_pct`), e inserta en `crm_sales`
+- Prevención de ventas duplicadas: verifica que no exista venta `initial` para el mismo `contact_id + service_id` antes de insertar
+- Si `is_saas = true`: verifica que no exista `crm_client_accounts` → invita por email via `auth.admin.inviteUserByEmail` → crea cuenta con status `pending`
+- Edge function desplegada v12 con todos los fixes
+
+---
+
+### L-5b · Filtro de clientes y servicio contratado en CrmContacts ✅ COMPLETADO
+**Problema:** No hay forma rápida de filtrar contactos que ya son clientes (tienen al menos una venta) ni de filtrar por servicio contratado. QW-2 definió que "Clientes" sería un filtro dentro de Contactos, pero nunca se implementó.
+**Fix:** En `CrmContacts`, agregar filtros en la barra de búsqueda:
+1. Toggle/botón "Solo clientes" — filtra contactos que tengan al menos un registro en `crm_sales`.
+2. Dropdown "Servicio" — muestra los servicios activos del usuario; al seleccionar uno, filtra contactos que tengan una venta con ese `service_id`.
+Requiere cargar `useSales()` en el componente y cruzar `contact_id` con los contactos visibles.
+**Archivos:** `src/components/crm/CrmContacts.tsx`
+
+**Implementación:**
+- `clientContactIds: Set<string>` via `useMemo` — set de contact_ids con al menos una venta
+- `contactIdsByService: Map<service_id, Set<contact_id>>` via `useMemo` — lookup rápido O(1)
+- Botón toggle "Solo clientes" con estilo activo/inactivo
+- Dropdown "Todos los servicios" con servicios activos del usuario
+- Botón "Limpiar filtros" visible solo cuando hay filtros activos
+- Los filtros se combinan con la búsqueda de texto existente (AND lógico)
 
 ---
 

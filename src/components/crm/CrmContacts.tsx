@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,7 @@ import {
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
   Trash2, ChevronDown, ExternalLink, Bell,
 } from "lucide-react";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages } from "@/hooks/useCrmData";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import CreateReminderModal from "@/components/shared/CreateReminderModal";
@@ -610,6 +610,8 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const { data: pipelines = [] } = usePipelines();
   const { data: clientAccounts = [] } = useClientAccounts();
   const { data: contactStagesMap = {} } = useAllContactStages();
+  const { data: sales = [] } = useSales();
+  const { data: services = [] } = useServices();
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
   const deleteContact = useDeleteContact();
@@ -647,6 +649,8 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const defaultStage = contactsPipeline?.column_names[0] ?? null;
 
   const [search, setSearch]         = useState("");
+  const [onlyClients, setOnlyClients] = useState(false);
+  const [serviceFilter, setServiceFilter] = useState("");
   const [selected, setSelected]     = useState<string | null>(null);
   const [viewing, setViewing]       = useState<string | null>(null);
   const [tagInputId, setTagInputId] = useState<string | null>(null);
@@ -658,6 +662,20 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const [newName, setNewName]       = useState("");
   const [newEmail, setNewEmail]     = useState("");
 
+  const clientContactIds = useMemo(
+    () => new Set(sales.map((s) => s.contact_id).filter(Boolean) as string[]),
+    [sales]
+  );
+  const contactIdsByService = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const s of sales) {
+      if (!s.service_id || !s.contact_id) continue;
+      if (!map.has(s.service_id)) map.set(s.service_id, new Set());
+      map.get(s.service_id)!.add(s.contact_id);
+    }
+    return map;
+  }, [sales]);
+
   // Superadmin: show full ficha técnica
   const viewingContact = contacts.find((c) => c.id === viewing);
   if (viewing && viewingContact && isSuperAdmin) {
@@ -665,13 +683,16 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   }
 
   const q = search.toLowerCase();
-  const filtered = contacts.filter(
-    (c) =>
+  const filtered = contacts.filter((c) => {
+    if (onlyClients && !clientContactIds.has(c.id)) return false;
+    if (serviceFilter && !contactIdsByService.get(serviceFilter)?.has(c.id)) return false;
+    return (
       c.name.toLowerCase().includes(q) ||
       (c.email ?? "").toLowerCase().includes(q) ||
       (c.phone ?? "").includes(q) ||
       (c.tags ?? []).some((t) => t.toLowerCase().includes(q))
-  );
+    );
+  });
 
   const detail = contacts.find((c) => c.id === selected);
 
@@ -818,25 +839,64 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
         <div className="grid lg:grid-cols-[1fr_360px] gap-6">
           {/* Lista */}
           <div className="bg-card border rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b flex items-center gap-3">
-              <div className="relative flex-1">
-                <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Buscar por nombre, email, teléfono o etiqueta..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 h-9 text-sm bg-secondary/30 border-transparent"
-                />
+            <div className="px-5 py-4 border-b space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    placeholder="Buscar por nombre, email, teléfono o etiqueta..."
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    className="pl-9 h-9 text-sm bg-secondary/30 border-transparent"
+                  />
+                </div>
+                <span className="text-xs text-muted-foreground shrink-0 font-medium">
+                  {filtered.length} contactos
+                </span>
               </div>
-              <span className="text-xs text-muted-foreground shrink-0 font-medium">
-                {filtered.length} contactos
-              </span>
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setOnlyClients(!onlyClients)}
+                  className={`h-7 px-3 rounded-lg text-[11px] font-semibold border transition-all ${
+                    onlyClients
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-secondary/50 text-muted-foreground border-transparent hover:border-border"
+                  }`}
+                >
+                  Solo clientes
+                </button>
+                <div className="relative">
+                  <select
+                    value={serviceFilter}
+                    onChange={(e) => setServiceFilter(e.target.value)}
+                    className="h-7 rounded-lg border bg-secondary/50 border-transparent text-[11px] font-semibold text-muted-foreground pl-2.5 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
+                  >
+                    <option value="">Todos los servicios</option>
+                    {services.filter((s) => s.active).map((s) => (
+                      <option key={s.id} value={s.id}>{s.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                </div>
+                {(onlyClients || serviceFilter) && (
+                  <button
+                    onClick={() => { setOnlyClients(false); setServiceFilter(""); }}
+                    className="h-7 px-2.5 rounded-lg text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all flex items-center gap-1"
+                  >
+                    <X size={11} /> Limpiar filtros
+                  </button>
+                )}
+              </div>
             </div>
 
             {filtered.length === 0 ? (
               <div className="py-16 text-center">
                 <Users size={28} className="text-muted-foreground/20 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">No hay contactos registrados aún.</p>
+                <p className="text-sm text-muted-foreground">
+                  {search || onlyClients || serviceFilter
+                    ? "No se encontraron contactos con estos filtros."
+                    : "No hay contactos registrados aún."}
+                </p>
               </div>
             ) : (
               <div className="divide-y">

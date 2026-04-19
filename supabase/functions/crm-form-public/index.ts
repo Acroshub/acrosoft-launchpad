@@ -128,7 +128,7 @@ async function handleServicesField(
   try {
     const { data: service, error } = await supabase
       .from("crm_services")
-      .select("id, name, price, currency, is_saas, is_recurring")
+      .select("id, name, price, currency, is_saas, is_recurring, discount_pct")
       .eq("id", serviceId)
       .eq("user_id", userId)
       .single();
@@ -138,14 +138,31 @@ async function handleServicesField(
       return;
     }
 
-    // ── Register the sale ──────────────────────────────────────────────────
+    // ── Prevent duplicate sales for same contact + service ────────────────
+    const { data: existingSale } = await supabase
+      .from("crm_sales")
+      .select("id")
+      .eq("user_id", userId)
+      .eq("contact_id", contactId)
+      .eq("service_id", service.id)
+      .eq("type", "initial")
+      .maybeSingle();
+
+    if (existingSale) return;
+
+    // ── Register the sale (apply discount if configured) ──────────────────
+    const discountPct = (service as any).discount_pct ?? 0;
+    const finalAmount = discountPct > 0
+      ? service.price * (1 - discountPct / 100)
+      : service.price;
+
     await supabase.from("crm_sales").insert({
       user_id: userId,
       contact_id: contactId,
       contact_name: contactName,
       service_id: service.id,
       service_name: service.name,
-      amount: service.price,
+      amount: finalAmount,
       currency: service.currency ?? "USD",
       type: "initial",
       notes: "[Venta automática via formulario]",
@@ -254,7 +271,6 @@ Deno.serve(async (req) => {
           contactId = nc?.id ?? null;
         }
       } else if (name) {
-        isNewContact = true;
         const { data: nc } = await supabase.from("crm_contacts").insert({
           user_id: form.user_id, name, email: null,
           phone: phone || null, tags: autoTags, stage: null,
