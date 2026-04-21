@@ -139,6 +139,7 @@ export type CrmCalendarConfig = {
   reminder_rules?: Json[]
   min_advance_hours: number
   max_future_days: number
+  schedule_interval: number
 }
 
 export type CrmService = {

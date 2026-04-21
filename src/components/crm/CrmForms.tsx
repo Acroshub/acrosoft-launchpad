@@ -568,7 +568,14 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
     ]);
 
   const handleSave = async () => {
-    // Validate: each non-confirmation section must have at least 1 real field (heading doesn't count)
+    // Validate: form must have at least 1 real field (heading doesn't count)
+    if (!multiPage) {
+      const realFields = fields.filter((f) => f.type !== "heading");
+      if (realFields.length === 0) {
+        toast.error("El formulario necesita al menos un campo real (un Título no cuenta).");
+        return;
+      }
+    }
     if (multiPage) {
       const invalidSection = sections.find((sec) => {
         if (sec.isConfirmation) return false;
@@ -942,40 +949,6 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
               <CheckSquare size={16} className="text-primary"/> Configuración de envío
             </h2>
 
-            {/* Confirmation step toggle — only for single-page */}
-            {!multiPage && (
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-4 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/50 dark:border-amber-800/30 rounded-xl">
-                  <div>
-                    <p className="text-sm font-medium">Mostrar resumen antes de enviar</p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      El usuario verá un resumen de sus respuestas y deberá confirmar antes de enviar el formulario.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={showConfirmationStep}
-                    onCheckedChange={setShowConfirmationStep}
-                  />
-                </div>
-                {showConfirmationStep && (
-                  <div className="space-y-1.5 px-1">
-                    <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">
-                      Mensaje antes de enviar (opcional)
-                    </label>
-                    <textarea
-                      value={confirmationMessage}
-                      onChange={(e) => setConfirmationMessage(e.target.value)}
-                      rows={3}
-                      placeholder="Ej: Al confirmar, nuestro equipo comenzará a trabajar en tu proyecto. Recibirás un correo de confirmación."
-                      className="w-full rounded-xl border border-input bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
-
-                    />
-                    <p className="text-[10px] text-muted-foreground">Si lo dejas vacío, no se mostrará ningún mensaje.</p>
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Submit button text */}
             <div className="space-y-2">
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Texto del botón enviar</label>
@@ -1150,7 +1123,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                 className="h-10 text-sm font-mono"
               />
               <p className="text-[10px] text-muted-foreground leading-relaxed">
-                Se dispara <strong>ViewContent</strong> al cargar el formulario y <strong>Lead</strong> al llegar a la Página de Gracias.
+                Se dispara <strong>ViewContent</strong> al cargar el formulario y <strong>Lead</strong> al enviar el formulario.
               </p>
             </div>
           </div>
@@ -1408,7 +1381,7 @@ const CrmForms = () => {
                  </div>
                  <div>
                    <p className="text-sm font-semibold group-hover:text-primary transition-colors">{form.name}</p>
-                   <p className="text-xs text-muted-foreground">{form.fields.length} campos configurados</p>
+                   <p className="text-xs text-muted-foreground">{form.fields.filter(f => f.type !== "heading").length} campos configurados</p>
                  </div>
                </div>
                <div className="flex items-center gap-2">

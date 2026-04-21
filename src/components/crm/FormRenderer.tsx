@@ -88,17 +88,22 @@ declare global {
   }
 }
 
+const FB_PIXEL_SCRIPT_ID = "acrosoft-fb-pixel";
+
 const loadFbPixel = (pixelId: string) => {
-  if (window.fbq) { window.fbq("init", pixelId); return; }
-  // Inject the FB pixel base code programmatically
+  const sanitized = pixelId.replace(/\D/g, "");
+  if (!sanitized) return;
+  if (window.fbq) { window.fbq("init", sanitized); return; }
+  if (document.getElementById(FB_PIXEL_SCRIPT_ID)) return;
   const script = document.createElement("script");
+  script.id = FB_PIXEL_SCRIPT_ID;
   script.innerHTML = `
     !function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?
     n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;
     n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;
     t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,
     document,'script','https://connect.facebook.net/en_US/fbevents.js');
-    fbq('init','${pixelId}');
+    fbq('init','${sanitized}');
   `;
   document.head.appendChild(script);
 };
@@ -552,10 +557,12 @@ const ConfirmationView = ({
   sections,
   fields,
   formValues,
+  serviceMap,
 }: {
   sections: PublicSection[];
   fields: PublicField[];
   formValues: Record<string, any>;
+  serviceMap: Map<string, string>;
 }) => {
   const formatValue = (field: PublicField, val: any): string => {
     if (val === undefined || val === null || val === "") return "—";
@@ -566,6 +573,7 @@ const ConfirmationView = ({
     if (field.type === "schedule") return "Horario configurado";
     if (field.type === "file") return typeof val === "string" ? val : "Archivo adjunto";
     if (field.type === "color") return val;
+    if (field.type === "services") return serviceMap.get(val) ?? val;
     return String(val);
   };
 
@@ -650,6 +658,20 @@ const FormRenderer = ({ formId }: { formId: string }) => {
     : fields.filter(f => f.sectionId === currentSection?.id);
   const formUserId = (form as any)?.user_id ?? null;
 
+  const hasServicesField = fields.some(f => f.type === "services");
+  const servicesFieldAllowedIds = useMemo(() => {
+    const sf = fields.find(f => f.type === "services");
+    return sf?.allowedServiceIds;
+  }, [fields]);
+  const { data: servicesForConfirm = [] } = usePublicServices(
+    hasServicesField && confirmSection ? formUserId : null,
+    servicesFieldAllowedIds
+  );
+  const serviceMap = useMemo(
+    () => new Map(servicesForConfirm.map(s => [s.id, s.name])),
+    [servicesForConfirm]
+  );
+
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
     for (const field of currentFields) {
@@ -683,6 +705,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
 
   const handleSubmit = async () => {
     setIsSubmitting(true);
+    let redirecting = false;
     try {
       const dbUrl = import.meta.env.VITE_SUPABASE_URL;
       const res = await fetch(`${dbUrl}/functions/v1/crm-form-public`, {
@@ -697,15 +720,18 @@ const FormRenderer = ({ formId }: { formId: string }) => {
       const result = await res.json();
       setSubmissionId(result.submission_id ?? "");
       fbTrack("Lead");
-      setSubmitted(true);
       if (form?.success_action === "redirect" && form.redirect_url) {
-        window.location.href = form.redirect_url;
+        redirecting = true;
+        const url = form.redirect_url;
+        setTimeout(() => { window.location.href = url; }, 350);
+      } else {
+        setSubmitted(true);
       }
     } catch (e) {
       console.error(e);
       alert("Hubo un problema enviando tu solicitud. Por favor intenta de nuevo.");
     } finally {
-      setIsSubmitting(false);
+      if (!redirecting) setIsSubmitting(false);
     }
   };
 
@@ -818,6 +844,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
                   sections={activeSections}
                   fields={fields}
                   formValues={formValues}
+                  serviceMap={serviceMap}
                 />
               </div>
             ) : (

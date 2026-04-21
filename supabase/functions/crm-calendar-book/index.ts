@@ -48,30 +48,48 @@ function extractContact(fields: any[], data: Record<string, any>) {
   return { name, email, phone };
 }
 
-/**
- * Contacts pipeline uses crm_contacts.stage — NOT crm_pipeline_deals.
- */
-async function addContactToPipeline(userId: string, contactId: string): Promise<void> {
+async function addContactToPipelines(
+  userId: string,
+  contactId: string,
+  pipelineIds: string[],
+): Promise<void> {
   try {
-    const { data: pipelines } = await supabase
-      .from("crm_pipelines")
-      .select("id, column_names")
-      .eq("user_id", userId)
-      .eq("type", "contacts")
-      .order("created_at", { ascending: true })
-      .limit(1);
+    let pipelines: { id: string; column_names: string[] }[] = [];
 
-    if (!pipelines?.length) return;
-    const firstStage = (pipelines[0].column_names as string[])?.[0];
-    if (!firstStage) return;
+    if (pipelineIds.length > 0) {
+      const { data } = await supabase
+        .from("crm_pipelines")
+        .select("id, column_names")
+        .eq("user_id", userId)
+        .eq("type", "contacts")
+        .in("id", pipelineIds);
+      pipelines = data ?? [];
+    } else {
+      const { data } = await supabase
+        .from("crm_pipelines")
+        .select("id, column_names")
+        .eq("user_id", userId)
+        .eq("type", "contacts")
+        .order("created_at", { ascending: true })
+        .limit(1);
+      pipelines = data ?? [];
+    }
 
-    await supabase
-      .from("crm_contacts")
-      .update({ stage: firstStage })
-      .eq("id", contactId)
-      .is("stage", null);
+    if (!pipelines.length) return;
+
+    for (const pipeline of pipelines) {
+      const firstStage = (pipeline.column_names as string[])?.[0];
+      if (!firstStage) continue;
+
+      await supabase
+        .from("crm_contact_pipeline_memberships")
+        .upsert(
+          { contact_id: contactId, pipeline_id: pipeline.id, stage: firstStage, position: 0 },
+          { onConflict: "contact_id,pipeline_id", ignoreDuplicates: true },
+        );
+    }
   } catch (e) {
-    console.error("addContactToPipeline (non-fatal):", e);
+    console.error("addContactToPipelines (non-fatal):", e);
   }
 }
 
@@ -87,32 +105,60 @@ Deno.serve(async (req) => {
 
     const { data: calendar, error: calError } = await supabase
       .from("crm_calendar_config")
-      .select("user_id, duration_min, name, linked_form_id")
+      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id")
       .eq("id", calendar_id)
       .single();
 
     if (calError || !calendar) return respond({ error: "Calendar not found" }, 404);
 
-    const { data: existing } = await supabase
-      .from("crm_appointments")
-      .select("id")
-      .eq("user_id", calendar.user_id)
-      .eq("date", date)
-      .eq("hour", hour)
-      .eq("minute", minute)
-      .neq("status", "cancelled")
-      .maybeSingle();
+    const duration: number = calendar.duration_min ?? 30;
+    const buffer: number   = (calendar as any).buffer_min ?? 0;
+    const minAdvanceHours: number = (calendar as any).min_advance_hours ?? 1;
+    const maxFutureDays: number   = (calendar as any).max_future_days ?? 60;
 
-    if (existing) return respond({ error: "Slot already booked" }, 409);
+    const scheduledMs = new Date(`${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`).getTime();
+    const nowMs = Date.now();
+
+    if (scheduledMs < nowMs + minAdvanceHours * 3600_000) {
+      return respond({ error: `Debe reservar con al menos ${minAdvanceHours}h de anticipación` }, 422);
+    }
+
+    const todayDate = new Date(nowMs);
+    const maxDate = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate() + maxFutureDays);
+    if (new Date(date) > maxDate) {
+      return respond({ error: `No se puede reservar más allá de ${maxFutureDays} días en el futuro` }, 422);
+    }
+
+    const requestedStart   = hour * 60 + minute;
+    const requestedEnd     = requestedStart + duration;
+
+    const { data: dayAppts } = await supabase
+      .from("crm_appointments")
+      .select("hour, minute, duration_min")
+      .eq("calendar_id", calendar_id)
+      .eq("date", date)
+      .neq("status", "cancelled");
+
+    const hasConflict = (dayAppts ?? []).some((a: any) => {
+      const aStart = a.hour * 60 + (a.minute ?? 0);
+      const aEnd   = aStart + (a.duration_min ?? duration);
+      return requestedEnd + buffer > aStart && aEnd + buffer > requestedStart;
+    });
+
+    if (hasConflict) return respond({ error: "Slot already booked" }, 409);
 
     let fields: any[] = [];
+    let formPipelineIds: string[] = [];
     if (calendar.linked_form_id) {
       const { data: form } = await supabase
         .from("crm_forms")
-        .select("fields")
+        .select("fields, pipeline_ids")
         .eq("id", calendar.linked_form_id)
         .single();
-      if (form && Array.isArray(form.fields)) fields = form.fields as any[];
+      if (form) {
+        if (Array.isArray(form.fields)) fields = form.fields as any[];
+        if (Array.isArray((form as any).pipeline_ids)) formPipelineIds = (form as any).pipeline_ids;
+      }
     }
 
     const { name, email, phone } = extractContact(fields, form_data ?? {});
@@ -160,7 +206,7 @@ Deno.serve(async (req) => {
     }
 
     if (isNewContact && contactId) {
-      await addContactToPipeline(calendar.user_id, contactId);
+      await addContactToPipelines(calendar.user_id, contactId, formPipelineIds);
     }
 
     const { data: appointment, error: apptError } = await supabase

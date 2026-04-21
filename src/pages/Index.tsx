@@ -6,37 +6,25 @@ import { Check, Globe, Sparkles, Zap, DollarSign, CalendarDays, Hammer, Rocket, 
 import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CalendarRenderer from "@/components/crm/CalendarRenderer";
-import { useLandingServices } from "@/hooks/useCrmData";
+import { useLandingProfile, useLandingServices } from "@/hooks/useCrmData";
 
-/**
- * Returns the calendar ID to embed on the landing page.
- * Priority: admin-configured landing_calendar_id in crm_business_profile.
- * Fallback: oldest calendar by created_at (original behavior).
- * No auth needed — relies on public RLS policies.
- */
-const useLandingCalendar = () =>
+const useLandingCalendar = (profile: { user_id: string; landing_calendar_id: string | null } | null | undefined) =>
   useQuery({
-    queryKey: ["landing_calendar"],
+    queryKey: ["landing_calendar", profile?.user_id],
     queryFn: async () => {
-      // 1. Check if admin has explicitly configured a landing calendar
-      const { data: profile } = await supabase
-        .from("crm_business_profile")
-        .select("landing_calendar_id")
-        .not("landing_calendar_id", "is", null)
-        .limit(1)
-        .maybeSingle();
+      if (!profile) return null;
+      if (profile.landing_calendar_id) return profile.landing_calendar_id;
 
-      if (profile?.landing_calendar_id) return profile.landing_calendar_id as string;
-
-      // 2. Fallback: first calendar ordered by created_at
       const { data } = await supabase
         .from("crm_calendar_config")
         .select("id")
+        .eq("user_id", profile.user_id)
         .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle();
       return data?.id ?? null;
     },
+    enabled: !!profile,
   });
 
 
@@ -55,8 +43,9 @@ const benefits = [
 
 
 const Index = () => {
-  const { data: landingCalendarId } = useLandingCalendar();
-  const { data: services = [] } = useLandingServices();
+  const { data: adminProfile } = useLandingProfile();
+  const { data: landingCalendarId } = useLandingCalendar(adminProfile);
+  const { data: services = [] } = useLandingServices(adminProfile?.user_id);
   return (
   <div className="min-h-screen bg-background selection:bg-primary/10">
     <Navbar />

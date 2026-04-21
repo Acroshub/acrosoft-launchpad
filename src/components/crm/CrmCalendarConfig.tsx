@@ -86,6 +86,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
   const [minAdvanceHours, setMinAdvanceHours] = useState(1);
   const [maxFutureDays, setMaxFutureDays]     = useState(60);
+  const [scheduleInterval, setScheduleInterval] = useState<15 | 30>(30);
   const [isEditingHours, setIsEditingHours] = useState(false);
   const [embedTab, setEmbedTab]           = useState<"iframe" | "js">("iframe");
   const [copied, setCopied]               = useState(false);
@@ -104,6 +105,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
       setReminderRules((existingCalendar.reminder_rules as unknown as ReminderRule[] | null) ?? []);
       setMinAdvanceHours(existingCalendar.min_advance_hours ?? 1);
       setMaxFutureDays(existingCalendar.max_future_days ?? 60);
+      setScheduleInterval(((existingCalendar as any).schedule_interval === 15 ? 15 : 30));
     }
   }, [existingCalendar]);
 
@@ -171,6 +173,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
         slug: slug || null,
         linked_form_id: formId,
         availability,
+        schedule_interval: scheduleInterval,
         reminder_rules: reminderRules as unknown as any,
       };
 
@@ -301,7 +304,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
             </p>
           </Field>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <Field label="Duración de la cita (min)">
               <Input
                 type="number"
@@ -319,6 +322,16 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
                 onChange={(e) => setBufferTime(Number(e.target.value))}
                 className="h-10 text-sm"
               />
+            </Field>
+            <Field label="Intervalo del horario">
+              <select
+                value={scheduleInterval}
+                onChange={(e) => setScheduleInterval(Number(e.target.value) as 15 | 30)}
+                className="h-10 rounded-xl border border-input bg-background px-3 text-sm w-full focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value={30}>Cada 30 min</option>
+                <option value={15}>Cada 15 min</option>
+              </select>
             </Field>
           </div>
 
@@ -403,6 +416,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
             value={availability}
             onChange={setAvailability}
             isEditing={isNew ? true : isEditingHours}
+            interval={scheduleInterval}
           />
 
           <p className="text-[11px] text-muted-foreground italic pt-1">

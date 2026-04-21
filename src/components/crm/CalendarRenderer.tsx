@@ -12,19 +12,20 @@ const SCHEDULE_KEY = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 // ─── Availability helpers ─────────────────────────────────────────────────────
 
-const amPmToHour = (t: string): number => {
+const amPmToMinutes = (t: string): number => {
   const [timePart, period] = t.split(" ");
-  const [h] = timePart.split(":").map(Number);
-  if (period === "AM") return h === 12 ? 0 : h;
-  return h === 12 ? 12 : h + 12;
+  const [h, m] = timePart.split(":").map(Number);
+  const h24 = period === "AM" ? (h === 12 ? 0 : h) : (h === 12 ? 12 : h + 12);
+  return h24 * 60 + (m || 0);
 };
 
-const isHourAvailable = (avail: WeeklySchedule | null | undefined, dayOfWeek: number, hour: number): boolean => {
+const isSlotAvailable = (avail: WeeklySchedule | null | undefined, dayOfWeek: number, hour: number, minute: number): boolean => {
   if (!avail) return true;
   const day = (avail as any)[SCHEDULE_KEY[dayOfWeek]];
   if (!day?.open) return false;
+  const totalMin = hour * 60 + minute;
   return (day.slots as { from: string; to: string }[]).some(
-    (slot) => hour >= amPmToHour(slot.from) && hour < amPmToHour(slot.to),
+    (slot) => totalMin >= amPmToMinutes(slot.from) && totalMin < amPmToMinutes(slot.to),
   );
 };
 
@@ -298,7 +299,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   const isCurrentMonth =
     viewYear === today.getFullYear() && viewMonth === today.getMonth();
 
-  const slotStep        = (calendar as any)?.duration_min    ?? 30;
+  const slotStep        = (calendar as any)?.duration_min      ?? 30;
+  const bufferMin       = (calendar as any)?.buffer_min        ?? 0;
   const minAdvanceHours = (calendar as any)?.min_advance_hours ?? 1;
   const maxFutureDays   = (calendar as any)?.max_future_days   ?? 60;
 
@@ -309,14 +311,24 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   const maxDate    = new Date(today.getFullYear(), today.getMonth(), today.getDate() + maxFutureDays);
   const maxDateKey = toDateKey(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate());
 
-  const bookedMap = useMemo(() => {
-    const map: Record<string, Set<string>> = {};
+  const appointmentsByDate = useMemo(() => {
+    const map: Record<string, { startMin: number; endMin: number }[]> = {};
     for (const a of appointments) {
-      if (!map[a.date]) map[a.date] = new Set();
-      map[a.date].add(`${a.hour}:${a.minute ?? 0}`);
+      if (!map[a.date]) map[a.date] = [];
+      const start = a.hour * 60 + (a.minute ?? 0);
+      map[a.date].push({ startMin: start, endMin: start + (a.duration_min ?? slotStep) });
     }
     return map;
-  }, [appointments]);
+  }, [appointments, slotStep]);
+
+  const isBufferBlocked = (dateKey: string, candidateStart: number, candidateDur: number): boolean => {
+    const appts = appointmentsByDate[dateKey];
+    if (!appts) return false;
+    const candidateEnd = candidateStart + candidateDur;
+    return appts.some(({ startMin, endMin }) =>
+      candidateEnd + bufferMin > startMin && endMin + bufferMin > candidateStart,
+    );
+  };
 
   const todayKey = toDateKey(today.getFullYear(), today.getMonth(), today.getDate());
 
@@ -327,14 +339,13 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
     if (isDayBlockedFully(blockedSlots, key)) return false;
     const dow = new Date(viewYear, viewMonth, day).getDay();
     if (!isDayOpen(avail, dow)) return false;
-    const booked = bookedMap[key] ?? new Set<string>();
     for (let totalMin = 6 * 60; totalMin < 21 * 60; totalMin += slotStep) {
       const h  = Math.floor(totalMin / 60);
       const m  = totalMin % 60;
       const slotMs = new Date(viewYear, viewMonth, day, h, m).getTime();
       if (slotMs < minBookableMs) continue;
-      if (!isHourAvailable(avail, dow, h)) continue;
-      if (booked.has(`${h}:${m}`)) continue;
+      if (!isSlotAvailable(avail, dow, h, m)) continue;
+      if (isBufferBlocked(key, totalMin, slotStep)) continue;
       if (isSlotBlocked(blockedSlots, key, h, m)) continue;
       return true;
     }
@@ -345,9 +356,6 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
     if (!selectedDate) return [];
     const [y, m, d] = selectedDate.split("-").map(Number);
     const dayOfWeek = new Date(y, m - 1, d).getDay();
-    const booked    = bookedMap[selectedDate] ?? new Set<string>();
-    const isToday   = selectedDate === todayKey;
-    const nowMin    = today.getHours() * 60 + today.getMinutes();
 
     const slots: { hour: number; minute: number }[] = [];
     for (let totalMin = 6 * 60; totalMin < 21 * 60; totalMin += slotStep) {
@@ -355,13 +363,13 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
       const mn     = totalMin % 60;
       const slotMs = new Date(y, m - 1, d, h, mn).getTime();
       if (slotMs < minBookableMs) continue;
-      if (!isHourAvailable(avail, dayOfWeek, h)) continue;
-      if (booked.has(`${h}:${mn}`)) continue;
+      if (!isSlotAvailable(avail, dayOfWeek, h, mn)) continue;
+      if (isBufferBlocked(selectedDate, totalMin, slotStep)) continue;
       if (isSlotBlocked(blockedSlots, selectedDate, h, mn)) continue;
       slots.push({ hour: h, minute: mn });
     }
     return slots;
-  }, [selectedDate, avail, bookedMap, blockedSlots, minBookableMs, slotStep]);
+  }, [selectedDate, avail, appointmentsByDate, blockedSlots, minBookableMs, slotStep, bufferMin]);
 
   // First day of the next view-month — used to block navigation past maxFutureDays
   const nextMonthFirstKey = (() => {

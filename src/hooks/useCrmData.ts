@@ -1193,18 +1193,36 @@ export const usePublicServices = (userId?: string | null, allowedIds?: string[])
     enabled: !!userId,
   });
 
-export const useLandingServices = () =>
+export const useLandingProfile = () =>
   useQuery({
-    queryKey: ["landing_services"],
+    queryKey: ["landing_profile"],
     queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_business_profile")
+        .select("user_id, landing_calendar_id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { user_id: string; landing_calendar_id: string | null } | null;
+    },
+  });
+
+export const useLandingServices = (userId?: string | null) =>
+  useQuery({
+    queryKey: ["landing_services", userId],
+    queryFn: async () => {
+      if (!userId) return [];
       const { data, error } = await supabase
         .from("crm_services")
         .select("*")
+        .eq("user_id", userId)
         .eq("active", true)
         .order("sort_order", { ascending: true });
       if (error) throw error;
       return (data ?? []) as CrmService[];
     },
+    enabled: !!userId,
   });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

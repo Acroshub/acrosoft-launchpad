@@ -18,16 +18,23 @@ export const DEFAULT_WEEKLY_SCHEDULE: WeeklySchedule = {
   Dom: { open: false, slots: [{ from: "9:00 AM", to: "2:00 PM" }] },
 };
 
-const HOURS = [
-  "6:00 AM", "7:00 AM", "8:00 AM", "9:00 AM", "10:00 AM", "11:00 AM",
-  "12:00 PM", "1:00 PM", "2:00 PM", "3:00 PM", "4:00 PM", "5:00 PM",
-  "6:00 PM", "7:00 PM", "8:00 PM", "9:00 PM", "10:00 PM",
-];
+const buildHours = (interval: 15 | 30 | 60): string[] => {
+  const hours: string[] = [];
+  for (let totalMin = 6 * 60; totalMin <= 22 * 60; totalMin += interval) {
+    const h24 = Math.floor(totalMin / 60);
+    const m   = totalMin % 60;
+    const period = h24 < 12 ? "AM" : "PM";
+    const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
+    hours.push(`${h12}:${String(m).padStart(2, "0")} ${period}`);
+  }
+  return hours;
+};
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 interface WeeklySchedulePickerProps {
   value: WeeklySchedule;
   onChange: (v: WeeklySchedule) => void;
+  interval?: 15 | 30 | 60;
   /**
    * isEditing = undefined → always in edit mode (for onboarding / form fields)
    * isEditing = false     → view/summary mode  (controlled by parent)
@@ -40,22 +47,27 @@ interface WeeklySchedulePickerProps {
 const TimeSelect = ({
   value,
   onChange,
+  hours,
 }: {
   value: string;
   onChange: (v: string) => void;
-}) => (
-  <select
-    value={value}
-    onChange={(e) => onChange(e.target.value)}
-    className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 flex-1 min-w-0"
-  >
-    {HOURS.map((h) => (
-      <option key={h} value={h}>
-        {h}
-      </option>
-    ))}
-  </select>
-);
+  hours: string[];
+}) => {
+  const opts = hours.includes(value) ? hours : [value, ...hours];
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 flex-1 min-w-0"
+    >
+      {opts.map((h) => (
+        <option key={h} value={h}>
+          {h}
+        </option>
+      ))}
+    </select>
+  );
+};
 
 // ─── View summary ─────────────────────────────────────────────────────────────
 const ScheduleSummary = ({ value }: { value: WeeklySchedule }) => (
@@ -93,9 +105,10 @@ const ScheduleSummary = ({ value }: { value: WeeklySchedule }) => (
 );
 
 // ─── Main component ───────────────────────────────────────────────────────────
-const WeeklySchedulePicker = ({ value, onChange, isEditing }: WeeklySchedulePickerProps) => {
+const WeeklySchedulePicker = ({ value, onChange, isEditing, interval = 30 }: WeeklySchedulePickerProps) => {
   const alwaysEdit = isEditing === undefined;
   const editing = alwaysEdit || isEditing === true;
+  const hours = buildHours(interval);
 
   const [copySource, setCopySource] = useState<string | null>(null);
   const [copyTargets, setCopyTargets] = useState<string[]>([]);
@@ -198,9 +211,9 @@ const WeeklySchedulePicker = ({ value, onChange, isEditing }: WeeklySchedulePick
                 <div className="flex-1 space-y-1.5">
                   {slots.map((slot, idx) => (
                     <div key={idx} className="flex items-center gap-2">
-                      <TimeSelect value={slot.from} onChange={(v) => updateSlot(day, idx, "from", v)} />
+                      <TimeSelect value={slot.from} onChange={(v) => updateSlot(day, idx, "from", v)} hours={hours} />
                       <span className="text-muted-foreground text-sm shrink-0">–</span>
-                      <TimeSelect value={slot.to} onChange={(v) => updateSlot(day, idx, "to", v)} />
+                      <TimeSelect value={slot.to} onChange={(v) => updateSlot(day, idx, "to", v)} hours={hours} />
                       {slots.length > 1 && (
                         <button
                           type="button"

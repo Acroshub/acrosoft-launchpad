@@ -675,6 +675,19 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
     }
     return map;
   }, [sales]);
+  const contactServices = useMemo(() => {
+    const svcMap = new Map(services.map((s) => [s.id, s]));
+    const map = new Map<string, { serviceName: string; isSaas: boolean }[]>();
+    for (const sale of sales) {
+      if (!sale.contact_id || !sale.service_id) continue;
+      const svc = svcMap.get(sale.service_id);
+      const entry = { serviceName: sale.service_name ?? svc?.name ?? "Servicio", isSaas: svc?.is_saas ?? false };
+      if (!map.has(sale.contact_id)) map.set(sale.contact_id, []);
+      const list = map.get(sale.contact_id)!;
+      if (!list.some((e) => e.serviceName === entry.serviceName)) list.push(entry);
+    }
+    return map;
+  }, [sales, services]);
 
   // Superadmin: show full ficha técnica
   const viewingContact = contacts.find((c) => c.id === viewing);
@@ -934,13 +947,18 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                                   </Badge>
                                 )
                             }
+                            {(contactServices.get(c.id) ?? []).map((svc, i) => (
+                              <Badge key={`svc-${i}`} variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-emerald-200 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/40">
+                                {svc.serviceName}
+                              </Badge>
+                            ))}
                             {(isSaasActive || isSaasPending) && (
                               <Badge className={`text-[10px] px-2 py-0 shrink-0 font-semibold ${
                                 isSaasActive
                                   ? "bg-amber-100 text-amber-700 border border-amber-200 hover:bg-amber-100"
                                   : "bg-yellow-50 text-yellow-600 border border-yellow-200 hover:bg-yellow-50"
                               }`}>
-                                🔐 Booking System
+                                Booking System
                               </Badge>
                             )}
                           </div>
@@ -1021,10 +1039,11 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                   {/* SaaS account actions in detail panel */}
                   {(() => {
                     const acc = accountByContact[detail.id];
+                    const hasSaasService = (contactServices.get(detail.id) ?? []).some((s) => s.isSaas);
 
-                    // No account yet — show activation button (requires email)
+                    // No account yet — show activation button only if contact bought a SaaS service
                     if (!acc) {
-                      if (!detail.email) return null;
+                      if (!detail.email || !hasSaasService) return null;
                       return (
                         <button
                           onClick={async () => {

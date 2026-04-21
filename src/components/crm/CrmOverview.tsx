@@ -10,6 +10,8 @@ import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
+const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
 const initialMetrics = [
   // Métricas de Admin
   { id: "ventas-mes",    icon: CheckCircle,  label: "Ventas este mes", isAdmin: true },
@@ -146,12 +148,12 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       .filter(a => a.status === "confirmed")
       .filter(a => {
         const d = new Date(a.date);
-        d.setHours(a.hour, 0, 0, 0);
+        d.setHours(a.hour, a.minute ?? 0, 0, 0);
         return d >= now;
       })
       .sort((a, b) => {
-        const da = new Date(a.date); da.setHours(a.hour);
-        const db = new Date(b.date); db.setHours(b.hour);
+        const da = new Date(a.date); da.setHours(a.hour, a.minute ?? 0, 0, 0);
+        const db = new Date(b.date); db.setHours(b.hour, b.minute ?? 0, 0, 0);
         return da.getTime() - db.getTime();
       });
     return upcoming[0] ?? null;
@@ -212,7 +214,10 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       case "total-contactos": return String(contacts.length);
       case "proxima-cita": {
         if (!nextAppointment) return "—";
-        return `${nextAppointment.date} ${String(nextAppointment.hour).padStart(2, "0")}:00`;
+        const [, mo, dy] = nextAppointment.date.split("-").map(Number);
+        const hh = String(nextAppointment.hour).padStart(2, "0");
+        const mm = String(nextAppointment.minute ?? 0).padStart(2, "0");
+        return `${dy} de ${MONTHS_ES[mo - 1]} a las ${hh}:${mm}`;
       }
       case "total-vendido": return `$${totalVendido.toFixed(0)}`;
       case "conversion": return conversionRate !== null ? `${conversionRate}%` : "—";
@@ -500,7 +505,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                       <p className="text-xs text-muted-foreground">{a.service ?? ""}</p>
                     </div>
                     <span className="text-xs font-medium bg-primary/10 text-primary px-3 py-1 rounded-full">
-                      {String(a.hour).padStart(2, "0")}:00
+                      {String(a.hour).padStart(2, "0")}:{String(a.minute ?? 0).padStart(2, "0")}
                     </span>
                   </div>
                 );

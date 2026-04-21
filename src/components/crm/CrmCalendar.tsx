@@ -64,19 +64,20 @@ function isDayBlocked(blocked: BlockedSlot[], dayKey: string): BlockedSlot | und
 
 const SCHEDULE_KEY = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
-const amPmToHour = (t: string): number => {
+const amPmToMinutes = (t: string): number => {
   const [timePart, period] = t.split(" ");
-  const [h] = timePart.split(":").map(Number);
-  if (period === "AM") return h === 12 ? 0 : h;
-  return h === 12 ? 12 : h + 12;
+  const [h, m] = timePart.split(":").map(Number);
+  const h24 = period === "AM" ? (h === 12 ? 0 : h) : (h === 12 ? 12 : h + 12);
+  return h24 * 60 + (m || 0);
 };
 
-const isHourAvailable = (avail: WeeklySchedule | null | undefined, dayOfWeek: number, hour: number): boolean => {
+const isSlotAvailable = (avail: WeeklySchedule | null | undefined, dayOfWeek: number, hour: number, minute: number): boolean => {
   if (!avail) return true;
   const dayKey = SCHEDULE_KEY[dayOfWeek];
   const day = avail[dayKey];
   if (!day || !day.open) return false;
-  return day.slots.some((slot) => hour >= amPmToHour(slot.from) && hour < amPmToHour(slot.to));
+  const totalMin = hour * 60 + minute;
+  return day.slots.some((slot) => totalMin >= amPmToMinutes(slot.from) && totalMin < amPmToMinutes(slot.to));
 };
 
 // ─── Status styles ────────────────────────────────────────────
@@ -357,7 +358,7 @@ const DayView = ({
         {HOURS.map((hour) => {
           const appt = dayAppts.find((a) => a.hour === hour);
           const blk = isHourBlocked(blocked, key, hour);
-          const unavailable = !appt && !blk && !isHourAvailable(availability, dow, hour);
+          const unavailable = !appt && !blk && !isSlotAvailable(availability, dow, hour, 0);
           return (
             <div key={hour} className={`flex gap-4 px-5 py-3 min-h-[56px] ${unavailable ? "bg-muted/70" : ""}`}>
               <span className={`text-xs w-12 shrink-0 pt-0.5 font-mono ${unavailable ? "text-muted-foreground/30" : "text-muted-foreground/60"}`}>
@@ -446,7 +447,7 @@ const WeekView = ({
               const appt = appointments.find((a) => a.date === key && a.hour === hour);
               const blk = isHourBlocked(blocked, key, hour);
               const isToday = sameDay(day, new Date());
-              const unavailable = !appt && !blk && !isHourAvailable(availability, day.getDay(), hour);
+              const unavailable = !appt && !blk && !isSlotAvailable(availability, day.getDay(), hour, 0);
               return (
                 <div
                   key={key}
@@ -1051,8 +1052,8 @@ const CrmCalendar = () => {
 
                   <div className="flex items-center gap-0.5 mt-0.5 shrink-0">
                     <button 
-                      onClick={() => setEditingApptId(detail.id)}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" 
+                      onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); }}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                       title="Editar cita (fecha y hora)"
                     >
                       <Pencil size={14} />
@@ -1123,8 +1124,8 @@ const CrmCalendar = () => {
                 </div>
                 <div className="flex items-center gap-1 sm:border-l sm:pl-3 border-border/40">
                   <button 
-                    onClick={() => setEditingApptId(detail.id)}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" 
+                    onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); }}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                     title="Editar cita (fecha y hora)"
                   >
                     <Pencil size={13} />
@@ -1196,13 +1197,7 @@ const CrmCalendar = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={!!editingApptId} onOpenChange={(open) => {
-        if (!open) setEditingApptId(null);
-        else {
-          const appt = appointments.find(a => a.id === editingApptId);
-          if (appt) { setEditDate(appt.date); setEditHour(appt.hour); setEditMinute(appt.minute ?? 0); }
-        }
-      }}>
+      <Dialog open={!!editingApptId} onOpenChange={(open) => { if (!open) setEditingApptId(null); }}>
         <DialogContent className="sm:max-w-[400px]">
           <DialogHeader>
             <DialogTitle>Editar Cita</DialogTitle>
@@ -1216,7 +1211,7 @@ const CrmCalendar = () => {
               <Input
                 id="edit-date"
                 type="date"
-                value={editDate || appointments.find(a => a.id === editingApptId)?.date || ""}
+                value={editDate}
                 onChange={(e) => setEditDate(e.target.value)}
                 className="h-9 text-sm"
               />
@@ -1226,7 +1221,7 @@ const CrmCalendar = () => {
                 <label htmlFor="edit-hour" className="text-sm font-medium">Hora</label>
                 <div className="relative">
                   <select
-                    value={editHour || appointments.find(a => a.id === editingApptId)?.hour || 10}
+                    value={editHour}
                     onChange={(e) => setEditHour(Number(e.target.value))}
                     className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
                   >
