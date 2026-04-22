@@ -49,6 +49,23 @@ function isHourBlocked(blocked: BlockedSlot[], dayKey: string, hour: number): Bl
   });
 }
 
+function isSlotBlockedAt(blocked: BlockedSlot[], dayKey: string, hour: number, minute: number, durationMin: number): BlockedSlot | undefined {
+  const slotStart = hour * 60 + minute;
+  const slotEnd   = slotStart + durationMin;
+  return blocked.find(b => {
+    if (b.type === "hours" && b.date === dayKey && b.startHour !== undefined && b.endHour !== undefined) {
+      const startTotal = b.startHour * 60 + (b.startMinute ?? 0);
+      const endTotal   = b.endHour   * 60 + (b.endMinute   ?? 0);
+      return slotStart < endTotal && slotEnd > startTotal;
+    }
+    if (b.type === "fullday" && b.date === dayKey) return true;
+    if (b.type === "range" && b.startDate && b.endDate) {
+      return dayKey >= b.startDate && dayKey <= b.endDate;
+    }
+    return false;
+  });
+}
+
 function isDayBlocked(blocked: BlockedSlot[], dayKey: string): BlockedSlot | undefined {
   return blocked.find(b => {
     if (b.type === "fullday" && b.date === dayKey) return true;
@@ -94,6 +111,22 @@ const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Ago
 const HOURS     = Array.from({ length: 13 }, (_, i) => i + 7); // 7:00 – 19:00
 const MINUTES   = [0, 15, 30, 45];
 
+const buildSlots = (interval: number): { hour: number; minute: number }[] => {
+  const slots: { hour: number; minute: number }[] = [];
+  const step = interval > 0 ? interval : 60;
+  for (let total = 7 * 60; total < 20 * 60; total += step) {
+    slots.push({ hour: Math.floor(total / 60), minute: total % 60 });
+  }
+  return slots;
+};
+
+const minutesForInterval = (interval: number): number[] => {
+  if (interval === 15) return [0, 15, 30, 45];
+  if (interval === 30) return [0, 30];
+  if (interval === 60) return [0];
+  return [0, 15, 30, 45];
+};
+
 function startOfWeek(date: Date) {
   const d = new Date(date);
   const day = d.getDay() || 7; // Sunday = 7, not 0
@@ -122,9 +155,10 @@ interface SlotDialogProps {
   onSaveBlock: (payload: { type: "hours" | "fullday" | "range"; date: string; startHour: number; startMinute: number; endHour: number; endMinute: number; reason: string }) => Promise<void>;
   isSavingAppt: boolean;
   isSavingBlock: boolean;
+  apptMinuteOptions: number[];
 }
 
-const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSaveBlock, isSavingAppt, isSavingBlock }: SlotDialogProps) => {
+const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSaveBlock, isSavingAppt, isSavingBlock, apptMinuteOptions }: SlotDialogProps) => {
   const [slotTab, setSlotTab] = useState<"appt" | "block">("appt");
   const [blockType, setBlockType]       = useState<"hours" | "fullday">("hours");
   const [blockReason, setBlockReason]   = useState("");
@@ -220,7 +254,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                   onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })}
                   className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
                 >
-                  {MINUTES.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                  {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                 </select>
                 <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
               </div>
@@ -346,36 +380,46 @@ const EmptySlot = () => (
 
 // DAY VIEW
 const DayView = ({
-  current, onSelect, selected, onSlotClick, blocked, appointments, availability,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null }) => {
+  current, onSelect, selected, onSlotClick, blocked, appointments, availability, interval, durationMin,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number; durationMin: number }) => {
   const key = dateKey(current);
   const dayAppts = appointments.filter((a) => a.date === key);
   const dow = current.getDay();
+  const slots = buildSlots(interval);
 
   return (
     <div className="bg-card border rounded-2xl overflow-hidden">
       <div className="divide-y">
-        {HOURS.map((hour) => {
-          const appt = dayAppts.find((a) => a.hour === hour);
-          const blk = isHourBlocked(blocked, key, hour);
-          const unavailable = !appt && !blk && !isSlotAvailable(availability, dow, hour, 0);
+        {slots.map(({ hour, minute }) => {
+          const slotAppts = dayAppts.filter((a) => a.hour === hour && (a.minute ?? 0) === minute);
+          const blk = isSlotBlockedAt(blocked, key, hour, minute, durationMin);
+          const unavailable = slotAppts.length === 0 && !blk && !isSlotAvailable(availability, dow, hour, minute);
+          const label = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
           return (
-            <div key={hour} className={`flex gap-4 px-5 py-3 min-h-[56px] ${unavailable ? "bg-muted/70" : ""}`}>
+            <div key={`${hour}-${minute}`} className={`flex gap-4 px-5 py-3 min-h-[56px] ${unavailable ? "bg-muted/70" : ""}`}>
               <span className={`text-xs w-12 shrink-0 pt-0.5 font-mono ${unavailable ? "text-muted-foreground/30" : "text-muted-foreground/60"}`}>
-                {String(hour).padStart(2, "0")}:00
+                {label}
               </span>
-              {appt ? (
-                <button
-                  onClick={() => onSelect(appt.id === selected ? "" : appt.id)}
-                  className={`flex-1 text-left rounded-xl px-3 py-2 border transition-all text-xs ${
-                    selected === appt.id
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-primary/20 border-primary/30 hover:bg-primary/30"
-                  }`}
-                >
-                  <p className="font-medium">{appt.name}</p>
-                  <p className="opacity-80 mt-0.5">{appt.service}</p>
-                </button>
+              {slotAppts.length > 0 ? (
+                <div className="flex-1 flex flex-col gap-1.5">
+                  {slotAppts.map((appt) => (
+                    <button
+                      key={appt.id}
+                      onClick={() => onSelect(appt.id === selected ? "" : appt.id)}
+                      className={`text-left rounded-xl px-3 py-2 border transition-all text-xs ${
+                        selected === appt.id
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "bg-primary/20 border-primary/30 hover:bg-primary/30"
+                      }`}
+                    >
+                      <p className="font-medium">
+                        <span className="font-mono opacity-70 mr-1.5">{appt.time}</span>
+                        {appt.name}
+                      </p>
+                      {appt.service && <p className="opacity-80 mt-0.5">{appt.service}</p>}
+                    </button>
+                  ))}
+                </div>
               ) : blk ? (
                 <div className="flex-1 rounded-xl px-3 py-2 bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 flex items-center gap-2 text-xs">
                   <Coffee size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
@@ -385,7 +429,7 @@ const DayView = ({
                 <div className="flex-1" />
               ) : (
                 <button
-                  onClick={() => onSlotClick(key, hour)}
+                  onClick={() => onSlotClick(key, hour, minute)}
                   className="flex-1 border-b border-dashed border-border/30 hover:bg-primary/5 hover:border-primary/30 rounded transition-all group"
                 >
                   <Plus size={12} className="text-primary/0 group-hover:text-primary/40 transition-all mx-auto" />
@@ -401,14 +445,15 @@ const DayView = ({
 
 // WEEK VIEW
 const WeekView = ({
-  current, onSelect, selected, onSlotClick, blocked, appointments, availability,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null }) => {
+  current, onSelect, selected, onSlotClick, blocked, appointments, availability, interval, durationMin,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number; durationMin: number }) => {
   const monday = startOfWeek(current);
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
     return d;
   });
+  const slots = buildSlots(interval);
 
   return (
     <div className="bg-card border rounded-2xl overflow-hidden overflow-x-auto">
@@ -433,43 +478,50 @@ const WeekView = ({
 
       {/* Hour rows */}
       <div>
-        {HOURS.map((hour) => (
-          <div key={hour} className="flex border-b last:border-b-0 min-h-[52px]">
+        {slots.map(({ hour, minute }) => (
+          <div key={`${hour}-${minute}`} className="flex border-b last:border-b-0 min-h-[52px]">
             {/* Hour label */}
             <div className="w-14 shrink-0 border-r px-2 pt-1.5 text-right">
               <span className="text-[10px] text-muted-foreground/60 font-mono">
-                {String(hour).padStart(2, "0")}:00
+                {String(hour).padStart(2, "0")}:{String(minute).padStart(2, "0")}
               </span>
             </div>
             {/* Day cells */}
             {weekDays.map((day) => {
               const key = dateKey(day);
-              const appt = appointments.find((a) => a.date === key && a.hour === hour);
-              const blk = isHourBlocked(blocked, key, hour);
+              const cellAppts = appointments
+                .filter((a) => a.date === key && a.hour === hour && (a.minute ?? 0) === minute);
+              const blk = isSlotBlockedAt(blocked, key, hour, minute, durationMin);
               const isToday = sameDay(day, new Date());
-              const unavailable = !appt && !blk && !isSlotAvailable(availability, day.getDay(), hour, 0);
+              const unavailable = cellAppts.length === 0 && !blk && !isSlotAvailable(availability, day.getDay(), hour, minute);
+              const empty = cellAppts.length === 0 && !blk && !unavailable;
               return (
                 <div
                   key={key}
-                  onClick={() => { if (!appt && !blk && !unavailable) onSlotClick(key, hour); }}
+                  onClick={() => { if (empty) onSlotClick(key, hour, minute); }}
                   className={`flex-1 min-w-[90px] border-r last:border-r-0 px-1.5 py-1 group ${
                     blk ? "bg-amber-100 dark:bg-amber-900/40"
                     : unavailable ? "bg-muted/70"
                     : isToday ? "bg-primary/10" : ""
-                  } ${!appt && !blk && !unavailable ? "hover:bg-primary/5 cursor-pointer" : ""}`}
+                  } ${empty ? "hover:bg-primary/5 cursor-pointer" : ""}`}
                 >
-                  {appt ? (
-                    <button
-                      onClick={() => onSelect(appt.id === selected ? "" : appt.id)}
-                      className={`w-full text-left rounded-lg px-2 py-1.5 text-[10px] border transition-all ${
-                        selected === appt.id
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-primary/20 border-primary/30 text-primary hover:bg-primary/30"
-                      }`}
-                    >
-                      <p className="font-semibold truncate">{appt.time}</p>
-                      <p className="truncate opacity-80">{appt.name}</p>
-                    </button>
+                  {cellAppts.length > 0 ? (
+                    <div className="flex flex-col gap-1">
+                      {cellAppts.map((appt) => (
+                        <button
+                          key={appt.id}
+                          onClick={(e) => { e.stopPropagation(); onSelect(appt.id === selected ? "" : appt.id); }}
+                          className={`w-full text-left rounded-lg px-2 py-1.5 text-[10px] border transition-all ${
+                            selected === appt.id
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-primary/20 border-primary/30 text-primary hover:bg-primary/30"
+                          }`}
+                        >
+                          <p className="font-semibold truncate">{appt.time}</p>
+                          <p className="truncate opacity-80">{appt.name}</p>
+                        </button>
+                      ))}
+                    </div>
                   ) : blk ? (
                     <div className="w-full h-full flex items-center justify-center text-amber-600 dark:text-amber-400">
                       <Coffee size={12} />
@@ -650,8 +702,8 @@ const CrmCalendar = () => {
   // New appointment modal
   const [newAppt, setNewAppt] = useState<{ open: boolean; date: string; hour: number; minute: number; contactId: string; notes: string; service: string } | null>(null);
 
-  const openNewAppt = (date: string, hour: number) =>
-    setNewAppt({ open: true, date, hour, minute: 0, contactId: "", notes: "", service: "" });
+  const openNewAppt = (date: string, hour: number, minute: number = 0) =>
+    setNewAppt({ open: true, date, hour, minute, contactId: "", notes: "", service: "" });
 
   const closeNewAppt = () => setNewAppt(null);
 
@@ -705,6 +757,9 @@ const CrmCalendar = () => {
   const [editingCalendar, setEditingCalendar] = useState<CalendarData | null | undefined>(undefined);
 
   const availability = selectedCalendar?.availability as WeeklySchedule | null | undefined;
+  const calendarInterval = (selectedCalendar as any)?.schedule_interval ?? 60;
+  const calendarDuration = selectedCalendar?.duration_min ?? 30;
+  const slotMinuteOptions = minutesForInterval(calendarInterval);
   const detail = appointments.find((a) => a.id === selected);
 
   const isLoading = loadingConfig || loadingForms || loadingAppts || loadingBlocked;
@@ -1015,8 +1070,8 @@ const CrmCalendar = () => {
       <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6" : ""}`}>
         {/* Calendar view */}
         <div>
-          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} />}
-          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} />}
+          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} durationMin={calendarDuration} />}
+          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} durationMin={calendarDuration} />}
           {view === "month" && <MonthView current={current} onSelect={setSelected} selected={selected} blocked={blockedSlots} appointments={appointments} />}
         </div>
 
@@ -1240,7 +1295,7 @@ const CrmCalendar = () => {
                     onChange={(e) => setEditMinute(Number(e.target.value))}
                     className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    {MINUTES.map((m) => (
+                    {slotMinuteOptions.map((m) => (
                       <option key={m} value={m}>{String(m).padStart(2, "0")}</option>
                     ))}
                   </select>

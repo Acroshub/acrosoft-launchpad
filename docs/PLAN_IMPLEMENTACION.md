@@ -414,7 +414,7 @@ Sin `.eq("calendar_id", calendar_id)`. Con 2+ calendarios para el mismo usuario,
 
 ---
 
-### L-16 · crm_calendar_config — DB default de availability incompatible con código
+### L-16 · crm_calendar_config — DB default de availability incompatible con código ✅ COMPLETADO
 **Origen:** S-3 — el DB default de la columna `availability` usa estructura diferente a la que lee el código.
 **Bug (bajo impacto):** El default de DB es:
 ```json
@@ -431,13 +431,12 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### L-17 · DayView / WeekView — múltiples citas en la misma hora invisibles (regresión S-1)
-**Origen:** S-1 habilitó `minute != 0`. Ahora es válido tener dos citas en la misma hora (ej: 10:00 y 10:30 con `duration_min = 30`). Pero `DayView` y `WeekView` usan `appointments.find(a => a.hour === hour)` — solo muestra la primera cita encontrada en esa franja horaria. La segunda queda invisible para el admin.
-**Bugs:**
-1. `DayView` (línea ~360): `dayAppts.find(a => a.hour === hour)` — solo 1 resultado.
-2. `WeekView` (línea ~446): `appointments.find(a => a.date === key && a.hour === hour)` — solo 1 resultado.
-**Fix:** Cambiar `find` por `filter` en ambas vistas y renderizar todas las citas de la misma franja horaria como bloques apilados dentro de la misma fila.
-**Prioridad:** Baja. Solo afecta si `duration_min < 60` (slots de 30 min o menos). No afecta la integridad de datos, solo la visualización admin.
+### L-17 · DayView / WeekView — múltiples citas en la misma hora invisibles (regresión S-1) ✅ COMPLETADO
+**Origen:** S-1 habilitó `minute != 0`. Ahora es válido tener dos citas en la misma hora (10:00 y 10:30 con `duration_min = 30`). `DayView` y `WeekView` usaban `find` → solo mostraban la primera.
+**Implementado:**
+- `DayView`: `dayAppts.filter((a) => a.hour === hour).sort((a,b) => (a.minute??0) - (b.minute??0))` → renderiza todas las citas apiladas verticalmente en la misma fila, cada una con su hora (HH:MM) antes del nombre.
+- `WeekView`: mismo patrón de filter+sort; stack vertical de botones pequeños dentro de la celda. `e.stopPropagation()` en el click del botón para no disparar el `onSlotClick` del contenedor.
+- Lógica `unavailable` y `empty` ajustada a `cellAppts.length === 0`.
 **Archivos:** `src/components/crm/CrmCalendar.tsx`
 
 ---
@@ -557,7 +556,7 @@ Requiere pasar `durationMin` como parámetro adicional a `isSlotBlocked`.
 
 3. **CalendarRenderer (público):** Detectar timezone del visitante vía `Intl.DateTimeFormat().resolvedOptions().timeZone`. Convertir slots disponibles del timezone del calendario al timezone del visitante para display. Mostrar selector de timezone con el detectado como default (el visitante puede cambiarlo). Al enviar reserva a `crm-calendar-book`, enviar la hora en el timezone del calendario (conversión client-side antes de POST).
 
-4. **crm-calendar-book (edge function):** Recibir `hour`/`minute` en el timezone del calendario (sin cambios necesarios — el CalendarRenderer ya convierte antes de enviar). Opcionalmente recibir `visitor_timezone` para logging.
+4. **crm-calendar-book (edge function):** Recibir `hour`/`minute` en el timezone del calendario. **Reemplazar el hardcode `TZ_OFFSET_HOURS = -4` (La Paz) por lookup dinámico del `calendar.timezone`** usando `Intl.DateTimeFormat` o librería de timezones (ej. `date-fns-tz`) para convertir wall-clock → absolute UTC ms en las validaciones de `min_advance_hours` y `max_future_days`. Opcionalmente recibir `visitor_timezone` para logging.
 
 5. **CrmCalendar (admin):** Las citas se muestran en el timezone del calendario seleccionado. Si el admin cambia de calendario y los timezones difieren, las horas se ajustan.
 
@@ -709,6 +708,19 @@ Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipel
 **Fix:** Cambiar las celdas de fecha de `h-12 w-full rounded-md` a dimensiones cuadradas fijas (`w-10 h-10` o similar) con `rounded-full`. Centrar cada celda en su columna del grid. Mantener los colores configurables del CRM (`primaryColor`) — solo cambiar la forma. Ajustar estados: hoy (ring circular), seleccionado (fondo primary circular), disponible (texto), no disponible (texto gris tenue).
 **Archivos:** `src/components/crm/CalendarRenderer.tsx`
 **Complejidad:** Baja — solo CSS/Tailwind.
+
+---
+
+### UI-4 · CrmCalendarConfig — agregar opción "60 min" al schedule_interval ✅ COMPLETADO
+**Origen:** El selector solo ofrecía 15 min / 30 min. Ahora acepta 60 min para calendarios con citas largas.
+**Implementado:**
+- `scheduleInterval` state tipado `15 | 30 | 60` (default 30)
+- Normalización desde DB: `raw === 15 || raw === 60 ? raw : 30`
+- Selector UI con 3 opciones: "Cada 15 min", "Cada 30 min", "Cada 60 min"
+- `WeeklySchedulePicker.tsx:21` ya soportaba 60 en `buildHours`, sin cambios
+- DB: `schedule_interval` no tiene check constraint (verificado), sin migración
+- `CalendarRenderer` y `CrmCalendar` usan `duration_min` para slots, no `schedule_interval` — sin regresiones
+**Archivos:** `src/components/crm/CrmCalendarConfig.tsx`
 
 ---
 

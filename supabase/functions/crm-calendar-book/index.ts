@@ -116,16 +116,28 @@ Deno.serve(async (req) => {
     const minAdvanceHours: number = (calendar as any).min_advance_hours ?? 1;
     const maxFutureDays: number   = (calendar as any).max_future_days ?? 60;
 
-    const scheduledMs = new Date(`${date}T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00`).getTime();
+    // TODO(F-5): replace hardcoded La Paz offset with calendar.timezone (IANA).
+    // All existing calendars are America/La_Paz (UTC-4, no DST).
+    const TZ_OFFSET_HOURS = -4;
+    const TZ_OFFSET_MS = TZ_OFFSET_HOURS * 3600_000;
+
+    const [yy, mm, dd] = date.split("-").map(Number);
+    // Booking local wall-clock → absolute UTC ms (La Paz = UTC-4, so UTC = local + 4h)
+    const scheduledMs = Date.UTC(yy, mm - 1, dd, hour, minute) - TZ_OFFSET_MS;
     const nowMs = Date.now();
 
     if (scheduledMs < nowMs + minAdvanceHours * 3600_000) {
       return respond({ error: `Debe reservar con al menos ${minAdvanceHours}h de anticipación` }, 422);
     }
 
-    const todayDate = new Date(nowMs);
-    const maxDate = new Date(todayDate.getFullYear(), todayDate.getMonth(), todayDate.getDate() + maxFutureDays);
-    if (new Date(date) > maxDate) {
+    // "Today" in the business timezone
+    const nowLocal = new Date(nowMs + TZ_OFFSET_MS);
+    const tyr = nowLocal.getUTCFullYear();
+    const tmo = nowLocal.getUTCMonth();
+    const tdy = nowLocal.getUTCDate();
+    const maxMs = Date.UTC(tyr, tmo, tdy + maxFutureDays);
+    const bookingMs = Date.UTC(yy, mm - 1, dd);
+    if (bookingMs > maxMs) {
       return respond({ error: `No se puede reservar más allá de ${maxFutureDays} días en el futuro` }, 422);
     }
 

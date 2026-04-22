@@ -86,7 +86,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
   const [minAdvanceHours, setMinAdvanceHours] = useState(1);
   const [maxFutureDays, setMaxFutureDays]     = useState(60);
-  const [scheduleInterval, setScheduleInterval] = useState<15 | 30>(30);
+  const [scheduleInterval, setScheduleInterval] = useState<15 | 30 | 60>(30);
   const [isEditingHours, setIsEditingHours] = useState(false);
   const [embedTab, setEmbedTab]           = useState<"iframe" | "js">("iframe");
   const [copied, setCopied]               = useState(false);
@@ -105,7 +105,10 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
       setReminderRules((existingCalendar.reminder_rules as unknown as ReminderRule[] | null) ?? []);
       setMinAdvanceHours(existingCalendar.min_advance_hours ?? 1);
       setMaxFutureDays(existingCalendar.max_future_days ?? 60);
-      setScheduleInterval(((existingCalendar as any).schedule_interval === 15 ? 15 : 30));
+      {
+        const raw = (existingCalendar as any).schedule_interval;
+        setScheduleInterval(raw === 15 || raw === 60 ? raw : 30);
+      }
     }
   }, [existingCalendar]);
 
@@ -326,11 +329,12 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
             <Field label="Intervalo del horario">
               <select
                 value={scheduleInterval}
-                onChange={(e) => setScheduleInterval(Number(e.target.value) as 15 | 30)}
+                onChange={(e) => setScheduleInterval(Number(e.target.value) as 15 | 30 | 60)}
                 className="h-10 rounded-xl border border-input bg-background px-3 text-sm w-full focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
-                <option value={30}>Cada 30 min</option>
                 <option value={15}>Cada 15 min</option>
+                <option value={30}>Cada 30 min</option>
+                <option value={60}>Cada 60 min</option>
               </select>
             </Field>
           </div>
