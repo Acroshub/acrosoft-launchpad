@@ -48,6 +48,52 @@ function extractContact(fields: any[], data: Record<string, any>) {
   return { name, email, phone };
 }
 
+const SCHEDULE_KEY = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function amPmToMinutes(t: string): number {
+  const [timePart, period] = t.split(" ");
+  const [h, m] = timePart.split(":").map(Number);
+  const h24 = period === "AM" ? (h === 12 ? 0 : h) : (h === 12 ? 12 : h + 12);
+  return h24 * 60 + (m || 0);
+}
+
+function slotFitsAvailability(
+  avail: any,
+  dayOfWeek: number,
+  slotStartMin: number,
+  duration: number,
+): boolean {
+  if (!avail || typeof avail !== "object") return true;
+  const day = avail[SCHEDULE_KEY[dayOfWeek]];
+  if (!day?.open) return false;
+  const slotEndMin = slotStartMin + duration;
+  const slots = (day.slots as { from: string; to: string }[] | undefined) ?? [];
+  return slots.some((s) => {
+    const from = amPmToMinutes(s.from);
+    const to   = amPmToMinutes(s.to);
+    return slotStartMin >= from && slotEndMin <= to;
+  });
+}
+
+function isBlockedBySlots(
+  blocks: any[],
+  dateKey: string,
+  slotStartMin: number,
+): boolean {
+  return blocks.some((b) => {
+    if (b.type === "fullday" && b.date === dateKey) return true;
+    if (b.type === "range" && b.range_start && b.range_end) {
+      return dateKey >= b.range_start && dateKey <= b.range_end;
+    }
+    if (b.type === "hours" && b.date === dateKey && b.start_hour != null && b.end_hour != null) {
+      const startTotal = b.start_hour * 60 + (b.start_minute ?? 0);
+      const endTotal   = b.end_hour   * 60 + (b.end_minute   ?? 0);
+      return slotStartMin >= startTotal && slotStartMin < endTotal;
+    }
+    return false;
+  });
+}
+
 async function addContactToPipelines(
   userId: string,
   contactId: string,
@@ -105,7 +151,7 @@ Deno.serve(async (req) => {
 
     const { data: calendar, error: calError } = await supabase
       .from("crm_calendar_config")
-      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id")
+      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability")
       .eq("id", calendar_id)
       .single();
 
@@ -143,6 +189,23 @@ Deno.serve(async (req) => {
 
     const requestedStart   = hour * 60 + minute;
     const requestedEnd     = requestedStart + duration;
+
+    // Validate the slot fits the weekly availability (day open + slot_start+duration within open range).
+    // L-26: catches the past-closing case (e.g., 17:30 + 60 min when business closes at 18:00).
+    const dayOfWeek = new Date(Date.UTC(yy, mm - 1, dd)).getUTCDay();
+    if (!slotFitsAvailability((calendar as any).availability, dayOfWeek, requestedStart, duration)) {
+      return respond({ error: "El horario solicitado está fuera de la disponibilidad del calendario" }, 422);
+    }
+
+    // Validate against user-defined blocked slots (hours / fullday / range).
+    const { data: blocks } = await supabase
+      .from("crm_blocked_slots")
+      .select("type, date, start_hour, start_minute, end_hour, end_minute, range_start, range_end")
+      .eq("calendar_id", calendar_id);
+
+    if (isBlockedBySlots(blocks ?? [], date, requestedStart)) {
+      return respond({ error: "El horario solicitado está reservado" }, 409);
+    }
 
     const { data: dayAppts } = await supabase
       .from("crm_appointments")

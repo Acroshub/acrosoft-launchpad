@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, CalendarDays, Clock, User, Plus, Settings, ChevronDown, Pencil, Trash2, Coffee, Loader2, ClipboardList } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -49,14 +49,22 @@ function isHourBlocked(blocked: BlockedSlot[], dayKey: string, hour: number): Bl
   });
 }
 
-function isSlotBlockedAt(blocked: BlockedSlot[], dayKey: string, hour: number, minute: number, durationMin: number): BlockedSlot | undefined {
+function formatBlockRange(b: BlockedSlot): string {
+  if (b.type !== "hours" || b.startHour == null || b.endHour == null) return "";
+  const sh = String(b.startHour).padStart(2, "0");
+  const sm = String(b.startMinute ?? 0).padStart(2, "0");
+  const eh = String(b.endHour).padStart(2, "0");
+  const em = String(b.endMinute ?? 0).padStart(2, "0");
+  return `${sh}:${sm}–${eh}:${em}`;
+}
+
+function isSlotBlockedAt(blocked: BlockedSlot[], dayKey: string, hour: number, minute: number): BlockedSlot | undefined {
   const slotStart = hour * 60 + minute;
-  const slotEnd   = slotStart + durationMin;
   return blocked.find(b => {
     if (b.type === "hours" && b.date === dayKey && b.startHour !== undefined && b.endHour !== undefined) {
       const startTotal = b.startHour * 60 + (b.startMinute ?? 0);
       const endTotal   = b.endHour   * 60 + (b.endMinute   ?? 0);
-      return slotStart < endTotal && slotEnd > startTotal;
+      return slotStart >= startTotal && slotStart < endTotal;
     }
     if (b.type === "fullday" && b.date === dayKey) return true;
     if (b.type === "range" && b.startDate && b.endDate) {
@@ -317,7 +325,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                     </div>
                     <div className="relative">
                       <select value={newAppt.minute ?? 0} onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
-                        {MINUTES.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                        {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                       </select>
                       <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     </div>
@@ -334,7 +342,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                     </div>
                     <div className="relative">
                       <select value={blockEndMinute} onChange={(e) => setBlockEndMinute(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
-                        {MINUTES.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                        {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                       </select>
                       <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     </div>
@@ -380,8 +388,8 @@ const EmptySlot = () => (
 
 // DAY VIEW
 const DayView = ({
-  current, onSelect, selected, onSlotClick, blocked, appointments, availability, interval, durationMin,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number; durationMin: number }) => {
+  current, onSelect, selected, onSlotClick, blocked, appointments, availability, interval,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
   const key = dateKey(current);
   const dayAppts = appointments.filter((a) => a.date === key);
   const dow = current.getDay();
@@ -392,7 +400,7 @@ const DayView = ({
       <div className="divide-y">
         {slots.map(({ hour, minute }) => {
           const slotAppts = dayAppts.filter((a) => a.hour === hour && (a.minute ?? 0) === minute);
-          const blk = isSlotBlockedAt(blocked, key, hour, minute, durationMin);
+          const blk = isSlotBlockedAt(blocked, key, hour, minute);
           const unavailable = slotAppts.length === 0 && !blk && !isSlotAvailable(availability, dow, hour, minute);
           const label = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
           return (
@@ -424,6 +432,9 @@ const DayView = ({
                 <div className="flex-1 rounded-xl px-3 py-2 bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 flex items-center gap-2 text-xs">
                   <Coffee size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
                   <span className="font-semibold">{blk.reason || "Reservado"}</span>
+                  {blk.type === "hours" && (
+                    <span className="ml-auto font-mono text-[11px] text-amber-700/80 dark:text-amber-300/80">{formatBlockRange(blk)}</span>
+                  )}
                 </div>
               ) : unavailable ? (
                 <div className="flex-1" />
@@ -445,8 +456,8 @@ const DayView = ({
 
 // WEEK VIEW
 const WeekView = ({
-  current, onSelect, selected, onSlotClick, blocked, appointments, availability, interval, durationMin,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number; durationMin: number }) => {
+  current, onSelect, selected, onSlotClick, blocked, appointments, availability, interval,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
   const monday = startOfWeek(current);
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
@@ -491,7 +502,7 @@ const WeekView = ({
               const key = dateKey(day);
               const cellAppts = appointments
                 .filter((a) => a.date === key && a.hour === hour && (a.minute ?? 0) === minute);
-              const blk = isSlotBlockedAt(blocked, key, hour, minute, durationMin);
+              const blk = isSlotBlockedAt(blocked, key, hour, minute);
               const isToday = sameDay(day, new Date());
               const unavailable = cellAppts.length === 0 && !blk && !isSlotAvailable(availability, day.getDay(), hour, minute);
               const empty = cellAppts.length === 0 && !blk && !unavailable;
@@ -627,17 +638,35 @@ const MonthView = ({
 
 const CrmCalendar = () => {
   // ─── Supabase hooks ───
-  const { data: calendars = [], isLoading: loadingConfig } = useCalendars();
+  const { data: calendars = [], isLoading: loadingConfig, isFetching: fetchingConfig } = useCalendars();
   const { data: forms = [], isLoading: loadingForms } = useForms();
   const createForm    = useCreateForm();
   const updateConfig  = useUpdateCalendarConfig();
-  const { data: rawAppointments = [], isLoading: loadingAppts } = useAppointments();
   const { data: contacts = [] } = useContacts();
 
   // Which calendar is selected — declared early so hooks below can use it
-  const [selectedCalendarId, setSelectedCalendarId] = useState<string | null>(null);
+  const [selectedCalendarId, setSelectedCalendarIdState] = useState<string | null>(() =>
+    localStorage.getItem("crm_selected_calendar_id")
+  );
+  const handleSelectCalendar = useCallback((id: string | null) => {
+    setSelectedCalendarIdState(id);
+    if (id) localStorage.setItem("crm_selected_calendar_id", id);
+    else    localStorage.removeItem("crm_selected_calendar_id");
+  }, []);
   const selectedCalendar = calendars.find((c) => c.id === selectedCalendarId) ?? calendars[0] ?? null;
 
+  // Clean up stale localStorage id if the calendar was deleted elsewhere.
+  // Skip while the query is refetching — otherwise a freshly-created calendar
+  // (set via onCreated before the invalidation resolves) gets wiped.
+  useEffect(() => {
+    if (fetchingConfig) return;
+    if (!selectedCalendarId || calendars.length === 0) return;
+    if (!calendars.some((c) => c.id === selectedCalendarId)) {
+      handleSelectCalendar(null);
+    }
+  }, [selectedCalendarId, calendars, fetchingConfig, handleSelectCalendar]);
+
+  const { data: rawAppointments = [], isLoading: loadingAppts } = useAppointments(selectedCalendar?.id);
   const { data: rawBlocked = [], isLoading: loadingBlocked } = useBlockedSlots(selectedCalendar?.id);
   const createAppointment = useCreateAppointment();
   const updateAppointment = useUpdateAppointment();
@@ -645,8 +674,9 @@ const CrmCalendar = () => {
   const createBlockedSlot = useCreateBlockedSlot();
   const deleteBlockedSlotMut = useDeleteBlockedSlot();
 
-  // Map raw appointments to the shape the view components expect
-  // Only show appointments that belong to the selected calendar
+  // Map raw appointments to the shape the view components expect.
+  // Server-side filter via useAppointments(calendarId); defensive client filter kept
+  // for the transitional render while selectedCalendar resolves.
   const appointments = useMemo(() => rawAppointments
     .filter(a => selectedCalendar ? a.calendar_id === selectedCalendar.id : true)
     .map(a => {
@@ -733,6 +763,27 @@ const CrmCalendar = () => {
 
   const saveBlock = async () => {
     if (!blockModal || !selectedCalendar) return;
+
+    if (blockModal.type === "hours") {
+      const startTotal = blockModal.startHour * 60 + blockModal.startMinute;
+      const endTotal   = blockModal.endHour   * 60 + blockModal.endMinute;
+      if (endTotal <= startTotal) {
+        toast.error("La hora de fin debe ser posterior a la hora de inicio");
+        return;
+      }
+    }
+
+    if (blockModal.type === "range") {
+      if (!blockModal.startDate || !blockModal.endDate) {
+        toast.error("Debes seleccionar fecha de inicio y fin");
+        return;
+      }
+      if (blockModal.endDate < blockModal.startDate) {
+        toast.error("La fecha de fin debe ser igual o posterior a la de inicio");
+        return;
+      }
+    }
+
     try {
       await createBlockedSlot.mutateAsync({
         calendar_id: selectedCalendar.id,
@@ -757,8 +808,7 @@ const CrmCalendar = () => {
   const [editingCalendar, setEditingCalendar] = useState<CalendarData | null | undefined>(undefined);
 
   const availability = selectedCalendar?.availability as WeeklySchedule | null | undefined;
-  const calendarInterval = (selectedCalendar as any)?.schedule_interval ?? 60;
-  const calendarDuration = selectedCalendar?.duration_min ?? 30;
+  const calendarInterval = selectedCalendar?.duration_min ?? 30;
   const slotMinuteOptions = minutesForInterval(calendarInterval);
   const detail = appointments.find((a) => a.id === selected);
 
@@ -816,6 +866,7 @@ const CrmCalendar = () => {
       <CrmCalendarConfig
         existingCalendar={editingCalendar}
         onBack={() => setEditingCalendar(undefined)}
+        onCreated={(id) => handleSelectCalendar(id)}
       />
     );
   }
@@ -971,7 +1022,7 @@ const CrmCalendar = () => {
                     return (
                       <button
                         key={cal.id}
-                        onClick={() => { setSelectedCalendarId(cal.id); setDropdownOpen(false); }}
+                        onClick={() => { handleSelectCalendar(cal.id); setDropdownOpen(false); }}
                         className={`w-full text-left px-4 py-3 text-sm flex items-center gap-3 transition-all ${
                           isActive ? "bg-primary/10 text-primary font-semibold border-l-2 border-primary" : "hover:bg-secondary/90 text-foreground"
                         }`}
@@ -1010,7 +1061,7 @@ const CrmCalendar = () => {
             <Coffee size={14} /> Reservar tiempo
           </Button>
           <Button
-            onClick={() => openNewAppt(dateKey(current), 10)}
+            onClick={() => openNewAppt(dateKey(current), 10, 0)}
             className="h-[38px] rounded-xl text-xs font-semibold px-4 gap-2"
           >
             <Plus size={14} /> Nueva cita
@@ -1070,8 +1121,8 @@ const CrmCalendar = () => {
       <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6" : ""}`}>
         {/* Calendar view */}
         <div>
-          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} durationMin={calendarDuration} />}
-          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} durationMin={calendarDuration} />}
+          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
+          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
           {view === "month" && <MonthView current={current} onSelect={setSelected} selected={selected} blocked={blockedSlots} appointments={appointments} />}
         </div>
 
@@ -1227,6 +1278,14 @@ const CrmCalendar = () => {
             }}
             onSaveBlock={async ({ type, date, startHour, startMinute, endHour, endMinute, reason }) => {
               if (!selectedCalendar) { toast.error("Selecciona un calendario primero"); return; }
+              if (type === "hours") {
+                const startTotal = startHour * 60 + startMinute;
+                const endTotal   = endHour   * 60 + endMinute;
+                if (endTotal <= startTotal) {
+                  toast.error("La hora de fin debe ser posterior a la hora de inicio");
+                  return;
+                }
+              }
               try {
                 await createBlockedSlot.mutateAsync({
                   calendar_id: selectedCalendar.id,
@@ -1248,6 +1307,7 @@ const CrmCalendar = () => {
             }}
             isSavingAppt={createAppointment.isPending}
             isSavingBlock={createBlockedSlot.isPending}
+            apptMinuteOptions={slotMinuteOptions}
           />
         </DialogContent>
       </Dialog>
@@ -1295,7 +1355,7 @@ const CrmCalendar = () => {
                     onChange={(e) => setEditMinute(Number(e.target.value))}
                     className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    {slotMinuteOptions.map((m) => (
+                    {[...new Set([...slotMinuteOptions, editMinute])].sort((a, b) => a - b).map((m) => (
                       <option key={m} value={m}>{String(m).padStart(2, "0")}</option>
                     ))}
                   </select>
@@ -1394,7 +1454,7 @@ const CrmCalendar = () => {
                             onChange={e => setBlockModal(prev => prev && ({ ...prev, startMinute: Number(e.target.value) }))}
                             className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                           >
-                            {MINUTES.map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                            {slotMinuteOptions.map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                           </select>
                           <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                         </div>
@@ -1419,7 +1479,7 @@ const CrmCalendar = () => {
                             onChange={e => setBlockModal(prev => prev && ({ ...prev, endMinute: Number(e.target.value) }))}
                             className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                           >
-                            {MINUTES.map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                            {slotMinuteOptions.map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                           </select>
                           <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                         </div>

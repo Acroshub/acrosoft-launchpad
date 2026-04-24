@@ -148,15 +148,17 @@ export const useDeleteContact = () => {
 
 // ─── APPOINTMENTS ──────────────────────────────────────────────
 
-export const useAppointments = () => {
+export const useAppointments = (calendarId?: string | null) => {
   const { user } = useCurrentUser();
   return useQuery({
-    queryKey: ["crm_appointments", user?.id],
+    queryKey: ["crm_appointments", user?.id, calendarId ?? null],
     queryFn: async () => {
-      const { data, error } = await supabase
+      let q = supabase
         .from("crm_appointments")
         .select("*")
         .order("date", { ascending: true });
+      if (calendarId) q = q.eq("calendar_id", calendarId);
+      const { data, error } = await q;
       if (error) throw error;
       return data as CrmAppointment[];
     },
@@ -223,18 +225,17 @@ export const useDeleteAppointment = () => {
 export const useBlockedSlots = (calendarId?: string | null) => {
   const { user } = useCurrentUser();
   return useQuery({
-    queryKey: ["crm_blocked_slots", user?.id, calendarId],
+    queryKey: ["crm_blocked_slots", user?.id, calendarId ?? null],
     queryFn: async () => {
-      let q = supabase
+      const { data, error } = await supabase
         .from("crm_blocked_slots")
         .select("*")
+        .eq("calendar_id", calendarId!)
         .order("created_at", { ascending: false });
-      if (calendarId) q = q.eq("calendar_id", calendarId);
-      const { data, error } = await q;
       if (error) throw error;
       return data as CrmBlockedSlot[];
     },
-    enabled: !!user,
+    enabled: !!user && !!calendarId,
   });
 };
 

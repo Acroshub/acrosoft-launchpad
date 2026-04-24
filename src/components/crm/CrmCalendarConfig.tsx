@@ -64,9 +64,11 @@ interface Props {
   onBack: () => void;
   /** null = creating new calendar; CalendarData = editing existing */
   existingCalendar: CalendarData | null;
+  /** Called with the id of the newly created calendar (only on create, not edit) */
+  onCreated?: (id: string) => void;
 }
 
-const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
+const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
   const { data: forms = [] } = useForms();
   const createConfig = useCreateCalendarConfig();
   const updateConfig = useUpdateCalendarConfig();
@@ -78,7 +80,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
 
   const [name, setName]                   = useState("");
   const [description, setDescription]     = useState("");
-  const [duration, setDuration]           = useState(30);
+  const [duration, setDuration]           = useState<15 | 30 | 60>(30);
   const [bufferTime, setBufferTime]       = useState(10);
   const [slug, setSlug]                   = useState("");
   const [linkedFormId, setLinkedFormId]   = useState<string | null>(null);
@@ -86,7 +88,6 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
   const [minAdvanceHours, setMinAdvanceHours] = useState(1);
   const [maxFutureDays, setMaxFutureDays]     = useState(60);
-  const [scheduleInterval, setScheduleInterval] = useState<15 | 30 | 60>(30);
   const [isEditingHours, setIsEditingHours] = useState(false);
   const [embedTab, setEmbedTab]           = useState<"iframe" | "js">("iframe");
   const [copied, setCopied]               = useState(false);
@@ -97,7 +98,10 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
     if (existingCalendar) {
       setName(existingCalendar.name ?? "");
       setDescription(existingCalendar.description ?? "");
-      setDuration(existingCalendar.duration_min ?? 30);
+      {
+        const raw = existingCalendar.duration_min ?? 30;
+        setDuration(raw === 15 || raw === 60 ? raw : 30);
+      }
       setBufferTime(existingCalendar.buffer_min ?? 10);
       setSlug(existingCalendar.slug ?? "");
       setLinkedFormId(existingCalendar.linked_form_id ?? null);
@@ -105,10 +109,6 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
       setReminderRules((existingCalendar.reminder_rules as unknown as ReminderRule[] | null) ?? []);
       setMinAdvanceHours(existingCalendar.min_advance_hours ?? 1);
       setMaxFutureDays(existingCalendar.max_future_days ?? 60);
-      {
-        const raw = (existingCalendar as any).schedule_interval;
-        setScheduleInterval(raw === 15 || raw === 60 ? raw : 30);
-      }
     }
   }, [existingCalendar]);
 
@@ -176,12 +176,13 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
         slug: slug || null,
         linked_form_id: formId,
         availability,
-        schedule_interval: scheduleInterval,
+        schedule_interval: duration,
         reminder_rules: reminderRules as unknown as any,
       };
 
       if (isNew) {
-        await createConfig.mutateAsync(payload);
+        const created = await createConfig.mutateAsync(payload);
+        onCreated?.(created.id);
       } else {
         await updateConfig.mutateAsync({ id: existingCalendar!.id, ...payload });
       }
@@ -307,15 +308,20 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
             </p>
           </Field>
 
-          <div className="grid grid-cols-3 gap-4">
-            <Field label="Duración de la cita (min)">
-              <Input
-                type="number"
-                min={5}
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Duración de cada cita">
+              <select
                 value={duration}
-                onChange={(e) => setDuration(Number(e.target.value))}
-                className="h-10 text-sm"
-              />
+                onChange={(e) => setDuration(Number(e.target.value) as 15 | 30 | 60)}
+                className="h-10 rounded-xl border border-input bg-background px-3 text-sm w-full focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                <option value={15}>15 min</option>
+                <option value={30}>30 min</option>
+                <option value={60}>60 min</option>
+              </select>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Cada cita dura este tiempo y la grilla arranca un slot cada este intervalo.
+              </p>
             </Field>
             <Field label="Tiempo entre citas (min)">
               <Input
@@ -325,17 +331,9 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
                 onChange={(e) => setBufferTime(Number(e.target.value))}
                 className="h-10 text-sm"
               />
-            </Field>
-            <Field label="Intervalo del horario">
-              <select
-                value={scheduleInterval}
-                onChange={(e) => setScheduleInterval(Number(e.target.value) as 15 | 30 | 60)}
-                className="h-10 rounded-xl border border-input bg-background px-3 text-sm w-full focus:outline-none focus:ring-2 focus:ring-primary/20"
-              >
-                <option value={15}>Cada 15 min</option>
-                <option value={30}>Cada 30 min</option>
-                <option value={60}>Cada 60 min</option>
-              </select>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Margen adicional entre citas consecutivas.
+              </p>
             </Field>
           </div>
 
@@ -420,7 +418,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar }: Props) => {
             value={availability}
             onChange={setAvailability}
             isEditing={isNew ? true : isEditingHours}
-            interval={scheduleInterval}
+            interval={duration}
           />
 
           <p className="text-[11px] text-muted-foreground italic pt-1">

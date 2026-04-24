@@ -441,53 +441,122 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### L-19 · CrmCalendar — calendario seleccionado no se persiste al navegar (auditoría L-1)
-**Origen:** L-1 implementó multi-calendario, pero `selectedCalendarId` se inicializa como `null` y nunca se guarda.
-**Bug:** Al navegar fuera del tab Calendario y volver, siempre se muestra `calendars[0]` (el más antiguo) sin importar cuál estaba seleccionado. El modo de vista sí se persiste (`crm_calendar_view` en localStorage), pero no el calendario.
-**Fix:** Inicializar `selectedCalendarId` desde `localStorage.getItem("crm_selected_calendar_id")` y guardar al cambiar de calendario (mismo patrón que `handleSetView`).
-**Prioridad:** Baja. Molestia de UX, no rompe datos.
+### L-18 · Booking: unificar `schedule_interval` con `duration_min` (rediseño) ✅ COMPLETADO
+**Decisión (2026-04-23):** Se elimina la distinción entre "intervalo de grilla" y "duración de cita". Cada calendario define una sola duración (15, 30 o 60 min), y los slots arrancan cada esa misma cantidad de minutos. Esto elimina la ambigüedad de L-18 de raíz: cada slot ocupa exactamente su propia ventana de tiempo, así los bloqueos y solapes se comportan de forma intuitiva.
+**Motivo:** La versión con dos campos (`schedule_interval` ≠ `duration_min`) generaba confusión: ej. `duration_min=60, schedule_interval=15` provocaba que slots de 9:00 "tocaran" un bloqueo de 9:45–11:00 aunque su inicio fuera antes. Con un solo valor, esto ya no puede pasar.
+**Implementado:**
+- `isSlotBlocked` (`CalendarRenderer.tsx`) y `isSlotBlockedAt` (`CrmCalendar.tsx`) usan la semántica simple `slotStart ∈ [blockStart, blockEnd)`, sin parámetro `durationMin`.
+- `CrmCalendarConfig.tsx`: se elimina el selector "Intervalo del horario". La "Duración de la cita" es un `<select>` con opciones 15/30/60 min. El payload envía `schedule_interval = duration`.
+- `CrmCalendar.tsx`: `calendarInterval` se deriva de `duration_min` en lugar de `schedule_interval`. Props y helpers sin cambios de firma externos.
+- DB: todos los calendarios existentes sincronizados (`schedule_interval = duration_min`), con `duration_min` normalizado a {15, 30, 60}.
+**Archivos:** `src/components/crm/CalendarRenderer.tsx`, `src/components/crm/CrmCalendar.tsx`, `src/components/crm/CrmCalendarConfig.tsx`, DB `crm_calendar_config`
+
+---
+
+### L-19 · CrmCalendar — calendario seleccionado no se persiste al navegar (auditoría L-1) ✅ COMPLETADO
+**Implementado:**
+- `selectedCalendarId` se inicializa desde `localStorage.getItem("crm_selected_calendar_id")`.
+- Nuevo `handleSelectCalendar(id)` persiste (o borra) la clave al cambiar el calendario en el dropdown.
+- `useEffect` defensivo: si el id guardado apunta a un calendario borrado, se limpia automáticamente (evita estado fantasma).
 **Archivos:** `src/components/crm/CrmCalendar.tsx`
 
 ---
 
-### L-20 · CrmCalendar — nuevo calendario no queda seleccionado tras su creación (auditoría L-1)
-**Origen:** L-1 implementó creación de calendarios, pero no comunicó el ID del calendario creado de vuelta al componente padre.
-**Bug:** Después de guardar un calendario nuevo en `CrmCalendarConfig`, se llama a `onBack()` → `setEditingCalendar(undefined)`. En ese momento `selectedCalendarId` sigue siendo `null`, por lo que cae en `calendars[0]` (el más antiguo). El nuevo calendario (el más reciente en la lista `ORDER BY created_at ASC`) NO queda seleccionado — el usuario tiene que buscarlo manualmente en el dropdown.
-**Fix:** Pasar prop `onCreated?: (id: string) => void` de `CrmCalendar` a `CrmCalendarConfig`. En `handleSave` (rama `isNew`), llamar `onCreated(data.id)` después del `mutateAsync`. En `CrmCalendar`, usar ese callback para hacer `setSelectedCalendarId(id)` y guardarlo en localStorage.
-**Prioridad:** Baja. Confunde al usuario pero no pierde datos.
+### L-20 · CrmCalendar — nuevo calendario no queda seleccionado tras su creación (auditoría L-1) ✅ COMPLETADO
+**Implementado:**
+- `CrmCalendarConfig` acepta prop opcional `onCreated?: (id: string) => void`.
+- En `handleSave` (rama `isNew`), se emite `onCreated(created.id)` inmediatamente después del `mutateAsync` (antes de `onBack()`).
+- `CrmCalendar` pasa `onCreated={(id) => handleSelectCalendar(id)}` — reutiliza el setter de L-19 que también persiste en localStorage.
 **Archivos:** `src/components/crm/CrmCalendar.tsx`, `src/components/crm/CrmCalendarConfig.tsx`
 
 ---
 
-### L-21 · useAppointments — carga todas las citas sin filtro de calendario (auditoría L-1)
-**Origen:** L-1 añadió filtrado client-side en CrmCalendar, pero el hook sigue trayendo todo desde la DB.
-**Bugs:**
-1. `useAppointments()` (línea 148 useCrmData.ts) no acepta `calendarId` — trae todas las citas del usuario. Con 2+ calendarios se carga el doble de datos para descartar la mitad en el memo.
-2. `useBlockedSlots(selectedCalendar?.id)` se llama con `undefined` durante la carga inicial (antes de que `calendars` resuelva) → dispara una query sin filtro de `calendar_id` que devuelve todos los bloques del usuario y se descarta al completar la carga real.
-**Fix:**
-1. Añadir parámetro opcional `calendarId` a `useAppointments`. Incluir en `queryKey`. Aplicar `.eq("calendar_id", calendarId)` si se provee. Actualizar `CrmCalendar` para pasar `selectedCalendar?.id`.
-2. Añadir `enabled: !!user && !!calendarId` a `useBlockedSlots` para no disparar la query sin filtro.
-**Prioridad:** Baja ahora (pocos calendarios/citas). Media cuando el volumen escale.
+### L-21 · useAppointments — carga todas las citas sin filtro de calendario (auditoría L-1) ✅ COMPLETADO
+**Implementado:**
+1. `useAppointments(calendarId?)` ahora acepta un id opcional. Si se provee, aplica `.eq("calendar_id", calendarId)` en la query y lo incluye en el `queryKey`. `CrmOverview` sigue invocándolo sin args (trae todas — es intencional para el resumen global).
+2. `CrmCalendar` llama `useAppointments(selectedCalendar?.id)` → la DB ya filtra. El `.filter(a => selectedCalendar ? a.calendar_id === selectedCalendar.id : true)` del `useMemo` se mantiene como defensa durante el render transitorio (antes que `selectedCalendar` resuelva).
+3. `useBlockedSlots(calendarId)` pasa a exigir `calendarId` para habilitar la query: `enabled: !!user && !!calendarId`. Eliminada la rama "sin filtro" — el `.eq("calendar_id", calendarId!)` siempre se aplica. Ya no se dispara query innecesaria con `undefined` durante carga inicial.
 **Archivos:** `src/hooks/useCrmData.ts`, `src/components/crm/CrmCalendar.tsx`
 
 ---
 
-### L-18 · isSlotBlocked — solo verifica inicio del slot, no su duración (regresión S-1/S-6)
-**Origen:** S-1 habilitó minutos en citas y S-6 habilitó minutos en bloqueos. Ahora es posible que el START de un slot esté antes de un bloqueo pero su END caiga dentro del bloqueo.
-**Bug (medio):** `isSlotBlocked` en `CalendarRenderer.tsx` verifica únicamente si el inicio del slot está dentro del rango bloqueado:
-```ts
-return slotTotal >= startTotal && slotTotal < endTotal;
-```
-Si un slot de 30 min comienza a las 9:30 (termina a las 10:00) y hay un bloqueo de 9:45 a 11:00, el slot 9:30 NO queda bloqueado (9:30 < 9:45). Pero la cita agendada correría de 9:30 a 10:00, solapándose con el bloqueo de 9:45 en adelante. El usuario público puede reservar ese slot incorrectamente.
-**Condición:** Se activa cuando el admin crea un bloque con inicio que NO coincide con un límite de slot (ej: 9:45 con slots de 30 min en :00/:30). Posible desde la UI (selectores de minuto en 0/15/30/45).
-**Fix:** Cambiar la condición en `isSlotBlocked` para verificar si el intervalo del slot `[slotStart, slotStart + duration_min)` se solapa con `[blockStart, blockEnd)`:
-```ts
-const slotEnd = slotTotal + durationMin;
-return slotTotal < endTotal && slotEnd > startTotal;
-```
-Requiere pasar `durationMin` como parámetro adicional a `isSlotBlocked`.
-**Prioridad:** Media. Afecta cuando bloqueos usan minutos no múltiplos del `duration_min` del calendario.
-**Archivos:** `src/components/crm/CalendarRenderer.tsx`
+### L-22 · Cambio de schedule_interval con citas existentes — citas huérfanas invisibles (edge case post-UI-2) ✅ OBSOLETO
+**Resolución (2026-04-23):** Con el rediseño de L-18 se eliminó la distinción entre `schedule_interval` y `duration_min`. La duración solo acepta {15, 30, 60} y se envía también como `schedule_interval`. Al cambiar la duración, podría seguir habiendo citas desalineadas, pero:
+- Verificado SQL: ninguna cita actual en DB está desalineada con su calendario.
+- Si en el futuro se cambia la duración de 30→60, una cita a las 9:30 quedaría en un slot "fantasma" — pendiente como warning futuro, pero de muy baja prioridad.
+- El mismo warning aplica a L-22 y ya no justifica una entrada separada. Se fusiona como nota dentro de la entrada de L-18.
+
+---
+
+### L-23 · crm-calendar-book no valida bloqueos ni availability (server-side gap) ✅ COMPLETADO
+**Implementado (incluye L-26 en la misma pasada):**
+1. `calendar.availability` se agrega al SELECT. Se porta `amPmToMinutes` + `slotFitsAvailability` (Deno) con semántica `slotStart >= from && slotStart + duration <= to` → cierra también el gap past-closing de L-26 en el servidor.
+2. Nuevo query a `crm_blocked_slots` (filtrado por `calendar_id`) + helper `isBlockedBySlots(blocks, dateKey, slotStartMin)` con match por `type`:
+   - `fullday` → `b.date === dateKey`
+   - `range`   → `dateKey ∈ [range_start, range_end]`
+   - `hours`   → `slotStart ∈ [start, end)` (misma semántica que el front)
+3. Errores descriptivos: 422 para disponibilidad fuera de rango, 409 para bloqueo activo, 409 para conflicto con cita previa.
+4. Deploy a Supabase: `crm-calendar-book` v15.
+**Archivos:** `supabase/functions/crm-calendar-book/index.ts`
+
+---
+
+### L-24 · saveBlock no valida que fin > inicio (bloqueo inválido silencioso) ✅ COMPLETADO 2026-04-24
+**Bug:** Ambos paths de creación de bloqueo permitían guardar `endHour/endMinute <= startHour/startMinute`. No mostraba error, se guardaba en DB, pero `isSlotBlocked` nunca lo marcaba (rango vacío) — bloqueo "fantasma". También el handler del SlotDialog (click en slot vacío → tab "Reservar tiempo") omitía la validación.
+**Fix aplicado en los dos paths de `CrmCalendar.tsx`:**
+- `saveBlock` (botón "+ Bloquear tiempo" del header): si `type === "hours"` valida `end > start`; si `type === "range"` valida `startDate && endDate` y `endDate >= startDate` → toast y abortar.
+- `onSaveBlock` handler del `SlotDialog` (click en slot vacío → tab "Reservar tiempo"): misma validación `end > start` para `type === "hours"`.
+**Prioridad:** Baja. No rompe datos, pero confunde al admin.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`
+
+---
+
+### L-24b · Modales de "Reservar tiempo" — dropdown de minutos no respeta `duration_min` ✅ COMPLETADO 2026-04-24
+**Bug:** Los modales de bloqueo (tipo "Horas") usaban la constante `MINUTES = [0,5,10,...,55]` para los dropdowns de inicio/fin, ignorando el `duration_min` del calendario. Permitía elegir minutos que no existen en el grid (ej. calendar de 30min → se podía bloquear desde :05), generando bloqueos desalineados que no cortan slots completos. Afectaba ambos paths: botón del header y click-en-slot.
+**Fix aplicado:** Los `<select>` de `startMinute` y `endMinute` en ambos modales (`saveBlock` del header y `SlotDialog` click-en-slot) ahora usan `slotMinuteOptions`/`apptMinuteOptions` (derivados de `minutesForInterval(calendar.duration_min)`), igual que los dropdowns de creación/edición de citas.
+**Prioridad:** Baja. UX consistency con el grid del calendario.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`
+
+---
+
+### L-25 · Edit-appointment modal — minuto fuera del grid actual no se muestra ✅ COMPLETADO 2026-04-24
+**Bug:** Al editar una cita con `minute` que no existe en el `slotMinuteOptions` actual (ej. cita a :15 y calendar duration=60 → options=[0]), el select aparecía vacío.
+**Fix aplicado:** El select de "Min." ahora usa `[...new Set([...slotMinuteOptions, editMinute])].sort()` — incluye el valor actual como opción extra si no está en el grid, ordenado numéricamente. El admin puede ver y cambiar el minuto sin perder el valor original.
+**Prioridad:** Baja. Solo afecta edición de citas viejas tras cambio de duración.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`
+
+---
+
+### L-26 · Slot past-closing — cita puede arrancar antes del cierre y terminar después (auditoría 2026-04-23) ⚠️ PARCIAL
+**Origen:** Auditoría post L-21. Los tres predicates de disponibilidad (`isSlotAvailable` en `CrmCalendar.tsx`, `CalendarRenderer.tsx`, y el edge function) solo validaban que el **inicio** del slot esté dentro del horario abierto, no que el slot completo quepa.
+**Bug:** Con `availability = 9:00–18:00` y `duration_min = 60`, un slot a las 17:30 pasaba la validación (17:30 ∈ [9:00, 18:00)) y se agendaba 17:30–18:30, **30 min después del cierre**.
+**Completado en servidor (vía L-23):** `slotFitsAvailability` en el edge function valida `slotStart + duration <= to`. Un POST directo al servidor rechaza el slot fuera de horario con 422.
+**Pendiente en cliente:** Los predicates `isSlotAvailable` en `CrmCalendar.tsx:104` y `CalendarRenderer.tsx:22` siguen mostrando esos slots como disponibles. El usuario los ve ofrecidos pero al intentar agendar recibe error 422. Hay que actualizar el front para no mostrarlos en primera instancia.
+**Fix restante:**
+1. Cambiar el predicate a `totalMin >= amPmToMinutes(slot.from) && totalMin + duration <= amPmToMinutes(slot.to)` en `isSlotAvailable` (CrmCalendar + CalendarRenderer).
+2. `isSlotAvailable` actualmente no recibe `duration`. Ajustar signatures para pasar `calendarInterval` / `slotStep` según corresponda.
+**Prioridad:** Media. Bug ya contenido en servidor — pendiente solo UX.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`, `src/components/crm/CalendarRenderer.tsx`.
+
+---
+
+### L-27 · `HOURS` hardcoded 7–19 desalineado con grid 0–23 en modales (auditoría 2026-04-24)
+**Bug:** [CrmCalendar.tsx:119](src/components/crm/CrmCalendar.tsx#L119) define `const HOURS = [7..19]`, pero [`buildSlots(interval)`](src/components/crm/CrmCalendar.tsx#L122) genera slots 0–23 según el `duration_min` del calendario. Si el admin clickea un slot fuera del rango 7–19 (ej. 6:00 o 20:00), el `<select>` de "Hora" (tanto en Agendar cita como en Reservar tiempo) no contiene esa hora — aparece vacío o muestra la primera opción sin coincidir con `newAppt.hour`.
+**Efecto secundario:** En `SlotDialog`, `blockEndHour` se inicializa en `newAppt.hour + 1`. Si `newAppt.hour === 19`, `blockEndHour = 20` → fuera de `HOURS`. En `openBlockModal` del header, defaults 12/14 también están dentro del rango pero no se adaptan al horario real.
+**Fix:**
+1. Derivar `HOURS` del `availability` del calendario activo (ej. rango [earliest_open, latest_close]) o simplemente usar `[0..23]`.
+2. Clamp `blockEndHour` al rango válido (ej. `Math.min(newAppt.hour + 1, maxHour)`).
+3. Alternativa más simple: siempre mostrar [0..23] y dejar que las otras validaciones (availability, blocked slots) filtren.
+**Prioridad:** Media. Solo se manifiesta en calendarios con disponibilidad fuera de 7–19 (ej. nocturnos, 24h). Calendarios estándar 9–18 no se ven afectados.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`
+
+---
+
+### L-28 · `openBlockModal` inicializa defaults 12–14 hardcodeados (auditoría 2026-04-24)
+**Bug:** [CrmCalendar.tsx:756-757](src/components/crm/CrmCalendar.tsx#L756-L757): `openBlockModal` setea `startHour: 12, endHour: 14` fijos. No se adaptan al horario de disponibilidad del calendario ni a la franja en vista. Si el calendario abre 9–11, los defaults quedan fuera del rango útil.
+**Fix:** Inicializar `startHour`/`endHour` usando la primera franja `open` de `availability[dayKey].slots` para el día actual, o al menos la hora actual + clamp al rango `HOURS` (ver L-27).
+**Prioridad:** Baja. UX polish.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`
 
 ---
 
@@ -695,11 +764,18 @@ Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipel
 
 ---
 
-### UI-2 · Slots visuales y agendamiento manual según `schedule_interval`
-**Problema:** La vista daily/weekly del calendario CRM (`CrmCalendar.tsx`) siempre muestra filas de hora completa y el modal de agendar manual usa intervalos de 15 min hardcodeados. Debería respetar la configuración `schedule_interval` del calendario (15 o 30 min) para que la grilla y el agendamiento reflejen la misma granularidad que el calendario público.
-**Fix:** (1) Leer `schedule_interval` del calendario activo. (2) Generar las filas del grid según el intervalo (en vez de `HOURS = [7..19]` fijo). (3) El selector de minuto en el modal de agendar manual debe ofrecer solo las opciones que correspondan al intervalo (cada 15 o cada 30). (4) Opcionalmente agregar un toggle visual en la vista admin para cambiar entre 1H, 30m, 15m como zoom de la grilla.
+### UI-2 · Slots visuales y agendamiento manual según `schedule_interval` ✅ COMPLETADO
+**Origen:** DayView/WeekView iteraban `HOURS = [7..19]` sin minutos. Con `schedule_interval=30` un slot reservado a las 14:00 ocupaba la fila entera y 14:30 no tenía fila propia.
+**Implementado:**
+- Helpers `buildSlots(interval)` y `minutesForInterval(interval)` generan los slots y las opciones de minuto coherentes con el intervalo (15 → [0,15,30,45], 30 → [0,30], 60 → [0]).
+- `DayView` y `WeekView` reciben props `interval` y `durationMin`; renderizan una fila por cada slot usando etiqueta `HH:MM`.
+- Match de citas: `a.hour === h && (a.minute ?? 0) === m`.
+- Nuevo helper `isSlotBlockedAt(blocked, day, hour, minute, durationMin)` detecta solape real con bloqueos considerando la duración del slot.
+- `onSlotClick(date, hour, minute)` y `openNewAppt(date, hour, minute)` propagan el minuto del slot clickeado.
+- `SlotDialog` recibe prop `apptMinuteOptions` — el selector de minuto para agendar cita se restringe al intervalo.
+- Modal "Editar cita" también usa `slotMinuteOptions`.
+- Modales de "Reservar tiempo personal" (bloqueos) conservan `MINUTES = [0,15,30,45]` — los bloqueos operan con precisión fina independiente del intervalo del calendario.
 **Archivos:** `src/components/crm/CrmCalendar.tsx`
-**Complejidad:** Media — grid dinámico + selector de minutos contextual.
 
 ---
 

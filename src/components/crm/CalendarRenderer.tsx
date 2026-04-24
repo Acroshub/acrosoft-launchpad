@@ -34,13 +34,18 @@ const isDayOpen = (avail: WeeklySchedule | null | undefined, dayOfWeek: number):
   return !!(avail as any)[SCHEDULE_KEY[dayOfWeek]]?.open;
 };
 
-const isSlotBlocked = (blocked: CrmBlockedSlot[], dayKey: string, hour: number, minute = 0): boolean =>
+const isSlotBlocked = (
+  blocked: CrmBlockedSlot[],
+  dayKey: string,
+  hour: number,
+  minute = 0,
+): boolean =>
   blocked.some((b) => {
     if (b.type === "hours" && b.date === dayKey && b.start_hour != null && b.end_hour != null) {
-      const slotTotal  = hour * 60 + minute;
+      const slotStart  = hour * 60 + minute;
       const startTotal = b.start_hour * 60 + (b.start_minute ?? 0);
       const endTotal   = b.end_hour   * 60 + (b.end_minute   ?? 0);
-      return slotTotal >= startTotal && slotTotal < endTotal;
+      return slotStart >= startTotal && slotStart < endTotal;
     }
     if (b.type === "fullday" && b.date === dayKey) return true;
     if (b.type === "range" && b.range_start && b.range_end)
