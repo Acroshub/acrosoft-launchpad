@@ -249,23 +249,25 @@ const RuleRow = ({
         </div>
       </div>
 
-      {/* ── Channel destination ────────────────────────────────────────────── */}
-      <div>
-        <label className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">
-          {channelLabel}
-        </label>
-        <Input
-          value={rule.channelValue}
-          onChange={(e) => onChange({ channelValue: e.target.value })}
-          placeholder={channelPlaceholder}
-          className="h-8 text-xs mt-1.5"
-        />
-        {rule.recipient === "business" && targets.length > 1 && (
-          <p className="text-[10px] text-muted-foreground/60 mt-1">
-            Separados por coma. El CRON también resuelve automáticamente el correo de cada destinatario.
-          </p>
-        )}
-      </div>
+      {/* ── Channel destination — hidden for on_booking (resolved at runtime) */}
+      {rule.timing !== "on_booking" && (
+        <div>
+          <label className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">
+            {channelLabel}
+          </label>
+          <Input
+            value={rule.channelValue}
+            onChange={(e) => onChange({ channelValue: e.target.value })}
+            placeholder={channelPlaceholder}
+            className="h-8 text-xs mt-1.5"
+          />
+          {rule.recipient === "business" && targets.length > 1 && (
+            <p className="text-[10px] text-muted-foreground/60 mt-1">
+              Separados por coma. El CRON también resuelve automáticamente el correo de cada destinatario.
+            </p>
+          )}
+        </div>
+      )}
 
       {/* ── Timing ────────────────────────────────────────────────────────── */}
       <div>

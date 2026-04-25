@@ -90,6 +90,9 @@ async function processRules(
     const contactName = contact?.name ?? "Cliente";
 
     for (const rule of rules) {
+      // on_booking rules are fired immediately by crm-calendar-book — skip here
+      if ((rule as any).timing === "on_booking") continue;
+
       const scheduledAt = scheduledAtFor(apptTime, rule);
 
       // Only queue if due within the lookahead window
