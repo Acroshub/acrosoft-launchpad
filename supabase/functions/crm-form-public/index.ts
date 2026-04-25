@@ -114,9 +114,82 @@ async function addContactToPipelines(
   }
 }
 
+function buildDocKeyMap(fields: any[], data: Record<string, any>): Record<string, any> {
+  const map: Record<string, any> = {};
+  for (const field of fields) {
+    if (field.doc_key) map[field.doc_key] = data[field.id];
+  }
+  return map;
+}
+
+function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .trim();
+}
+
+async function createSaasCalendar(
+  userId: string,
+  contactId: string,
+  docKeyMap: Record<string, any>,
+): Promise<void> {
+  try {
+    const { data: existing } = await supabase
+      .from("crm_calendar_config")
+      .select("id")
+      .eq("contact_id", contactId)
+      .maybeSingle();
+    if (existing) return;
+
+    const businessName = String(docKeyMap?.["business_name"] ?? "").trim() || "Mi Negocio";
+    const availability = docKeyMap?.["schedule"] ?? {};
+    const slug = `${slugify(businessName)}-${Date.now()}`;
+
+    const { data: calendar, error } = await supabase
+      .from("crm_calendar_config")
+      .insert({
+        user_id: userId,
+        contact_id: contactId,
+        name: businessName,
+        slug,
+        availability,
+        duration_min: 60,
+        buffer_min: 0,
+        min_advance_hours: 1,
+        max_future_days: 30,
+        schedule_interval: 60,
+      })
+      .select("id")
+      .single();
+
+    if (error || !calendar) {
+      console.error("createSaasCalendar — insert failed:", error);
+      return;
+    }
+
+    const { data: contact } = await supabase
+      .from("crm_contacts")
+      .select("custom_fields")
+      .eq("id", contactId)
+      .single();
+
+    const existingCf = (contact?.custom_fields as object) ?? {};
+    await supabase
+      .from("crm_contacts")
+      .update({ custom_fields: { ...existingCf, _saas_calendar_id: calendar.id } })
+      .eq("id", contactId);
+  } catch (e) {
+    console.error("createSaasCalendar (non-fatal):", e);
+  }
+}
+
 /**
  * Registers a sale when a `services` field is submitted.
- * If the service has is_saas = true, calls create-saas-client.
+ * If the service has is_saas = true, creates a SaaS calendar and client account.
  */
 async function handleServicesField(
   userId: string,
@@ -124,6 +197,7 @@ async function handleServicesField(
   contactName: string,
   serviceId: string,
   siteUrl: string,
+  docKeyMap: Record<string, any>,
 ): Promise<void> {
   try {
     const { data: service, error } = await supabase
@@ -168,8 +242,10 @@ async function handleServicesField(
       notes: "[Venta automática via formulario]",
     });
 
-    // ── If SaaS service, create client account ─────────────────────────────
+    // ── If SaaS service, create calendar + client account ──────────────────
     if (service.is_saas) {
+      await createSaasCalendar(userId, contactId, docKeyMap);
+
       // Verify no existing account first
       const { data: existing } = await supabase
         .from("crm_client_accounts")
@@ -178,10 +254,10 @@ async function handleServicesField(
         .maybeSingle();
 
       if (!existing) {
-        // Load contact email for invite
+        // Load contact for invite + business profile seed
         const { data: contact } = await supabase
           .from("crm_contacts")
-          .select("email")
+          .select("email, custom_fields")
           .eq("id", contactId)
           .single();
 
@@ -201,12 +277,82 @@ async function handleServicesField(
               client_email: contact.email,
               status: "pending",
             });
+
+            // Seed business profile for the new SaaS client
+            try {
+              const cf = (contact.custom_fields as Record<string, any>) ?? {};
+              const logoUrl: string | null = typeof cf._logo_url === "string" ? cf._logo_url : null;
+              const { data: existingProfile } = await supabase
+                .from("crm_business_profile")
+                .select("id")
+                .eq("user_id", inviteData.user.id)
+                .maybeSingle();
+              if (!existingProfile) {
+                await supabase.from("crm_business_profile").insert({
+                  user_id: inviteData.user.id,
+                  business_name: contactName,
+                  contact_email: contact.email,
+                  logo_url: logoUrl,
+                  color_primary: "#2563EB",
+                  color_secondary: "#1E40AF",
+                  color_accent: "#DBEAFE",
+                });
+              }
+            } catch (e) {
+              console.error("Business profile seed from form (non-fatal):", e);
+            }
           }
         }
       }
     }
   } catch (e) {
     console.error("handleServicesField (non-fatal):", e);
+  }
+}
+
+/**
+ * Extracts the first URL from any `file` field in the submitted data.
+ * Saves it to:
+ *   1. crm_contacts.custom_fields._logo_url  (always, for later SaaS provisioning)
+ *   2. crm_business_profile.logo_url          (if a profile already exists for this user)
+ *
+ * Only runs when at least one file field has a URL value (not a bare filename).
+ */
+async function handleLogoField(
+  userId: string,
+  contactId: string,
+  fields: any[],
+  data: Record<string, any>,
+): Promise<void> {
+  try {
+    const fileFields = fields.filter((f: any) => f.type === "file");
+    if (!fileFields.length) return;
+
+    // Pick the first file field that contains a URL (uploaded by FormRenderer)
+    let logoUrl: string | null = null;
+    for (const f of fileFields) {
+      const val = data[f.id];
+      const urls: string[] = Array.isArray(val) ? val : typeof val === "string" ? [val] : [];
+      const firstUrl = urls.find((u) => u.startsWith("http"));
+      if (firstUrl) { logoUrl = firstUrl; break; }
+    }
+
+    if (!logoUrl) return; // no real upload happened (only filenames or empty)
+
+    // Persist on the contact so create-saas-client / handleServicesField can read it later
+    const { data: contact } = await supabase
+      .from("crm_contacts")
+      .select("custom_fields")
+      .eq("id", contactId)
+      .single();
+
+    const existingCf = (contact?.custom_fields as object) ?? {};
+    await supabase
+      .from("crm_contacts")
+      .update({ custom_fields: { ...existingCf, _logo_url: logoUrl } })
+      .eq("id", contactId);
+  } catch (e) {
+    console.error("handleLogoField (non-fatal):", e);
   }
 }
 
@@ -287,6 +433,13 @@ Deno.serve(async (req) => {
       await addContactToPipelines(form.user_id, contactId, pipelineIds);
     }
 
+    // ── Handle logo upload — save URL to contact custom_fields ───────────────
+    // Must run BEFORE handleServicesField so the logo is in custom_fields
+    // when the SaaS business profile is seeded.
+    if (contactId) {
+      await handleLogoField(form.user_id, contactId, allFields, data ?? {});
+    }
+
     // ── Handle `services` field type — register sale automatically ─────────
     if (contactId) {
       const servicesField = allFields.find((f: any) => f.type === "services");
@@ -295,7 +448,8 @@ Deno.serve(async (req) => {
         if (selectedServiceId && typeof selectedServiceId === "string") {
           // deno-lint-ignore no-explicit-any
           const siteUrl = (globalThis as any).Deno?.env?.get("SITE_URL") ?? "http://localhost:5173";
-          await handleServicesField(form.user_id, contactId, contactName || name || "Sin nombre", selectedServiceId, siteUrl);
+          const docKeyMap = buildDocKeyMap(allFields, data ?? {});
+          await handleServicesField(form.user_id, contactId, contactName || name || "Sin nombre", selectedServiceId, siteUrl, docKeyMap);
         }
       }
     }

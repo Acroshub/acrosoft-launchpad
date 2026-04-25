@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { CrmForm, CrmService } from "@/lib/supabase";
@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Check, ChevronRight, ChevronLeft, CheckCircle2,
-  Loader2, ArrowRight, ClipboardCheck,
+  Loader2, ArrowRight, ClipboardCheck, X,
 } from "lucide-react";
 import WeeklySchedulePicker, {
   WeeklySchedule,
@@ -324,6 +324,151 @@ const RepeatableField = ({
   );
 };
 
+// ─── File Upload Field ────────────────────────────────────────────────────────
+
+const BUCKET = "form-uploads";
+
+function sanitizeFilename(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_").toLowerCase();
+}
+
+const FileUploadField = ({
+  field,
+  value,
+  onChange,
+  error,
+}: {
+  field: PublicField;
+  value: any;
+  onChange: (v: any) => void;
+  error?: string;
+}) => {
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // value is a URL string (single) or array of URL strings
+  const urls: string[] = Array.isArray(value)
+    ? value.filter(Boolean)
+    : value && typeof value === "string"
+    ? [value]
+    : [];
+
+  const handleFiles = async (files: File[]) => {
+    if (!files.length) return;
+    setUploading(true);
+    setUploadError(null);
+
+    const newUrls: string[] = [];
+    for (const file of files) {
+      const ext  = file.name.split(".").pop() ?? "bin";
+      const base = sanitizeFilename(file.name.replace(/\.[^.]+$/, ""));
+      const path = `${field.id}/${Date.now()}-${base}.${ext}`;
+
+      const { error: upErr } = await supabase.storage
+        .from(BUCKET)
+        .upload(path, file, { upsert: false, contentType: file.type });
+
+      if (upErr) {
+        setUploadError(`Error al subir ${file.name}: ${upErr.message}`);
+        setUploading(false);
+        return;
+      }
+
+      const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(path);
+      newUrls.push(urlData.publicUrl);
+    }
+
+    onChange([...urls, ...newUrls]);
+    setUploading(false);
+  };
+
+  const removeUrl = (idx: number) => {
+    const next = urls.filter((_, i) => i !== idx);
+    onChange(next.length === 0 ? null : next);
+  };
+
+  return (
+    <FieldWrapper label={field.label} required={field.required} error={uploadError ?? error}>
+      <label
+        className={`mt-1 flex items-center gap-4 border-2 border-dashed rounded-xl p-5 transition-all ${
+          uploading
+            ? "border-primary/40 bg-primary/5 cursor-wait"
+            : "border-border/60 cursor-pointer hover:border-primary/40 hover:bg-primary/5"
+        }`}
+      >
+        <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center shrink-0 text-lg">
+          {uploading ? <Loader2 size={20} className="animate-spin text-primary" /> : "📎"}
+        </div>
+        <div className="flex-1 min-w-0">
+          {uploading ? (
+            <p className="text-sm font-medium text-primary">Subiendo…</p>
+          ) : urls.length > 0 ? (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {urls.length} archivo{urls.length !== 1 ? "s" : ""} subido{urls.length !== 1 ? "s" : ""} · Haz clic para añadir más
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm font-medium">Seleccionar archivo</p>
+              <p className="text-xs text-muted-foreground mt-0.5">JPG, PNG, PDF — máx. 5 MB</p>
+            </>
+          )}
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          multiple
+          accept="image/*,application/pdf"
+          disabled={uploading}
+          className="hidden"
+          onChange={e => {
+            const files = Array.from(e.target.files ?? []);
+            if (files.length) handleFiles(files);
+            // reset input so same file can be re-selected
+            if (inputRef.current) inputRef.current.value = "";
+          }}
+        />
+      </label>
+
+      {/* Uploaded files list */}
+      {urls.length > 0 && (
+        <div className="mt-2 space-y-1.5">
+          {urls.map((url, i) => {
+            const filename = decodeURIComponent(url.split("/").pop() ?? url).replace(/^\d+-/, "");
+            const isImage  = /\.(jpe?g|png|webp|gif|svg)$/i.test(url);
+            return (
+              <div key={i} className="flex items-center gap-2 bg-secondary/30 rounded-lg px-3 py-2">
+                {isImage ? (
+                  <img src={url} alt={filename} className="w-8 h-8 rounded object-cover shrink-0 border" />
+                ) : (
+                  <div className="w-8 h-8 rounded bg-secondary flex items-center justify-center text-xs shrink-0">PDF</div>
+                )}
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex-1 text-xs font-medium truncate text-primary hover:underline"
+                >
+                  {filename}
+                </a>
+                <button
+                  type="button"
+                  onClick={() => removeUrl(i)}
+                  className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </FieldWrapper>
+  );
+};
+
 // ─── Main Field Renderer ──────────────────────────────────────────────────────
 
 const FieldRenderer = ({
@@ -468,50 +613,13 @@ const FieldRenderer = ({
   }
 
   if (field.type === "file") {
-    const fileNames: string[] = Array.isArray(value) ? value : value ? [value] : [];
     return (
-      <FieldWrapper label={field.label} required={field.required} error={error}>
-        <label className="mt-1 flex items-center gap-4 border-2 border-dashed border-border/60 rounded-xl p-5 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all">
-          <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center shrink-0 text-lg">
-            📎
-          </div>
-          <div className="flex-1 min-w-0">
-            {fileNames.length > 0 ? (
-              <div className="space-y-0.5">
-                {fileNames.map((n, i) => (
-                  <p key={i} className="text-sm font-medium truncate">{n}</p>
-                ))}
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {fileNames.length} archivo{fileNames.length !== 1 ? "s" : ""} seleccionado{fileNames.length !== 1 ? "s" : ""} · Haz clic para añadir más
-                </p>
-              </div>
-            ) : (
-              <>
-                <p className="text-sm font-medium">Seleccionar archivos</p>
-                <p className="text-xs text-muted-foreground mt-0.5">Puedes subir varios archivos a la vez</p>
-              </>
-            )}
-          </div>
-          <input
-            type="file"
-            multiple
-            className="hidden"
-            onChange={e => {
-              const files = Array.from(e.target.files ?? []).map(f => f.name);
-              if (files.length) onChange([...fileNames, ...files]);
-            }}
-          />
-        </label>
-        {fileNames.length > 0 && (
-          <button
-            type="button"
-            onClick={() => onChange([])}
-            className="text-[11px] text-muted-foreground hover:text-destructive transition-colors mt-1"
-          >
-            Limpiar archivos
-          </button>
-        )}
-      </FieldWrapper>
+      <FileUploadField
+        field={field}
+        value={value}
+        onChange={onChange}
+        error={error}
+      />
     );
   }
 
@@ -571,7 +679,11 @@ const ConfirmationView = ({
     }
     if (field.type === "checkbox") return val ? "Sí" : "No";
     if (field.type === "schedule") return "Horario configurado";
-    if (field.type === "file") return typeof val === "string" ? val : "Archivo adjunto";
+    if (field.type === "file") {
+      const fileUrls = Array.isArray(val) ? val.filter(Boolean) : val ? [val] : [];
+      if (!fileUrls.length) return "—";
+      return `${fileUrls.length} archivo${fileUrls.length !== 1 ? "s" : ""} adjunto${fileUrls.length !== 1 ? "s" : ""}`;
+    }
     if (field.type === "color") return val;
     if (field.type === "services") return serviceMap.get(val) ?? val;
     return String(val);
