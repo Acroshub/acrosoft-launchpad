@@ -96,13 +96,13 @@ const amPmToMinutes = (t: string): number => {
   return h24 * 60 + (m || 0);
 };
 
-const isSlotAvailable = (avail: WeeklySchedule | null | undefined, dayOfWeek: number, hour: number, minute: number): boolean => {
+const isSlotAvailable = (avail: WeeklySchedule | null | undefined, dayOfWeek: number, hour: number, minute: number, duration = 0): boolean => {
   if (!avail) return true;
   const dayKey = SCHEDULE_KEY[dayOfWeek];
   const day = avail[dayKey];
   if (!day || !day.open) return false;
   const totalMin = hour * 60 + minute;
-  return day.slots.some((slot) => totalMin >= amPmToMinutes(slot.from) && totalMin < amPmToMinutes(slot.to));
+  return day.slots.some((slot) => totalMin >= amPmToMinutes(slot.from) && totalMin + duration <= amPmToMinutes(slot.to));
 };
 
 // ─── Status styles ────────────────────────────────────────────
@@ -116,13 +116,28 @@ const statusStyles: Record<string, string> = {
 
 const DAYS_ES   = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
-const HOURS     = Array.from({ length: 13 }, (_, i) => i + 7); // 7:00 – 19:00
-const MINUTES   = [0, 15, 30, 45];
+function availabilityHourRange(avail: WeeklySchedule | null | undefined): { min: number; max: number } {
+  const DEFAULT = { min: 7, max: 20 };
+  if (!avail) return DEFAULT;
+  let min = 24, max = 0;
+  for (const key of SCHEDULE_KEY) {
+    const day = (avail as any)[key];
+    if (!day?.open || !Array.isArray(day.slots)) continue;
+    for (const slot of day.slots as { from: string; to: string }[]) {
+      const fromMin = amPmToMinutes(slot.from);
+      const toMin   = amPmToMinutes(slot.to);
+      min = Math.min(min, Math.floor(fromMin / 60));
+      max = Math.max(max, Math.ceil(toMin / 60));
+    }
+  }
+  return min < max ? { min, max } : DEFAULT;
+}
 
-const buildSlots = (interval: number): { hour: number; minute: number }[] => {
+const buildSlots = (interval: number, avail?: WeeklySchedule | null): { hour: number; minute: number }[] => {
+  const { min, max } = availabilityHourRange(avail);
   const slots: { hour: number; minute: number }[] = [];
   const step = interval > 0 ? interval : 60;
-  for (let total = 7 * 60; total < 20 * 60; total += step) {
+  for (let total = min * 60; total < max * 60; total += step) {
     slots.push({ hour: Math.floor(total / 60), minute: total % 60 });
   }
   return slots;
@@ -164,9 +179,10 @@ interface SlotDialogProps {
   isSavingAppt: boolean;
   isSavingBlock: boolean;
   apptMinuteOptions: number[];
+  apptHourOptions: number[];
 }
 
-const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSaveBlock, isSavingAppt, isSavingBlock, apptMinuteOptions }: SlotDialogProps) => {
+const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSaveBlock, isSavingAppt, isSavingBlock, apptMinuteOptions, apptHourOptions }: SlotDialogProps) => {
   const [slotTab, setSlotTab] = useState<"appt" | "block">("appt");
   const [blockType, setBlockType]       = useState<"hours" | "fullday">("hours");
   const [blockReason, setBlockReason]   = useState("");
@@ -249,7 +265,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                   onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })}
                   className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
                 >
-                  {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                  {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
                 </select>
                 <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
               </div>
@@ -319,7 +335,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="relative">
                       <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
-                        {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                        {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
                       </select>
                       <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     </div>
@@ -336,7 +352,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="relative">
                       <select value={blockEndHour} onChange={(e) => setBlockEndHour(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
-                        {HOURS.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                        {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
                       </select>
                       <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     </div>
@@ -393,7 +409,7 @@ const DayView = ({
   const key = dateKey(current);
   const dayAppts = appointments.filter((a) => a.date === key);
   const dow = current.getDay();
-  const slots = buildSlots(interval);
+  const slots = buildSlots(interval, availability);
 
   return (
     <div className="bg-card border rounded-2xl overflow-hidden">
@@ -401,11 +417,11 @@ const DayView = ({
         {slots.map(({ hour, minute }) => {
           const slotAppts = dayAppts.filter((a) => a.hour === hour && (a.minute ?? 0) === minute);
           const blk = isSlotBlockedAt(blocked, key, hour, minute);
-          const unavailable = slotAppts.length === 0 && !blk && !isSlotAvailable(availability, dow, hour, minute);
+          const unavailable = slotAppts.length === 0 && !blk && !isSlotAvailable(availability, dow, hour, minute, interval);
           const label = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
           return (
-            <div key={`${hour}-${minute}`} className={`flex gap-4 px-5 py-3 min-h-[56px] ${unavailable ? "bg-muted/70" : ""}`}>
-              <span className={`text-xs w-12 shrink-0 pt-0.5 font-mono ${unavailable ? "text-muted-foreground/30" : "text-muted-foreground/60"}`}>
+            <div key={`${hour}-${minute}`} className={`flex gap-4 px-5 py-3 min-h-[56px] ${unavailable ? "bg-slate-100 dark:bg-slate-800/70" : ""}`}>
+              <span className={`text-xs w-12 shrink-0 pt-0.5 font-mono ${unavailable ? "text-muted-foreground/40" : "text-muted-foreground/60"}`}>
                 {label}
               </span>
               {slotAppts.length > 0 ? (
@@ -464,7 +480,7 @@ const WeekView = ({
     d.setDate(monday.getDate() + i);
     return d;
   });
-  const slots = buildSlots(interval);
+  const slots = buildSlots(interval, availability);
 
   return (
     <div className="bg-card border rounded-2xl overflow-hidden overflow-x-auto">
@@ -504,7 +520,7 @@ const WeekView = ({
                 .filter((a) => a.date === key && a.hour === hour && (a.minute ?? 0) === minute);
               const blk = isSlotBlockedAt(blocked, key, hour, minute);
               const isToday = sameDay(day, new Date());
-              const unavailable = cellAppts.length === 0 && !blk && !isSlotAvailable(availability, day.getDay(), hour, minute);
+              const unavailable = cellAppts.length === 0 && !blk && !isSlotAvailable(availability, day.getDay(), hour, minute, interval);
               const empty = cellAppts.length === 0 && !blk && !unavailable;
               return (
                 <div
@@ -512,7 +528,7 @@ const WeekView = ({
                   onClick={() => { if (empty) onSlotClick(key, hour, minute); }}
                   className={`flex-1 min-w-[90px] border-r last:border-r-0 px-1.5 py-1 group ${
                     blk ? "bg-amber-100 dark:bg-amber-900/40"
-                    : unavailable ? "bg-muted/70"
+                    : unavailable ? "bg-slate-100 dark:bg-slate-800/70"
                     : isToday ? "bg-primary/10" : ""
                   } ${empty ? "hover:bg-primary/5 cursor-pointer" : ""}`}
                 >
@@ -695,6 +711,7 @@ const CrmCalendar = () => {
         status: a.status === "confirmed" ? "Confirmada" : "Cancelada",
         notes: a.notes ?? "",
         rawStatus: a.status,
+        duration_min: a.duration_min ?? null,
         contact_id: a.contact_id ?? null,
       };
     }), [rawAppointments, contacts, selectedCalendar]);
@@ -753,8 +770,8 @@ const CrmCalendar = () => {
   const openBlockModal = () => setBlockModal({
     open: true, type: "hours",
     date: dateKey(current),
-    startHour: 12, startMinute: 0,
-    endHour: 14,   endMinute: 0,
+    startHour: hourMin, startMinute: 0,
+    endHour: Math.min(hourMin + 1, hourMax - 1), endMinute: 0,
     startDate: dateKey(current), endDate: dateKey(current),
     reason: "",
   });
@@ -810,6 +827,8 @@ const CrmCalendar = () => {
   const availability = selectedCalendar?.availability as WeeklySchedule | null | undefined;
   const calendarInterval = selectedCalendar?.duration_min ?? 30;
   const slotMinuteOptions = minutesForInterval(calendarInterval);
+  const { min: hourMin, max: hourMax } = availabilityHourRange(availability);
+  const slotHourOptions = Array.from({ length: hourMax - hourMin + 1 }, (_, i) => i + hourMin);
   const detail = appointments.find((a) => a.id === selected);
 
   const isLoading = loadingConfig || loadingForms || loadingAppts || loadingBlocked;
@@ -1259,6 +1278,37 @@ const CrmCalendar = () => {
             onSaveAppt={async () => {
               if (!newAppt) return;
               if (!selectedCalendar) { toast.error("Selecciona un calendario primero"); return; }
+
+              const apptDate   = newAppt.date;
+              const apptHour   = newAppt.hour;
+              const apptMinute = newAppt.minute ?? 0;
+              const duration   = calendarInterval;
+              const buffer     = (selectedCalendar as any).buffer_min ?? 0;
+              const [_y, _m, _d] = apptDate.split("-").map(Number);
+              const dow        = new Date(Date.UTC(_y, _m - 1, _d)).getUTCDay();
+              const reqStart   = apptHour * 60 + apptMinute;
+              const reqEnd     = reqStart + duration;
+
+              if (!isSlotAvailable(availability, dow, apptHour, apptMinute, duration)) {
+                toast.error("El horario está fuera de la disponibilidad del calendario");
+                return;
+              }
+              if (isSlotBlockedAt(blockedSlots, apptDate, apptHour, apptMinute)) {
+                toast.error("El horario está bloqueado");
+                return;
+              }
+              const hasConflict = appointments
+                .filter(a => a.date === apptDate && a.rawStatus !== "cancelled")
+                .some(a => {
+                  const aStart = a.hour * 60 + (a.minute ?? 0);
+                  const aEnd   = aStart + (a.duration_min ?? duration);
+                  return reqEnd + buffer > aStart && aEnd + buffer > reqStart;
+                });
+              if (hasConflict) {
+                toast.error("Ya existe una cita en ese horario");
+                return;
+              }
+
               try {
                 await createAppointment.mutateAsync({
                   calendar_id: selectedCalendar.id,
@@ -1308,6 +1358,7 @@ const CrmCalendar = () => {
             isSavingAppt={createAppointment.isPending}
             isSavingBlock={createBlockedSlot.isPending}
             apptMinuteOptions={slotMinuteOptions}
+            apptHourOptions={slotHourOptions}
           />
         </DialogContent>
       </Dialog>
@@ -1340,7 +1391,7 @@ const CrmCalendar = () => {
                     onChange={(e) => setEditHour(Number(e.target.value))}
                     className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
                   >
-                    {HOURS.map((h) => (
+                    {slotHourOptions.map((h) => (
                       <option key={h} value={h}>{String(h).padStart(2, "0")}</option>
                     ))}
                   </select>
@@ -1370,6 +1421,34 @@ const CrmCalendar = () => {
               disabled={updateAppointment.isPending}
               onClick={async () => {
                 if (!editingApptId) return;
+
+                const duration = calendarInterval;
+                const buffer   = (selectedCalendar as any)?.buffer_min ?? 0;
+                const [ey, em, ed] = editDate.split("-").map(Number);
+                const dow      = new Date(Date.UTC(ey, em - 1, ed)).getUTCDay();
+                const reqStart = editHour * 60 + editMinute;
+                const reqEnd   = reqStart + duration;
+
+                if (!isSlotAvailable(availability, dow, editHour, editMinute, duration)) {
+                  toast.error("El horario está fuera de la disponibilidad del calendario");
+                  return;
+                }
+                if (isSlotBlockedAt(blockedSlots, editDate, editHour, editMinute)) {
+                  toast.error("El horario está bloqueado");
+                  return;
+                }
+                const hasConflict = appointments
+                  .filter(a => a.date === editDate && a.rawStatus !== "cancelled" && a.id !== editingApptId)
+                  .some(a => {
+                    const aStart = a.hour * 60 + (a.minute ?? 0);
+                    const aEnd   = aStart + (a.duration_min ?? duration);
+                    return reqEnd + buffer > aStart && aEnd + buffer > reqStart;
+                  });
+                if (hasConflict) {
+                  toast.error("Ya existe una cita en ese horario");
+                  return;
+                }
+
                 try {
                   await updateAppointment.mutateAsync({
                     id: editingApptId,
@@ -1444,7 +1523,7 @@ const CrmCalendar = () => {
                             onChange={e => setBlockModal(prev => prev && ({ ...prev, startHour: Number(e.target.value) }))}
                             className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                           >
-                            {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                            {slotHourOptions.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
                           </select>
                           <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                         </div>
@@ -1469,7 +1548,7 @@ const CrmCalendar = () => {
                             onChange={e => setBlockModal(prev => prev && ({ ...prev, endHour: Number(e.target.value) }))}
                             className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                           >
-                            {HOURS.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                            {slotHourOptions.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
                           </select>
                           <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                         </div>

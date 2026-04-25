@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -320,6 +321,8 @@ const ClientDetail = ({
   stages?: { pipelineName: string; stage: string }[];
 }) => {
   const [downloading, setDownloading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const qc = useQueryClient();
   const cf = (contact.custom_fields as Record<string, any>) ?? {};
 
   // Form data is stored nested: custom_fields[form_id][field_id]
@@ -343,8 +346,9 @@ const ClientDetail = ({
         .from("master-docs")
         .createSignedUrl(contact.master_doc_url, 60);
       if (error || !data?.signedUrl) throw error ?? new Error("No URL");
+      const downloadUrl = `${data.signedUrl}&download=true`;
       const a = document.createElement("a");
-      a.href = data.signedUrl;
+      a.href = downloadUrl;
       a.download = `documento-maestro-${contact.name.toLowerCase().replace(/\s+/g, "-")}.md`;
       document.body.appendChild(a);
       a.click();
@@ -353,6 +357,27 @@ const ClientDetail = ({
       toast.error("Error al descargar el documento");
     } finally {
       setDownloading(false);
+    }
+  };
+
+  const handleGenerateDoc = async () => {
+    setGenerating(true);
+    try {
+      const { error } = await supabase.functions.invoke("generate-master-doc", {
+        body: {
+          contact_id: contact.id,
+          form_id: ONBOARDING_FORM_ID,
+          data: ob,
+          user_id: contact.user_id,
+        },
+      });
+      if (error) throw error;
+      await qc.invalidateQueries({ queryKey: ["crm_contacts"] });
+      toast.success("Documento maestro generado correctamente");
+    } catch (e) {
+      toast.error("Error al generar el documento maestro");
+    } finally {
+      setGenerating(false);
     }
   };
 
@@ -475,19 +500,35 @@ const ClientDetail = ({
                 Generado automáticamente con IA al completar el formulario de onboarding.
               </p>
             </div>
-            <Button
-              variant="default"
-              className="w-full h-10 rounded-xl font-bold text-[10px] uppercase tracking-wider"
-              disabled={!contact.master_doc_url || downloading}
-              onClick={handleDownloadDoc}
-            >
-              {downloading ? (
-                <Loader2 size={13} className="mr-2 animate-spin" />
-              ) : (
-                <Download size={13} className="mr-2" />
-              )}
-              DESCARGAR (.MD)
-            </Button>
+            {contact.master_doc_url ? (
+              <Button
+                variant="default"
+                className="w-full h-10 rounded-xl font-bold text-[10px] uppercase tracking-wider"
+                disabled={downloading}
+                onClick={handleDownloadDoc}
+              >
+                {downloading ? (
+                  <Loader2 size={13} className="mr-2 animate-spin" />
+                ) : (
+                  <Download size={13} className="mr-2" />
+                )}
+                DESCARGAR (.MD)
+              </Button>
+            ) : (
+              <Button
+                variant="default"
+                className="w-full h-10 rounded-xl font-bold text-[10px] uppercase tracking-wider"
+                disabled={generating}
+                onClick={handleGenerateDoc}
+              >
+                {generating ? (
+                  <Loader2 size={13} className="mr-2 animate-spin" />
+                ) : (
+                  <Archive size={13} className="mr-2" />
+                )}
+                GENERAR DOCUMENTO
+              </Button>
+            )}
           </div>
 
           <div className="md:col-span-2 bg-background border rounded-2xl p-5 border-border/50 shadow-sm">

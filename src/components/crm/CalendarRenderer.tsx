@@ -19,13 +19,13 @@ const amPmToMinutes = (t: string): number => {
   return h24 * 60 + (m || 0);
 };
 
-const isSlotAvailable = (avail: WeeklySchedule | null | undefined, dayOfWeek: number, hour: number, minute: number): boolean => {
+const isSlotAvailable = (avail: WeeklySchedule | null | undefined, dayOfWeek: number, hour: number, minute: number, duration = 0): boolean => {
   if (!avail) return true;
   const day = (avail as any)[SCHEDULE_KEY[dayOfWeek]];
   if (!day?.open) return false;
   const totalMin = hour * 60 + minute;
   return (day.slots as { from: string; to: string }[]).some(
-    (slot) => totalMin >= amPmToMinutes(slot.from) && totalMin < amPmToMinutes(slot.to),
+    (slot) => totalMin >= amPmToMinutes(slot.from) && totalMin + duration <= amPmToMinutes(slot.to),
   );
 };
 
@@ -349,7 +349,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
       const m  = totalMin % 60;
       const slotMs = new Date(viewYear, viewMonth, day, h, m).getTime();
       if (slotMs < minBookableMs) continue;
-      if (!isSlotAvailable(avail, dow, h, m)) continue;
+      if (!isSlotAvailable(avail, dow, h, m, slotStep)) continue;
       if (isBufferBlocked(key, totalMin, slotStep)) continue;
       if (isSlotBlocked(blockedSlots, key, h, m)) continue;
       return true;
@@ -368,7 +368,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
       const mn     = totalMin % 60;
       const slotMs = new Date(y, m - 1, d, h, mn).getTime();
       if (slotMs < minBookableMs) continue;
-      if (!isSlotAvailable(avail, dayOfWeek, h, mn)) continue;
+      if (!isSlotAvailable(avail, dayOfWeek, h, mn, slotStep)) continue;
       if (isBufferBlocked(selectedDate, totalMin, slotStep)) continue;
       if (isSlotBlocked(blockedSlots, selectedDate, h, mn)) continue;
       slots.push({ hour: h, minute: mn });

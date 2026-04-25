@@ -527,35 +527,60 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### L-26 · Slot past-closing — cita puede arrancar antes del cierre y terminar después (auditoría 2026-04-23) ⚠️ PARCIAL
-**Origen:** Auditoría post L-21. Los tres predicates de disponibilidad (`isSlotAvailable` en `CrmCalendar.tsx`, `CalendarRenderer.tsx`, y el edge function) solo validaban que el **inicio** del slot esté dentro del horario abierto, no que el slot completo quepa.
-**Bug:** Con `availability = 9:00–18:00` y `duration_min = 60`, un slot a las 17:30 pasaba la validación (17:30 ∈ [9:00, 18:00)) y se agendaba 17:30–18:30, **30 min después del cierre**.
-**Completado en servidor (vía L-23):** `slotFitsAvailability` en el edge function valida `slotStart + duration <= to`. Un POST directo al servidor rechaza el slot fuera de horario con 422.
-**Pendiente en cliente:** Los predicates `isSlotAvailable` en `CrmCalendar.tsx:104` y `CalendarRenderer.tsx:22` siguen mostrando esos slots como disponibles. El usuario los ve ofrecidos pero al intentar agendar recibe error 422. Hay que actualizar el front para no mostrarlos en primera instancia.
-**Fix restante:**
-1. Cambiar el predicate a `totalMin >= amPmToMinutes(slot.from) && totalMin + duration <= amPmToMinutes(slot.to)` en `isSlotAvailable` (CrmCalendar + CalendarRenderer).
-2. `isSlotAvailable` actualmente no recibe `duration`. Ajustar signatures para pasar `calendarInterval` / `slotStep` según corresponda.
-**Prioridad:** Media. Bug ya contenido en servidor — pendiente solo UX.
+### L-26 · Slot past-closing — cita puede arrancar antes del cierre y terminar después ✅ COMPLETADO 2026-04-24
+**Origen:** Auditoría post L-21. Los predicates de disponibilidad solo validaban que el **inicio** del slot estuviera dentro del horario abierto, no que el slot completo cupiera.
+**Bug:** Con `availability = 9:00–18:00` y `duration_min = 60`, un slot a las 17:30 pasaba la validación y se ofrecía al usuario aunque termine a las 18:30 (30 min después del cierre).
+**Fix aplicado:**
+- `isSlotAvailable` en `CrmCalendar.tsx` y `CalendarRenderer.tsx` ahora recibe `duration = 0` (default retrocompatible).
+- Predicate cambiado a `totalMin + duration <= amPmToMinutes(slot.to)`.
+- Callers en DayView y WeekView pasan `interval`; callers en CalendarRenderer pasan `slotStep`.
+- Servidor ya corregido en L-23 (`slotFitsAvailability`). Ahora cliente y servidor son consistentes.
 **Archivos:** `src/components/crm/CrmCalendar.tsx`, `src/components/crm/CalendarRenderer.tsx`.
 
 ---
 
-### L-27 · `HOURS` hardcoded 7–19 desalineado con grid 0–23 en modales (auditoría 2026-04-24)
-**Bug:** [CrmCalendar.tsx:119](src/components/crm/CrmCalendar.tsx#L119) define `const HOURS = [7..19]`, pero [`buildSlots(interval)`](src/components/crm/CrmCalendar.tsx#L122) genera slots 0–23 según el `duration_min` del calendario. Si el admin clickea un slot fuera del rango 7–19 (ej. 6:00 o 20:00), el `<select>` de "Hora" (tanto en Agendar cita como en Reservar tiempo) no contiene esa hora — aparece vacío o muestra la primera opción sin coincidir con `newAppt.hour`.
-**Efecto secundario:** En `SlotDialog`, `blockEndHour` se inicializa en `newAppt.hour + 1`. Si `newAppt.hour === 19`, `blockEndHour = 20` → fuera de `HOURS`. En `openBlockModal` del header, defaults 12/14 también están dentro del rango pero no se adaptan al horario real.
+### L-26b · Admin puede crear citas solapadas sin collision check (auditoría 2026-04-24) ✅ COMPLETADO 2026-04-24
+**Bug:** Cuando el admin crea una cita desde `SlotDialog` (click en slot vacío → "Agendar cita"), llama directamente a `useCreateAppointment` → Supabase insert sin pasar por el edge function `crm-calendar-book`. No hay validación de solapamiento, buffer, ni disponibilidad — el admin puede crear citas en horarios ya ocupados, en días bloqueados o fuera de la disponibilidad del calendario.
+**Comportamiento deseado:** El admin tampoco debería poder crear citas solapadas — las reglas de negocio aplican igual para bookings internos.
 **Fix:**
-1. Derivar `HOURS` del `availability` del calendario activo (ej. rango [earliest_open, latest_close]) o simplemente usar `[0..23]`.
-2. Clamp `blockEndHour` al rango válido (ej. `Math.min(newAppt.hour + 1, maxHour)`).
-3. Alternativa más simple: siempre mostrar [0..23] y dejar que las otras validaciones (availability, blocked slots) filtren.
-**Prioridad:** Media. Solo se manifiesta en calendarios con disponibilidad fuera de 7–19 (ej. nocturnos, 24h). Calendarios estándar 9–18 no se ven afectados.
+1. En `onSaveAppt` del handler de `SlotDialog` en `CrmCalendar.tsx`, antes del `createAppointment.mutateAsync`, validar client-side:
+   - ¿El slot colisiona con alguna cita existente del mismo calendario (considerando `duration_min` y `buffer_min`)?
+   - ¿El slot está bloqueado (`isSlotBlockedAt`)?
+   - ¿El slot cae dentro de la disponibilidad del calendario (`isSlotAvailable` con duración)?
+2. Si hay colisión: `toast.error(...)` descriptivo y abortar — no insertar.
+3. Los datos necesarios ya están en memoria (`appointments`, `blockedSlots`, `availability`, `calendarInterval`) — no requiere llamadas extra a DB.
+**Prioridad:** Media. No es bloqueante (admin generalmente sabe lo que hace), pero genera datos inconsistentes que confunden al cliente SaaS.
 **Archivos:** `src/components/crm/CrmCalendar.tsx`
 
 ---
 
-### L-28 · `openBlockModal` inicializa defaults 12–14 hardcodeados (auditoría 2026-04-24)
-**Bug:** [CrmCalendar.tsx:756-757](src/components/crm/CrmCalendar.tsx#L756-L757): `openBlockModal` setea `startHour: 12, endHour: 14` fijos. No se adaptan al horario de disponibilidad del calendario ni a la franja en vista. Si el calendario abre 9–11, los defaults quedan fuera del rango útil.
-**Fix:** Inicializar `startHour`/`endHour` usando la primera franja `open` de `availability[dayKey].slots` para el día actual, o al menos la hora actual + clamp al rango `HOURS` (ver L-27).
-**Prioridad:** Baja. UX polish.
+### L-26c · Edit-appointment tampoco valida colisiones (mismo gap que L-26b) ✅ COMPLETADO 2026-04-24
+**Bug:** El modal de edición de cita llamaba a `updateAppointment.mutateAsync` directamente sin validar solapamiento, disponibilidad ni bloqueos.
+**Fix aplicado:** Antes del `updateAppointment.mutateAsync`, se corren las mismas 3 validaciones de L-26b: disponibilidad (`isSlotAvailable`), bloqueo (`isSlotBlockedAt`), colisión con buffer — excluyendo la propia cita editada (`a.id !== editingApptId`). Fecha parseada con `Date.UTC` para evitar off-by-one de timezone.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`
+
+---
+
+### L-27 · `HOURS` hardcoded 7–19 desalineado con grid 0–23 en modales (auditoría 2026-04-24) ✅ COMPLETADO 2026-04-24
+**Bug:** `const HOURS = [7..19]` no cubría valores fuera del rango (ej. `blockEndHour=20` cuando `newAppt.hour=19`), dejando selects vacíos.
+**Fix aplicado:** `HOURS` cambiado a `Array.from({ length: 24 }, (_, i) => i)` — cubre 0:00–23:00. Las validaciones de disponibilidad (L-26b/c) ya impiden agendar fuera del horario real — el select solo necesita ser exhaustivo.
+**Archivos:** `src/components/crm/CrmCalendar.tsx`
+
+---
+
+### L-28 · Grid y dropdowns de hora no reflejan el rango de disponibilidad configurado ✅ COMPLETADO 2026-04-24
+**Bug (ampliado desde defaults 12–14):** Tres problemas relacionados:
+1. `buildSlots` usa rango fijo 7:00–20:00 — el grid del admin no se adapta a la disponibilidad del usuario (si abre 9:00–18:00, igual muestra slots de 7:00).
+2. `HOURS` pasó de [7..19] a [0..23] en L-27 (fix de emergencia), pero debería derivarse del rango de availability.
+3. `openBlockModal` inicializa `startHour: 12, endHour: 14` sin considerar la disponibilidad configurada.
+**Fix:**
+- Extraer helper `availabilityHourRange(avail): { min: number; max: number }` que calcula la hora de apertura más temprana y la de cierre más tardía de toda la semana.
+- `buildSlots` usa `range.min` como inicio y `range.max` como fin (en lugar de 7/20 hardcoded).
+- `HOURS` en modales se reemplaza por el array derivado del mismo rango (`Array.from({length: range.max - range.min + 1}, (_, i) => i + range.min)`).
+- `openBlockModal` usa `range.min` como `startHour` default y `range.min + 1` como `endHour`.
+- Si no hay `availability` configurado, mantener el fallback 7–20.
+- Comportamiento acordado: el grid usa el rango mínimo/máximo de TODA la semana (no por día). Si lunes abre 07:00 y martes abre 08:00, el grid arranca en 07:00 todos los días. Los slots fuera de disponibilidad del día actual se muestran en gris (comportamiento ya existente).
+**Prioridad:** Media (elevada desde Baja). Inconsistencia visible para cualquier usuario del CRM admin.
 **Archivos:** `src/components/crm/CrmCalendar.tsx`
 
 ---
@@ -563,7 +588,7 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 ## BLOQUE 4 — Features Nuevas (media-alta complejidad)
 > Features que requieren backend + UI nueva. 1–3 días cada uno.
 
-### F-1 · Documento Maestro (.md) — generación automática
+### F-1 · Documento Maestro (.md) — generación automática ✅ COMPLETADO
 **Descripción:** Al recibir un submission del formulario Onboarding, se genera un `.md` con instrucciones y estructura del proyecto web. Sirve para iniciar el proyecto en Claude Code. No incluye copys — solo instrucciones, referencias, estructura y datos del cliente.
 
 **Reglas por servicio elegido:**
@@ -581,6 +606,111 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
+### F-1b ✅ · Documento Maestro — mejoras de contenido y precisión
+**Descripción:** Actualizar el prompt de Claude y el edge function `generate-master-doc` para producir un documento más preciso, completo y accionable según el servicio contratado.
+
+**Cambios al prompt:**
+
+1. **Benefits del servicio:** leer el campo `benefits[]` de `crm_services` y pasarlo al prompt. Claude los incluye como requisitos técnicos en la sección "Instrucciones para Claude Code". Ejemplos:
+   - Landing Page: "bilingüe ES/EN con toggle", "diseño enfocado en conversión", "botones WhatsApp/llamada"
+   - Multi Page: "SEO local con schema LocalBusiness", "galería dinámica", "analytics y píxeles"
+   - Booking: todo lo anterior + "reservas 24/7 con CalendarRenderer", "recordatorios automáticos"
+
+2. **Estructura de páginas fija por servicio:**
+   - **Landing Page:** 1 página larga con 7-10 secciones (Hero, Propuesta de valor, Servicios, CTA, Testimonios, FAQ, Contacto, etc.)
+   - **Multi Page Website:** 6 páginas obligatorias: Home · Servicios · Sobre Nosotros · Galería/Portfolio · Testimonios · Contacto
+   - **SaaS Booking:** las mismas 6 páginas + 7ª página "Agendar Cita" usando `CalendarRenderer` con el `calendar_id` del cliente
+
+3. **Contenido generado con IA cuando faltan datos:** si el cliente no llenó Galería → Claude genera estructura de placeholder ("aquí va tu portafolio de trabajos"). Si no hay Testimonios → genera estructura de reseñas Google + placeholders. Si no hay FAQ → genera preguntas frecuentes típicas del rubro. El desarrollador conecta el contenido real después.
+
+4. **calendar_id en el documento:** para servicios `is_saas: true`, leer el `calendar_id` guardado en `custom_fields` del contacto (clave `_saas_calendar_id`) e incluirlo explícitamente en la sección de instrucciones de la página de reservas.
+
+5. **CTA del onboarding:** leer el campo `ob-cta` (objetivo de la página elegido por el cliente en el onboarding) e incluirlo en el Resumen del Proyecto y en la sección de instrucciones como el objetivo de conversión principal del sitio.
+
+**Archivos:** `supabase/functions/generate-master-doc/index.ts`
+**Complejidad:** Baja. Solo cambios al edge function (prompt + lectura de campos nuevos).
+
+---
+
+### F-1c · Calendario automático al activar cuenta SaaS (Opción B)
+**Descripción:** Cuando un cliente completa el onboarding eligiendo el servicio Booking System, se crea automáticamente un `crm_calendar_config` vinculado al contacto. Al activar la cuenta SaaS, el calendario se transfiere al `user_id` del cliente. El admin nunca ve los calendarios de clientes SaaS en su panel.
+
+**Flujo completo:**
+```
+1. Onboarding completado (servicio is_saas: true)
+   → crm-form-public crea crm_calendar_config:
+     user_id = admin_user_id
+     contact_id = id del contacto (campo nuevo)
+     name = nombre del negocio (ob-1-1)
+     availability = ob-7-4 (formato compatible directo)
+     slug = slugify(ob-1-1) + sufijo numérico si ya existe
+     duration_min = 60, buffer_min = 0
+     min_advance_hours = 1, max_future_days = 30
+   → calendar_id guardado en custom_fields del contacto: { _saas_calendar_id: "uuid" }
+
+2. Admin activa cuenta SaaS (create-saas-client)
+   → transferir user_id del calendario: UPDATE crm_calendar_config SET user_id = client_user_id WHERE contact_id = contact_id
+
+3. Panel del admin (CrmCalendar)
+   → filtrar: solo mostrar calendarios donde contact_id IS NULL
+
+4. generate-master-doc lee custom_fields._saas_calendar_id e incluye el calendar_id en el doc
+```
+
+**Implementación:**
+1. **Migración DB:** `ALTER TABLE crm_calendar_config ADD COLUMN contact_id uuid REFERENCES crm_contacts(id)` (nullable)
+2. **`crm-form-public`:** detectar `is_saas: true` en el servicio elegido → crear calendario con los valores definidos → guardar `calendar_id` en `custom_fields`
+3. **`create-saas-client`:** transferir `user_id` del calendario al `user_id` del cliente SaaS recién creado
+4. **`CrmCalendar`:** añadir filtro `contact_id IS NULL` en la query de calendarios del admin
+5. **RLS:** políticas para que el cliente SaaS (y su Staff) pueda gestionar calendarios con su `user_id`
+
+**Archivos:** migración SQL, `supabase/functions/crm-form-public/index.ts`, `supabase/functions/create-saas-client/index.ts`, `src/components/crm/CrmCalendar.tsx`, `src/hooks/useCrmData.ts`
+**Complejidad:** Alta. Toca 4 archivos + migración + lógica de transferencia de ownership.
+
+---
+
+### F-1d · Logo del cliente — upload en onboarding y persistencia en business profile
+**Descripción:** El formulario de onboarding tiene un campo de subida de logo, pero actualmente no existe ningún flujo que tome ese archivo, lo suba a Supabase Storage, y lo guarde en `crm_business_profile.logo_url`. El logo del cliente nunca llega al sistema — F-7 asume que ya existe esa URL, pero el pipeline de creación está roto.
+
+**Flujo actual (roto):**
+- Cliente sube logo en el onboarding → el campo `file` guarda... ¿qué? No hay edge function que procese ese archivo.
+- `crm_business_profile.logo_url` siempre es `null`.
+- F-7 (White Label) depende de este dato para mostrar el logo en el CRM del cliente.
+
+**Implementación:**
+1. **Auditar el campo file del onboarding:** verificar qué formato tiene el valor guardado en `custom_fields` para un campo tipo `file` (¿base64? ¿URL temporal? ¿null?).
+2. **Subida a Storage:** en `crm-form-public` (al procesar el submission del onboarding), detectar el campo de logo (por tipo `file` o por ID específico), subir el archivo a bucket `client-logos/${contact_id}`, obtener URL pública.
+3. **Persistir en business profile:** guardar la URL en `crm_business_profile.logo_url` del cliente SaaS (si ya existe el profile) o guardarlo en `custom_fields` del contacto para que `create-saas-client` lo use al crear el profile.
+4. **Migración DB:** `crm_business_profile.logo_url TEXT` (si no existe ya — F-7 lo añade, coordinar con esa migración).
+
+**Prerequisito:** Auditar campo `file` antes de implementar — puede requerir cambios en `FormRenderer` si actualmente no sube el archivo correctamente.
+
+**Archivos:** `supabase/functions/crm-form-public/index.ts`, `supabase/functions/create-saas-client/index.ts`, migración SQL (coordinada con F-7).
+**Complejidad:** Media. Depende del estado actual del campo `file` en el onboarding.
+
+---
+
+### F-1e · Confirmación inmediata de reserva — integrada en sistema de recordatorios
+**Descripción:** Al completar una reserva, el cliente que agenda y/o el admin/cliente SaaS no reciben confirmación hasta que el cron de recordatorios corra (puede tardar horas). La solución no es un sistema separado — se extiende el sistema de recordatorios existente con un nuevo tipo de disparo: `trigger: "on_booking"`.
+
+**Distinción:**
+- **Recordatorios actuales** → `trigger: "before"`, se envían X horas/días antes de la cita
+- **Confirmación inmediata (nuevo)** → `trigger: "on_booking"`, se dispara en el momento exacto de crear la cita
+
+**Integración en el sistema existente:**
+El admin configura la confirmación desde el mismo panel de recordatorios del calendario. Puede activarla/desactivarla, editar el template (igual que los demás recordatorios), y elegir si va al cliente que agendó, al admin, o a ambos. No hay UI nueva — solo un nuevo tipo en el selector de `trigger`.
+
+**Implementación:**
+1. **Migración DB:** añadir valor `'on_booking'` al campo `trigger` de `crm_reminder_config` (o el campo equivalente que define cuándo se dispara). Añadir campo `notify_owner BOOLEAN DEFAULT false` para controlar si el admin también recibe copia.
+2. **UI de recordatorios:** en el selector de cuándo enviar ("X horas antes"), añadir opción "Al confirmar la reserva". Mostrar campo adicional "Notificar también al negocio" (checkbox).
+3. **`crm-calendar-book`:** al crear la cita exitosamente, leer las reglas `trigger: "on_booking"` del calendario, ejecutarlas inmediatamente (non-fatal — un fallo de email no cancela la reserva).
+4. **Template variables disponibles:** `{{nombre}}`, `{{fecha}}`, `{{hora}}`, `{{negocio}}` — las mismas que los recordatorios estándar.
+
+**Archivos:** migración SQL, `src/components/crm/CrmCalendar.tsx` (UI recordatorios), `supabase/functions/crm-calendar-book/index.ts`
+**Complejidad:** Media. La infraestructura de email ya existe — el trabajo está en extender el modelo de datos y la UI del selector de recordatorios.
+
+---
+
 ### F-2 · Formulario multi-página (Stepper en FormRenderer)
 **Descripción:** Un formulario con `multi_page: true` se renderiza como stepper en `FormRenderer`. Cada sección = una página.
 
@@ -593,7 +723,30 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
+### A-1 · RLS para Staff (prerequisito de F-3)
+**Problema:** Las políticas RLS usan `auth.uid() = user_id`. El Staff tiene su propio `auth.uid()` → recibe datos vacíos en todas las tablas del CRM.
+
+**Fix:** Para cada tabla del CRM, añadir política que permita acceso al Staff del dueño:
+```sql
+-- Ejemplo para crm_contacts:
+CREATE POLICY "Staff accede a datos del dueño"
+ON crm_contacts FOR ALL
+USING (
+  user_id IN (
+    SELECT owner_user_id FROM crm_staff
+    WHERE staff_user_id = auth.uid()
+    AND status = 'active'
+  )
+);
+```
+Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipelines`, `crm_tasks`, `crm_forms`, `crm_form_submissions`, `crm_services`, `crm_sales`, `crm_calendar_config`, `crm_business_profile`, `crm_logs`, `crm_reminders`, `crm_reminder_config`.
+
+**Archivos:** `supabase/migrations/rls_staff_access.sql`
+
+---
+
 ### F-3 · Staff — invitación por email y acceso real
+**Prerequisito:** A-1 debe estar completo — sin RLS el Staff invitado verá datos vacíos.
 **Descripción:** Al crear un Staff en CrmSettings, enviar email de invitación con link para crear contraseña en `/crm-setup`.
 
 **Pendiente:**
@@ -606,6 +759,7 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 ---
 
 ### F-4 · /onboarding → FormRenderer del CRM del Admin
+**Prerequisito:** F-2 debe estar completo — el onboarding es multi-página y requiere el stepper.
 **Descripción:** El stepper hardcodeado de 8 pasos se reemplaza por `FormRenderer` renderizando el formulario "Onboarding" del CRM del Admin (slug: `onboarding`).
 
 **Transición:** Mantener el stepper como fallback hasta que el formulario esté completamente configurado y probado en producción. Luego eliminar los Steps 1–8.
@@ -654,30 +808,118 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-## BLOQUE 5 — Arquitectura crítica
-> Afectan seguridad y aislamiento de datos. Necesarios antes de tener clientes reales.
+### F-6b · Vista completa de Ventas (página dedicada con filtros)
+**Descripción:** Nueva página `/crm/ventas` accesible desde la navegación del CRM. Contiene exactamente los mismos elementos del panel "Ventas" del resumen (CrmOverview): registro manual de ventas, historial paginado, métricas de ingresos y proyección de recurrentes. Reutiliza los mismos hooks y DB — no se duplica lógica.
 
-### A-1 · RLS para Staff (bloqueante)
-**Problema:** Las políticas RLS usan `auth.uid() = user_id`. El Staff tiene su propio `auth.uid()` → recibe datos vacíos en todas las tablas del CRM.
+**Diferencias respecto al panel del resumen:**
+- Layout expandido a pantalla completa (no tarjeta lateral).
+- Filtros adicionales en el historial: por rango de fechas, por servicio y por cliente.
+- El historial del resumen (`CrmOverview`) se mantiene igual con paginación propia.
 
-**Fix:** Para cada tabla del CRM, añadir política que permita acceso al Staff del dueño:
-```sql
--- Ejemplo para crm_contacts:
-CREATE POLICY "Staff accede a datos del dueño"
-ON crm_contacts FOR ALL
-USING (
-  user_id IN (
-    SELECT owner_user_id FROM crm_staff
-    WHERE staff_user_id = auth.uid()
-    AND status = 'active'
-  )
-);
-```
-Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipelines`, `crm_tasks`, `crm_forms`, `crm_form_submissions`, `crm_services`, `crm_sales`, `crm_calendar_config`, `crm_business_profile`, `crm_logs`, `crm_reminders`, `crm_reminder_config`.
+**Alcance:**
+1. **Ruta nueva:** `src/pages/CrmVentas.tsx` registrada en el router (`/crm/ventas`).
+2. **Navegación:** ítem "Ventas" en el sidebar del CRM (`CrmLayout` o navbar principal).
+3. **Componente de filtros:** `SalesFilters` — fecha desde/hasta, select de servicio, select de cliente. Aplicados client-side sobre los datos ya cargados por `useSales()`.
+4. **Historial paginado filtrado:** mismo componente de tabla/lista que en `CrmOverview`, con los filtros aplicados. Edición y eliminación de ventas (con motivo) idéntica al resumen.
+5. **Métricas y proyección:** mismo bloque de KPIs del resumen — ingresos del mes, proyección de recurrentes. Se puede reutilizar el componente extraído de `CrmOverview`.
+6. **Registro manual de venta:** mismo formulario del resumen reutilizado sin cambios.
 
-**Archivos:** `supabase/migrations/rls_staff_access.sql`
+**Decisión de implementación:**
+- Extraer los sub-componentes de ventas de `CrmOverview` a componentes compartidos para no duplicar código.
+- `useSales()` ya carga todas las ventas del usuario — filtrar client-side es suficiente (volumen bajo, sin necesidad de query separada por filtros).
+
+**Archivos:** `src/pages/CrmVentas.tsx`, `src/components/crm/CrmOverview.tsx` (extracción de componentes), router, sidebar nav.
+**Complejidad:** Media. Principalmente extracción y reutilización — no requiere backend nuevo.
 
 ---
+
+### F-7 · White Label básico — logo y colores por cliente SaaS
+**Descripción:** Cada cliente SaaS puede personalizar la apariencia de su CRM (panel admin) y páginas públicas (formularios, CalendarRenderer) eligiendo entre dos temas: **Clásico** (tema Acrosoft por default) y **Branded** (colores de marca registrados durante el onboarding).
+
+**Alcance:**
+1. **Origen de datos:**
+   - Colores: `crm_business_profile.color_primary / color_secondary / color_accent` — ya existen, se registraron en el onboarding.
+   - Logo: URL del logo subido durante el onboarding (campo del formulario de Acrosoft). Leer de la submission del formulario de onboarding y persistir en `crm_business_profile.logo_url` (columna nueva).
+   - Logo ajustado a tamaño fijo (ej. `max-height: 40px`, `object-fit: contain`) para evitar discrepancias entre logos de distintos tamaños.
+
+2. **Selector de tema en configuración:**
+   - En `CrmSettings` (o sección "Apariencia"), dos opciones: `Clásico` / `Branded`.
+   - Persistir elección en `crm_business_profile.theme` (`classic` | `branded`).
+
+3. **Aplicación del tema:**
+   - En el panel admin del CRM: leer `theme` + colores/logo de `crm_business_profile` y aplicar CSS variables (`--color-primary`, etc.) al root del layout del CRM.
+   - En páginas públicas (FormPage, CalendarRenderer): ya leen `usePublicBusinessProfile` — extender para incluir `logo_url` y `theme`.
+   - Logo en el header del CRM admin + header de páginas públicas.
+
+4. **Migración DB:** añadir columnas `logo_url TEXT` y `theme TEXT DEFAULT 'classic'` a `crm_business_profile`.
+
+**Archivos:** `src/components/crm/CrmSettings.tsx`, `src/components/crm/CalendarRenderer.tsx`, `src/components/crm/FormRenderer.tsx`, `src/hooks/useCrmData.ts`, migración SQL.
+**Complejidad:** Media. DB trivial, la aplicación de CSS variables requiere cuidado para no romper el tema global de Acrosoft para otros usuarios.
+
+---
+
+### F-8 · Importador y Exportador de Contactos (.csv)
+**Descripción:** Los usuarios pueden importar contactos desde un archivo CSV con mapeo flexible de columnas, y exportar todos sus contactos a CSV incluyendo todos los campos.
+
+**Importador:**
+1. **Upload del archivo:** input CSV en `CrmContacts` (botón "Importar"). Parsear client-side con `papaparse`.
+2. **Pantalla de mapeo:** tabla donde cada columna del CSV se mapea a un campo del sistema (nombre, email, teléfono, empresa) o a un campo custom. Si el usuario no encuentra un campo existente puede escribir un nombre nuevo → se crea como key en `custom_fields` JSONB. No requiere schema change.
+3. **Detección de duplicados:** antes de insertar, verificar por email. Si ya existe un contacto con ese email, mostrar lista de conflictos con opciones: **Actualizar** (merge de campos) o **Ignorar** por cada uno o en bloque.
+4. **Inserción:** upsert/insert en `crm_contacts`. Campos custom nuevos se guardan en `custom_fields` y aparecen automáticamente en la vista detalle del contacto (iteración sobre keys del JSONB).
+5. **Resultado:** resumen post-importación: N creados, N actualizados, N ignorados.
+
+**Exportador:**
+1. Botón "Exportar CSV" en `CrmContacts`.
+2. Exporta todos los contactos del usuario con campos estándar (nombre, email, teléfono, empresa, tags, stage, created_at) + todas las keys de `custom_fields` como columnas adicionales.
+3. Generado client-side con `papaparse` — sin edge function necesaria.
+
+**Decisiones de implementación:**
+- `papaparse` para parse y generación de CSV (librería estándar, sin dependencias pesadas).
+- Campos custom del JSONB: union de todas las keys de todos los contactos para definir columnas de export.
+- "Crear campo al vuelo" = solo añadir una key al JSONB — la vista detalle del contacto ya mostrará esa key automáticamente al iterar sobre `custom_fields`.
+
+**Archivos:** `src/components/crm/CrmContacts.tsx`, `src/hooks/useCrmData.ts`.
+**Complejidad:** Media-alta. El mapeo de columnas y manejo de duplicados requieren UI dedicada (wizard de 2-3 pasos).
+
+---
+
+### F-9 · Términos y Políticas de Privacidad — página estática + check obligatorio en formularios
+**Descripción:** Todos los formularios del CRM (FormRenderer) incluyen un checkbox obligatorio "Acepto los términos y políticas de privacidad" que bloquea el envío si no está marcado. Los términos son redactados una vez por Acrosoft y aplican universalmente a todos los clientes SaaS y sus usuarios finales.
+
+**Alcance:**
+1. **Página `/terminos_y_politicas_de_privacidad`:** componente React estático (`src/pages/TerminosPoliticas.tsx`). Texto redactado directamente en el componente (sin DB). Registrada en el router como ruta pública (sin auth). Contenido: Acrosoft se limita como procesador de datos, cada cliente SaaS es responsable del uso de los datos recolectados, datos usados solo para contacto.
+
+2. **Check en FormRenderer:** antes del botón "Enviar", añadir checkbox con texto "Acepto los [términos y políticas de privacidad](link)" — link abre `/terminos_y_politicas_de_privacidad` en nueva pestaña. El campo es obligatorio — si no está marcado, submit bloqueado con mensaje de error. No se puede desactivar por formulario.
+
+3. **Persistencia en DB:** al enviar el formulario, guardar en `crm_form_submissions` (o en la fila de contacto creada):
+   - `terms_accepted: true`
+   - `terms_accepted_at: timestamp`
+   - Columnas nuevas en `crm_form_submissions`: `terms_accepted BOOLEAN DEFAULT false`, `terms_accepted_at TIMESTAMPTZ`.
+   - También aplica al booking de citas (`crm-calendar-book` edge function): guardar `terms_accepted_at` en la cita o contacto creado.
+
+4. **Migración DB:** añadir columnas a `crm_form_submissions` y opcionalmente a `crm_appointments`.
+
+**Archivos:** `src/pages/TerminosPoliticas.tsx`, `src/components/crm/FormRenderer.tsx`, `supabase/functions/crm-calendar-book/index.ts`, router, migración SQL.
+**Complejidad:** Baja-Media. Página estática simple + cambio en FormRenderer + migración.
+
+---
+
+### F-10 · Actualizar logo del sistema a Acros Logo (1).svg
+**Descripción:** Reemplazar el logo actual del sistema (navbar, login, onboarding, cualquier lugar donde aparezca el logo de Acrosoft) por `Acros Logo (1).svg` ubicado en la carpeta `assets/`.
+
+**Alcance:**
+1. Buscar todos los usos del logo actual en el codebase (img src, imports de SVG, referencias en CSS).
+2. Reemplazar con la referencia a `Acros Logo (1).svg` (o renombrar el archivo a `acros-logo.svg` para evitar espacios y paréntesis en el nombre).
+3. Verificar tamaños y proporciones en cada contexto (navbar, sidebar, login, formularios públicos).
+
+**Archivos:** todos los componentes que referencien el logo actual.
+**Complejidad:** Muy baja. Búsqueda y reemplazo puntual.
+
+---
+
+## BLOQUE 5 — Arquitectura crítica
+> Afectan seguridad y aislamiento de datos. Necesarios antes de tener clientes reales.
+> Nota: A-1 (RLS Staff) fue movido al Bloque 4, antes de F-3, por ser prerequisito directo de esa feature.
 
 ### A-2 · Impersonación del Admin (magic link)
 **Problema:** El Admin necesita entrar al CRM de un cliente SaaS sin credenciales.
@@ -711,6 +953,35 @@ Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipel
 **Fix:** Crear una DB Function o View `public_appointments_view` que solo exponga `date, hour, minute, duration_min, status, calendar_id` y asignar la política pública a esa view en vez de la tabla completa. Alternativa mínima: cambiar la política `"Public can read appointments"` para restringir el rol anon con `WITH CHECK` que bloquee `notes` y `contact_id` — pero RLS no soporta columnas. La solución correcta es una view + policy, o aceptar el riesgo y documentarlo hasta que haya clientes reales.
 **Prioridad:** Media. Exposición real pero limitada (anon key es semi-pública, solo expone datos de availability + metadatos). Se vuelve crítico con clientes SaaS reales con citas privadas.
 **Archivos:** migración SQL (view o policy update en `crm_appointments`, `crm_blocked_slots`)
+
+---
+
+### A-5 · Aislamiento completo de recursos de clientes SaaS
+**Problema:** Los calendarios, formularios, pipelines, contactos y demás recursos creados para/por clientes SaaS actualmente conviven en el mismo `user_id` del admin. El admin los ve mezclados con sus propios datos. Los clientes SaaS no tienen aislamiento real.
+
+**Regla de negocio:** Una vez que un cliente SaaS tiene cuenta activa y `user_id` propio, todos sus recursos deben pertenecer a ese `user_id`. El admin **no debe ver ni gestionar** los recursos de clientes SaaS desde su panel.
+
+**Recursos a aislar:**
+- `crm_calendar_config` → ya resuelto por F-1c (filtro `contact_id IS NULL` en admin, transferencia al activar cuenta)
+- `crm_forms` → formularios creados por/para el cliente SaaS
+- `crm_pipelines` → pipelines del cliente SaaS
+- `crm_contacts` → contactos del cliente SaaS (sus propios clientes)
+- `crm_appointments`, `crm_blocked_slots` → citas del cliente SaaS
+- `crm_services`, `crm_sales` → servicios y ventas del cliente SaaS
+- `crm_business_profile` → perfil del negocio del cliente SaaS
+
+**Implementación:**
+1. **Transferencia al activar cuenta:** en `create-saas-client`, identificar y transferir todos los recursos del contacto al nuevo `user_id` del cliente (similar al calendario en F-1c). Requiere vincular recursos al `contact_id` o identificarlos por un campo existente.
+2. **Filtros en el panel admin:** en cada hook/query del admin, filtrar para excluir recursos con `user_id` que pertenezca a un cliente SaaS activo (`crm_client_accounts`).
+3. **RLS:** el cliente SaaS solo accede a recursos con su propio `user_id`. El admin no puede leer recursos con `user_id` de clientes SaaS (excepción: impersonación vía magic link, A-2).
+4. **Formularios creados en el onboarding:** el formulario de onboarding puede haber creado formularios vinculados al admin. Identificar cuáles pertenecen al cliente y transferirlos.
+
+**Nota de complejidad:** Este es el cambio arquitectónico más grande del sistema. Requiere auditar todos los hooks y queries del panel admin para añadir filtros de exclusión, y definir exactamente cuáles recursos se crean al hacer onboarding vs. cuáles se crean después de activar la cuenta.
+
+**Prerequisito:** F-1c debe estar completo (define el patrón de transferencia).
+
+**Archivos:** `supabase/functions/create-saas-client/index.ts`, `src/hooks/useCrmData.ts` (todos los hooks de admin), migración SQL (RLS policies), múltiples componentes del CRM.
+**Complejidad:** Muy alta. Refactor de arquitectura multi-tenant.
 
 ---
 

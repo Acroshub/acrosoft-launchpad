@@ -169,6 +169,7 @@ const FieldRow = ({
   onRemoveSubField,
   onChangeMaxItems,
   onChangeAllowedServices,
+  onChangePlaceholder,
   onDelete,
 }: {
   field: FormField;
@@ -184,6 +185,7 @@ const FieldRow = ({
   onRemoveSubField: (i: number) => void;
   onChangeMaxItems: (n: number) => void;
   onChangeAllowedServices: (ids: string[]) => void;
+  onChangePlaceholder: (v: string) => void;
   onDelete: () => void;
 }) => {
   const Icon = typeIcon(field.type);
@@ -274,10 +276,9 @@ const FieldRow = ({
         <div className="pl-11">
           <Input
             value={field.placeholder ?? ""}
-            onChange={() => {/* {VAR_DB} */}}
+            onChange={(e) => onChangePlaceholder(e.target.value)}
             placeholder="Texto de ayuda (placeholder)…"
             className="h-8 text-xs text-muted-foreground"
-            readOnly
           />
         </div>
       )}
@@ -738,6 +739,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                     onRemoveOption={(i) =>
                       update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
                     }
+                    onChangePlaceholder={(v) => update(field.id, { placeholder: v })}
                     {...subFieldCallbacks(field.id)}
                     {...serviceCallbacks(field.id)}
                     onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
@@ -908,6 +910,7 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                           onRemoveOption={(i) =>
                             update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
                           }
+                          onChangePlaceholder={(v) => update(field.id, { placeholder: v })}
                           {...subFieldCallbacks(field.id)}
                           {...serviceCallbacks(field.id)}
                           onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
