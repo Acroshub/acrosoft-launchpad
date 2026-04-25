@@ -151,7 +151,7 @@ Deno.serve(async (req) => {
 
     const { data: calendar, error: calError } = await supabase
       .from("crm_calendar_config")
-      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability")
+      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability, reminder_rules")
       .eq("id", calendar_id)
       .single();
 
@@ -306,6 +306,77 @@ Deno.serve(async (req) => {
       });
     } catch (e) {
       console.error("Log insert (non-fatal):", e);
+    }
+
+    // ── Fire on_booking confirmation rules immediately ────────────────────────
+    try {
+      const allRules = ((calendar as any).reminder_rules ?? []) as any[];
+      const onBookingRules = allRules.filter((r: any) => r.timing === "on_booking");
+
+      if (onBookingRules.length > 0) {
+        const nowIso = new Date().toISOString();
+        let queued = 0;
+
+        for (const rule of onBookingRules) {
+          if (rule.recipient === "contact") {
+            const channelValue = rule.channel === "email" ? (email || null) : (phone || null);
+            if (!channelValue) continue;
+            const msg = `Hola ${name || "Cliente"}, confirmamos tu cita el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs con ${calendar.name ?? "nosotros"}.`;
+            const { data: rem } = await supabase.from("crm_reminders").insert({
+              user_id: calendar.user_id, appointment_id: appointment.id, contact_id: contactId,
+              type: rule.channel,
+              recipient_email: rule.channel === "email" ? channelValue : null,
+              recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
+              scheduled_at: nowIso, message: msg, status: "pending", is_auto: true,
+              business_target: `rule:${calendar_id}:${rule.id}:contact`,
+            }).select("id").single();
+            if (rem?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: rem.id }); queued++; }
+
+          } else {
+            const targets: string[] = rule.businessTargets?.length
+              ? rule.businessTargets
+              : rule.businessTarget ? [rule.businessTarget] : ["admin"];
+
+            for (const targetId of targets) {
+              let channelValue = "";
+              if (targetId === "admin") {
+                const { data: profile } = await supabase
+                  .from("crm_business_profile").select("contact_email, contact_phone, whatsapp")
+                  .eq("user_id", calendar.user_id).single();
+                channelValue = rule.channel === "email"
+                  ? (profile?.contact_email ?? "")
+                  : (profile?.contact_phone ?? (profile as any)?.whatsapp ?? "");
+              } else {
+                const { data: staff } = await supabase
+                  .from("crm_staff").select("email, phone").eq("id", targetId).single();
+                channelValue = rule.channel === "email" ? (staff?.email ?? "") : (staff?.phone ?? "");
+              }
+              if (!channelValue) continue;
+              const msg = `Cita confirmada: ${name || email || "Cliente"} el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs.`;
+              const { data: rem } = await supabase.from("crm_reminders").insert({
+                user_id: calendar.user_id, appointment_id: appointment.id, contact_id: contactId,
+                type: rule.channel,
+                recipient_email: rule.channel === "email" ? channelValue : null,
+                recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
+                scheduled_at: nowIso, message: msg, status: "pending", is_auto: true,
+                business_target: `rule:${calendar_id}:${rule.id}:${targetId}`,
+              }).select("id").single();
+              if (rem?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: rem.id }); queued++; }
+            }
+          }
+        }
+
+        if (queued > 0) {
+          const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+          const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+          fetch(`${supabaseUrl}/functions/v1/send-reminders`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+          }).catch(() => {});
+        }
+      }
+    } catch (e) {
+      console.error("on_booking reminders (non-fatal):", e);
     }
 
     return respond({ appointment_id: appointment.id, contact_id: contactId });

@@ -1,14 +1,14 @@
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, Mail, MessageSquare, Clock, User, Building2 } from "lucide-react";
+import { Plus, Trash2, Mail, MessageSquare, Clock, User, Building2, Bell } from "lucide-react";
 import { useStaff, useBusinessProfile, useWhatsappEnabled } from "@/hooks/useCrmData";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export type ReminderRecipient = "contact" | "business";
 export type ReminderChannel   = "email" | "whatsapp";
-export type ReminderTiming    = "before" | "after";
+export type ReminderTiming    = "before" | "after" | "on_booking";
 export type ReminderUnit      = "minutes" | "hours" | "days";
 
 export interface ReminderRule {
@@ -271,34 +271,42 @@ const RuleRow = ({
       <div>
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">Cuándo</p>
         <div className="flex items-center gap-2 flex-wrap">
-          <div className="flex gap-2">
+          <div className="flex gap-2 flex-wrap">
             <button type="button" onClick={() => onChange({ timing: "before" })} className={pill(rule.timing === "before")}>
               <Clock size={11} /> Antes
             </button>
             <button type="button" onClick={() => onChange({ timing: "after" })} className={pill(rule.timing === "after")}>
               <Clock size={11} /> Después
             </button>
+            <button type="button" onClick={() => onChange({ timing: "on_booking" })} className={pill(rule.timing === "on_booking")}>
+              <Bell size={11} /> Al reservar
+            </button>
           </div>
-          <div className="flex items-center gap-1.5">
-            <input
-              type="number"
-              min={1}
-              max={999}
-              value={rule.amount}
-              onChange={(e) => onChange({ amount: Math.max(1, Number(e.target.value) || 1) })}
-              className="w-16 h-8 rounded-lg border border-input bg-background text-sm px-2 text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
-            />
-            <select
-              value={rule.unit}
-              onChange={(e) => onChange({ unit: e.target.value as ReminderUnit })}
-              className="h-8 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
-            >
-              {UNITS.map((u) => (
-                <option key={u.value} value={u.value}>{u.label}</option>
-              ))}
-            </select>
-            <span className="text-xs text-muted-foreground">de la cita</span>
-          </div>
+          {rule.timing !== "on_booking" && (
+            <div className="flex items-center gap-1.5">
+              <input
+                type="number"
+                min={1}
+                max={999}
+                value={rule.amount}
+                onChange={(e) => onChange({ amount: Math.max(1, Number(e.target.value) || 1) })}
+                className="w-16 h-8 rounded-lg border border-input bg-background text-sm px-2 text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
+              />
+              <select
+                value={rule.unit}
+                onChange={(e) => onChange({ unit: e.target.value as ReminderUnit })}
+                className="h-8 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              >
+                {UNITS.map((u) => (
+                  <option key={u.value} value={u.value}>{u.label}</option>
+                ))}
+              </select>
+              <span className="text-xs text-muted-foreground">de la cita</span>
+            </div>
+          )}
+          {rule.timing === "on_booking" && (
+            <p className="text-xs text-muted-foreground">Se envía en el momento exacto de la reserva.</p>
+          )}
         </div>
       </div>
 

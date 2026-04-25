@@ -632,7 +632,7 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-1c · Calendario automático al activar cuenta SaaS (Opción B)
+### F-1c ✅ · Calendario automático al activar cuenta SaaS (Opción B)
 **Descripción:** Cuando un cliente completa el onboarding eligiendo el servicio Booking System, se crea automáticamente un `crm_calendar_config` vinculado al contacto. Al activar la cuenta SaaS, el calendario se transfiere al `user_id` del cliente. El admin nunca ve los calendarios de clientes SaaS en su panel.
 
 **Flujo completo:**
@@ -669,45 +669,25 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-1d · Logo del cliente — upload en onboarding y persistencia en business profile
-**Descripción:** El formulario de onboarding tiene un campo de subida de logo, pero actualmente no existe ningún flujo que tome ese archivo, lo suba a Supabase Storage, y lo guarde en `crm_business_profile.logo_url`. El logo del cliente nunca llega al sistema — F-7 asume que ya existe esa URL, pero el pipeline de creación está roto.
+### F-1d · Logo del cliente — upload en onboarding y persistencia en business profile ✅ COMPLETADO
 
-**Flujo actual (roto):**
-- Cliente sube logo en el onboarding → el campo `file` guarda... ¿qué? No hay edge function que procese ese archivo.
-- `crm_business_profile.logo_url` siempre es `null`.
-- F-7 (White Label) depende de este dato para mostrar el logo en el CRM del cliente.
-
-**Implementación:**
-1. **Auditar el campo file del onboarding:** verificar qué formato tiene el valor guardado en `custom_fields` para un campo tipo `file` (¿base64? ¿URL temporal? ¿null?).
-2. **Subida a Storage:** en `crm-form-public` (al procesar el submission del onboarding), detectar el campo de logo (por tipo `file` o por ID específico), subir el archivo a bucket `client-logos/${contact_id}`, obtener URL pública.
-3. **Persistir en business profile:** guardar la URL en `crm_business_profile.logo_url` del cliente SaaS (si ya existe el profile) o guardarlo en `custom_fields` del contacto para que `create-saas-client` lo use al crear el profile.
-4. **Migración DB:** `crm_business_profile.logo_url TEXT` (si no existe ya — F-7 lo añade, coordinar con esa migración).
-
-**Prerequisito:** Auditar campo `file` antes de implementar — puede requerir cambios en `FormRenderer` si actualmente no sube el archivo correctamente.
-
-**Archivos:** `supabase/functions/crm-form-public/index.ts`, `supabase/functions/create-saas-client/index.ts`, migración SQL (coordinada con F-7).
-**Complejidad:** Media. Depende del estado actual del campo `file` en el onboarding.
+**Implementado:**
+1. Bucket `form-uploads` creado en Supabase Storage (público, 5 MB, images + PDF) con políticas RLS (anon INSERT, public SELECT, service DELETE).
+2. `FormRenderer.tsx` — componente `FileUploadField`: sube a Storage en el momento de selección, muestra miniatura + spinner, almacena URL pública en `formValues`.
+3. `crm-form-public` (v18) — `handleLogoField()`: extrae la primera URL de campo `file`, la persiste en `crm_contacts.custom_fields._logo_url`. Se ejecuta **antes** de `handleServicesField` para que el logo esté disponible al sembrar el perfil.
+4. `handleServicesField` (v18): al crear cuenta SaaS desde formulario, siembra `crm_business_profile` con `logo_url` leído de `custom_fields._logo_url`.
+5. `create-saas-client` (v7): al activar cuenta manualmente, siembra `crm_business_profile` con logo del contacto.
+6. `ConfirmationView`: muestra conteo de archivos ("2 archivos adjuntos") en lugar de texto genérico.
 
 ---
 
-### F-1e · Confirmación inmediata de reserva — integrada en sistema de recordatorios
-**Descripción:** Al completar una reserva, el cliente que agenda y/o el admin/cliente SaaS no reciben confirmación hasta que el cron de recordatorios corra (puede tardar horas). La solución no es un sistema separado — se extiende el sistema de recordatorios existente con un nuevo tipo de disparo: `trigger: "on_booking"`.
+### F-1e · Confirmación inmediata de reserva — integrada en sistema de recordatorios ✅ COMPLETADO
 
-**Distinción:**
-- **Recordatorios actuales** → `trigger: "before"`, se envían X horas/días antes de la cita
-- **Confirmación inmediata (nuevo)** → `trigger: "on_booking"`, se dispara en el momento exacto de crear la cita
-
-**Integración en el sistema existente:**
-El admin configura la confirmación desde el mismo panel de recordatorios del calendario. Puede activarla/desactivarla, editar el template (igual que los demás recordatorios), y elegir si va al cliente que agendó, al admin, o a ambos. No hay UI nueva — solo un nuevo tipo en el selector de `trigger`.
-
-**Implementación:**
-1. **Migración DB:** añadir valor `'on_booking'` al campo `trigger` de `crm_reminder_config` (o el campo equivalente que define cuándo se dispara). Añadir campo `notify_owner BOOLEAN DEFAULT false` para controlar si el admin también recibe copia.
-2. **UI de recordatorios:** en el selector de cuándo enviar ("X horas antes"), añadir opción "Al confirmar la reserva". Mostrar campo adicional "Notificar también al negocio" (checkbox).
-3. **`crm-calendar-book`:** al crear la cita exitosamente, leer las reglas `trigger: "on_booking"` del calendario, ejecutarlas inmediatamente (non-fatal — un fallo de email no cancela la reserva).
-4. **Template variables disponibles:** `{{nombre}}`, `{{fecha}}`, `{{hora}}`, `{{negocio}}` — las mismas que los recordatorios estándar.
-
-**Archivos:** migración SQL, `src/components/crm/CrmCalendar.tsx` (UI recordatorios), `supabase/functions/crm-calendar-book/index.ts`
-**Complejidad:** Media. La infraestructura de email ya existe — el trabajo está en extender el modelo de datos y la UI del selector de recordatorios.
+**Implementado:**
+- Sin migración DB — `reminder_rules` en `crm_calendar_config` ya es JSON; `"on_booking"` es un nuevo valor de `timing` en el mismo campo.
+- `ReminderRulesEditor.tsx`: nuevo tipo `"on_booking"` en `ReminderTiming`, botón "Al reservar" en la sección Cuándo, oculta los campos de cantidad/unidad cuando está activo, muestra texto explicativo.
+- `crm-calendar-book` (v17): tras crear la cita exitosamente, filtra las `reminder_rules` con `timing === "on_booking"`, crea filas en `crm_reminders` con `scheduled_at = now()`, las encola en `crm_reminder_queue`, y llama `send-reminders` para envío inmediato. Todo non-fatal.
+- Soporta `recipient: "contact"` (email/tel del cliente que agendó) y `recipient: "business"` con multi-target (admin + staff).
 
 ---
 
@@ -839,7 +819,7 @@ Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipel
 **Alcance:**
 1. **Origen de datos:**
    - Colores: `crm_business_profile.color_primary / color_secondary / color_accent` — ya existen, se registraron en el onboarding.
-   - Logo: URL del logo subido durante el onboarding (campo del formulario de Acrosoft). Leer de la submission del formulario de onboarding y persistir en `crm_business_profile.logo_url` (columna nueva).
+   - Logo: URL del logo subido durante el onboarding (ya implementado en F-1d). También debe poder cambiarse desde `CrmBusiness → tab "Logo"` (actualmente stub con toast "pendiente" — implementar como parte de este bloque reutilizando el bucket `form-uploads` y el patrón de `FileUploadField`).
    - Logo ajustado a tamaño fijo (ej. `max-height: 40px`, `object-fit: contain`) para evitar discrepancias entre logos de distintos tamaños.
 
 2. **Selector de tema en configuración:**
