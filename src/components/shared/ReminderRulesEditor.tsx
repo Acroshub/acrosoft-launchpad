@@ -1,6 +1,4 @@
-import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Plus, Trash2, Mail, MessageSquare, Clock, User, Building2, Bell } from "lucide-react";
 import { useStaff, useBusinessProfile, useWhatsappEnabled } from "@/hooks/useCrmData";
 
@@ -64,8 +62,7 @@ const pill = (active: boolean) =>
 const RuleRow = ({
   rule,
   businessName,
-  contactEmail,
-  contactPhone,
+
   adminEmail,
   adminPhone,
   onChange,
@@ -73,8 +70,6 @@ const RuleRow = ({
 }: {
   rule:           ReminderRule;
   businessName?:  string;
-  contactEmail?:  string | null;
-  contactPhone?:  string | null;
   adminEmail?:    string | null;
   adminPhone?:    string | null;
   onChange:       (patch: Partial<ReminderRule>) => void;
@@ -92,37 +87,6 @@ const RuleRow = ({
 
   const targets = getTargets(rule);
 
-  /** Resolve email/phone for each selected target and join with ", " */
-  const buildChannelValue = (selectedTargets: string[], ch: ReminderChannel): string => {
-    const vals: string[] = [];
-    for (const t of selectedTargets) {
-      if (t === "admin") {
-        const v = ch === "email"
-          ? (adminEmail ?? profile?.contact_email ?? "")
-          : (adminPhone ?? profile?.contact_phone ?? profile?.whatsapp ?? "");
-        if (v) vals.push(v);
-      } else {
-        const staff = staffList.find(s => s.id === t);
-        const v = ch === "email" ? (staff?.email ?? "") : "";
-        if (v) vals.push(v);
-      }
-    }
-    return vals.join(", ");
-  };
-
-  // Auto-suggest channelValue when recipient/channel/targets change
-  useEffect(() => {
-    if (rule.channelValue) return;
-    let suggested = "";
-    if (rule.recipient === "contact") {
-      suggested = rule.channel === "email" ? (contactEmail ?? "") : (contactPhone ?? "");
-    } else {
-      suggested = buildChannelValue(targets, rule.channel);
-    }
-    if (suggested) onChange({ channelValue: suggested });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rule.recipient, rule.channel, JSON.stringify(targets)]);
-
   const toggleTarget = (id: string) => {
     const current = new Set(targets);
     if (current.has(id)) {
@@ -135,12 +99,8 @@ const RuleRow = ({
     onChange({
       businessTargets: next,
       businessTarget:  next[0], // backward-compat
-      channelValue:    buildChannelValue(next, rule.channel),
     });
   };
-
-  const channelPlaceholder = rule.channel === "email" ? "correo@ejemplo.com" : "+52 55 1234 5678";
-  const channelLabel       = rule.channel === "email" ? "Email destino" : "WhatsApp destino";
 
   return (
     <div className="border border-border/60 rounded-xl p-3.5 space-y-3 bg-card">
@@ -228,14 +188,14 @@ const RuleRow = ({
         <div className="flex gap-2 flex-wrap">
           <button
             type="button"
-            onClick={() => onChange({ channel: "email", channelValue: "" })}
+            onClick={() => onChange({ channel: "email" })}
             className={pill(rule.channel === "email")}
           >
             <Mail size={11} /> Email
           </button>
           <button
             type="button"
-            onClick={() => whatsappEnabled && onChange({ channel: "whatsapp", channelValue: "" })}
+            onClick={() => whatsappEnabled && onChange({ channel: "whatsapp" })}
             disabled={!whatsappEnabled}
             title={whatsappEnabled ? undefined : "WhatsApp no está configurado. Ve a Configuración → Integraciones."}
             className={
@@ -249,25 +209,6 @@ const RuleRow = ({
         </div>
       </div>
 
-      {/* ── Channel destination — hidden for on_booking (resolved at runtime) */}
-      {rule.timing !== "on_booking" && (
-        <div>
-          <label className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">
-            {channelLabel}
-          </label>
-          <Input
-            value={rule.channelValue}
-            onChange={(e) => onChange({ channelValue: e.target.value })}
-            placeholder={channelPlaceholder}
-            className="h-8 text-xs mt-1.5"
-          />
-          {rule.recipient === "business" && targets.length > 1 && (
-            <p className="text-[10px] text-muted-foreground/60 mt-1">
-              Separados por coma. El CRON también resuelve automáticamente el correo de cada destinatario.
-            </p>
-          )}
-        </div>
-      )}
 
       {/* ── Timing ────────────────────────────────────────────────────────── */}
       <div>
@@ -332,11 +273,9 @@ interface Props {
   rules:        ReminderRule[];
   onChange:     (rules: ReminderRule[]) => void;
   businessName?: string;
-  contactEmail?: string | null;
-  contactPhone?: string | null;
 }
 
-const ReminderRulesEditor = ({ rules, onChange, businessName, contactEmail, contactPhone }: Props) => {
+const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
   const { data: profile } = useBusinessProfile();
 
   const add    = () => onChange([...rules, { ...DEFAULT_RULE, id: uid() }]);
@@ -356,8 +295,6 @@ const ReminderRulesEditor = ({ rules, onChange, businessName, contactEmail, cont
           key={rule.id}
           rule={rule}
           businessName={businessName}
-          contactEmail={contactEmail}
-          contactPhone={contactPhone}
           adminEmail={profile?.contact_email}
           adminPhone={profile?.contact_phone ?? profile?.whatsapp}
           onChange={(patch) => update(rule.id, patch)}

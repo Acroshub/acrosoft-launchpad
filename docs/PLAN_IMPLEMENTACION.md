@@ -688,6 +688,7 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 - `ReminderRulesEditor.tsx`: nuevo tipo `"on_booking"` en `ReminderTiming`, botón "Al reservar" en la sección Cuándo, oculta los campos de cantidad/unidad cuando está activo, muestra texto explicativo.
 - `crm-calendar-book` (v17): tras crear la cita exitosamente, filtra las `reminder_rules` con `timing === "on_booking"`, crea filas en `crm_reminders` con `scheduled_at = now()`, las encola en `crm_reminder_queue`, y llama `send-reminders` para envío inmediato. Todo non-fatal.
 - Soporta `recipient: "contact"` (email/tel del cliente que agendó) y `recipient: "business"` con multi-target (admin + staff).
+- **Fix UX (campo "Email/WhatsApp destino" eliminado):** El editor de recordatorios ya no solicita un destino manual. El backend (`cron-queue-reminders`, `crm-calendar-book`) siempre resuelve el email/teléfono desde `crm_contacts`, `crm_business_profile` o `crm_staff` en tiempo de envío — el campo `channelValue` guardado en el JSON es ignorado. Se eliminaron del `ReminderRulesEditor` la UI, los imports sin uso (`useState`, `Input`), la función `buildChannelValue` y las props `contactEmail`/`contactPhone`.
 
 ---
 
