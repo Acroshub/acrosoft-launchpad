@@ -47,7 +47,7 @@ const Crm = () => {
   const renderView = () => {
     switch (view) {
       case "overview":  return <CrmOverview isSuperAdmin={effectiveIsAdmin} />;
-      case "business":  return <CrmBusiness />;
+      case "business":  return (!isStaff || can("mi_negocio_personal", "read") || can("mi_negocio_datos", "read") || can("servicios", "read")) ? <CrmBusiness /> : null;
       case "calendar":  return can("calendarios", "read")  ? <CrmCalendar />  : null;
       case "forms":     return can("formularios", "read")  ? <CrmForms />     : null;
       case "contacts":  return can("contactos", "read")    ? <CrmContacts isSuperAdmin={effectiveIsAdmin} /> : null;

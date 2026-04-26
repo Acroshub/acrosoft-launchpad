@@ -3,10 +3,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pencil, User, Building2, Image as ImageIcon, Palette, Briefcase, Check, Loader2 } from "lucide-react";
 import CrmServices from "./CrmServices";
-import { useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
-import { useCurrentUser } from "@/hooks/useAuth";
+import { useBusinessProfile, useUpsertBusinessProfile, useUpdateStaff } from "@/hooks/useCrmData";
+import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import type { CrmBusinessProfile } from "@/lib/supabase";
+import type { CrmBusinessProfile, CrmStaff } from "@/lib/supabase";
 
 type Tab = "personal" | "negocio" | "logo" | "colores" | "servicios";
 
@@ -19,7 +19,14 @@ const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
 ];
 
 // ─── Editable field ──────────────────────────────────────────────────────────
-const EditableField = ({ label, value, onSave }: { label: string; value: string; onSave: (val: string) => Promise<void> }) => {
+const EditableField = ({ label, value, onSave, readOnly }: { label: string; value: string; onSave: (val: string) => Promise<void>; readOnly?: boolean }) => {
+  if (readOnly) return (
+    <div>
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1">{label}</p>
+      <p className="text-sm font-medium">{value || "—"}</p>
+    </div>
+  );
+  // eslint-disable-next-line react-hooks/rules-of-hooks
   const [editing, setEditing] = useState(false);
   const [val, setVal]         = useState(value);
   const [saving, setSaving]   = useState(false);
@@ -111,6 +118,22 @@ const ColorField = ({ label, value, onSave }: { label: string; value: string; on
     </div>
   );
 };
+
+// ─── Staff personal tab ──────────────────────────────────────────────────────
+const StaffPersonalTab = ({ staff, canEdit, onUpdate }: {
+  staff: CrmStaff;
+  canEdit: boolean;
+  onUpdate: (updates: { name?: string; description?: string | null }) => Promise<void>;
+}) => (
+  <div className="bg-card border rounded-2xl p-6 space-y-6 max-w-xl">
+    <h2 className="text-sm font-semibold">Información Personal</h2>
+    <div className="grid sm:grid-cols-2 gap-5">
+      <EditableField label="Nombre completo" value={staff.name}         readOnly={!canEdit} onSave={val => onUpdate({ name: val })} />
+      <EditableField label="Email"           value={staff.email}        readOnly onSave={() => Promise.resolve()} />
+      <EditableField label="Cargo / Rol"     value={staff.description ?? ""} readOnly={!canEdit} onSave={val => onUpdate({ description: val || null })} />
+    </div>
+  </div>
+);
 
 // ─── Tabs ────────────────────────────────────────────────────────────────────
 const PersonalTab = ({ profile, update }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void> }) => (
@@ -214,39 +237,73 @@ const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const CrmBusiness = () => {
-  const [tab, setTab] = useState<Tab>("personal");
   const { user } = useCurrentUser();
+  const { isStaff, staffRecord, can } = useStaffPermissions();
   const { data: profile, isLoading } = useBusinessProfile();
   const upsertProfile = useUpsertBusinessProfile();
-  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
+  const updateStaff   = useUpdateStaff();
+  const isSuperAdmin  = user?.email === SUPER_ADMIN_EMAIL;
+
+  // Tabs visible según rol
+  const visibleTabs = isStaff
+    ? tabs.filter(({ id }) => {
+        if (id === "personal")  return can("mi_negocio_personal", "read");
+        if (id === "negocio")   return can("mi_negocio_datos",    "read");
+        if (id === "servicios") return can("servicios",           "read");
+        return false; // logo y colores solo para el dueño
+      })
+    : tabs;
+
+  const [tab, setTab] = useState<Tab>(() =>
+    visibleTabs.length > 0 ? visibleTabs[0].id : "personal"
+  );
+
+  // Si el tab actual ya no es visible (cambio de permisos), resetear
+  const activeTab = visibleTabs.find(t => t.id === tab) ? tab : (visibleTabs[0]?.id ?? "personal");
 
   const handleUpdate = async (updates: Partial<CrmBusinessProfile>) => {
-      await upsertProfile.mutateAsync(updates);
+    await upsertProfile.mutateAsync(updates);
+  };
+
+  const handleUpdateStaff = async (updates: { name?: string; description?: string | null }) => {
+    if (!staffRecord) return;
+    await updateStaff.mutateAsync({ id: staffRecord.id, ...updates });
+    toast.success("Información actualizada");
   };
 
   if (isLoading) {
-      return (
-          <div className="flex items-center justify-center p-24">
-              <Loader2 size={24} className="animate-spin text-muted-foreground" />
-          </div>
-      );
+    return (
+      <div className="flex items-center justify-center p-24">
+        <Loader2 size={24} className="animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  if (visibleTabs.length === 0) {
+    return (
+      <div className="flex items-center justify-center p-24 text-center">
+        <p className="text-sm text-muted-foreground">No tienes permisos para acceder a esta sección.</p>
+      </div>
+    );
   }
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-xl font-semibold">Mi Negocio</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Gestiona la información de tu negocio y perfil</p>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          {isStaff ? "Tu información y datos del negocio" : "Gestiona la información de tu negocio y perfil"}
+        </p>
       </div>
 
       {/* Tab bar */}
       <div className="flex flex-wrap gap-1 p-1 bg-card border rounded-2xl w-fit">
-        {tabs.map(({ id, label, icon: Icon }) => (
+        {visibleTabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             onClick={() => setTab(id)}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold transition-all ${
-              tab === id
+              activeTab === id
                 ? "bg-primary text-primary-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-secondary"
             }`}
@@ -259,11 +316,19 @@ const CrmBusiness = () => {
 
       {/* Content */}
       <div className="animate-in fade-in duration-200">
-        {tab === "personal"  && <PersonalTab profile={profile} update={handleUpdate} />}
-        {tab === "negocio"   && <NegocioTab profile={profile} update={handleUpdate} />}
-        {tab === "logo"      && <LogoTab profile={profile} update={handleUpdate} />}
-        {tab === "colores"   && <ColoresTab profile={profile} update={handleUpdate} />}
-        {tab === "servicios" && <CrmServices isSuperAdmin={isSuperAdmin} />}
+        {activeTab === "personal" && (
+          isStaff && staffRecord
+            ? <StaffPersonalTab
+                staff={staffRecord}
+                canEdit={can("mi_negocio_personal", "edit")}
+                onUpdate={handleUpdateStaff}
+              />
+            : <PersonalTab profile={profile} update={handleUpdate} />
+        )}
+        {activeTab === "negocio"   && <NegocioTab   profile={profile} update={handleUpdate} />}
+        {activeTab === "logo"      && <LogoTab       profile={profile} update={handleUpdate} />}
+        {activeTab === "colores"   && <ColoresTab    profile={profile} update={handleUpdate} />}
+        {activeTab === "servicios" && <CrmServices   isSuperAdmin={isSuperAdmin} />}
       </div>
     </div>
   );
