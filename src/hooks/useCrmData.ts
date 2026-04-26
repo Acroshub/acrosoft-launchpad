@@ -273,6 +273,31 @@ export const useDeleteBlockedSlot = () => {
   });
 };
 
+export const useUpdateBlockedSlot = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      id: string;
+      type: "hours" | "fullday" | "range";
+      reason: string | null;
+      date: string | null;
+      start_hour: number | null;
+      start_minute: number;
+      end_hour: number | null;
+      end_minute: number;
+      range_start: string | null;
+      range_end: string | null;
+    }) => {
+      const { id, ...patch } = data;
+      const { error } = await supabase.from("crm_blocked_slots").update(patch).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_blocked_slots"] });
+    },
+  });
+};
+
 // ─── PIPELINE DEALS ────────────────────────────────────────────
 
 export const useDeals = () => {
@@ -564,7 +589,7 @@ export const useDeleteSale = () => {
 
 // ─── CALENDAR CONFIG ───────────────────────────────────────────
 
-/** Returns ALL calendars for the current user */
+/** Returns calendars owned by the admin (excludes SaaS client calendars that have a contact_id) */
 export const useCalendars = () => {
   const { user } = useCurrentUser();
   return useQuery({
@@ -573,6 +598,7 @@ export const useCalendars = () => {
       const { data, error } = await supabase
         .from("crm_calendar_config")
         .select("*")
+        .is("contact_id", null)
         .order("created_at", { ascending: true });
       if (error) throw error;
       return (data ?? []) as CrmCalendarConfig[];
@@ -1443,6 +1469,32 @@ export const useDeleteStaff = () => {
     onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_staff"] });
       logAction("delete", "Staff", `Staff eliminado: ${name}`, id);
+    },
+  });
+};
+
+export const useInviteStaff = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (staff_id: string) => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const dbUrl = import.meta.env.VITE_SUPABASE_URL;
+      const res = await fetch(`${dbUrl}/functions/v1/invite-staff-user`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`,
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ staff_id }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Error al enviar invitación");
+      return json as { success?: boolean; linked?: boolean };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_staff"] });
     },
   });
 };

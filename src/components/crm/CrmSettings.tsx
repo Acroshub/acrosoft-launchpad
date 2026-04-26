@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
 import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, ShieldCheck, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays } from "lucide-react";
-import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
+import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmLog } from "@/hooks/useCrmData";
 import type { CrmStaff, StaffPermission, CrmReminder } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
@@ -494,18 +494,46 @@ const StaffTab = () => {
   const createStaff = useCreateStaff();
   const updateStaff = useUpdateStaff();
   const deleteStaff = useDeleteStaff();
+  const inviteStaff = useInviteStaff();
 
   const [showCreate, setShowCreate]     = useState(false);
   const [editing, setEditing]           = useState<CrmStaff | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [invitingId, setInvitingId]     = useState<string | null>(null);
 
   const handleCreate = async (data: Parameters<typeof createStaff.mutateAsync>[0]) => {
     try {
-      await createStaff.mutateAsync(data);
-      toast.success("Staff agregado. Se enviará email de invitación.");
+      const newStaff = await createStaff.mutateAsync(data);
       setShowCreate(false);
+      // Send invitation email
+      try {
+        const result = await inviteStaff.mutateAsync(newStaff.id);
+        if (result.linked) {
+          toast.success("Staff agregado y vinculado a cuenta existente.");
+        } else {
+          toast.success("Staff agregado. Se envió el email de invitación.");
+        }
+      } catch {
+        toast.success("Staff agregado, pero no se pudo enviar la invitación. Usa 'Re-enviar' para intentarlo de nuevo.");
+      }
     } catch {
       toast.error("Error al crear el staff");
+    }
+  };
+
+  const handleResendInvite = async (member: CrmStaff) => {
+    setInvitingId(member.id);
+    try {
+      const result = await inviteStaff.mutateAsync(member.id);
+      if (result.linked) {
+        toast.success("Cuenta existente vinculada correctamente.");
+      } else {
+        toast.success("Invitación re-enviada.");
+      }
+    } catch (e) {
+      toast.error((e as Error).message ?? "Error al re-enviar invitación");
+    } finally {
+      setInvitingId(null);
     }
   };
 
@@ -616,6 +644,19 @@ const StaffTab = () => {
 
                   {/* Actions */}
                   <div className="flex items-center gap-1 shrink-0">
+                    {member.status === "invited" && (
+                      <button
+                        onClick={() => handleResendInvite(member)}
+                        disabled={invitingId === member.id}
+                        className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
+                        title="Re-enviar invitación"
+                      >
+                        {invitingId === member.id
+                          ? <Loader2 size={14} className="animate-spin" />
+                          : <Send size={14} />
+                        }
+                      </button>
+                    )}
                     {member.status !== "invited" && (
                       <button
                         onClick={() => toggleActive(member)}

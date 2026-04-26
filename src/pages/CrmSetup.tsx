@@ -49,14 +49,23 @@ const CrmSetup = () => {
       const { error: pwErr } = await supabase.auth.updateUser({ password });
       if (pwErr) throw pwErr;
 
-      // 2. Activate client account if it's still pending
+      // 2. Activate account based on invitation type
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
-        await supabase
-          .from("crm_client_accounts")
-          .update({ status: "active" })
-          .eq("client_user_id", user.id)
-          .eq("status", "pending");
+        const accountType = user.user_metadata?.account_type;
+
+        if (accountType === "staff") {
+          // Link this auth user to the crm_staff row via SECURITY DEFINER RPC
+          const { error: rpcErr } = await supabase.rpc("activate_staff_invitation");
+          if (rpcErr) console.error("activate_staff_invitation (non-fatal):", rpcErr);
+        } else {
+          // Default: SaaS client activation
+          await supabase
+            .from("crm_client_accounts")
+            .update({ status: "active" })
+            .eq("client_user_id", user.id)
+            .eq("status", "pending");
+        }
       }
 
       setDone(true);
