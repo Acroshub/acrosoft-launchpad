@@ -76,6 +76,7 @@ const RuleSummaryCard = ({
   onEdit:        () => void;
   onDelete:      () => void;
 }) => {
+  const [pendingDelete, setPendingDelete] = useState(false);
   const targets = getTargets(rule);
 
   const recipientLabel = rule.recipient === "contact"
@@ -107,20 +108,42 @@ const RuleSummaryCard = ({
         </p>
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-lg hover:bg-secondary/60"
-        >
-          <Pencil size={11} /> Editar
-        </button>
-        <button
-          type="button"
-          onClick={onDelete}
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive transition-colors px-2 py-1 rounded-lg hover:bg-destructive/10"
-        >
-          <Trash2 size={11} /> Eliminar
-        </button>
+        {pendingDelete ? (
+          <>
+            <span className="text-[11px] text-destructive font-medium">¿Eliminar?</span>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="px-2 py-1 rounded-lg bg-destructive text-destructive-foreground text-[11px] font-semibold hover:bg-destructive/90 transition-colors"
+            >
+              Sí
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingDelete(false)}
+              className="px-2 py-1 rounded-lg border text-[11px] font-semibold text-muted-foreground hover:bg-secondary transition-colors"
+            >
+              No
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={onEdit}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-lg hover:bg-secondary/60"
+            >
+              <Pencil size={11} /> Editar
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingDelete(true)}
+              className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive transition-colors px-2 py-1 rounded-lg hover:bg-destructive/10"
+            >
+              <Trash2 size={11} /> Eliminar
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
