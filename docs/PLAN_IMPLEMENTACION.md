@@ -727,16 +727,14 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-3 · Staff — invitación por email y acceso real
-**Prerequisito:** A-1 debe estar completo — sin RLS el Staff invitado verá datos vacíos.
-**Descripción:** Al crear un Staff en CrmSettings, enviar email de invitación con link para crear contraseña en `/crm-setup`.
+### F-3 · Staff — invitación por email y acceso real ✅ COMPLETADO
 
-**Pendiente:**
-- Verificar si el flujo de `create-saas-client` puede reutilizarse para Staff o si se necesita Edge Function separada `invite-staff-user`
-- Al aceptar la invitación: actualizar `crm_staff.staff_user_id` y `status: 'active'`
-- Confirmar que `/crm-setup` funciona para Staff y para clientes SaaS
-
-**Archivos:** `supabase/functions/invite-staff-user/index.ts`, `src/pages/CrmSetup.tsx`, `src/components/crm/CrmSettings.tsx`
+**Implementado:**
+- Edge function `invite-staff-user` (v1): verifica ownership del owner, llama `inviteUserByEmail` con metadata `{account_type: "staff", staff_id, owner_user_id}`, actualiza `crm_staff.status = "invited"`. Si el email ya tiene cuenta confirmada, vincula el usuario existente directamente (`status = "active"`).
+- DB: función RPC `activate_staff_invitation()` (SECURITY DEFINER) — el staff la llama con su JWT al aceptar la invitación; hace `UPDATE crm_staff SET staff_user_id = auth.uid(), status = 'active' WHERE email = auth.email AND status = 'invited'`.
+- `CrmSetup.tsx`: detecta `user.user_metadata.account_type`; si es `"staff"` llama el RPC; si es `"saas_client"` activa `crm_client_accounts` (flujo existente).
+- `useCrmData.ts`: hook `useInviteStaff` que llama la edge function con el JWT del owner.
+- `CrmSettings.tsx`: invita automáticamente al staff tras crearlo; botón "Re-enviar invitación" (icono Send con Loader) para miembros con `status = "invited"`.
 
 ---
 
