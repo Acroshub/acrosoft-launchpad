@@ -704,15 +704,14 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-2 · Formulario multi-página (Stepper en FormRenderer)
-**Descripción:** Un formulario con `multi_page: true` se renderiza como stepper en `FormRenderer`. Cada sección = una página.
+### F-2 · Formulario multi-página (Stepper en FormRenderer) ✅ COMPLETADO
 
-**Reglas:**
-- Cada página necesita al menos 1 campo real (`heading` no cuenta)
-- Validación por página antes de avanzar al siguiente
-- La sección `isConfirmation: true` muestra resumen antes de enviar
-
-**Archivos:** `src/components/crm/FormRenderer.tsx`, `src/components/crm/CrmForms.tsx`
+**Ya implementado (revisado 2026-04-25):**
+- `FormRenderer` muestra stepper automáticamente cuando hay más de una sección (`totalSteps > 1`) — no requiere flag `multi_page`, lo determina por la presencia de `form.sections`.
+- Validación por página en `next()` antes de avanzar ✅
+- Sección `isConfirmation: true` renderiza `ConfirmationView` + `confirmationMessage` ✅
+- `CrmForms` tiene toggle "Todo en uno / Por páginas", gestión de secciones (añadir, renombrar, subtítulo, reordenar, eliminar), y botón "Agregar paso de confirmación" ✅
+- Validación al guardar: cada sección necesita ≥1 campo real ✅
 
 ---
 
