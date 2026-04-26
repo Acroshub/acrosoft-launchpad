@@ -93,26 +93,32 @@ Deno.serve(async (req) => {
         }
 
         if (existingId) {
+          // Check if user has already confirmed their email (has a password)
+          const existingUser = (await supabase.auth.admin.getUserById(existingId)).data.user;
+          const isConfirmed = !!existingUser?.email_confirmed_at;
+
+          if (!isConfirmed) {
+            // Never set a password — delete stale auth record and re-invite
+            await supabase.auth.admin.deleteUser(existingId);
+            const { data: newInvite, error: newErr } = await supabase.auth.admin.inviteUserByEmail(
+              staff.email,
+              {
+                redirectTo: `${siteUrl}/crm-setup`,
+                data: { full_name: staff.name, account_type: "staff", staff_id: staff.id, owner_user_id: owner.id },
+              },
+            );
+            if (newErr) return respond({ error: newErr.message }, 500);
+            await supabase.from("crm_staff").update({ status: "invited" }).eq("id", staff_id);
+            return respond({ success: true, user_id: newInvite.user.id });
+          }
+
+          // Already has a confirmed account — link directly
           await supabase
             .from("crm_staff")
             .update({ staff_user_id: existingId, status: "active" })
             .eq("id", staff_id);
           return respond({ linked: true, staff_user_id: existingId });
         }
-
-        // User exists in Supabase but wasn't found — resend via generateLink
-        const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
-          type: "invite",
-          email: staff.email,
-          options: {
-            redirectTo: `${Deno.env.get("SITE_URL") ?? "http://localhost:5173"}/crm-setup`,
-            data: { full_name: staff.name, account_type: "staff", staff_id: staff.id, owner_user_id: owner.id },
-          },
-        });
-        if (linkErr) return respond({ error: linkErr.message }, 500);
-        // Mark as invited so the user knows a link was sent
-        await supabase.from("crm_staff").update({ status: "invited" }).eq("id", staff_id);
-        return respond({ success: true, user_id: linkData.user.id });
       }
       return respond({ error: inviteErr.message }, 500);
     }
