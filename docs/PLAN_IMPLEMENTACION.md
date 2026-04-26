@@ -715,25 +715,15 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### A-1 · RLS para Staff (prerequisito de F-3)
-**Problema:** Las políticas RLS usan `auth.uid() = user_id`. El Staff tiene su propio `auth.uid()` → recibe datos vacíos en todas las tablas del CRM.
+### A-1 · RLS para Staff (prerequisito de F-3) ✅ COMPLETADO
 
-**Fix:** Para cada tabla del CRM, añadir política que permita acceso al Staff del dueño:
-```sql
--- Ejemplo para crm_contacts:
-CREATE POLICY "Staff accede a datos del dueño"
-ON crm_contacts FOR ALL
-USING (
-  user_id IN (
-    SELECT owner_user_id FROM crm_staff
-    WHERE staff_user_id = auth.uid()
-    AND status = 'active'
-  )
-);
-```
-Replicar en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipelines`, `crm_tasks`, `crm_forms`, `crm_form_submissions`, `crm_services`, `crm_sales`, `crm_calendar_config`, `crm_business_profile`, `crm_logs`, `crm_reminders`, `crm_reminder_config`.
-
-**Archivos:** `supabase/migrations/rls_staff_access.sql`
+**Implementado (revisado 2026-04-26):**
+- Ya existía `crm_staff_has_perm(owner_id, perm_col, action)` — función SECURITY DEFINER que evalúa permisos granulares por columna JSONB en `crm_staff`.
+- Políticas Staff ya presentes en: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipelines`, `crm_tasks`, `crm_forms`, `crm_services`, `crm_sales`, `crm_calendar_config`, `crm_business_profile`, `crm_logs`, `crm_reminders`, `crm_pipeline_deals`, `crm_contact_notes`.
+- **Migración `rls_staff_missing_tables`** añadió las políticas faltantes:
+  - `crm_reminder_config` → Staff con `perm_dashboard.read`
+  - `crm_form_submissions` → Staff con `perm_formularios.read` (join por `crm_forms`)
+  - `crm_contact_pipeline_memberships` → Staff con `perm_pipeline` (read/insert/update/delete, join por `crm_pipelines`)
 
 ---
 
