@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { signIn } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -37,15 +36,21 @@ const Login = () => {
     setError("");
     setLoading(true);
 
-    const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/crm-setup`,
-    });
-
-    setLoading(false);
-    if (resetErr) {
-      setError("No se pudo enviar el correo. Verifica el email e intenta de nuevo.");
-    } else {
+    try {
+      const dbUrl = import.meta.env.VITE_SUPABASE_URL;
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const res = await fetch(`${dbUrl}/functions/v1/reset-password`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "apikey": anonKey },
+        body: JSON.stringify({ email }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "Error");
       setResetSent(true);
+    } catch {
+      setError("No se pudo enviar el correo. Intenta de nuevo en unos minutos.");
+    } finally {
+      setLoading(false);
     }
   };
 
