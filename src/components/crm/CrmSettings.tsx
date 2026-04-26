@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, ShieldCheck, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays } from "lucide-react";
+import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays } from "lucide-react";
 import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmLog } from "@/hooks/useCrmData";
 import type { CrmStaff, StaffPermission, CrmReminder } from "@/lib/supabase";
@@ -672,9 +672,9 @@ const StaffTab = () => {
                     <button
                       onClick={() => setEditing(member)}
                       className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
-                      title="Editar permisos"
+                      title="Editar"
                     >
-                      <ShieldCheck size={14} />
+                      <Pencil size={14} />
                     </button>
                     <button
                       onClick={() => setDeleteTarget({ id: member.id, name: member.name })}
