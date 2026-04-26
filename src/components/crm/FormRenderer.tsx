@@ -739,9 +739,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
     const real = sections.filter(s => !s.isConfirmation);
     if (real.length > 0) return real;
     if (fields.length > 0) {
-      const virtualId = "__virtual__";
-      fields.forEach(f => { if (!f.sectionId) f.sectionId = virtualId; });
-      return [{ id: virtualId, name: form?.name ?? "", subtitle: "", isConfirmation: false } as PublicSection];
+      return [{ id: "__virtual__", name: form?.name ?? "", subtitle: "", isConfirmation: false } as PublicSection];
     }
     return [];
   }, [sections, fields, form?.name]);
@@ -767,7 +765,11 @@ const FormRenderer = ({ formId }: { formId: string }) => {
   const currentSection = isOnConfirm ? confirmSection! : activeSections[currentStep];
   const currentFields = isOnConfirm
     ? []
-    : fields.filter(f => f.sectionId === currentSection?.id);
+    : fields.filter(f =>
+        currentSection?.id === "__virtual__"
+          ? !f.sectionId
+          : f.sectionId === currentSection?.id
+      );
   const formUserId = (form as any)?.user_id ?? null;
 
   const hasServicesField = fields.some(f => f.type === "services");
