@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
     // ── 1. Load contact ──────────────────────────────────────────────────────
     const { data: contact, error: contactErr } = await supabase
       .from("crm_contacts")
-      .select("id, name, email")
+      .select("id, name, email, custom_fields")
       .eq("id", contact_id)
       .eq("user_id", admin_user_id)
       .single();
@@ -111,6 +111,58 @@ Deno.serve(async (req) => {
       .single();
 
     if (accountErr) throw accountErr;
+
+    // ── 5. Transfer SaaS calendar ownership to client user ───────────────────
+    try {
+      const { data: calendar } = await supabase
+        .from("crm_calendar_config")
+        .select("id")
+        .eq("contact_id", contact_id)
+        .maybeSingle();
+
+      if (calendar) {
+        await supabase
+          .from("crm_calendar_config")
+          .update({ user_id: clientUserId, contact_id: null })
+          .eq("id", calendar.id);
+      }
+    } catch (e) {
+      console.error("Calendar transfer (non-fatal):", e);
+    }
+
+    // ── 6. Create/seed business profile for new SaaS client ─────────────────
+    try {
+      const cf = (contact.custom_fields as Record<string, any>) ?? {};
+      const logoUrl: string | null = typeof cf._logo_url === "string" ? cf._logo_url : null;
+
+      // Check if profile already exists (edge case: client set it up before activation)
+      const { data: existingProfile } = await supabase
+        .from("crm_business_profile")
+        .select("id")
+        .eq("user_id", clientUserId)
+        .maybeSingle();
+
+      if (!existingProfile) {
+        await supabase.from("crm_business_profile").insert({
+          user_id: clientUserId,
+          business_name: contact.name,
+          contact_email: contact.email,
+          logo_url: logoUrl,
+          color_primary: "#2563EB",
+          color_secondary: "#1E40AF",
+          color_accent: "#DBEAFE",
+        });
+      } else if (logoUrl) {
+        // Profile exists but logo not set — backfill it
+        await supabase
+          .from("crm_business_profile")
+          .update({ logo_url: logoUrl })
+          .eq("id", existingProfile.id)
+          .is("logo_url", null);
+      }
+    } catch (e) {
+      console.error("Business profile seed (non-fatal):", e);
+    }
 
     return respond({
       success: true,

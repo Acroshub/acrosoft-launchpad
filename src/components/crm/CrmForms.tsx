@@ -7,12 +7,17 @@ import {
   Type, AlignLeft, Mail, Phone, MapPin, ChevronDown,
   Calendar, Clock, Link, ClipboardList, ArrowLeft, Settings, Briefcase,
   Hash, Upload, CheckSquare, Minus, Palette, Circle, Layers, ChevronUp,
-  ExternalLink, Copy, Code, Braces, Link as LinkIcon, Eye, Loader2, List
+  ExternalLink, Copy, Code, Braces, Link as LinkIcon, Eye, Loader2, List,
+  Key, AlertTriangle,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { useForms, useCreateForm, useUpdateForm, useDeleteForm, useServices, usePipelines } from "@/hooks/useCrmData";
+import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmForm } from "@/lib/supabase";
+
+const ONBOARDING_FORM_ID = "b733e0c5-60d4-414d-896a-5ce459b07eaf";
+const SUPER_ADMIN_EMAIL  = "e.daniel.acero.r@gmail.com";
 import { toast } from "sonner";
 import ReminderRulesEditor, { type ReminderRule } from "@/components/shared/ReminderRulesEditor";
 
@@ -71,6 +76,7 @@ interface FormField {
   subFields?: SubField[];
   maxItems?: number;
   allowedServiceIds?: string[];
+  doc_key?: string;
 }
 
 const FIELD_TYPES: { value: FieldType; label: string; icon: React.ElementType }[] = [
@@ -147,6 +153,15 @@ const ServicesFieldConfig = ({
   );
 };
 
+function slugifyDocKey(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, "")
+    .replace(/\s+/g, "_")
+    .trim();
+}
+
 const SUB_FIELD_TYPES: { value: SubFieldType; label: string }[] = [
   { value: "text",     label: "Texto corto" },
   { value: "textarea", label: "Texto largo" },
@@ -170,7 +185,9 @@ const FieldRow = ({
   onChangeMaxItems,
   onChangeAllowedServices,
   onChangePlaceholder,
+  onChangeDocKey,
   onDelete,
+  isExistingForm = false,
 }: {
   field: FormField;
   onToggleRequired: () => void;
@@ -186,10 +203,14 @@ const FieldRow = ({
   onChangeMaxItems: (n: number) => void;
   onChangeAllowedServices: (ids: string[]) => void;
   onChangePlaceholder: (v: string) => void;
+  onChangeDocKey: (v: string) => void;
   onDelete: () => void;
+  isExistingForm?: boolean;
 }) => {
   const Icon = typeIcon(field.type);
   const [pendingDelete, setPendingDelete] = useState(false);
+  const [showDocKey, setShowDocKey] = useState(false);
+  const [docKeyEditState, setDocKeyEditState] = useState<"idle" | "warning" | "editing">("idle");
 
   return (
     <div className="bg-card border rounded-2xl p-4 space-y-3">
@@ -282,6 +303,97 @@ const FieldRow = ({
           />
         </div>
       )}
+
+      {/* doc_key toggle + panel — only for super admin onboarding form */}
+      {isExistingForm && <div className="pl-11">
+        <button
+          type="button"
+          onClick={() => setShowDocKey(v => !v)}
+          className={`flex items-center gap-1.5 text-[10px] font-medium transition-colors ${
+            showDocKey
+              ? "text-primary"
+              : field.doc_key
+              ? "text-muted-foreground hover:text-foreground"
+              : "text-muted-foreground/40 hover:text-muted-foreground"
+          }`}
+        >
+          <Key size={10} />
+          {field.doc_key ? <span className="font-mono">{field.doc_key}</span> : "doc_key"}
+          <ChevronDown size={9} className={`transition-transform ${showDocKey ? "rotate-180" : ""}`} />
+        </button>
+
+        {showDocKey && (
+          <div className="mt-1.5 space-y-1.5">
+            {/* Read-only view with edit button */}
+            {(field.locked || docKeyEditState === "idle") && (
+              <div className="flex items-center gap-1.5">
+                <span className={`text-[11px] font-mono flex-1 px-2.5 py-1 rounded-lg border bg-muted text-muted-foreground ${!field.doc_key ? "italic" : ""}`}>
+                  {field.doc_key || "sin asignar"}
+                </span>
+                {!field.locked && (
+                  <button
+                    type="button"
+                    onClick={() => setDocKeyEditState("warning")}
+                    className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                    title="Editar doc_key"
+                  >
+                    <Pencil size={11} />
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Warning step — only for existing forms */}
+            {!field.locked && docKeyEditState === "warning" && (
+              <div className="rounded-xl border border-amber-300/60 dark:border-amber-700/40 bg-amber-50/60 dark:bg-amber-950/20 px-3 py-2.5 space-y-2">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle size={13} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <p className="text-[11px] text-amber-800 dark:text-amber-300 leading-snug">
+                    Cambiar el <span className="font-mono font-semibold">doc_key</span> puede romper documentos ya generados para este formulario.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDocKeyEditState("editing")}
+                    className="px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[11px] font-semibold hover:bg-amber-700 transition-colors"
+                  >
+                    Entiendo, editar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDocKeyEditState("idle")}
+                    className="px-2.5 py-1 rounded-lg border text-[11px] font-medium text-muted-foreground hover:bg-secondary transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Editable input */}
+            {!field.locked && docKeyEditState === "editing" && (
+              <div className="flex items-center gap-1.5">
+                <Input
+                  value={field.doc_key ?? ""}
+                  onChange={(e) => onChangeDocKey(slugifyDocKey(e.target.value))}
+                  placeholder="ej: business_name, city…"
+                  className="h-7 text-[11px] font-mono flex-1"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setDocKeyEditState("idle")}
+                  className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                  title="Cerrar"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>}
 
       {/* Select options + multi-select toggle */}
       {field.type === "select" && (
@@ -510,7 +622,7 @@ const FieldRow = ({
 };
 
 // ─── Form Builder ───────────────────────────────────────────────────────────
-const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () => void, onUpdate: (f: FormConfig) => void }) => {
+const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false }: { form: FormConfig, onBack: () => void, onUpdate: (f: FormConfig) => void, showDocKeys?: boolean }) => {
   const [fields, setFields]       = useState<FormField[]>(form.fields);
   const [name, setName]           = useState(form.name);
   const [editingName, setEditingName] = useState(false);
@@ -563,10 +675,14 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
   });
 
   const addField = (sectionId?: string) =>
-    setFields((fs) => [
-      ...fs,
-      { id: `f-${Date.now()}`, label: "Nuevo campo", type: "text", required: false, placeholder: "", options: [], sectionId },
-    ]);
+    setFields((fs) => {
+      const base = slugifyDocKey("Nuevo campo");
+      const existing = new Set(fs.map(f => f.doc_key).filter(Boolean));
+      let docKey = base;
+      let i = 2;
+      while (existing.has(docKey)) docKey = `${base}_${i++}`;
+      return [...fs, { id: `f-${Date.now()}`, label: "Nuevo campo", type: "text", required: false, placeholder: "", options: [], sectionId, doc_key: docKey }];
+    });
 
   const handleSave = async () => {
     // Validate: form must have at least 1 real field (heading doesn't count)
@@ -740,6 +856,8 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                       update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
                     }
                     onChangePlaceholder={(v) => update(field.id, { placeholder: v })}
+                    onChangeDocKey={(v) => update(field.id, { doc_key: v })}
+                    isExistingForm={showDocKeys}
                     {...subFieldCallbacks(field.id)}
                     {...serviceCallbacks(field.id)}
                     onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
@@ -911,6 +1029,8 @@ const FormBuilder = ({ form, onBack, onUpdate }: { form: FormConfig, onBack: () 
                             update(field.id, { options: (field.options ?? []).filter((_, idx) => idx !== i) })
                           }
                           onChangePlaceholder={(v) => update(field.id, { placeholder: v })}
+                          onChangeDocKey={(v) => update(field.id, { doc_key: v })}
+                          isExistingForm={showDocKeys}
                           {...subFieldCallbacks(field.id)}
                           {...serviceCallbacks(field.id)}
                           onDelete={() => setFields((fs) => fs.filter((f) => f.id !== field.id))}
@@ -1313,8 +1433,15 @@ const CrmForms = () => {
     }
   };
 
+  const { user } = useCurrentUser();
+  const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
+
   if (view === "builder" && selectedForm) {
-    return <FormBuilder form={selectedForm} onBack={() => setView("list")} onUpdate={async (updated) => {
+    return <FormBuilder
+      form={selectedForm}
+      showDocKeys={isSuperAdmin && selectedForm.id === ONBOARDING_FORM_ID}
+      onBack={() => setView("list")}
+      onUpdate={async (updated) => {
       try {
         await updateForm.mutateAsync({
           id: updated.id,
@@ -1338,7 +1465,8 @@ const CrmForms = () => {
       } catch {
         toast.error("Error al guardar formulario");
       }
-    }} />;
+    }}
+    />;
   }
 
   return (

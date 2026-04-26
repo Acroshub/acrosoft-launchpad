@@ -128,6 +128,7 @@ export type CrmCalendarConfig = {
   id: string
   created_at: string
   user_id: string
+  contact_id: string | null
   name: string | null
   description: string | null
   duration_min: number

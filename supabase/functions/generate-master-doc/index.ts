@@ -17,8 +17,8 @@ function respond(body: unknown, status = 200) {
   });
 }
 
-function val(data: Record<string, any>, id: string, fallback = ""): string {
-  const v = data?.[id];
+function val(map: Record<string, any>, key: string, fallback = ""): string {
+  const v = map?.[key];
   if (v === null || v === undefined || v === "") return fallback;
   if (typeof v === "object") return JSON.stringify(v);
   return String(v).trim();
@@ -29,6 +29,47 @@ function formatDate(): string {
     year: "numeric", month: "long", day: "numeric",
   });
 }
+
+/** Flatten fields from form.fields and form.sections[].fields */
+function getAllFields(form: any): any[] {
+  const flat: any[] = [];
+  if (Array.isArray(form.fields)) flat.push(...form.fields);
+  if (Array.isArray(form.sections)) {
+    for (const section of form.sections) {
+      if (Array.isArray(section?.fields)) flat.push(...section.fields);
+    }
+  }
+  return flat;
+}
+
+/**
+ * Build a {doc_key: value} map from form fields.
+ * Any field with a doc_key is included — admin can add new fields freely.
+ */
+function buildDocKeyMap(fields: any[], data: Record<string, any>): Record<string, any> {
+  const map: Record<string, any> = {};
+  for (const field of fields) {
+    if (field.doc_key) {
+      map[field.doc_key] = data[field.id];
+    }
+  }
+  return map;
+}
+
+// doc_keys that are handled explicitly in the prompt — others go to "Información Adicional"
+const KNOWN_DOC_KEYS = new Set([
+  "contact_name", "contact_email", "contact_phone",
+  "business_name", "industry", "city", "years", "description", "history",
+  "selected_service", "logo",
+  "color_primary", "color_secondary", "color_accent", "typography", "visual_style",
+  "ref_1", "ref_2", "ref_3",
+  "services_offered",
+  "ideal_client", "problem", "differentiator",
+  "testimonials", "faq",
+  "gallery", "gallery_2", "gallery_3",
+  "address", "schedule", "instagram", "facebook", "tiktok", "domain",
+  "cta_goal",
+]);
 
 type ServiceType = "landing" | "multipage" | "booking";
 
@@ -43,7 +84,6 @@ function detectServiceType(serviceName: string | null, isSaas: boolean): Service
 function buildSiteStructureInstructions(
   serviceType: ServiceType,
   calendarId: string | null,
-  businessName: string,
 ): string {
   if (serviceType === "landing") {
     return `## 🏗️ Estructura del Sitio Web
@@ -55,8 +95,8 @@ Secciones obligatorias (en este orden):
 2. **Propuesta de Valor** — 3 beneficios clave en tarjetas
 3. **Servicios** — los servicios del negocio con descripción y precio
 4. **Sobre Nosotros** — historia, diferenciador, años de experiencia
-5. **Testimonios** — reseñas de clientes (ver instrucciones de generación abajo)
-6. **FAQ** — preguntas frecuentes (ver instrucciones de generación abajo)
+5. **Testimonios** — reseñas de clientes (ver instrucciones de generación con IA abajo)
+6. **FAQ** — preguntas frecuentes (ver instrucciones de generación con IA abajo)
 7. **Contacto & CTA Final** — formulario, WhatsApp, mapa si aplica
 
 Secciones opcionales según rubro (agrega si aplica):
@@ -70,8 +110,6 @@ Secciones opcionales según rubro (agrega si aplica):
 
 **Tipo: Website Multi-Página** — 6 páginas independientes. Adapta el contenido de cada página al rubro del negocio.
 
-**Páginas obligatorias:**
-
 ### Página 1: Home
 - Hero con headline + CTA principal
 - Propuesta de valor (3 beneficios en tarjetas)
@@ -80,129 +118,99 @@ Secciones opcionales según rubro (agrega si aplica):
 - CTA final + contacto rápido
 
 ### Página 2: Servicios
-- Listado completo de todos los servicios
-- Cada servicio: nombre, descripción, precio, beneficios
+- Listado completo de todos los servicios con descripción, precio y beneficios
 - Marca el servicio estrella visualmente
 - CTA en cada tarjeta (WhatsApp / formulario)
 
 ### Página 3: Sobre Nosotros
-- Historia del negocio
-- Misión, visión y valores
-- Equipo (si aplica) o perfil del fundador
-- Diferenciador competitivo
-- Métricas / logros (si hay)
+- Historia del negocio, misión, visión y valores
+- Diferenciador competitivo y métricas/logros
 
 ### Página 4: Galería / Portfolio
 - Grid de trabajos, proyectos o fotos del negocio
-- Filtros por categoría si aplica
 - Ver instrucciones de generación con IA abajo
 
 ### Página 5: Testimonios
-- Todas las reseñas de clientes
-- Rating visual (estrellas)
-- Botón para dejar reseña en Google
+- Todas las reseñas con rating visual y botón Google Reviews
 - Ver instrucciones de generación con IA abajo
 
 ### Página 6: Contacto
-- Formulario de contacto
-- WhatsApp directo (click-to-chat)
-- Email
-- Dirección + Google Maps embed (si hay dirección)
-- Horario de atención
-- Redes sociales`;
+- Formulario + WhatsApp directo + Email
+- Dirección + Google Maps embed + Horario de atención`;
   }
 
-  // booking
   return `## 🏗️ Estructura del Sitio Web
 
 **Tipo: SaaS Booking System** — 6 páginas de website + 7ª página de reservas integrada con CRM.
 
-**Páginas obligatorias:**
-
 ### Página 1: Home
-- Hero con headline + CTA "Agendar ahora" prominente
-- Propuesta de valor (3 beneficios clave)
-- Preview de servicios con precios
-- Testimonios destacados
-- CTA final de reserva
+- Hero con CTA "Agendar ahora" prominente, propuesta de valor, preview de servicios y testimonios
 
 ### Página 2: Servicios
-- Listado completo con precios y duración de cada servicio
-- CTA "Reservar" en cada tarjeta → link a /agendar
-- Marca el servicio estrella
+- Listado con precios y duración, CTA "Reservar" en cada tarjeta → /agendar
 
 ### Página 3: Sobre Nosotros
-- Historia del negocio y equipo
-- Diferenciador y credenciales
-- Métricas de confianza
+- Historia, diferenciador, credenciales y métricas de confianza
 
 ### Página 4: Galería / Portfolio
-- Trabajos, proyectos o fotos del espacio
 - Ver instrucciones de generación con IA abajo
 
 ### Página 5: Testimonios
-- Reseñas de clientes
-- Botón Google Reviews
+- Reseñas con botón Google Reviews
 - Ver instrucciones de generación con IA abajo
 
 ### Página 6: Contacto
-- Formulario + WhatsApp + Email
-- Dirección + horario de atención
-- Google Maps embed (si hay dirección)
+- Formulario + WhatsApp + Email + Dirección + Google Maps + Horario
 
 ### Página 7: Agendar Cita ⚡ (integración CRM)
-- Usar el componente \`CalendarRenderer\` del proyecto Acrosoft
+- Componente \`CalendarRenderer\` del proyecto Acrosoft
 - **calendar_id del cliente: \`${calendarId ?? "PENDIENTE — asignar al activar cuenta SaaS"}\`**
-- Mostrar disponibilidad en tiempo real
-- Formulario de datos del cliente integrado
-- Confirmación automática por email/WhatsApp`;
+- Disponibilidad en tiempo real, formulario integrado, confirmación automática`;
 }
 
 function buildPrompt(
   contactName: string,
-  data: Record<string, any>,
+  dk: Record<string, any>,   // doc_key map
   serviceName: string | null,
   serviceType: ServiceType,
   serviceBenefits: string[],
   calendarId: string | null,
+  extraFields: { label: string; value: string }[],
 ): string {
-  const businessName  = val(data, "ob-1-1") || contactName;
-  const industry      = val(data, "ob-1-2", "No especificado");
-  const city          = val(data, "ob-1-3", "No especificado");
-  const years         = val(data, "ob-1-4");
-  const description   = val(data, "ob-1-5", "No proporcionada");
-  const history       = val(data, "ob-1-6");
-  const colorPrimary  = val(data, "ob-3-2");
-  const colorSecond   = val(data, "ob-3-3");
-  const colorAccent   = val(data, "ob-3-4");
-  const typography    = val(data, "ob-3-5");
-  const visualStyle   = val(data, "ob-3-6");
-  const ref1          = val(data, "ob-3-7");
-  const ref2          = val(data, "ob-3-8");
-  const ref3          = val(data, "ob-3-9");
-  const idealClient   = val(data, "ob-5-1", "No especificado");
-  const problem       = val(data, "ob-5-2", "No especificado");
-  const differentiator = val(data, "ob-5-3", "No especificado");
-  const whatsapp      = val(data, "ob-0-phone");
-  const email         = val(data, "ob-0-email");
-  const instagram     = val(data, "ob-7-5");
-  const facebook      = val(data, "ob-7-6");
-  const tiktok        = val(data, "ob-7-7");
-  const address       = val(data, "ob-7-3");
-  const domain        = val(data, "ob-7-8");
-  const ctaGoal       = val(data, "ob-cta");
+  const businessName   = val(dk, "business_name") || contactName;
+  const industry       = val(dk, "industry", "No especificado");
+  const city           = val(dk, "city", "No especificado");
+  const years          = val(dk, "years");
+  const description    = val(dk, "description", "No proporcionada");
+  const history        = val(dk, "history");
+  const colorPrimary   = val(dk, "color_primary");
+  const colorSecond    = val(dk, "color_secondary");
+  const colorAccent    = val(dk, "color_accent");
+  const typography     = val(dk, "typography");
+  const visualStyle    = val(dk, "visual_style");
+  const idealClient    = val(dk, "ideal_client", "No especificado");
+  const problem        = val(dk, "problem", "No especificado");
+  const differentiator = val(dk, "differentiator", "No especificado");
+  const whatsapp       = val(dk, "contact_phone");
+  const email          = val(dk, "contact_email");
+  const instagram      = val(dk, "instagram");
+  const facebook       = val(dk, "facebook");
+  const tiktok         = val(dk, "tiktok");
+  const address        = val(dk, "address");
+  const domain         = val(dk, "domain");
+  const ctaGoal        = val(dk, "cta_goal");
+  const refs           = [val(dk, "ref_1"), val(dk, "ref_2"), val(dk, "ref_3")].filter(Boolean).join("\n") || "Ninguna";
 
-  // Schedule — can be object from schedule field
-  const scheduleRaw = data?.["ob-7-4"];
+  const scheduleRaw = dk["schedule"];
   const schedule = scheduleRaw
     ? (typeof scheduleRaw === "string" ? scheduleRaw : JSON.stringify(scheduleRaw))
     : "No especificado";
 
-  // Repeatable: services offered
-  const services = data?.["ob-4-1"];
+  // Services offered (repeatable)
+  const servicesOffered = dk["services_offered"];
   let servicesText = "No especificados";
-  if (Array.isArray(services) && services.length > 0) {
-    servicesText = services
+  if (Array.isArray(servicesOffered) && servicesOffered.length > 0) {
+    servicesText = servicesOffered
       .map((s: any, i: number) => {
         const name  = s?.["ob-4-1-1"] || `Servicio ${i + 1}`;
         const desc  = s?.["ob-4-1-2"] || "";
@@ -213,58 +221,60 @@ function buildPrompt(
       .join("\n");
   }
 
-  // Repeatable: testimonials
-  const testimonials = data?.["ob-5-4"];
-  const hasTestimonials = Array.isArray(testimonials) && testimonials.length > 0;
-  let testimonialsText = "⚠️ NO PROPORCIONADOS — ver instrucciones de generación IA abajo";
+  // Testimonials (repeatable)
+  const testimonialsRaw = dk["testimonials"];
+  const hasTestimonials = Array.isArray(testimonialsRaw) && testimonialsRaw.length > 0;
+  let testimonialsText = "⚠️ NO PROPORCIONADOS — ver instrucciones de generación con IA abajo";
   if (hasTestimonials) {
-    testimonialsText = testimonials
+    testimonialsText = testimonialsRaw
       .map((t: any) => `"${t?.["ob-5-4-2"] || ""}" — ${t?.["ob-5-4-1"] || "Cliente"}`)
       .join("\n");
   }
 
-  // Repeatable: FAQ
-  const faq = data?.["ob-5-5"];
-  const hasFaq = Array.isArray(faq) && faq.length > 0;
-  let faqText = "⚠️ NO PROPORCIONADAS — ver instrucciones de generación IA abajo";
+  // FAQ (repeatable)
+  const faqRaw = dk["faq"];
+  const hasFaq = Array.isArray(faqRaw) && faqRaw.length > 0;
+  let faqText = "⚠️ NO PROPORCIONADAS — ver instrucciones de generación con IA abajo";
   if (hasFaq) {
-    faqText = faq
+    faqText = faqRaw
       .map((q: any) => `P: ${q?.["ob-5-5-1"] || ""}\nR: ${q?.["ob-5-5-2"] || ""}`)
       .join("\n\n");
   }
 
   const planLabel = serviceName || "No especificado";
-  const references = [ref1, ref2, ref3].filter(Boolean).join("\n") || "Ninguna";
-
-  const benefitsSection = serviceBenefits.length > 0
-    ? `\n━━━━━━━━━━━━━━━━━━━━ CARACTERÍSTICAS DEL PLAN CONTRATADO ━━━━━━━━━━━━━━━━━━━━\n\nEl plan "${planLabel}" incluye las siguientes características que DEBEN estar reflejadas en el sitio y en las instrucciones técnicas:\n${serviceBenefits.map(b => `• ${b}`).join("\n")}`
-    : "";
-
-  const ctaSection = ctaGoal
-    ? `\n━━━━━━━━━━━━━━━━━━━━ OBJETIVO DE CONVERSIÓN DEL CLIENTE ━━━━━━━━━━━━━━━━━━━━\n\nEl cliente eligió como objetivo principal de su sitio: **${ctaGoal}**\nEste CTA debe ser el eje central del diseño — el Hero, el copy y la estructura deben orientarse a lograr esta acción.`
-    : "";
-
-  const siteStructure = buildSiteStructureInstructions(serviceType, calendarId, businessName);
-
-  // Instructions for AI-generated content (no placeholders — Claude Code generates real content)
-  const missingContentInstructions: string[] = [];
-  if (!hasTestimonials) {
-    missingContentInstructions.push(`**Testimonios (el cliente no los proporcionó):** Usa Claude Code para generar 3–5 testimonios realistas y creíbles para el rubro "${industry}" en "${city}". Los testimonios deben sonar auténticos: incluir nombre hispano genérico, valoración de 5 estrellas y un comentario específico sobre el servicio. Incluir también un botón "Déjanos tu reseña en Google" (el cliente configura el link después).`);
-  }
-  if (!hasFaq) {
-    missingContentInstructions.push(`**FAQ (el cliente no las proporcionó):** Usa Claude Code para generar 5–7 preguntas frecuentes típicas y relevantes para el rubro "${industry}". Basar en: precios, tiempo de entrega/servicio, formas de pago, cobertura, cómo contratar. El contenido generado debe ser directamente usable, no genérico.`);
-  }
-  if (serviceType !== "landing") {
-    missingContentInstructions.push(`**Galería / Portfolio (el cliente no cargó imágenes):** Usa Claude Code para generar la estructura del componente gallery con datos de ejemplo apropiados para el rubro "${industry}". Describe qué tipo de imágenes reales debería proveer el cliente para reemplazarlos (ej: fotos de trabajos terminados, del local, del equipo, etc.).`);
-  }
-
-  const missingSection = missingContentInstructions.length > 0
-    ? `\n━━━━━━━━━━━━━━━━━━━━ CONTENIDO PENDIENTE (GENERAR CON IA) ━━━━━━━━━━━━━━━━━━━━\n\nEl cliente no proporcionó los siguientes contenidos. El desarrollador debe generarlos:\n\n${missingContentInstructions.join("\n\n")}`
-    : "";
-
   const serviceTypeLabel = serviceType === "landing" ? "Landing Page"
     : serviceType === "multipage" ? "Website Multi-Página"
     : "SaaS Booking System";
+
+  const benefitsSection = serviceBenefits.length > 0
+    ? `\n━━━━━━━━━━━━━━━━━━━━ CARACTERÍSTICAS DEL PLAN CONTRATADO ━━━━━━━━━━━━━━━━━━━━\n\nEl plan "${planLabel}" incluye las siguientes características que DEBEN estar reflejadas en el sitio:\n${serviceBenefits.map(b => `• ${b}`).join("\n")}`
+    : "";
+
+  const ctaSection = ctaGoal
+    ? `\n━━━━━━━━━━━━━━━━━━━━ OBJETIVO DE CONVERSIÓN DEL CLIENTE ━━━━━━━━━━━━━━━━━━━━\n\nEl cliente eligió como objetivo principal de su sitio: **${ctaGoal}**\nEste CTA debe ser el eje central del diseño — Hero, copy y estructura deben orientarse a lograr esta acción.`
+    : "";
+
+  // Extra fields added by admin (unknown doc_keys)
+  const extraSection = extraFields.length > 0
+    ? `\n━━━━━━━━━━━━━━━━━━━━ INFORMACIÓN ADICIONAL ━━━━━━━━━━━━━━━━━━━━\n\nCampos extra del formulario — incluirlos en el documento donde aplique:\n${extraFields.map(f => `• ${f.label}: ${f.value}`).join("\n")}`
+    : "";
+
+  const missingContentInstructions: string[] = [];
+  if (!hasTestimonials) {
+    missingContentInstructions.push(`**Testimonios (el cliente no los proporcionó):** Genera 3–5 testimonios realistas y creíbles para el rubro "${industry}" en "${city}". Nombres hispanos genéricos, valoración de 5 estrellas, comentario específico del servicio. Incluir botón "Déjanos tu reseña en Google" (el cliente configura el link después).`);
+  }
+  if (!hasFaq) {
+    missingContentInstructions.push(`**FAQ (el cliente no las proporcionó):** Genera 5–7 preguntas frecuentes para el rubro "${industry}". Basar en: precios, tiempo de entrega, formas de pago, cobertura, cómo contratar. Contenido directamente usable, no genérico.`);
+  }
+  if (serviceType !== "landing") {
+    missingContentInstructions.push(`**Galería / Portfolio (sin imágenes):** Genera la estructura del componente gallery con datos de ejemplo para el rubro "${industry}". Describe qué imágenes reales debería proveer el cliente.`);
+  }
+
+  const missingSection = missingContentInstructions.length > 0
+    ? `\n━━━━━━━━━━━━━━━━━━━━ CONTENIDO A GENERAR CON IA ━━━━━━━━━━━━━━━━━━━━\n\nEl cliente no proporcionó los siguientes contenidos. El desarrollador debe generarlos con Claude Code:\n\n${missingContentInstructions.join("\n\n")}`
+    : "";
+
+  const siteStructure = buildSiteStructureInstructions(serviceType, calendarId);
 
   return `Eres un experto en diseño y desarrollo web para pequeños negocios del mercado hispano.
 Tu misión: generar un DOCUMENTO MAESTRO en Markdown para que un desarrollador use Claude Code y construya el sitio web de este cliente.
@@ -287,7 +297,7 @@ ${history || "No proporcionada"}
 
 Diferenciador competitivo:
 ${differentiator}
-${benefitsSection}${ctaSection}
+${benefitsSection}${ctaSection}${extraSection}
 
 ━━━━━━━━━━━━━━━━━━━━ IDENTIDAD VISUAL ━━━━━━━━━━━━━━━━━━━━
 
@@ -329,11 +339,11 @@ Dominio deseado: ${domain || "No especificado"}
 
 ━━━━━━━━━━━━━━━━━━━━ SITIOS DE REFERENCIA ━━━━━━━━━━━━━━━━━━━━
 
-${references}
+${refs}
 
 ━━━━━━━━━━━━━━━━━━━━ INSTRUCCIONES PARA GENERAR EL DOCUMENTO ━━━━━━━━━━━━━━━━━━━━
 
-Genera el Documento Maestro completo en Markdown con EXACTAMENTE estas secciones (usa los emojis tal cual):
+Genera el Documento Maestro completo en Markdown con EXACTAMENTE estas secciones:
 
 # Documento Maestro — ${businessName}
 *Proyecto Web · ${serviceTypeLabel} · Acrosoft Labs · ${formatDate()}*
@@ -341,31 +351,31 @@ Genera el Documento Maestro completo en Markdown con EXACTAMENTE estas secciones
 ---
 
 ## 🎯 Resumen del Proyecto
-Describe el tipo de proyecto (${serviceTypeLabel}), el objetivo principal del sitio${ctaGoal ? ` (el cliente eligió: "${ctaGoal}")` : ""}, la propuesta de valor del negocio y qué va a lograr el sitio para el cliente. Sé específico y motivador — este párrafo es lo primero que lee el desarrollador.
+Describe el tipo de proyecto (${serviceTypeLabel}), el objetivo principal${ctaGoal ? ` (el cliente eligió: "${ctaGoal}")` : ""}, la propuesta de valor y qué logrará el sitio para el cliente. Sé específico y motivador.
 
 ## 🏢 El Negocio
-(Toda la info del negocio: descripción, historia, diferenciador, años de operación, rubro e industria.)
+(Descripción, historia, diferenciador, años de operación, rubro e industria.)
 
 ## 🎨 Identidad Visual
-(Tabla con los colores en formato HEX — si no se proporcionaron valores HEX exactos, sugiere HEX aproximados basados en el nombre del color dado. Tipografía recomendada de Google Fonts. Estilo visual. Tono de comunicación recomendado para este negocio y su audiencia.)
+(Tabla con colores en HEX — si no se dieron HEX exactos, sugiere aproximados basados en el nombre del color. Tipografía de Google Fonts. Estilo visual. Tono de comunicación recomendado.)
 
 ## 📦 Servicios a Mostrar
-(Lista detallada de todos los servicios con descripción y precios. Marca el servicio estrella. Incluye el tiempo estimado de entrega/duración si aplica al rubro.)
+(Lista detallada con descripción, precios y duración. Marca el servicio estrella.)
 
 ## 👥 Audiencia & Posicionamiento
-(Cliente ideal, problema que resuelven, diferenciador. Agrega notas sobre el tono de voz recomendado para conectar con esa audiencia específica.)
+(Cliente ideal, problema, diferenciador. Tono de voz recomendado para esa audiencia.)
 
 ## 💬 Testimonios
-(Si los hay, formatearlos como tarjetas con nombre y rating. Si no hay, incluir los testimonios generados con IA — contenido real y usable, no placeholders.)
+(Si los hay, formatear como tarjetas con rating. Si no hay, generar con IA — contenido real y usable.)
 
 ## ❓ FAQ
-(Si los hay, formatearlos. Si no hay, incluir las FAQ generadas con IA — contenido real y usable, no placeholders.)
+(Si los hay, formatear. Si no hay, generar con IA — contenido real y usable.)
 
 ## 🌐 Contacto & Redes Sociales
-(Todos los datos de contacto y redes. Formatear como lista limpia con iconos.)
+(Lista limpia con iconos de todos los datos de contacto y redes.)
 
 ## 🔗 Sitios de Referencia
-(Listar como links clicables en Markdown: [dominio](url))
+(Links clicables en Markdown: [dominio](url))
 
 ${siteStructure}
 
@@ -373,22 +383,22 @@ ${siteStructure}
 ⚡ GENERA ESTO CON INTELIGENCIA — instrucciones técnicas profesionales y accionables:
 
 1. **Stack:** React + Vite + TypeScript + Tailwind CSS + shadcn/ui
-2. **Paleta de colores:** implementar en \`tailwind.config.ts\` con los HEX exactos (generar si no se proporcionaron)
-3. **Tipografía:** qué Google Fonts usar, cómo configurarlas en Tailwind
-4. **Estructura de archivos:** componentes clave con sus nombres de archivo
-5. **Bilingüismo:** el sitio debe ser español/inglés — estrategia recomendada (i18n con react-i18next, toggle, o separado)
-6. **Copy & tono:** basado en el negocio, rubro y audiencia ideal — cómo hablar al cliente ideal
-7. **Objetivo de conversión principal:** ${ctaGoal || "definir según rubro"} — cómo el diseño y el copy deben orientarse a esta acción
-8. **Características del plan a implementar:** ${serviceBenefits.length > 0 ? serviceBenefits.join(", ") : "según el plan contratado"}
-9. **SEO:** keywords principales para el rubro + ciudad, estructura de headings, schema markup recomendado
-10. **Contenido generado con IA:** para cada sección sin datos del cliente (testimonios, FAQ, galería), el contenido generado debe ser directamente implementable — no placeholders, sino contenido real que el cliente puede aprobar o ajustar
-${serviceType === "booking" ? `11. **Integración CalendarRenderer:** el componente \`CalendarRenderer\` recibe \`calendarId="${calendarId ?? "ID_PENDIENTE"}"\` como prop — importar desde el proyecto Acrosoft CRM. El cliente gestiona su disponibilidad desde su panel.` : ""}
+2. **Paleta de colores:** implementar en \`tailwind.config.ts\` con HEX exactos
+3. **Tipografía:** Google Fonts a usar y cómo configurarlas en Tailwind
+4. **Estructura de archivos:** componentes clave con nombres de archivo
+5. **Bilingüismo:** estrategia ES/EN recomendada (react-i18next, toggle, o separado)
+6. **Copy & tono:** cómo hablar al cliente ideal basado en el negocio y audiencia
+7. **Objetivo de conversión:** ${ctaGoal || "definir según rubro"} — cómo orientar diseño y copy
+8. **Características del plan:** ${serviceBenefits.length > 0 ? serviceBenefits.join(", ") : "según el plan contratado"}
+9. **SEO:** keywords para el rubro + ciudad, headings, schema markup recomendado
+10. **Contenido IA:** instrucciones para implementar cada sección generada con IA
+${serviceType === "booking" ? `11. **CalendarRenderer:** \`calendarId="${calendarId ?? "ID_PENDIENTE"}"\` — importar desde Acrosoft CRM. El cliente gestiona su disponibilidad desde su panel.` : ""}
 
 REGLAS CRÍTICAS:
 - Todo en español (excepto código, términos técnicos y nombres de librerías)
-- Sé ESPECÍFICO — evita consejos genéricos que no aporten valor
-- El documento final debe ser suficientemente detallado para que un desarrollador empiece a construir SIN hacer preguntas adicionales
-- Calidad Anthropic — este documento representa el nivel de excelencia del servicio de Acrosoft Labs`;
+- Sé ESPECÍFICO — sin consejos genéricos
+- Suficientemente detallado para construir SIN preguntas adicionales
+- Calidad Anthropic — representa la excelencia del servicio de Acrosoft Labs`;
 }
 
 Deno.serve(async (req) => {
@@ -401,7 +411,7 @@ Deno.serve(async (req) => {
       return respond({ error: "contact_id and user_id are required" }, 400);
     }
 
-    // ── 1. Load contact (with custom_fields for _saas_calendar_id) ─────────────
+    // ── 1. Load contact ────────────────────────────────────────────────────────
     const { data: contact, error: contactError } = await supabase
       .from("crm_contacts")
       .select("id, name, custom_fields")
@@ -412,11 +422,38 @@ Deno.serve(async (req) => {
       return respond({ error: "Contact not found" }, 404);
     }
 
-    // ── 2. Resolve service info from ob-2-1 (selected plan) ───────────────────
+    // ── 2. Load form schema and build doc_key map ──────────────────────────────
+    let docKeyMap: Record<string, any> = {};
+    let allFormFields: any[] = [];
+
+    if (form_id) {
+      const { data: form } = await supabase
+        .from("crm_forms")
+        .select("fields, sections")
+        .eq("id", form_id)
+        .single();
+      if (form) {
+        allFormFields = getAllFields(form);
+        docKeyMap = buildDocKeyMap(allFormFields, data ?? {});
+      }
+    }
+
+    // Collect extra fields (admin added with unknown doc_keys) for prompt
+    const extraFields: { label: string; value: string }[] = [];
+    for (const field of allFormFields) {
+      if (field.doc_key && !KNOWN_DOC_KEYS.has(field.doc_key)) {
+        const v = docKeyMap[field.doc_key];
+        if (v !== null && v !== undefined && v !== "" && !Array.isArray(v)) {
+          extraFields.push({ label: field.label ?? field.doc_key, value: String(v) });
+        }
+      }
+    }
+
+    // ── 3. Resolve service info ────────────────────────────────────────────────
     let serviceName: string | null = null;
     let serviceBenefits: string[] = [];
     let isSaas = false;
-    const selectedServiceId = data?.["ob-2-1"];
+    const selectedServiceId = docKeyMap["selected_service"] ?? data?.["ob-2-1"];
     if (selectedServiceId && typeof selectedServiceId === "string") {
       const { data: svc } = await supabase
         .from("crm_services")
@@ -432,7 +469,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── 3. Detect service type and resolve calendar_id ─────────────────────────
+    // ── 4. Detect service type and calendar_id ─────────────────────────────────
     const serviceType = detectServiceType(serviceName, isSaas);
     let calendarId: string | null = null;
     if (serviceType === "booking") {
@@ -440,20 +477,20 @@ Deno.serve(async (req) => {
       calendarId = cf?.["_saas_calendar_id"] ?? null;
     }
 
-    // ── 4. Call Anthropic API ──────────────────────────────────────────────────
+    // ── 5. Call Anthropic API ──────────────────────────────────────────────────
     const anthropicKey = Deno.env.get("ANTHROPIC_API_KEY");
     if (!anthropicKey) {
-      console.error("ANTHROPIC_API_KEY is not set — skipping document generation");
       return respond({ error: "ANTHROPIC_API_KEY not configured" }, 503);
     }
 
     const prompt = buildPrompt(
       contact.name,
-      data ?? {},
+      docKeyMap,
       serviceName,
       serviceType,
       serviceBenefits,
       calendarId,
+      extraFields,
     );
 
     const aiRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -477,12 +514,10 @@ Deno.serve(async (req) => {
 
     const aiData = await aiRes.json();
     const mdContent: string = aiData.content?.[0]?.text ?? "";
-
     if (!mdContent) throw new Error("Empty response from Anthropic API");
 
-    // ── 5. Upload .md to Storage ───────────────────────────────────────────────
+    // ── 6. Upload .md to Storage ───────────────────────────────────────────────
     const filePath = `${user_id}/${contact_id}.md`;
-
     const { error: uploadError } = await supabase.storage
       .from("master-docs")
       .upload(filePath, new Blob([mdContent], { type: "text/markdown; charset=utf-8" }), {
@@ -492,13 +527,9 @@ Deno.serve(async (req) => {
 
     if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
 
-    // ── 6. Update contact with doc path ───────────────────────────────────────
-    await supabase
-      .from("crm_contacts")
-      .update({ master_doc_url: filePath })
-      .eq("id", contact_id);
+    // ── 7. Update contact + log ────────────────────────────────────────────────
+    await supabase.from("crm_contacts").update({ master_doc_url: filePath }).eq("id", contact_id);
 
-    // ── 7. Log ─────────────────────────────────────────────────────────────────
     try {
       await supabase.from("crm_logs").insert({
         user_id,

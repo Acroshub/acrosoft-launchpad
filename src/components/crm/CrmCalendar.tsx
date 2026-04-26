@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import CrmCalendarConfig from "./CrmCalendarConfig";
-import { useAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment, useBlockedSlots, useCreateBlockedSlot, useDeleteBlockedSlot, useContacts, useCalendars, useForms, useCreateForm, useUpdateCalendarConfig } from "@/hooks/useCrmData";
+import { useAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment, useBlockedSlots, useCreateBlockedSlot, useUpdateBlockedSlot, useDeleteBlockedSlot, useContacts, useCalendars, useForms, useCreateForm, useUpdateCalendarConfig } from "@/hooks/useCrmData";
 import type { CrmCalendarConfig as CalendarData } from "@/lib/supabase";
 import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
 import { toast } from "sonner";
@@ -404,8 +404,8 @@ const EmptySlot = () => (
 
 // DAY VIEW
 const DayView = ({
-  current, onSelect, selected, onSlotClick, blocked, appointments, availability, interval,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
+  current, onSelect, selected, onSlotClick, onBlockClick, blocked, appointments, availability, interval,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; onBlockClick: (blk: BlockedSlot) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
   const key = dateKey(current);
   const dayAppts = appointments.filter((a) => a.date === key);
   const dow = current.getDay();
@@ -445,13 +445,18 @@ const DayView = ({
                   ))}
                 </div>
               ) : blk ? (
-                <div className="flex-1 rounded-xl px-3 py-2 bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 flex items-center gap-2 text-xs">
+                <button
+                  type="button"
+                  onClick={() => onBlockClick(blk)}
+                  className="flex-1 rounded-xl px-3 py-2 bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 flex items-center gap-2 text-xs hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors text-left"
+                >
                   <Coffee size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
                   <span className="font-semibold">{blk.reason || "Reservado"}</span>
                   {blk.type === "hours" && (
                     <span className="ml-auto font-mono text-[11px] text-amber-700/80 dark:text-amber-300/80">{formatBlockRange(blk)}</span>
                   )}
-                </div>
+                  <Pencil size={11} className="ml-1 shrink-0 text-amber-500/60" />
+                </button>
               ) : unavailable ? (
                 <div className="flex-1" />
               ) : (
@@ -472,8 +477,8 @@ const DayView = ({
 
 // WEEK VIEW
 const WeekView = ({
-  current, onSelect, selected, onSlotClick, blocked, appointments, availability, interval,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
+  current, onSelect, selected, onSlotClick, onBlockClick, blocked, appointments, availability, interval,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; onBlockClick: (blk: BlockedSlot) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
   const monday = startOfWeek(current);
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
@@ -550,9 +555,14 @@ const WeekView = ({
                       ))}
                     </div>
                   ) : blk ? (
-                    <div className="w-full h-full flex items-center justify-center text-amber-600 dark:text-amber-400">
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onBlockClick(blk); }}
+                      className="w-full h-full flex items-center justify-center text-amber-600 dark:text-amber-400 hover:bg-amber-200/60 dark:hover:bg-amber-700/40 rounded transition-colors"
+                      title={blk.reason || "Bloqueo"}
+                    >
                       <Coffee size={12} />
-                    </div>
+                    </button>
                   ) : unavailable ? null : (
                     <div className="h-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                       <Plus size={12} className="text-primary/50" />
@@ -688,6 +698,7 @@ const CrmCalendar = () => {
   const updateAppointment = useUpdateAppointment();
   const deleteAppointment = useDeleteAppointment();
   const createBlockedSlot = useCreateBlockedSlot();
+  const updateBlockedSlotMut = useUpdateBlockedSlot();
   const deleteBlockedSlotMut = useDeleteBlockedSlot();
 
   // Map raw appointments to the shape the view components expect.
@@ -756,6 +767,7 @@ const CrmCalendar = () => {
 
   const [blockModal, setBlockModal] = useState<{
     open: boolean;
+    editingId?: string;
     type: "hours" | "fullday" | "range";
     date: string;
     startHour: number;
@@ -774,6 +786,20 @@ const CrmCalendar = () => {
     endHour: Math.min(hourMin + 1, hourMax - 1), endMinute: 0,
     startDate: dateKey(current), endDate: dateKey(current),
     reason: "",
+  });
+
+  const openEditBlockModal = (blk: BlockedSlot) => setBlockModal({
+    open: true,
+    editingId: blk.id,
+    type: blk.type,
+    date: blk.date ?? dateKey(current),
+    startHour: blk.startHour ?? hourMin,
+    startMinute: blk.startMinute ?? 0,
+    endHour: blk.endHour ?? Math.min(hourMin + 1, hourMax - 1),
+    endMinute: blk.endMinute ?? 0,
+    startDate: blk.startDate ?? dateKey(current),
+    endDate: blk.endDate ?? dateKey(current),
+    reason: blk.reason ?? "",
   });
 
   const closeBlockModal = () => setBlockModal(null);
@@ -801,23 +827,29 @@ const CrmCalendar = () => {
       }
     }
 
+    const payload = {
+      type: blockModal.type,
+      reason: blockModal.reason || null,
+      date: blockModal.type !== "range" ? blockModal.date : null,
+      start_hour:   blockModal.type === "hours" ? blockModal.startHour   : null,
+      start_minute: blockModal.type === "hours" ? blockModal.startMinute : 0,
+      end_hour:     blockModal.type === "hours" ? blockModal.endHour     : null,
+      end_minute:   blockModal.type === "hours" ? blockModal.endMinute   : 0,
+      range_start: blockModal.type === "range" ? blockModal.startDate : null,
+      range_end:   blockModal.type === "range" ? blockModal.endDate   : null,
+    };
+
     try {
-      await createBlockedSlot.mutateAsync({
-        calendar_id: selectedCalendar.id,
-        type: blockModal.type,
-        reason: blockModal.reason || null,
-        date: blockModal.type !== "range" ? blockModal.date : null,
-        start_hour:   blockModal.type === "hours" ? blockModal.startHour   : null,
-        start_minute: blockModal.type === "hours" ? blockModal.startMinute : 0,
-        end_hour:     blockModal.type === "hours" ? blockModal.endHour     : null,
-        end_minute:   blockModal.type === "hours" ? blockModal.endMinute   : 0,
-        range_start: blockModal.type === "range" ? blockModal.startDate : null,
-        range_end:   blockModal.type === "range" ? blockModal.endDate   : null,
-      });
-      toast.success("Tiempo reservado");
+      if (blockModal.editingId) {
+        await updateBlockedSlotMut.mutateAsync({ id: blockModal.editingId, ...payload });
+        toast.success("Bloqueo actualizado");
+      } else {
+        await createBlockedSlot.mutateAsync({ calendar_id: selectedCalendar.id, ...payload });
+        toast.success("Tiempo reservado");
+      }
       closeBlockModal();
     } catch {
-      toast.error("Error al reservar tiempo");
+      toast.error("Error al guardar bloqueo");
     }
   };
 
@@ -1140,8 +1172,8 @@ const CrmCalendar = () => {
       <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6" : ""}`}>
         {/* Calendar view */}
         <div>
-          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
-          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
+          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} onBlockClick={openEditBlockModal} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
+          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} onBlockClick={openEditBlockModal} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
           {view === "month" && <MonthView current={current} onSelect={setSelected} selected={selected} blocked={blockedSlots} appointments={appointments} />}
         </div>
 
@@ -1471,14 +1503,18 @@ const CrmCalendar = () => {
         </DialogContent>
       </Dialog>
 
-      {/* ─── Block Time Modal ─── */}
+      {/* ─── Block Time Modal (create + edit) ─── */}
       <Dialog open={!!blockModal?.open} onOpenChange={(open) => !open && closeBlockModal()}>
         <DialogContent className="sm:max-w-[460px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-amber-700 dark:text-amber-400">
-              <Coffee size={18} /> Reservar tiempo personal
+              <Coffee size={18} /> {blockModal?.editingId ? "Editar bloqueo" : "Reservar tiempo personal"}
             </DialogTitle>
-            <DialogDescription>Reserva un espacio para ti. El calendario no aceptará citas en ese horario, sin modificar tu disponibilidad general.</DialogDescription>
+            <DialogDescription>
+              {blockModal?.editingId
+                ? "Modifica los datos del bloqueo o elimínalo definitivamente."
+                : "Reserva un espacio para ti. El calendario no aceptará citas en ese horario."}
+            </DialogDescription>
           </DialogHeader>
 
           {blockModal && (
@@ -1618,14 +1654,33 @@ const CrmCalendar = () => {
             </div>
           )}
 
-          <DialogFooter>
+          <DialogFooter className="flex-row items-center gap-2 flex-wrap">
+            {blockModal?.editingId && (
+              <Button
+                variant="ghost"
+                onClick={async () => {
+                  if (!blockModal.editingId) return;
+                  try {
+                    await deleteBlockedSlotMut.mutateAsync({ id: blockModal.editingId, name: blockModal.reason || "Bloqueo" });
+                    toast.success("Bloqueo eliminado");
+                    closeBlockModal();
+                  } catch {
+                    toast.error("Error al eliminar bloqueo");
+                  }
+                }}
+                disabled={deleteBlockedSlotMut.isPending}
+                className="h-9 text-destructive hover:text-destructive hover:bg-destructive/10 mr-auto"
+              >
+                <Trash2 size={14} className="mr-1.5" /> Eliminar
+              </Button>
+            )}
             <Button variant="outline" onClick={closeBlockModal} className="h-9">Cancelar</Button>
             <Button
               onClick={saveBlock}
-              disabled={!selectedCalendar || createBlockedSlot.isPending}
+              disabled={!selectedCalendar || createBlockedSlot.isPending || updateBlockedSlotMut.isPending}
               className="h-9 bg-amber-500 hover:bg-amber-600 text-white"
             >
-              <Coffee size={14} className="mr-1.5" /> Reservar tiempo
+              <Coffee size={14} className="mr-1.5" /> {blockModal?.editingId ? "Guardar cambios" : "Reservar tiempo"}
             </Button>
           </DialogFooter>
         </DialogContent>

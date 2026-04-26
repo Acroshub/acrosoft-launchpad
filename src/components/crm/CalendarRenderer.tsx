@@ -531,8 +531,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
           </div>
 
           {/* Days grid */}
-          <div className="grid grid-cols-7 gap-y-1">
-            {Array.from({ length: firstDay }).map((_, i) => <div key={`e-${i}`} />)}
+          <div className="grid grid-cols-7 gap-y-0.5 justify-items-center">
+            {Array.from({ length: firstDay }).map((_, i) => <div key={`e-${i}`} className="w-9 h-9" />)}
             {Array.from({ length: daysInMonth }).map((_, i) => {
               const day     = i + 1;
               const key     = toDateKey(viewYear, viewMonth, day);
@@ -554,8 +554,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
                       : undefined
                   }
                   className={[
-                    "h-12 w-full flex items-center justify-center text-xs rounded-md transition-all",
-                    sel     ? "text-white font-bold"                                    : "",
+                    "w-9 h-9 flex items-center justify-center text-xs rounded-full transition-all",
+                    sel     ? "text-white font-bold shadow-sm"                          : "",
                     !sel && avbl && !isToday ? "text-gray-700 hover:bg-gray-100 cursor-pointer font-medium" : "",
                     !sel && avbl && isToday  ? "font-bold cursor-pointer hover:opacity-80"                  : "",
                     isPast           ? "text-gray-200 cursor-not-allowed"               : "",
