@@ -9,7 +9,7 @@
  *   if (!can("contactos", "read")) return null;
  */
 
-import type { CrmStaff, StaffPermission } from "@/lib/supabase";
+import type { CrmStaff, StaffPermission, StaffItemPermission } from "@/lib/supabase";
 
 export type Section =
   | "mi_negocio_datos"
@@ -20,7 +20,8 @@ export type Section =
   | "calendarios"
   | "formularios"
   | "contactos"
-  | "pipeline";
+  | "pipeline"
+  | "recordatorios";
 
 export type Action = "read" | "edit" | "create" | "delete";
 
@@ -37,6 +38,7 @@ export const SECTION_TO_KEY: Record<Section, PermKey> = {
   formularios:         "perm_formularios",
   contactos:           "perm_contactos",
   pipeline:            "perm_pipeline",
+  recordatorios:       "perm_recordatorios",
 };
 
 /**
@@ -53,6 +55,49 @@ export function buildPermChecker(staffRecord: CrmStaff | null) {
     if (!perm) return false;
     return !!(perm as Record<string, boolean>)[action];
   };
+}
+
+type ItemSection = "calendarios" | "formularios" | "pipeline"
+type ItemKey = `perm_${ItemSection}_items`
+
+const ITEM_KEY: Record<ItemSection, ItemKey> = {
+  calendarios: "perm_calendarios_items",
+  formularios:  "perm_formularios_items",
+  pipeline:     "perm_pipeline_items",
+}
+
+/**
+ * Returns which IDs a staff member can access for a given section.
+ * - null  → no item-level restriction (section perm applies globally)
+ * - string[] → only these IDs are accessible
+ */
+export function getAllowedItemIds(
+  staffRecord: CrmStaff | null,
+  section: ItemSection,
+): string[] | null {
+  if (!staffRecord) return null
+  const items = staffRecord[ITEM_KEY[section]] as Record<string, StaffItemPermission> | null
+  if (items === null || items === undefined) return null
+  return Object.keys(items).filter(id => items[id].read)
+}
+
+/**
+ * Check if a staff member can perform an action on a specific item.
+ */
+export function canAccessItem(
+  staffRecord: CrmStaff | null,
+  section: ItemSection,
+  itemId: string,
+  action: "read" | "edit",
+): boolean {
+  if (!staffRecord) return true
+  const items = staffRecord[ITEM_KEY[section]] as Record<string, StaffItemPermission> | null
+  if (items === null || items === undefined) {
+    return buildPermChecker(staffRecord)(section as Section, action)
+  }
+  const perm = items[itemId]
+  if (!perm) return false
+  return !!perm[action]
 }
 
 /**
@@ -73,8 +118,9 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
     visible.add("business");
   if (can("calendarios",  "read")) visible.add("calendar");
   if (can("formularios",  "read")) visible.add("forms");
-  if (can("contactos",    "read")) visible.add("contacts");
+  if (can("contactos",     "read")) visible.add("contacts");
   if (can("pipeline",     "read")) visible.add("pipeline");
+  if (can("recordatorios","read")) visible.add("reminders");
   // Staff cannot access settings (can't create more staff)
 
   return visible;

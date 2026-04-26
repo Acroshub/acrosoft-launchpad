@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays } from "lucide-react";
-import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
+import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmLog } from "@/hooks/useCrmData";
-import type { CrmStaff, StaffPermission, CrmReminder } from "@/lib/supabase";
+import type { CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -286,11 +286,11 @@ type PermKey = keyof Pick<
   | "perm_formularios"
   | "perm_contactos"
   | "perm_pipeline"
+  | "perm_recordatorios"
 >;
 
 const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermission)[] }[] = [
   { key: "perm_mi_negocio_datos",    label: "Mi Negocio — Datos del negocio",  actions: ["read", "edit"] },
-  { key: "perm_mi_negocio_personal", label: "Mi Negocio — Datos personales",   actions: ["read", "edit"] },
   { key: "perm_servicios",           label: "Servicios",                        actions: ["read", "edit", "create", "delete"] },
   { key: "perm_dashboard",           label: "Dashboard",                        actions: ["read"] },
   { key: "perm_ventas",              label: "Registro de Ventas",               actions: ["read", "edit", "create", "delete"] },
@@ -298,22 +298,16 @@ const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermiss
   { key: "perm_formularios",         label: "Formularios",                      actions: ["read", "edit", "create", "delete"] },
   { key: "perm_contactos",           label: "Contactos",                        actions: ["read", "edit", "create", "delete"] },
   { key: "perm_pipeline",            label: "Pipeline",                         actions: ["read", "edit", "create", "delete"] },
+  { key: "perm_recordatorios",       label: "Recordatorios",                    actions: ["read", "create"] },
 ];
-
-const PERM_ACTION_LABEL: Record<keyof StaffPermission, string> = {
-  read:   "Ver",
-  edit:   "Editar",
-  create: "Crear",
-  delete: "Eliminar",
-};
 
 const DEFAULT_PERMS = (): Pick<CrmStaff,
   "perm_mi_negocio_datos" | "perm_mi_negocio_personal" | "perm_servicios" |
   "perm_dashboard" | "perm_ventas" | "perm_calendarios" | "perm_formularios" |
-  "perm_contactos" | "perm_pipeline"
+  "perm_contactos" | "perm_pipeline" | "perm_recordatorios"
 > => ({
   perm_mi_negocio_datos:    { read: true,  edit: false },
-  perm_mi_negocio_personal: { read: true,  edit: false },
+  perm_mi_negocio_personal: { read: true,  edit: true  }, // always on — staff can always see/edit their own info
   perm_servicios:           { read: true,  edit: false, create: false, delete: false },
   perm_dashboard:           { read: false },
   perm_ventas:              { read: false, edit: false, create: false, delete: false },
@@ -321,62 +315,194 @@ const DEFAULT_PERMS = (): Pick<CrmStaff,
   perm_formularios:         { read: false, edit: false, create: false, delete: false },
   perm_contactos:           { read: false, edit: false, create: false, delete: false },
   perm_pipeline:            { read: false, edit: false, create: false, delete: false },
+  perm_recordatorios:       { read: false, create: false },
 });
 
 // ─── Permission Matrix ────────────────────────────────────────────────────────
 
+type ItemPerms = Record<string, StaffItemPermission>
+
+const ITEM_SECTION_KEYS = new Set<PermKey>(["perm_calendarios", "perm_formularios", "perm_pipeline"]);
+
+type ItemSectionMode = "none" | "ver_todos" | "admin_todos" | "seleccionar";
+
+function getItemMode(perm: StaffPermission, items: ItemPerms | null): ItemSectionMode {
+  if (items !== null) return "seleccionar";
+  if (!perm.read) return "none";
+  if (perm.edit) return "admin_todos";
+  return "ver_todos";
+}
+
+const ITEM_MODE_LABELS: { id: ItemSectionMode; label: string }[] = [
+  { id: "ver_todos",   label: "Ver Todos" },
+  { id: "admin_todos", label: "Administrar Todos" },
+  { id: "seleccionar", label: "Seleccionar" },
+];
+
 const PermMatrix = ({
   perms,
   onChange,
+  itemData,
+  onItemData,
 }: {
   perms: ReturnType<typeof DEFAULT_PERMS>;
   onChange: (perms: ReturnType<typeof DEFAULT_PERMS>) => void;
+  itemData: {
+    calendarios: { items: ItemPerms | null; available: { id: string; name: string }[] };
+    formularios:  { items: ItemPerms | null; available: { id: string; name: string }[] };
+    pipeline:     { items: ItemPerms | null; available: { id: string; name: string }[] };
+  };
+  onItemData: (section: "calendarios" | "formularios" | "pipeline", items: ItemPerms | null) => void;
 }) => {
-  const toggle = (key: PermKey, action: keyof StaffPermission) => {
+  const toggleRead = (key: PermKey) => {
     const current = perms[key] as StaffPermission;
-    const newVal = !current[action];
-
-    // "read" controls access — if disabling read, disable all others too
-    // If enabling a non-read action, also enable read
-    let updated: StaffPermission;
-    if (action === "read" && !newVal) {
-      updated = Object.fromEntries(
-        Object.keys(current).map((k) => [k, false])
-      ) as StaffPermission;
-    } else if (action !== "read" && newVal) {
-      updated = { ...current, read: true, [action]: true };
-    } else {
-      updated = { ...current, [action]: newVal };
-    }
-
+    const updated = current.read
+      ? (Object.fromEntries(Object.keys(current).map((k) => [k, false])) as StaffPermission)
+      : { ...current, read: true };
     onChange({ ...perms, [key]: updated });
+  };
+
+  const toggleAdmin = (key: PermKey, adminActions: (keyof StaffPermission)[]) => {
+    const current = perms[key] as StaffPermission;
+    const allOn = adminActions.every((a) => !!current[a]);
+    const patch = Object.fromEntries(adminActions.map((a) => [a, !allOn]));
+    const updated: StaffPermission = allOn
+      ? { ...current, ...patch }
+      : { ...current, read: true, ...patch };
+    onChange({ ...perms, [key]: updated });
+  };
+
+  const setItemMode = (section: "calendarios" | "formularios" | "pipeline", mode: ItemSectionMode) => {
+    const key = `perm_${section}` as PermKey;
+    const current = getItemMode(perms[key] as StaffPermission, itemData[section].items);
+    // Clicking the active mode toggles it off → "none"
+    const next = current === mode ? "none" : mode;
+    switch (next) {
+      case "none":
+        onChange({ ...perms, [key]: { read: false, edit: false, create: false, delete: false } });
+        onItemData(section, null);
+        break;
+      case "ver_todos":
+        onChange({ ...perms, [key]: { read: true, edit: false, create: false, delete: false } });
+        onItemData(section, null);
+        break;
+      case "admin_todos":
+        onChange({ ...perms, [key]: { read: true, edit: true, create: true, delete: true } });
+        onItemData(section, null);
+        break;
+      case "seleccionar":
+        onChange({ ...perms, [key]: { read: true, edit: false, create: false, delete: false } });
+        onItemData(section, itemData[section].items ?? {});
+        break;
+    }
+  };
+
+  const toggleItemRead = (section: "calendarios" | "formularios" | "pipeline", id: string) => {
+    const current = itemData[section].items ?? {};
+    const perm = current[id];
+    if (perm?.read) {
+      const next = { ...current };
+      delete next[id];
+      onItemData(section, next);
+    } else {
+      onItemData(section, { ...current, [id]: { read: true, edit: false } });
+    }
+  };
+
+  const toggleItemEdit = (section: "calendarios" | "formularios" | "pipeline", id: string) => {
+    const current = itemData[section].items ?? {};
+    const perm = current[id] ?? { read: false, edit: false };
+    onItemData(section, { ...current, [id]: { read: true, edit: !perm.edit } });
   };
 
   return (
     <div className="space-y-1">
       {PERM_SECTIONS.map((section) => {
         const perm = perms[section.key] as StaffPermission;
+        const adminActions = section.actions.filter((a) => a !== "read") as (keyof StaffPermission)[];
+        const isRead  = !!perm.read;
+        const isAdmin = adminActions.length > 0 && adminActions.every((a) => !!perm[a]);
+
+        // Item-expandable sections
+        if (ITEM_SECTION_KEYS.has(section.key)) {
+          const sectionName = section.key.replace("perm_", "") as "calendarios" | "formularios" | "pipeline";
+          const { items, available } = itemData[sectionName];
+          const mode = getItemMode(perm, items);
+          return (
+            <div key={section.key} className="px-3 py-2 rounded-xl hover:bg-secondary/30 transition-colors">
+              <div className="flex items-center gap-3">
+                <span className="text-xs text-foreground flex-1 min-w-0">{section.label}</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  {ITEM_MODE_LABELS.map(({ id, label }) => {
+                    // "Ver Todos" also lights up when "Administrar Todos" is active
+                    const active = mode === id || (id === "ver_todos" && mode === "admin_todos");
+                    return (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => setItemMode(sectionName, id)}
+                        className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all ${
+                          active
+                            ? "bg-primary text-primary-foreground border-primary"
+                            : "border-border text-muted-foreground hover:border-primary/40"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              {mode === "seleccionar" && (
+                <div className="mt-2 ml-2 space-y-0.5 border-l pl-3">
+                  {available.length === 0 ? (
+                    <p className="text-[10px] text-muted-foreground/50 py-1">No hay ítems creados aún.</p>
+                  ) : (
+                  <>
+                  {Object.keys(items ?? {}).filter(id => (items ?? {})[id]?.read).length === 0 && (
+                    <p className="text-[10px] text-amber-500/80 py-0.5">Sin selección = sin acceso a ningún ítem.</p>
+                  )}
+                  {available.map((item) => {
+                    const ip = (items ?? {})[item.id];
+                    const itemRead = !!ip?.read || !!ip?.edit;
+                    const itemEdit = !!ip?.edit;
+                    return (
+                      <div key={item.id} className="flex items-center gap-2 py-0.5">
+                        <span className="text-xs text-foreground/80 flex-1 min-w-0 truncate">{item.name}</span>
+                        <button type="button" onClick={() => toggleItemRead(sectionName, item.id)}
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all ${itemRead ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                          Ver
+                        </button>
+                        <button type="button" onClick={() => toggleItemEdit(sectionName, item.id)}
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all ${itemEdit ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                          Admin
+                        </button>
+                      </div>
+                    );
+                  })}
+                  </>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        }
+
+        // Simple sections
         return (
           <div key={section.key} className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-secondary/30 transition-colors">
             <span className="text-xs text-foreground flex-1 min-w-0">{section.label}</span>
-            <div className="flex items-center gap-1 shrink-0">
-              {section.actions.map((action) => {
-                const checked = !!perm[action];
-                return (
-                  <button
-                    key={action}
-                    type="button"
-                    onClick={() => toggle(section.key, action)}
-                    className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-all ${
-                      checked
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-border text-muted-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    {PERM_ACTION_LABEL[action]}
-                  </button>
-                );
-              })}
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button type="button" onClick={() => toggleRead(section.key)}
+                className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border transition-all ${isRead ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                Ver
+              </button>
+              {adminActions.length > 0 && (
+                <button type="button" onClick={() => toggleAdmin(section.key, adminActions)}
+                  className={`text-[10px] font-semibold px-2.5 py-0.5 rounded-full border transition-all ${isAdmin ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
+                  Administrar
+                </button>
+              )}
             </div>
           </div>
         );
@@ -400,10 +526,14 @@ const StaffDialog = ({
   onSave: (data: Omit<CrmStaff, "id" | "created_at" | "owner_user_id" | "staff_user_id" | "status">) => void;
   isSaving: boolean;
 }) => {
-  const [name, setName]           = useState(initial?.name ?? "");
-  const [email, setEmail]         = useState(initial?.email ?? "");
-  const [description, setDesc]    = useState(initial?.description ?? "");
-  const [perms, setPerms]         = useState<ReturnType<typeof DEFAULT_PERMS>>(
+  const { data: calendars = [] }  = useCalendars();
+  const { data: rawForms = [] }   = useForms();
+  const { data: pipelines = [] }  = usePipelines();
+
+  const [name, setName]        = useState(initial?.name ?? "");
+  const [email, setEmail]      = useState(initial?.email ?? "");
+  const [description, setDesc] = useState(initial?.description ?? "");
+  const [perms, setPerms]      = useState<ReturnType<typeof DEFAULT_PERMS>>(
     initial
       ? {
           perm_mi_negocio_datos:    initial.perm_mi_negocio_datos,
@@ -415,13 +545,38 @@ const StaffDialog = ({
           perm_formularios:         initial.perm_formularios,
           perm_contactos:           initial.perm_contactos,
           perm_pipeline:            initial.perm_pipeline,
+          perm_recordatorios:       initial.perm_recordatorios,
         }
       : DEFAULT_PERMS()
   );
 
+  const [calItems,  setCalItems]  = useState<ItemPerms | null>(initial?.perm_calendarios_items ?? null);
+  const [formItems, setFormItems] = useState<ItemPerms | null>(initial?.perm_formularios_items ?? null);
+  const [pipeItems, setPipeItems] = useState<ItemPerms | null>(initial?.perm_pipeline_items    ?? null);
+
+  const itemData = {
+    calendarios: { items: calItems,  available: calendars.map(c => ({ id: c.id, name: c.name ?? c.slug ?? c.id })) },
+    formularios:  { items: formItems, available: rawForms.map(f => ({ id: f.id, name: f.name })) },
+    pipeline:     { items: pipeItems, available: pipelines.map(p => ({ id: p.id, name: p.name })) },
+  };
+
+  const handleItemData = (section: "calendarios" | "formularios" | "pipeline", items: ItemPerms | null) => {
+    if (section === "calendarios") setCalItems(items);
+    else if (section === "formularios") setFormItems(items);
+    else setPipeItems(items);
+  };
+
   const handleSubmit = () => {
     if (!name.trim() || !email.trim()) return;
-    onSave({ name: name.trim(), email: email.trim(), description: description.trim() || null, ...perms });
+    onSave({
+      name: name.trim(),
+      email: email.trim(),
+      description: description.trim() || null,
+      ...perms,
+      perm_calendarios_items: calItems,
+      perm_formularios_items: formItems,
+      perm_pipeline_items:    pipeItems,
+    });
   };
 
   return (
@@ -455,7 +610,12 @@ const StaffDialog = ({
           <div>
             <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 mb-2">Permisos</p>
             <div className="border rounded-xl overflow-hidden">
-              <PermMatrix perms={perms} onChange={setPerms} />
+              <PermMatrix
+                perms={perms}
+                onChange={setPerms}
+                itemData={itemData}
+                onItemData={handleItemData}
+              />
             </div>
           </div>
         </div>

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { CrmStaff } from '@/lib/supabase'
-import { buildPermChecker, visibleNavItems } from '@/lib/permissions'
+import { buildPermChecker, visibleNavItems, getAllowedItemIds, canAccessItem } from '@/lib/permissions'
 import type { Section, Action } from '@/lib/permissions'
 
 /**
@@ -68,11 +68,19 @@ export const useStaffPermissions = () => {
   const can = (section: Section, action: Action) =>
     buildPermChecker(staffRecord)(section, action)
 
+  const allowedIds = (section: "calendarios" | "formularios" | "pipeline") =>
+    getAllowedItemIds(staffRecord, section)
+
+  const canItem = (section: "calendarios" | "formularios" | "pipeline", itemId: string, action: "read" | "edit") =>
+    canAccessItem(staffRecord, section, itemId, action)
+
   return {
     isStaff:     staffRecord !== null,
     staffRecord,
     ownerUserId: staffRecord?.owner_user_id ?? user?.id ?? null,
     can,
+    allowedIds,
+    canItem,
     navItems:    visibleNavItems(staffRecord),
     loading,
   }

@@ -310,10 +310,16 @@ const SortableServiceItem = ({
   svc,
   handleEdit,
   handleDelete,
+  canEdit,
+  canDelete,
+  canReorder,
 }: {
   svc: CrmService;
   handleEdit: (id: string) => void;
   handleDelete: (id: string) => void;
+  canEdit: boolean;
+  canDelete: boolean;
+  canReorder: boolean;
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: svc.id });
 
@@ -331,15 +337,14 @@ const SortableServiceItem = ({
       className={`bg-card border rounded-2xl p-5 flex items-center justify-between group ${isDragging ? "shadow-lg border-primary/50" : ""} ${!svc.active ? "opacity-60" : ""}`}
     >
       <div
-        className="flex items-center gap-2 cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-foreground transition-colors p-1 -ml-2 select-none"
-        {...attributes}
-        {...listeners}
+        className={`flex items-center gap-2 p-1 -ml-2 select-none transition-colors ${canReorder ? "cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-foreground" : "cursor-default text-muted-foreground/15"}`}
+        {...(canReorder ? { ...attributes, ...listeners } : {})}
       >
         <GripVertical size={18} />
       </div>
       <div
-        className="flex items-center gap-4 cursor-pointer flex-1 ml-2"
-        onClick={() => handleEdit(svc.id)}
+        className={`flex items-center gap-4 flex-1 ml-2 ${canEdit ? "cursor-pointer" : "cursor-default"}`}
+        onClick={() => canEdit && handleEdit(svc.id)}
       >
         <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
           <Briefcase size={18} className="text-primary" />
@@ -391,29 +396,45 @@ const SortableServiceItem = ({
         </div>
       </div>
       <div className="flex items-center gap-1">
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground hover:text-foreground hover:bg-secondary"
-          onClick={() => handleEdit(svc.id)}
-        >
-          <Settings size={15} />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-          onClick={() => handleDelete(svc.id)}
-        >
-          <Trash2 size={14} />
-        </Button>
+        {canEdit && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground hover:bg-secondary"
+            onClick={() => handleEdit(svc.id)}
+          >
+            <Settings size={15} />
+          </Button>
+        )}
+        {canDelete && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => handleDelete(svc.id)}
+          >
+            <Trash2 size={14} />
+          </Button>
+        )}
       </div>
     </div>
   );
 };
 
 // ─── Main: Services Library ─────────────────────────────────────────
-const CrmServices = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
+const CrmServices = ({
+  isSuperAdmin = false,
+  canEdit = true,
+  canCreate = true,
+  canDelete = true,
+  canReorder = true,
+}: {
+  isSuperAdmin?: boolean;
+  canEdit?: boolean;
+  canCreate?: boolean;
+  canDelete?: boolean;
+  canReorder?: boolean;
+}) => {
   const { data: services = [], isLoading } = useServices();
   const createService = useCreateService();
   const updateService = useUpdateService();
@@ -483,6 +504,7 @@ const CrmServices = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   );
 
   const handleDragEnd = async (event: DragEndEvent) => {
+    if (!canReorder) return;
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -537,14 +559,16 @@ const CrmServices = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
               Define los servicios que ofreces a tus clientes
             </p>
           </div>
-          <Button
-            onClick={handleCreateNew}
-            disabled={createService.isPending}
-            className="h-9 rounded-xl text-sm font-medium px-4 gap-2"
-          >
-            {createService.isPending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={16} />}
-            Crear nuevo
-          </Button>
+          {canCreate && (
+            <Button
+              onClick={handleCreateNew}
+              disabled={createService.isPending}
+              className="h-9 rounded-xl text-sm font-medium px-4 gap-2"
+            >
+              {createService.isPending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={16} />}
+              Crear nuevo
+            </Button>
+          )}
         </div>
 
         <div className="grid gap-4">
@@ -571,6 +595,9 @@ const CrmServices = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                       svc={svc}
                       handleEdit={handleEdit}
                       handleDelete={handleDelete}
+                      canEdit={canEdit}
+                      canDelete={canDelete}
+                      canReorder={canReorder}
                     />
                   ))}
                 </div>

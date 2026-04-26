@@ -9,6 +9,7 @@ import {
   Mail, Phone, Tag, User, Users, ListTodo, CalendarDays,
   AlertCircle, AlertTriangle, Minus, Pencil, Building2,
 } from "lucide-react";
+import { useStaffPermissions } from "@/hooks/useAuth";
 import {
   usePipelines, useCreatePipeline, useUpdatePipeline, useDeletePipeline,
   useTasks, useCreateTask, useUpdateTask, useDeleteTask,
@@ -47,9 +48,9 @@ const ContactCard = ({
 }: {
   contact: CrmContact;
   forms: CrmForm[];
-  onDelete: () => void;
-  onDragStart: () => void;
-  onDragOverCard: () => void;
+  onDelete?: () => void;
+  onDragStart?: () => void;
+  onDragOverCard?: () => void;
   onDragEnd: () => void;
 }) => {
   const [expanded, setExpanded] = useState(false);
@@ -76,15 +77,15 @@ const ContactCard = ({
 
   return (
     <div
-      draggable
+      draggable={!!onDragStart}
       onDragStart={onDragStart}
-      onDragOver={(e) => { e.preventDefault(); onDragOverCard(); }}
+      onDragOver={onDragOverCard ? (e) => { e.preventDefault(); onDragOverCard(); } : undefined}
       onDragEnd={onDragEnd}
-      className="bg-card border rounded-xl cursor-grab active:cursor-grabbing hover:shadow-sm transition-all group"
+      className={`bg-card border rounded-xl hover:shadow-sm transition-all group ${onDragStart ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       {/* Always visible */}
       <div className="px-3 pt-3 pb-2.5 flex items-start gap-2">
-        <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 group-hover:text-muted-foreground/60 shrink-0" />
+        {onDragStart && <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 group-hover:text-muted-foreground/60 shrink-0" />}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold truncate leading-tight">{contact.name}</p>
           {contact.email && (
@@ -104,13 +105,15 @@ const ContactCard = ({
           >
             <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
           </button>
-          <button
-            onClick={onDelete}
-            className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-            title="Eliminar del pipeline"
-          >
-            <X size={13} />
-          </button>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+              title="Eliminar del pipeline"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -246,9 +249,9 @@ const TaskCard = ({
   task: CrmTask;
   contact?: CrmContact | null;
   allContacts: CrmContact[];
-  onDelete: () => void;
-  onDragStart: () => void;
-  onDragOverCard: () => void;
+  onDelete?: () => void;
+  onDragStart?: () => void;
+  onDragOverCard?: () => void;
   onDragEnd: () => void;
 }) => {
   const updateTask = useUpdateTask();
@@ -373,15 +376,15 @@ const TaskCard = ({
   // ── View mode ─────────────────────────────────────────────────
   return (
     <div
-      draggable
+      draggable={!!onDragStart}
       onDragStart={onDragStart}
-      onDragOver={(e) => { e.preventDefault(); onDragOverCard(); }}
+      onDragOver={onDragOverCard ? (e) => { e.preventDefault(); onDragOverCard(); } : undefined}
       onDragEnd={onDragEnd}
-      className="bg-card border rounded-xl cursor-grab active:cursor-grabbing hover:shadow-sm transition-all"
+      className={`bg-card border rounded-xl hover:shadow-sm transition-all ${onDragStart ? "cursor-grab active:cursor-grabbing" : ""}`}
     >
       {/* Always-visible header */}
       <div className="px-3 pt-3 pb-2.5 flex items-start gap-2">
-        <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 shrink-0" />
+        {onDragStart && <GripVertical size={12} className="text-muted-foreground/30 mt-0.5 shrink-0" />}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-semibold leading-tight truncate">{task.title}</p>
           {(priority || contact) && (
@@ -419,13 +422,15 @@ const TaskCard = ({
               <ChevronDown size={13} className={`transition-transform duration-200 ${expanded ? "rotate-180" : ""}`} />
             </button>
           )}
-          <button
-            onClick={onDelete}
-            title="Eliminar tarea"
-            className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-          >
-            <X size={13} />
-          </button>
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              title="Eliminar tarea"
+              className="p-1 rounded-md text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+            >
+              <X size={13} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -591,6 +596,9 @@ const ContactsBoard = ({
   forms: CrmForm[];
   onUpdatePipeline: (patch: Partial<CrmPipeline>) => Promise<void>;
 }) => {
+  const { canItem } = useStaffPermissions();
+  const canEdit = canItem("pipeline", pipeline.id, "edit");
+
   const { data: memberships = [] }  = useContactMemberships(pipeline.id);
   const addContactMembership        = useAddContactMembership();
   const removeContactMembership     = useRemoveContactMembership();
@@ -652,7 +660,7 @@ const ContactsBoard = ({
   };
 
   const handleDrop = async (toCol: string) => {
-    if (!dragCard) { resetDrag(); return; }
+    if (!dragCard || !canEdit) { resetDrag(); return; }
     if (dragCard.fromCol === toCol) {
       if (dragOverCardId && dragOverCardId !== dragCard.id) {
         await handleReorder(toCol, dragCard.id, dragOverCardId);
@@ -743,13 +751,13 @@ const ContactsBoard = ({
       <BoardGrid
         columns={columns}
         dragOver={dragOver}
-        onDragOver={setDragOver}
+        onDragOver={canEdit ? setDragOver : () => {}}
         onDrop={handleDrop}
         onDragLeave={() => { setDragOver(null); setDragOverCardId(null); }}
-        onRenameCol={handleRenameCol}
-        onDeleteCol={handleDeleteCol}
-        onAddCol={handleAddCol}
-        onReorderCols={(newOrder) => onUpdatePipeline({ column_names: newOrder })}
+        onRenameCol={canEdit ? handleRenameCol : async () => {}}
+        onDeleteCol={canEdit ? handleDeleteCol : () => {}}
+        onAddCol={canEdit ? handleAddCol : async () => {}}
+        onReorderCols={canEdit ? (newOrder) => onUpdatePipeline({ column_names: newOrder }) : async () => {}}
         getCount={(col) => memberships.filter((m) => m.stage === col).length}
         renderCards={(col) => {
           const sorted = memberships
@@ -770,9 +778,9 @@ const ContactsBoard = ({
                     <ContactCard
                       contact={contact}
                       forms={forms}
-                      onDelete={() => setDeleteTarget(membership.id)}
-                      onDragStart={() => { setDragCard({ id: membership.id, fromCol: col }); setDragOverCardId(null); }}
-                      onDragOverCard={() => setDragOverCardId(membership.id)}
+                      onDelete={canEdit ? () => setDeleteTarget(membership.id) : undefined}
+                      onDragStart={canEdit ? () => { setDragCard({ id: membership.id, fromCol: col }); setDragOverCardId(null); } : undefined}
+                      onDragOverCard={canEdit ? () => setDragOverCardId(membership.id) : undefined}
                       onDragEnd={resetDrag}
                     />
                   </Fragment>
@@ -782,7 +790,7 @@ const ContactsBoard = ({
           );
         }}
         renderCreation={(col) =>
-          addingTo === col ? (
+          canEdit && addingTo === col ? (
             <div className="bg-card border rounded-xl p-3 space-y-2 shadow-sm animate-in fade-in zoom-in-95">
               {availableContacts.length === 0 ? (
                 <p className="text-[10px] text-muted-foreground/60 italic text-center py-1">
@@ -830,14 +838,14 @@ const ContactsBoard = ({
                 </button>
               </div>
             </div>
-          ) : (
+          ) : canEdit ? (
             <button
               onClick={() => { setAddingTo(col); setPickedId(""); setNewNotes(""); }}
               className="w-full flex items-center justify-center gap-1.5 py-2 mt-1 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors border border-transparent hover:border-border/50 border-dashed"
             >
               <Plus size={13} /> Añadir contacto
             </button>
-          )
+          ) : null
         }
       />
     </>
@@ -854,6 +862,9 @@ const TasksBoard = ({
   allContacts: CrmContact[];
   onUpdatePipeline: (patch: Partial<CrmPipeline>) => Promise<void>;
 }) => {
+  const { canItem } = useStaffPermissions();
+  const canEdit = canItem("pipeline", pipeline.id, "edit");
+
   const { data: tasks = [] } = useTasks(pipeline.id);
   const createTask            = useCreateTask();
   const updateTask            = useUpdateTask();
@@ -913,7 +924,7 @@ const TasksBoard = ({
   };
 
   const handleDrop = async (toCol: string) => {
-    if (!dragCard) { resetDrag(); return; }
+    if (!dragCard || !canEdit) { resetDrag(); return; }
     if (dragCard.fromCol === toCol) {
       if (dragOverCardId && dragOverCardId !== dragCard.id) {
         await handleReorder(toCol, dragCard.id, dragOverCardId);
@@ -1007,13 +1018,13 @@ const TasksBoard = ({
       <BoardGrid
         columns={columns}
         dragOver={dragOver}
-        onDragOver={setDragOver}
+        onDragOver={canEdit ? setDragOver : () => {}}
         onDrop={handleDrop}
         onDragLeave={() => { setDragOver(null); setDragOverCardId(null); }}
-        onRenameCol={handleRenameCol}
-        onDeleteCol={handleDeleteCol}
-        onAddCol={handleAddCol}
-        onReorderCols={(newOrder) => onUpdatePipeline({ column_names: newOrder })}
+        onRenameCol={canEdit ? handleRenameCol : async () => {}}
+        onDeleteCol={canEdit ? handleDeleteCol : () => {}}
+        onAddCol={canEdit ? handleAddCol : async () => {}}
+        onReorderCols={canEdit ? (newOrder) => onUpdatePipeline({ column_names: newOrder }) : async () => {}}
         getCount={(col) => tasks.filter((t) => t.stage === col).length}
         renderCards={(col) => {
           const sorted = sortTasks(tasks.filter((t) => t.stage === col));
@@ -1038,9 +1049,9 @@ const TasksBoard = ({
                         : null
                       }
                       allContacts={allContacts}
-                      onDelete={() => setDeleteTarget({ id: task.id, name: task.title })}
-                      onDragStart={() => { setDragCard({ id: task.id, fromCol: col }); setDragOverCardId(null); }}
-                      onDragOverCard={() => setDragOverCardId(task.id)}
+                      onDelete={canEdit ? () => setDeleteTarget({ id: task.id, name: task.title }) : undefined}
+                      onDragStart={canEdit ? () => { setDragCard({ id: task.id, fromCol: col }); setDragOverCardId(null); } : undefined}
+                      onDragOverCard={canEdit ? () => setDragOverCardId(task.id) : undefined}
                       onDragEnd={resetDrag}
                     />
                   </Fragment>
@@ -1050,7 +1061,7 @@ const TasksBoard = ({
           );
         }}
         renderCreation={(col) =>
-          addingTo === col ? (
+          canEdit && addingTo === col ? (
             <div className="bg-card border rounded-xl p-3 space-y-2 shadow-sm animate-in fade-in zoom-in-95">
               <Input
                 autoFocus
@@ -1119,14 +1130,14 @@ const TasksBoard = ({
                 </button>
               </div>
             </div>
-          ) : (
+          ) : canEdit ? (
             <button
               onClick={() => { setAddingTo(col); setNewTitle(""); setNewDesc(""); setNewPri(""); setNewContactId(""); }}
               className="w-full flex items-center justify-center gap-1.5 py-2 mt-1 rounded-xl text-xs text-muted-foreground hover:text-foreground hover:bg-secondary/50 transition-colors border border-transparent hover:border-border/50 border-dashed"
             >
               <Plus size={13} /> Añadir tarea
             </button>
-          )
+          ) : null
         }
       />
     </>
@@ -1366,7 +1377,14 @@ const CreatePipelineDialog = ({
 
 // ─── Main Component ───────────────────────────────────────────
 const CrmPipeline = () => {
-  const { data: pipelines = [], isLoading } = usePipelines();
+  const { allowedIds, can } = useStaffPermissions();
+  const canCreatePipeline = can("pipeline", "create");
+  const canDeletePipeline = can("pipeline", "delete");
+  const { data: allPipelines = [], isLoading } = usePipelines();
+  const allowedPipelineIds = allowedIds("pipeline");
+  const pipelines = allowedPipelineIds
+    ? allPipelines.filter(p => allowedPipelineIds.includes(p.id))
+    : allPipelines;
   const { data: contacts = [] } = useContacts();
   const { data: forms = [] } = useForms();
   const createPipeline = useCreatePipeline();
@@ -1439,9 +1457,11 @@ const CrmPipeline = () => {
             <h1 className="text-xl font-semibold">Pipeline</h1>
             <p className="text-sm text-muted-foreground mt-0.5">Gestiona tus oportunidades y seguimientos</p>
           </div>
-          <Button onClick={() => setShowCreate(true)} className="h-9 rounded-xl text-xs font-medium px-4 gap-2">
-            <Plus size={14} /> Nuevo Pipeline
-          </Button>
+          {canCreatePipeline && (
+            <Button onClick={() => setShowCreate(true)} className="h-9 rounded-xl text-xs font-medium px-4 gap-2">
+              <Plus size={14} /> Nuevo Pipeline
+            </Button>
+          )}
         </div>
 
         {/* Empty state */}
@@ -1454,9 +1474,11 @@ const CrmPipeline = () => {
               <p className="text-sm font-semibold mb-1">No hay pipelines creados</p>
               <p className="text-xs text-muted-foreground">Crea un pipeline para empezar a organizar tus contactos o tareas.</p>
             </div>
-            <Button onClick={() => setShowCreate(true)} className="gap-2 rounded-xl px-5">
-              <Plus size={14} /> Crear primer pipeline
-            </Button>
+            {canCreatePipeline && (
+              <Button onClick={() => setShowCreate(true)} className="gap-2 rounded-xl px-5">
+                <Plus size={14} /> Crear primer pipeline
+              </Button>
+            )}
           </div>
         )}
 
@@ -1499,13 +1521,15 @@ const CrmPipeline = () => {
                               <p className="truncate">{p.name}</p>
                               <p className="text-[10px] text-muted-foreground/70 font-normal">{m.label}</p>
                             </div>
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: p.id, name: p.name }); setDropdownOpen(false); }}
-                              className="p-1 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground/40 transition-colors"
-                              title="Eliminar pipeline"
-                            >
-                              <Trash size={12} />
-                            </button>
+                            {canDeletePipeline && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: p.id, name: p.name }); setDropdownOpen(false); }}
+                                className="p-1 rounded hover:bg-destructive/10 hover:text-destructive text-muted-foreground/40 transition-colors"
+                                title="Eliminar pipeline"
+                              >
+                                <Trash size={12} />
+                              </button>
+                            )}
                           </button>
                         );
                       })}

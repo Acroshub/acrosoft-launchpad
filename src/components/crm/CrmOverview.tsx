@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { useContacts, useAppointments, useServices, useSales, useCreateSale, useUpdateSale, useDeleteSale, useClientAccounts, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmSale } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
-import { useCurrentUser } from "@/hooks/useAuth";
+import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
 const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
@@ -97,6 +97,11 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       closeSaleModal();
     } catch { toast.error("Error al eliminar la venta"); }
   };
+
+  const { can } = useStaffPermissions();
+  const canCreateSale = can("ventas", "create");
+  const canEditSale   = can("ventas", "edit");
+  const canDeleteSale = can("ventas", "delete");
 
   const { data: businessProfile } = useBusinessProfile();
   const upsertProfile = useUpsertBusinessProfile();
@@ -546,7 +551,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       </div>
 
       {/* Registrar Venta */}
-      <div className="bg-card border rounded-2xl p-6">
+      {canCreateSale && <div className="bg-card border rounded-2xl p-6">
         <h2 className="text-sm font-semibold mb-4">Registrar Venta</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           <div className="space-y-1.5">
@@ -637,7 +642,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
         </div>
         <div className="mt-4 space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Notas (Opcional)</label>
-          <Input 
+          <Input
             type="text"
             value={saleNotes}
             onChange={(e) => setSaleNotes(e.target.value)}
@@ -645,7 +650,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
             className="h-10"
           />
         </div>
-      </div>
+      </div>}
 
       {/* Historial de Ventas */}
       <div className="bg-card border rounded-2xl overflow-hidden">
@@ -688,20 +693,20 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                         <td className="px-6 py-3 text-muted-foreground text-xs truncate max-w-[160px]">{sale.notes || "-"}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button
+                            {canEditSale && <button
                               onClick={() => openEditSale(raw)}
                               className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                               title="Editar transacción"
                             >
                               <Pencil size={13} />
-                            </button>
-                            <button
+                            </button>}
+                            {canDeleteSale && <button
                               onClick={() => openDeleteSale(raw)}
                               className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                               title="Eliminar transacción"
                             >
                               <Trash2 size={13} />
-                            </button>
+                            </button>}
                           </div>
                         </td>
                       </tr>

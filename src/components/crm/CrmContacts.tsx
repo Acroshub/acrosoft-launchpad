@@ -18,6 +18,7 @@ import { supabase } from "@/lib/supabase";
 import CreateReminderModal from "@/components/shared/CreateReminderModal";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+import { useStaffPermissions } from "@/hooks/useAuth";
 
 // ─── Inline editable field ────────────────────────────────────────────────────
 const InlineEdit = ({
@@ -26,12 +27,14 @@ const InlineEdit = ({
   placeholder,
   type = "text",
   onSave,
+  readOnly = false,
 }: {
   icon: React.ElementType;
   value: string | null;
   placeholder: string;
   type?: string;
   onSave: (val: string) => Promise<void>;
+  readOnly?: boolean;
 }) => {
   const [editing, setEditing] = useState(false);
   const [val, setVal] = useState(value ?? "");
@@ -73,6 +76,15 @@ const InlineEdit = ({
           className="h-7 text-xs flex-1"
         />
         {saving && <Loader2 size={13} className="animate-spin text-muted-foreground shrink-0" />}
+      </div>
+    );
+  }
+
+  if (readOnly) {
+    return (
+      <div className={`flex items-center gap-2.5 text-xs w-full rounded-lg px-0 py-0.5 ${value ? "text-muted-foreground" : "text-muted-foreground/40"}`}>
+        <Icon size={13} className="shrink-0" />
+        <span className="truncate flex-1">{value || placeholder}</span>
       </div>
     );
   }
@@ -165,10 +177,12 @@ const FormDataPanel = ({
   contact,
   forms,
   onSave,
+  canEdit = true,
 }: {
   contact: CrmContact;
   forms: CrmForm[];
   onSave: (customFields: Record<string, Record<string, string>>) => Promise<void>;
+  canEdit?: boolean;
 }) => {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [editingFormId, setEditingFormId] = useState<string | null>(null);
@@ -288,14 +302,16 @@ const FormDataPanel = ({
                           <span className="text-xs">{values[f.id] || "—"}</span>
                         </div>
                       ))}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => startEdit(form)}
-                        className="h-7 text-xs w-full mt-1 gap-1.5"
-                      >
-                        <Pencil size={11} /> Editar
-                      </Button>
+                      {canEdit && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => startEdit(form)}
+                          className="h-7 text-xs w-full mt-1 gap-1.5"
+                        >
+                          <Pencil size={11} /> Editar
+                        </Button>
+                      )}
                     </>
                   )}
                 </div>
@@ -646,6 +662,12 @@ const ClientDetail = ({
 
 // ─── Contacts list ────────────────────────────────────────────────────────────
 const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
+  const { can } = useStaffPermissions();
+  const canCreate         = can("contactos", "create");
+  const canEdit           = can("contactos", "edit");
+  const canDelete         = can("contactos", "delete");
+  const canCreateReminder = can("recordatorios", "create");
+
   const { data: contacts = [], isLoading } = useContacts();
   const { data: forms = [] } = useForms();
   const { data: pipelines = [] } = usePipelines();
@@ -833,9 +855,11 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
           <h1 className="text-xl font-semibold">Contactos</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Todos los contactos registrados en el CRM</p>
         </div>
-        <Button onClick={() => setShowNew(true)} className="rounded-xl gap-2 h-9 text-xs font-medium">
-          <Plus size={14} /> Nuevo contacto
-        </Button>
+        {canCreate && (
+          <Button onClick={() => setShowNew(true)} className="rounded-xl gap-2 h-9 text-xs font-medium">
+            <Plus size={14} /> Nuevo contacto
+          </Button>
+        )}
       </div>
 
       {/* New contact dialog */}
@@ -1024,13 +1048,15 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                       )}
 
                       {/* Delete button */}
-                      <button
-                        onClick={() => setDeleteTarget({ id: c.id, name: c.name })}
-                        className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive shrink-0"
-                        title="Eliminar contacto"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+                      {canDelete && (
+                        <button
+                          onClick={() => setDeleteTarget({ id: c.id, name: c.name })}
+                          className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive shrink-0"
+                          title="Eliminar contacto"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      )}
                     </div>
                   </div>
                   );
@@ -1187,6 +1213,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                     value={detail.email}
                     placeholder="Añadir email"
                     type="email"
+                    readOnly={!canEdit}
                     onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})}
                   />
                   <InlineEdit
@@ -1194,6 +1221,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                     value={detail.phone}
                     placeholder="Añadir teléfono"
                     type="tel"
+                    readOnly={!canEdit}
                     onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})}
                   />
                 </div>
@@ -1205,17 +1233,21 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                     {(detail.tags ?? []).map((tag) => (
                       <span key={tag} className="flex items-center gap-1 text-[10px] border rounded-full px-2 py-0.5 bg-secondary/50">
                         {tag}
-                        <button onClick={() => removeTag(detail.id, tag)} className="text-muted-foreground hover:text-destructive transition-colors">
-                          <X size={9} />
-                        </button>
+                        {canEdit && (
+                          <button onClick={() => removeTag(detail.id, tag)} className="text-muted-foreground hover:text-destructive transition-colors">
+                            <X size={9} />
+                          </button>
+                        )}
                       </span>
                     ))}
-                    <button
-                      onClick={() => { setTagInputId(detail.id); setTagValue(""); }}
-                      className="flex items-center gap-1 text-[10px] border border-dashed rounded-full px-2 py-0.5 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
-                    >
-                      <Plus size={9} /> Añadir
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={() => { setTagInputId(detail.id); setTagValue(""); }}
+                        className="flex items-center gap-1 text-[10px] border border-dashed rounded-full px-2 py-0.5 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                      >
+                        <Plus size={9} /> Añadir
+                      </button>
+                    )}
                   </div>
                   {tagInputId === detail.id && (
                     <div className="flex items-center gap-2 mt-2">
@@ -1250,19 +1282,22 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                 </div>
 
                 {/* Recordatorio rápido */}
-                <div>
-                  <button
-                    onClick={() => setReminderContact(detail)}
-                    className="w-full flex items-center justify-center gap-2 h-8 rounded-xl border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
-                  >
-                    <Bell size={12} /> Crear recordatorio
-                  </button>
-                </div>
+                {canCreateReminder && (
+                  <div>
+                    <button
+                      onClick={() => setReminderContact(detail)}
+                      className="w-full flex items-center justify-center gap-2 h-8 rounded-xl border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
+                    >
+                      <Bell size={12} /> Crear recordatorio
+                    </button>
+                  </div>
+                )}
 
                 {/* Formularios */}
                 <FormDataPanel
                   contact={detail}
                   forms={forms}
+                  canEdit={canEdit}
                   onSave={(cf) => handleSaveFormData(detail.id, cf)}
                 />
 

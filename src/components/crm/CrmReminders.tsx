@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useStaffPermissions } from "@/hooks/useAuth";
 import {
   Bell, CalendarDays, ClipboardList, User, ChevronRight, ArrowLeft,
   Loader2, Plus, Clock, CheckCircle2, AlertCircle, BellOff, Mail, MessageSquare,
@@ -92,6 +93,8 @@ const FormReminderDetail = ({
 }) => {
   const [rules, setRules] = useState<ReminderRule[]>(initialRules);
   const updateForm = useUpdateForm();
+  const { can } = useStaffPermissions();
+  const canEdit = can("recordatorios", "create");
 
   const handleSave = async () => {
     try {
@@ -110,11 +113,17 @@ const FormReminderDetail = ({
         <p className="text-sm text-muted-foreground mt-0.5">Recordatorios automáticos al completar este formulario.</p>
       </div>
       <div className="bg-card border rounded-2xl p-6 space-y-4">
-        <ReminderRulesEditor rules={rules} onChange={setRules} />
-        <Button onClick={handleSave} disabled={updateForm.isPending} className="rounded-xl h-9 font-medium text-sm">
-          {updateForm.isPending ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
-          Guardar recordatorios
-        </Button>
+        {canEdit ? (
+          <>
+            <ReminderRulesEditor rules={rules} onChange={setRules} />
+            <Button onClick={handleSave} disabled={updateForm.isPending} className="rounded-xl h-9 font-medium text-sm">
+              {updateForm.isPending ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
+              Guardar recordatorios
+            </Button>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">No tienes permiso para editar recordatorios.</p>
+        )}
       </div>
     </div>
   );
@@ -377,6 +386,8 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
 
 const PersonalReminderPanel = ({ onBack }: { onBack: () => void }) => {
   const { data: reminders = [], isLoading } = usePersonalReminders();
+  const { can } = useStaffPermissions();
+  const canCreate = can("recordatorios", "create");
   const [creating, setCreating] = useState(false);
 
   if (creating) {
@@ -397,14 +408,16 @@ const PersonalReminderPanel = ({ onBack }: { onBack: () => void }) => {
         <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {/* Create new card — always first */}
-          <button
-            onClick={() => setCreating(true)}
-            className="flex flex-col items-center justify-center gap-2 p-5 border-2 border-dashed border-primary/30 rounded-2xl text-primary hover:bg-primary/5 hover:border-primary/60 transition-all min-h-[120px]"
-          >
-            <Plus size={20} />
-            <span className="text-xs font-semibold">Nuevo recordatorio</span>
-          </button>
+          {/* Create new card — only shown when allowed */}
+          {canCreate && (
+            <button
+              onClick={() => setCreating(true)}
+              className="flex flex-col items-center justify-center gap-2 p-5 border-2 border-dashed border-primary/30 rounded-2xl text-primary hover:bg-primary/5 hover:border-primary/60 transition-all min-h-[120px]"
+            >
+              <Plus size={20} />
+              <span className="text-xs font-semibold">Nuevo recordatorio</span>
+            </button>
+          )}
 
           {reminders.map((r) => (
             <div key={r.id} className="bg-card border rounded-2xl p-4 space-y-2.5 flex flex-col">

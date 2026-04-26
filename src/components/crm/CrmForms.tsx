@@ -13,7 +13,7 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { useForms, useCreateForm, useUpdateForm, useDeleteForm, useServices, usePipelines } from "@/hooks/useCrmData";
-import { useCurrentUser } from "@/hooks/useAuth";
+import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import type { CrmForm } from "@/lib/supabase";
 
 const ONBOARDING_FORM_ID = "b733e0c5-60d4-414d-896a-5ce459b07eaf";
@@ -645,6 +645,8 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false }: { form: Fo
   const [facebookPixelId, setFacebookPixelId] = useState(form.facebookPixelId ?? "");
   const [pipelineIds, setPipelineIds] = useState<string[]>(form.pipelineIds ?? []);
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>(form.reminderRules ?? []);
+  const { can: canPerm } = useStaffPermissions();
+  const canEditReminders = canPerm("recordatorios", "create");
   const { data: pipelines = [] } = usePipelines();
 
   const update = (id: string, patch: Partial<FormField>) =>
@@ -1262,16 +1264,18 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false }: { form: Fo
           </div>
 
           {/* ── Recordatorios ──────────────────────────────────── */}
-          <div className="bg-card border rounded-2xl p-6 space-y-4 mt-4">
-            <div>
-              <h2 className="text-sm font-semibold flex items-center gap-2">
-                <span className="w-5 h-5 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600 text-xs">🔔</span>
-                Recordatorios automáticos
-              </h2>
-              <p className="text-xs text-muted-foreground mt-1">Se enviarán automáticamente después de que alguien complete este formulario o agende una cita vinculada.</p>
+          {canEditReminders && (
+            <div className="bg-card border rounded-2xl p-6 space-y-4 mt-4">
+              <div>
+                <h2 className="text-sm font-semibold flex items-center gap-2">
+                  <span className="w-5 h-5 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600 text-xs">🔔</span>
+                  Recordatorios automáticos
+                </h2>
+                <p className="text-xs text-muted-foreground mt-1">Se enviarán automáticamente después de que alguien complete este formulario o agende una cita vinculada.</p>
+              </div>
+              <ReminderRulesEditor rules={reminderRules} onChange={setReminderRules} />
             </div>
-            <ReminderRulesEditor rules={reminderRules} onChange={setReminderRules} />
-          </div>
+          )}
         </div>
 
         {/* RIGHT COLUMN: Share Form */}
@@ -1355,7 +1359,12 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false }: { form: Fo
 
 // ─── Main Component: Forms Library ─────────────────────────────────────────
 const CrmForms = () => {
-  const { data: rawForms = [], isLoading } = useForms();
+  const { allowedIds } = useStaffPermissions();
+  const { data: allRawForms = [], isLoading } = useForms();
+  const allowedFormIds = allowedIds("formularios");
+  const rawForms = allowedFormIds
+    ? allRawForms.filter(f => allowedFormIds.includes(f.id))
+    : allRawForms;
   const createForm = useCreateForm();
   const updateForm = useUpdateForm();
   const deleteForm = useDeleteForm();

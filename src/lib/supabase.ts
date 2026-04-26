@@ -271,6 +271,8 @@ export type StaffPermission = {
   delete?: boolean
 }
 
+export type StaffItemPermission = { read: boolean; edit: boolean }
+
 export type CrmStaff = {
   id: string
   created_at: string
@@ -287,6 +289,11 @@ export type CrmStaff = {
   perm_ventas: StaffPermission
   perm_calendarios: StaffPermission
   perm_formularios: StaffPermission
-  perm_contactos: StaffPermission
-  perm_pipeline: StaffPermission
+  perm_contactos:     StaffPermission
+  perm_pipeline:      StaffPermission
+  perm_recordatorios: StaffPermission
+  // item-level overrides — null = no restriction (section perm applies to all)
+  perm_calendarios_items: Record<string, StaffItemPermission> | null
+  perm_formularios_items: Record<string, StaffItemPermission> | null
+  perm_pipeline_items:    Record<string, StaffItemPermission> | null
 }

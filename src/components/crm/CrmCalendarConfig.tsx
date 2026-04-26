@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useStaffPermissions } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Link2, Loader2, Trash2 } from "lucide-react";
@@ -69,6 +70,8 @@ interface Props {
 }
 
 const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
+  const { can } = useStaffPermissions();
+  const canEditReminders = can("recordatorios", "create");
   const { data: forms = [] } = useForms();
   const createConfig = useCreateCalendarConfig();
   const updateConfig = useUpdateCalendarConfig();
@@ -545,16 +548,22 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
           <p className="text-xs text-muted-foreground -mt-2">
             Se enviarán automáticamente antes o después de cada cita agendada en este calendario.
           </p>
-          <ReminderRulesEditor rules={reminderRules} onChange={setReminderRules} />
-          <Button
-            onClick={handleSave}
-            disabled={saving}
-            variant="outline"
-            className="rounded-xl h-9 font-medium text-sm"
-          >
-            {saving ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
-            Guardar recordatorios
-          </Button>
+          {canEditReminders ? (
+            <>
+              <ReminderRulesEditor rules={reminderRules} onChange={setReminderRules} />
+              <Button
+                onClick={handleSave}
+                disabled={saving}
+                variant="outline"
+                className="rounded-xl h-9 font-medium text-sm"
+              >
+                {saving ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
+                Guardar recordatorios
+              </Button>
+            </>
+          ) : (
+            <p className="text-xs text-muted-foreground">No tienes permiso para editar recordatorios.</p>
+          )}
         </div>
         </>
       )}

@@ -149,7 +149,7 @@ const PersonalTab = ({ profile, update }: { profile: CrmBusinessProfile | null, 
   </div>
 );
 
-const NegocioTab = ({ profile, update }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void> }) => {
+const NegocioTab = ({ profile, update, readOnly = false }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void>, readOnly?: boolean }) => {
     const [desc, setDesc] = useState(profile?.description || "");
     const [savingDesc, setSavingDesc] = useState(false);
 
@@ -172,19 +172,19 @@ const NegocioTab = ({ profile, update }: { profile: CrmBusinessProfile | null, u
       <div className="bg-card border rounded-2xl p-6 space-y-6 max-w-xl">
         <h2 className="text-sm font-semibold">Información del Negocio</h2>
         <div className="grid sm:grid-cols-2 gap-5">
-          <EditableField label="Nombre del negocio" value={profile?.business_name || ""} onSave={val => update({ business_name: val })} />
-          <EditableField label="Rubro / Industria"  value={profile?.industry || ""}      onSave={val => update({ industry: val })} />
-          <EditableField label="Ciudad"              value={profile?.city || ""}          onSave={val => update({ city: val })} />
-          <EditableField label="País"                value={profile?.country || ""}       onSave={val => update({ country: val })} />
-          <EditableField label="Sitio web"           value={profile?.website || ""}       onSave={val => update({ website: val })} />
-          <EditableField label="WhatsApp"            value={profile?.whatsapp || ""}      onSave={val => update({ whatsapp: val })} />
-          <EditableField label="Instagram"           value={profile?.instagram || ""}     onSave={val => update({ instagram: val })} />
-          <EditableField label="Facebook"            value={profile?.facebook || ""}      onSave={val => update({ facebook: val })} />
+          <EditableField label="Nombre del negocio" value={profile?.business_name || ""} readOnly={readOnly} onSave={val => update({ business_name: val })} />
+          <EditableField label="Rubro / Industria"  value={profile?.industry || ""}      readOnly={readOnly} onSave={val => update({ industry: val })} />
+          <EditableField label="Ciudad"              value={profile?.city || ""}          readOnly={readOnly} onSave={val => update({ city: val })} />
+          <EditableField label="País"                value={profile?.country || ""}       readOnly={readOnly} onSave={val => update({ country: val })} />
+          <EditableField label="Sitio web"           value={profile?.website || ""}       readOnly={readOnly} onSave={val => update({ website: val })} />
+          <EditableField label="WhatsApp"            value={profile?.whatsapp || ""}      readOnly={readOnly} onSave={val => update({ whatsapp: val })} />
+          <EditableField label="Instagram"           value={profile?.instagram || ""}     readOnly={readOnly} onSave={val => update({ instagram: val })} />
+          <EditableField label="Facebook"            value={profile?.facebook || ""}      readOnly={readOnly} onSave={val => update({ facebook: val })} />
         </div>
         <div>
           <div className="flex items-center justify-between mb-1.5">
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Descripción del negocio</p>
-              {desc !== profile?.description && (
+              {!readOnly && desc !== profile?.description && (
                   <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={handleSaveDesc} disabled={savingDesc}>
                       {savingDesc ? "Guardando..." : "Guardar"}
                   </Button>
@@ -192,9 +192,10 @@ const NegocioTab = ({ profile, update }: { profile: CrmBusinessProfile | null, u
           </div>
           <textarea
             value={desc}
-            onChange={e => setDesc(e.target.value)}
+            onChange={e => !readOnly && setDesc(e.target.value)}
             rows={4}
-            className="w-full rounded-xl border bg-secondary/20 text-sm px-4 py-3 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+            readOnly={readOnly}
+            className={`w-full rounded-xl border bg-secondary/20 text-sm px-4 py-3 resize-none focus:outline-none focus:ring-1 focus:ring-primary ${readOnly ? "opacity-70 cursor-default" : ""}`}
             placeholder="Describe tu negocio..."
           />
         </div>
@@ -325,10 +326,18 @@ const CrmBusiness = () => {
               />
             : <PersonalTab profile={profile} update={handleUpdate} />
         )}
-        {activeTab === "negocio"   && <NegocioTab   profile={profile} update={handleUpdate} />}
+        {activeTab === "negocio"   && <NegocioTab   profile={profile} update={handleUpdate} readOnly={isStaff && !can("mi_negocio_datos", "edit")} />}
         {activeTab === "logo"      && <LogoTab       profile={profile} update={handleUpdate} />}
         {activeTab === "colores"   && <ColoresTab    profile={profile} update={handleUpdate} />}
-        {activeTab === "servicios" && <CrmServices   isSuperAdmin={isSuperAdmin} />}
+        {activeTab === "servicios" && (
+          <CrmServices
+            isSuperAdmin={isSuperAdmin}
+            canEdit={!isStaff || can("servicios", "edit")}
+            canCreate={!isStaff || can("servicios", "create")}
+            canDelete={!isStaff || can("servicios", "delete")}
+            canReorder={!isStaff || can("servicios", "edit")}
+          />
+        )}
       </div>
     </div>
   );

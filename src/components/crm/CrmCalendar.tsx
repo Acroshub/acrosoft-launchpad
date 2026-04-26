@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import CrmCalendarConfig from "./CrmCalendarConfig";
 import { useAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment, useBlockedSlots, useCreateBlockedSlot, useUpdateBlockedSlot, useDeleteBlockedSlot, useContacts, useCalendars, useForms, useCreateForm, useUpdateCalendarConfig } from "@/hooks/useCrmData";
+import { useStaffPermissions } from "@/hooks/useAuth";
 import type { CrmCalendarConfig as CalendarData } from "@/lib/supabase";
 import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
 import { toast } from "sonner";
@@ -664,7 +665,12 @@ const MonthView = ({
 
 const CrmCalendar = () => {
   // ─── Supabase hooks ───
-  const { data: calendars = [], isLoading: loadingConfig, isFetching: fetchingConfig } = useCalendars();
+  const { allowedIds, canItem } = useStaffPermissions();
+  const { data: allCalendars = [], isLoading: loadingConfig, isFetching: fetchingConfig } = useCalendars();
+  const allowedCalendarIds = allowedIds("calendarios");
+  const calendars = allowedCalendarIds
+    ? allCalendars.filter(c => allowedCalendarIds.includes(c.id))
+    : allCalendars;
   const { data: forms = [], isLoading: loadingForms } = useForms();
   const createForm    = useCreateForm();
   const updateConfig  = useUpdateCalendarConfig();
@@ -680,6 +686,7 @@ const CrmCalendar = () => {
     else    localStorage.removeItem("crm_selected_calendar_id");
   }, []);
   const selectedCalendar = calendars.find((c) => c.id === selectedCalendarId) ?? calendars[0] ?? null;
+  const canEditCalendar = selectedCalendar ? canItem("calendarios", selectedCalendar.id, "edit") : false;
 
   // Clean up stale localStorage id if the calendar was deleted elsewhere.
   // Skip while the query is refetching — otherwise a freshly-created calendar
@@ -1104,19 +1111,23 @@ const CrmCalendar = () => {
 
         {/* View toggle & Settings */}
         <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={openBlockModal}
-            className="h-[38px] rounded-xl text-xs font-semibold px-4 gap-2 text-amber-700 dark:text-amber-400 hover:text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-amber-300 dark:border-amber-700/40"
-          >
-            <Coffee size={14} /> Reservar tiempo
-          </Button>
-          <Button
-            onClick={() => openNewAppt(dateKey(current), 10, 0)}
-            className="h-[38px] rounded-xl text-xs font-semibold px-4 gap-2"
-          >
-            <Plus size={14} /> Nueva cita
-          </Button>
+          {canEditCalendar && (
+            <Button
+              variant="outline"
+              onClick={openBlockModal}
+              className="h-[38px] rounded-xl text-xs font-semibold px-4 gap-2 text-amber-700 dark:text-amber-400 hover:text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-amber-300 dark:border-amber-700/40"
+            >
+              <Coffee size={14} /> Reservar tiempo
+            </Button>
+          )}
+          {canEditCalendar && (
+            <Button
+              onClick={() => openNewAppt(dateKey(current), 10, 0)}
+              className="h-[38px] rounded-xl text-xs font-semibold px-4 gap-2"
+            >
+              <Plus size={14} /> Nueva cita
+            </Button>
+          )}
           <div className="flex border rounded-xl overflow-hidden bg-card h-[38px] shadow-sm">
             {(["day", "week", "month"] as ViewMode[]).map((v) => (
               <button
@@ -1172,8 +1183,8 @@ const CrmCalendar = () => {
       <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6" : ""}`}>
         {/* Calendar view */}
         <div>
-          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} onBlockClick={openEditBlockModal} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
-          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={openNewAppt} onBlockClick={openEditBlockModal} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
+          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={canEditCalendar ? openEditBlockModal : () => {}} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
+          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={canEditCalendar ? openEditBlockModal : () => {}} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
           {view === "month" && <MonthView current={current} onSelect={setSelected} selected={selected} blocked={blockedSlots} appointments={appointments} />}
         </div>
 
@@ -1189,8 +1200,9 @@ const CrmCalendar = () => {
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-sm truncate">{detail.name}</p>
                     <div className="relative mt-1 inline-block">
-                      <select 
-                        value={detail.status} 
+                      <select
+                        value={detail.status}
+                        disabled={!canEditCalendar}
                         onChange={async (e) => {
                           const newStatus = e.target.value === "Cancelada" ? "cancelled" : "confirmed";
                           try {
@@ -1198,7 +1210,7 @@ const CrmCalendar = () => {
                             toast.success("Estado actualizado");
                           } catch { toast.error("Error al actualizar"); }
                         }}
-                        className={`text-[10px] appearance-none bg-background border px-2.5 py-0.5 rounded-full pr-6 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${statusStyles[detail.status] || ""}`}
+                        className={`text-[10px] appearance-none bg-background border px-2.5 py-0.5 rounded-full pr-6 ${canEditCalendar ? "cursor-pointer hover:bg-secondary/20" : "cursor-default opacity-70"} transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${statusStyles[detail.status] || ""}`}
                       >
                         <option value="Confirmada">Confirmada</option>
                         <option value="Cancelada">Cancelada</option>
@@ -1207,20 +1219,22 @@ const CrmCalendar = () => {
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-0.5 mt-0.5 shrink-0">
-                    <button 
-                      onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); }}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                      title="Editar cita (fecha y hora)"
-                    >
-                      <Pencil size={14} />
-                    </button>
-                    <button
-                      onClick={() => setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` })}
-                      className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Borrar cita">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
+                  {canEditCalendar && (
+                    <div className="flex items-center gap-0.5 mt-0.5 shrink-0">
+                      <button
+                        onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); }}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                        title="Editar cita (fecha y hora)"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button
+                        onClick={() => setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` })}
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Borrar cita">
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-3 text-sm">
                   {([
@@ -1279,20 +1293,22 @@ const CrmCalendar = () => {
                   </select>
                   <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
                 </div>
-                <div className="flex items-center gap-1 sm:border-l sm:pl-3 border-border/40">
-                  <button 
-                    onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); }}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                    title="Editar cita (fecha y hora)"
-                  >
-                    <Pencil size={13} />
-                  </button>
-                  <button
-                    onClick={() => setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` })}
-                    className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Borrar cita">
-                    <Trash2 size={13} />
-                  </button>
-                </div>
+                {canEditCalendar && (
+                  <div className="flex items-center gap-1 sm:border-l sm:pl-3 border-border/40">
+                    <button
+                      onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); }}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                      title="Editar cita (fecha y hora)"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      onClick={() => setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` })}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Borrar cita">
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
