@@ -692,18 +692,15 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-1f · UX del editor de recordatorios — modo vista/edición con guardado individual
+### F-1f · UX del editor de recordatorios — modo vista/edición con guardado individual ✅ COMPLETADO
 
-**Descripción:** Mejorar la experiencia del `ReminderRulesEditor` para que cada recordatorio tenga un flujo explícito de creación y edición:
-
-- Al pulsar "Añadir recordatorio" se abre un **modal o panel de edición** (no se inserta una fila editable directamente en la lista).
-- Dentro del modal hay un botón **"Guardar recordatorio"** individual. Al guardar, el modal se cierra y el recordatorio aparece en la lista en **modo vista (read-only)**: muestra un resumen compacto de sus parámetros (canal, destinatario, cuándo).
-- Cada fila en modo vista tiene un botón **"Editar"** que reabre el modal con los valores del recordatorio para modificarlos, y un botón **"Eliminar"**.
-- No existe un botón global de guardar todos los recordatorios; cada uno se confirma individualmente.
-
-**Archivos a modificar:** `src/components/shared/ReminderRulesEditor.tsx`
-
-**No requiere cambios de DB ni de edge functions.**
+**Implementado:**
+- "Añadir recordatorio" abre un `Dialog` con el formulario de edición (no inserta inline).
+- El modal tiene botón **"Guardar recordatorio"** individual; "Cancelar" descarta el draft.
+- Al guardar, el recordatorio aparece como `RuleSummaryCard` (read-only): muestra canal (badge), destinatario y cuándo en dos líneas compactas.
+- Cada card tiene botones **"Editar"** (reabre el dialog con los valores actuales, editando una copia local) y **"Eliminar"**.
+- No hay botón global de guardar — cada recordatorio se confirma por separado.
+- Sin cambios de DB ni edge functions.
 
 ---
 

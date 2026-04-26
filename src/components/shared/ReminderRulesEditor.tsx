@@ -1,5 +1,11 @@
+import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Plus, Trash2, Mail, MessageSquare, Clock, User, Building2, Bell } from "lucide-react";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
+} from "@/components/ui/dialog";
+import {
+  Plus, Trash2, Mail, MessageSquare, Clock, User, Building2, Bell, Pencil,
+} from "lucide-react";
 import { useStaff, useBusinessProfile, useWhatsappEnabled } from "@/hooks/useCrmData";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -11,16 +17,16 @@ export type ReminderUnit      = "minutes" | "hours" | "days";
 
 export interface ReminderRule {
   id: string;
-  recipient:       ReminderRecipient;
+  recipient:        ReminderRecipient;
   /** Multi-select: ["admin", "<staff_uuid>", ...] */
   businessTargets?: string[];
   /** @deprecated kept for backward-compat with rules saved before multi-select */
   businessTarget?:  string;
-  channel:         ReminderChannel;
-  channelValue:    string;   // comma-joined when multiple targets
-  timing:          ReminderTiming;
-  amount:          number;
-  unit:            ReminderUnit;
+  channel:          ReminderChannel;
+  channelValue:     string;   // comma-joined when multiple targets (kept for compat, ignored at send time)
+  timing:           ReminderTiming;
+  amount:           number;
+  unit:             ReminderUnit;
 }
 
 /** Normalize old single businessTarget to the new array */
@@ -35,13 +41,13 @@ const getTargets = (rule: ReminderRule): string[] => {
 const uid = () => Math.random().toString(36).slice(2, 10);
 
 const DEFAULT_RULE: Omit<ReminderRule, "id"> = {
-  recipient:       "contact",
-  businessTargets: ["admin"],
-  channel:         "email",
-  channelValue:    "",
-  timing:          "before",
-  amount:          24,
-  unit:            "hours",
+  recipient:        "contact",
+  businessTargets:  ["admin"],
+  channel:          "email",
+  channelValue:     "",
+  timing:           "before",
+  amount:           24,
+  unit:             "hours",
 };
 
 const UNITS: { value: ReminderUnit; label: string }[] = [
@@ -57,23 +63,83 @@ const pill = (active: boolean) =>
       : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
   }`;
 
-// ─── Single Rule Row ──────────────────────────────────────────────────────────
+// ─── Read-only Summary Card ───────────────────────────────────────────────────
 
-const RuleRow = ({
+const RuleSummaryCard = ({
   rule,
   businessName,
+  onEdit,
+  onDelete,
+}: {
+  rule:          ReminderRule;
+  businessName?: string;
+  onEdit:        () => void;
+  onDelete:      () => void;
+}) => {
+  const targets = getTargets(rule);
 
+  const recipientLabel = rule.recipient === "contact"
+    ? "Quien agendó"
+    : `${businessName || "El negocio"}${targets.length > 1 ? ` (${targets.length} dest.)` : ""}`;
+
+  const timingLabel = rule.timing === "on_booking"
+    ? "Al reservar"
+    : `${rule.amount} ${UNITS.find(u => u.value === rule.unit)?.label ?? rule.unit} ${rule.timing === "before" ? "antes" : "después"} de la cita`;
+
+  return (
+    <div className="border border-border/60 rounded-xl px-3.5 py-3 bg-card flex items-center gap-3">
+      <div className="flex-1 min-w-0 space-y-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Channel badge */}
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[11px] font-medium">
+            {rule.channel === "email" ? <Mail size={10} /> : <MessageSquare size={10} />}
+            {rule.channel === "email" ? "Email" : "WhatsApp"}
+          </span>
+          {/* Recipient */}
+          <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+            {rule.recipient === "contact" ? <User size={10} /> : <Building2 size={10} />}
+            {recipientLabel}
+          </span>
+        </div>
+        <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+          {rule.timing === "on_booking" ? <Bell size={10} /> : <Clock size={10} />}
+          {timingLabel}
+        </p>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-lg hover:bg-secondary/60"
+        >
+          <Pencil size={11} /> Editar
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive transition-colors px-2 py-1 rounded-lg hover:bg-destructive/10"
+        >
+          <Trash2 size={11} /> Eliminar
+        </button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Rule Edit Form (used inside dialog) ─────────────────────────────────────
+
+const RuleForm = ({
+  rule,
+  businessName,
   adminEmail,
   adminPhone,
   onChange,
-  onDelete,
 }: {
-  rule:           ReminderRule;
-  businessName?:  string;
-  adminEmail?:    string | null;
-  adminPhone?:    string | null;
-  onChange:       (patch: Partial<ReminderRule>) => void;
-  onDelete:       () => void;
+  rule:          ReminderRule;
+  businessName?: string;
+  adminEmail?:   string | null;
+  adminPhone?:   string | null;
+  onChange:      (patch: Partial<ReminderRule>) => void;
 }) => {
   const { data: staffList = [] } = useStaff();
   const { data: profile }        = useBusinessProfile();
@@ -91,19 +157,16 @@ const RuleRow = ({
     const current = new Set(targets);
     if (current.has(id)) {
       current.delete(id);
-      if (current.size === 0) current.add("admin"); // must have at least one
+      if (current.size === 0) current.add("admin");
     } else {
       current.add(id);
     }
     const next = Array.from(current);
-    onChange({
-      businessTargets: next,
-      businessTarget:  next[0], // backward-compat
-    });
+    onChange({ businessTargets: next, businessTarget: next[0] });
   };
 
   return (
-    <div className="border border-border/60 rounded-xl p-3.5 space-y-3 bg-card">
+    <div className="space-y-4">
 
       {/* ── Recipient ─────────────────────────────────────────────────────── */}
       <div>
@@ -133,7 +196,6 @@ const RuleRow = ({
             Destinatarios
           </p>
           <div className="space-y-1 border border-border/60 rounded-xl p-2.5 max-h-44 overflow-y-auto">
-            {/* Admin / Dueño del negocio */}
             <label className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors">
               <input
                 type="checkbox"
@@ -149,7 +211,6 @@ const RuleRow = ({
               </div>
             </label>
 
-            {/* Staff members */}
             {staffList.map((s) => (
               <label
                 key={s.id}
@@ -162,7 +223,9 @@ const RuleRow = ({
                   className="h-3.5 w-3.5 rounded border-input text-primary accent-primary"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold leading-none">{s.name} <span className="font-normal text-muted-foreground">(Staff)</span></p>
+                  <p className="text-xs font-semibold leading-none">
+                    {s.name} <span className="font-normal text-muted-foreground">(Staff)</span>
+                  </p>
                   {s.email && (
                     <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{s.email}</p>
                   )}
@@ -209,7 +272,6 @@ const RuleRow = ({
         </div>
       </div>
 
-
       {/* ── Timing ────────────────────────────────────────────────────────── */}
       <div>
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">Cuándo</p>
@@ -252,17 +314,6 @@ const RuleRow = ({
           )}
         </div>
       </div>
-
-      {/* ── Delete ────────────────────────────────────────────────────────── */}
-      <div className="flex justify-end pt-0.5">
-        <button
-          type="button"
-          onClick={onDelete}
-          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-destructive transition-colors"
-        >
-          <Trash2 size={11} /> Eliminar recordatorio
-        </button>
-      </div>
     </div>
   );
 };
@@ -270,18 +321,42 @@ const RuleRow = ({
 // ─── Main Editor ──────────────────────────────────────────────────────────────
 
 interface Props {
-  rules:        ReminderRule[];
-  onChange:     (rules: ReminderRule[]) => void;
+  rules:         ReminderRule[];
+  onChange:      (rules: ReminderRule[]) => void;
   businessName?: string;
+}
+
+interface EditingState {
+  rule:  ReminderRule;
+  isNew: boolean;
 }
 
 const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
   const { data: profile } = useBusinessProfile();
+  const [editing, setEditing] = useState<EditingState | null>(null);
 
-  const add    = () => onChange([...rules, { ...DEFAULT_RULE, id: uid() }]);
-  const update = (id: string, patch: Partial<ReminderRule>) =>
-    onChange(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  const openNew = () =>
+    setEditing({ rule: { ...DEFAULT_RULE, id: uid() }, isNew: true });
+
+  const openEdit = (rule: ReminderRule) =>
+    setEditing({ rule: { ...rule }, isNew: false });
+
+  const closeDialog = () => setEditing(null);
+
+  const saveDialog = () => {
+    if (!editing) return;
+    if (editing.isNew) {
+      onChange([...rules, editing.rule]);
+    } else {
+      onChange(rules.map((r) => (r.id === editing.rule.id ? editing.rule : r)));
+    }
+    setEditing(null);
+  };
+
   const remove = (id: string) => onChange(rules.filter((r) => r.id !== id));
+
+  const patchEditing = (patch: Partial<ReminderRule>) =>
+    setEditing((prev) => prev ? { ...prev, rule: { ...prev.rule, ...patch } } : prev);
 
   return (
     <div className="space-y-3">
@@ -290,26 +365,56 @@ const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
           Sin recordatorios configurados. Agrega uno para que se envíe automáticamente.
         </p>
       )}
+
       {rules.map((rule) => (
-        <RuleRow
+        <RuleSummaryCard
           key={rule.id}
           rule={rule}
           businessName={businessName}
-          adminEmail={profile?.contact_email}
-          adminPhone={profile?.contact_phone ?? profile?.whatsapp}
-          onChange={(patch) => update(rule.id, patch)}
+          onEdit={() => openEdit(rule)}
           onDelete={() => remove(rule.id)}
         />
       ))}
+
       <Button
         type="button"
         variant="outline"
         size="sm"
-        onClick={add}
+        onClick={openNew}
         className="w-full rounded-xl border-dashed h-9 text-xs gap-1.5"
       >
         <Plus size={13} /> Agregar recordatorio
       </Button>
+
+      {/* ── Edit / New dialog ─────────────────────────────────────────────── */}
+      <Dialog open={!!editing} onOpenChange={(open) => { if (!open) closeDialog(); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm font-semibold">
+              {editing?.isNew ? "Nuevo recordatorio" : "Editar recordatorio"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {editing && (
+            <RuleForm
+              rule={editing.rule}
+              businessName={businessName}
+              adminEmail={profile?.contact_email}
+              adminPhone={profile?.contact_phone ?? profile?.whatsapp}
+              onChange={patchEditing}
+            />
+          )}
+
+          <DialogFooter className="gap-2 pt-2">
+            <Button type="button" variant="ghost" size="sm" onClick={closeDialog}>
+              Cancelar
+            </Button>
+            <Button type="button" size="sm" onClick={saveDialog}>
+              Guardar recordatorio
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
