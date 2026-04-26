@@ -75,17 +75,44 @@ Deno.serve(async (req) => {
     );
 
     if (inviteErr) {
-      // User already has a confirmed Supabase account — link them directly
-      if (inviteErr.message?.toLowerCase().includes("already registered")) {
-        const { data: { users } } = await supabase.auth.admin.listUsers({ perPage: 1000 });
-        const existing = users.find(u => u.email === staff.email);
-        if (existing) {
+      const msg = inviteErr.message?.toLowerCase() ?? "";
+      if (msg.includes("already registered") || msg.includes("already been registered") || msg.includes("email address is already")) {
+        // Find existing user with case-insensitive email match
+        const staffEmailLower = staff.email.toLowerCase();
+        let existingId: string | undefined;
+
+        // Try paginated search to handle large user bases
+        let page = 1;
+        outer: while (true) {
+          const { data: { users }, error: listErr } = await supabase.auth.admin.listUsers({ page, perPage: 1000 });
+          if (listErr || !users?.length) break;
+          const found = users.find(u => u.email?.toLowerCase() === staffEmailLower);
+          if (found) { existingId = found.id; break outer; }
+          if (users.length < 1000) break;
+          page++;
+        }
+
+        if (existingId) {
           await supabase
             .from("crm_staff")
-            .update({ staff_user_id: existing.id, status: "active" })
+            .update({ staff_user_id: existingId, status: "active" })
             .eq("id", staff_id);
-          return respond({ linked: true, staff_user_id: existing.id });
+          return respond({ linked: true, staff_user_id: existingId });
         }
+
+        // User exists in Supabase but wasn't found — resend via generateLink
+        const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
+          type: "invite",
+          email: staff.email,
+          options: {
+            redirectTo: `${Deno.env.get("SITE_URL") ?? "http://localhost:5173"}/crm-setup`,
+            data: { full_name: staff.name, account_type: "staff", staff_id: staff.id, owner_user_id: owner.id },
+          },
+        });
+        if (linkErr) return respond({ error: linkErr.message }, 500);
+        // Mark as invited so the user knows a link was sent
+        await supabase.from("crm_staff").update({ status: "invited" }).eq("id", staff_id);
+        return respond({ success: true, user_id: linkData.user.id });
       }
       return respond({ error: inviteErr.message }, 500);
     }
