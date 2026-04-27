@@ -622,7 +622,7 @@ const FieldRow = ({
 };
 
 // ─── Form Builder ───────────────────────────────────────────────────────────
-const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false }: { form: FormConfig, onBack: () => void, onUpdate: (f: FormConfig) => void, showDocKeys?: boolean }) => {
+const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = false }: { form: FormConfig, onBack: () => void, onUpdate: (f: FormConfig) => void, showDocKeys?: boolean, readOnly?: boolean }) => {
   const [fields, setFields]       = useState<FormField[]>(form.fields);
   const [name, setName]           = useState(form.name);
   const [editingName, setEditingName] = useState(false);
@@ -820,9 +820,11 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false }: { form: Fo
               Por páginas
             </button>
           </div>
-          <Button onClick={handleSave} className="h-9 rounded-xl text-sm font-medium px-5">
-            {saved ? "Guardado ✓" : "Guardar cambios"}
-          </Button>
+          {!readOnly && (
+            <Button onClick={handleSave} className="h-9 rounded-xl text-sm font-medium px-5">
+              {saved ? "Guardado ✓" : "Guardar cambios"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -1359,7 +1361,10 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false }: { form: Fo
 
 // ─── Main Component: Forms Library ─────────────────────────────────────────
 const CrmForms = () => {
-  const { allowedIds } = useStaffPermissions();
+  const { allowedIds, can } = useStaffPermissions();
+  const canCreateForm = can("formularios", "create");
+  const canEditForm   = can("formularios", "edit");
+  const canDeleteForm = can("formularios", "delete");
   const { data: allRawForms = [], isLoading } = useForms();
   const allowedFormIds = allowedIds("formularios");
   const rawForms = allowedFormIds
@@ -1448,6 +1453,7 @@ const CrmForms = () => {
   if (view === "builder" && selectedForm) {
     return <FormBuilder
       form={selectedForm}
+      readOnly={!canEditForm}
       showDocKeys={isSuperAdmin && selectedForm.id === ONBOARDING_FORM_ID}
       onBack={() => setView("list")}
       onUpdate={async (updated) => {
@@ -1494,9 +1500,11 @@ const CrmForms = () => {
           <h1 className="text-xl font-semibold">Formularios</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Define la información que solicitarás a tus clientes</p>
         </div>
-        <Button onClick={handleCreateNew} disabled={createForm.isPending} className="h-9 rounded-xl text-sm font-medium px-4 gap-2">
-          {createForm.isPending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={16} />} Crear nuevo
-        </Button>
+        {canCreateForm && (
+          <Button onClick={handleCreateNew} disabled={createForm.isPending} className="h-9 rounded-xl text-sm font-medium px-4 gap-2">
+            {createForm.isPending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={16} />} Crear nuevo
+          </Button>
+        )}
       </div>
 
       <div className="grid gap-4">
@@ -1512,35 +1520,39 @@ const CrmForms = () => {
         ) : (
           forms.map(form => (
             <div key={form.id} className="bg-card border rounded-2xl p-5 flex items-center justify-between group">
-               <div 
-                 className="flex items-center gap-4 cursor-pointer flex-1" 
-                 onClick={() => handleEdit(form.id)}
+               <div
+                 className={`flex items-center gap-4 flex-1 ${canEditForm ? "cursor-pointer" : ""}`}
+                 onClick={() => canEditForm && handleEdit(form.id)}
                >
                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                     <ClipboardList size={18} className="text-primary" />
                  </div>
                  <div>
-                   <p className="text-sm font-semibold group-hover:text-primary transition-colors">{form.name}</p>
+                   <p className={`text-sm font-semibold ${canEditForm ? "group-hover:text-primary" : ""} transition-colors`}>{form.name}</p>
                    <p className="text-xs text-muted-foreground">{form.fields.filter(f => f.type !== "heading").length} campos configurados</p>
                  </div>
                </div>
                <div className="flex items-center gap-2">
-                 <Button 
-                   variant="ghost" 
-                   size="icon" 
-                   className="text-muted-foreground hover:text-foreground hover:bg-secondary" 
-                   onClick={() => handleEdit(form.id)}
-                 >
-                   <Settings size={15} />
-                 </Button>
-                 <Button 
-                   variant="ghost" 
-                   size="icon" 
-                   className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive" 
-                   onClick={() => handleDelete(form.id)}
-                 >
-                   <Trash2 size={14} />
-                 </Button>
+                 {canEditForm && (
+                   <Button
+                     variant="ghost"
+                     size="icon"
+                     className="text-muted-foreground hover:text-foreground hover:bg-secondary"
+                     onClick={() => handleEdit(form.id)}
+                   >
+                     <Settings size={15} />
+                   </Button>
+                 )}
+                 {canDeleteForm && (
+                   <Button
+                     variant="ghost"
+                     size="icon"
+                     className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                     onClick={() => handleDelete(form.id)}
+                   >
+                     <Trash2 size={14} />
+                   </Button>
+                 )}
                </div>
             </div>
           ))

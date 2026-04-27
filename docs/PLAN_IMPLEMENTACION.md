@@ -738,11 +738,29 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-4 · /onboarding → FormRenderer del CRM del Admin
-**Prerequisito:** F-2 debe estar completo — el onboarding es multi-página y requiere el stepper.
-**Descripción:** El stepper hardcodeado de 8 pasos se reemplaza por `FormRenderer` renderizando el formulario "Onboarding" del CRM del Admin (slug: `onboarding`).
+### F-3b · Log de actividad — incluir acciones del Staff ✅ COMPLETADO
 
-**Transición:** Mantener el stepper como fallback hasta que el formulario esté completamente configurado y probado en producción. Luego eliminar los Steps 1–8.
+**Descripción:** El tab de Logs en Configuración actualmente solo muestra acciones del Dueño de Negocio. Debe incluir también las acciones realizadas por cualquier Staff del negocio, con indicación de quién ejecutó cada acción.
+
+**Implementación — 3 capas:**
+
+1. **DB:** Migración: `ALTER TABLE crm_logs ADD COLUMN performed_by_user_id uuid REFERENCES auth.users`. `user_id` sigue siendo el Dueño del negocio (contexto de ownership). `performed_by_user_id` es quien ejecutó la acción (puede ser el dueño mismo o un Staff).
+
+2. **Escritura de logs:** Todos los triggers y Edge Functions que insertan en `crm_logs` deben pasar `performed_by_user_id = auth.uid()` (el JWT del actor real). Actualmente muchos usan `user_id = auth.uid()` para ambas cosas — separar los dos campos.
+
+3. **UI (`CrmSettings.tsx` — LogsTab):** Añadir columna o badge en cada fila del log indicando si fue el dueño o un Staff. Si fue Staff, mostrar su nombre/email (join con `crm_staff.email` o `crm_staff.name` via `performed_by_user_id`). Añadir filtro opcional por actor (Todos / Solo dueño / Solo Staff / Staff específico).
+
+**Archivos:** migración SQL, triggers de `crm_logs`, `src/components/crm/CrmSettings.tsx`, `src/hooks/useCrmData.ts` (hook `useLogs`)
+**Complejidad:** Media — cambio de schema + actualizar todos los puntos de escritura de logs + UI de visualización.
+
+---
+
+### F-4 · /onboarding → FormRenderer del CRM del Admin ✅ COMPLETADO
+
+**Implementado:**
+- `Onboarding.tsx` usa `FormRenderer` con `formId = "b733e0c5-60d4-414d-896a-5ce459b07eaf"` (formulario "Onboarding Oficial v4")
+- El stepper hardcodeado fue eliminado — el stepper multi-paso está integrado dentro de `FormRenderer`
+- `FormPage.tsx` sirve como ruta pública genérica `/f/:formId`
 
 **Archivos:** `src/pages/Onboarding.tsx`, `src/pages/FormPage.tsx`
 

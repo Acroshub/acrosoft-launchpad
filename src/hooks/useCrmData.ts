@@ -20,7 +20,7 @@ import type {
   CrmReminder,
   CrmContactPipelineMembership,
 } from "@/lib/supabase";
-import { useCurrentUser } from "./useAuth";
+import { useCurrentUser, useStaffPermissions } from "./useAuth";
 
 // ─── LOGS ──────────────────────────────────────────────────────
 
@@ -32,6 +32,7 @@ export type CrmLog = {
   entity: string;
   entity_id: string | null;
   description: string | null;
+  performed_by_user_id: string | null;
 };
 
 const logAction = async (
@@ -43,15 +44,30 @@ const logAction = async (
   try {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return;
+
+    const actorId = session.user.id;
+    let ownerId = actorId;
+
+    // If the actor is a staff member, attribute the log to the business owner
+    const { data: staffRow } = await supabase
+      .from("crm_staff")
+      .select("owner_user_id")
+      .eq("staff_user_id", actorId)
+      .eq("status", "active")
+      .maybeSingle();
+
+    if (staffRow) ownerId = staffRow.owner_user_id;
+
     await supabase.from("crm_logs").insert({
-      user_id: session.user.id,
+      user_id: ownerId,
+      performed_by_user_id: actorId,
       action,
       entity,
       description,
       entity_id: entityId ?? null,
     });
   } catch {
-    // Logs are non-critical — fail silently until migration is applied
+    // Logs are non-critical — fail silently
   }
 };
 
@@ -92,12 +108,12 @@ export const useContacts = () => {
 
 export const useCreateContact = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (contact: Partial<CrmContact>) => {
       const { data, error } = await supabase
         .from("crm_contacts")
-        .insert({ ...contact, user_id: user!.id })
+        .insert({ ...contact, user_id: ownerUserId! })
         .select()
         .single();
       if (error) throw error;
@@ -168,12 +184,12 @@ export const useAppointments = (calendarId?: string | null) => {
 
 export const useCreateAppointment = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (appt: Partial<CrmAppointment>) => {
       const { data, error } = await supabase
         .from("crm_appointments")
-        .insert({ ...appt, user_id: user!.id })
+        .insert({ ...appt, user_id: ownerUserId! })
         .select()
         .single();
       if (error) throw error;
@@ -241,12 +257,12 @@ export const useBlockedSlots = (calendarId?: string | null) => {
 
 export const useCreateBlockedSlot = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (slot: Partial<CrmBlockedSlot>) => {
       const { data, error } = await supabase
         .from("crm_blocked_slots")
-        .insert({ ...slot, user_id: user!.id })
+        .insert({ ...slot, user_id: ownerUserId! })
         .select()
         .single();
       if (error) throw error;
@@ -318,12 +334,12 @@ export const useDeals = () => {
 
 export const useCreateDeal = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (deal: Partial<CrmPipelineDeal>) => {
       const { data, error } = await supabase
         .from("crm_pipeline_deals")
-        .insert({ ...deal, user_id: user!.id })
+        .insert({ ...deal, user_id: ownerUserId! })
         .select()
         .single();
       if (error) throw error;
@@ -390,12 +406,12 @@ export const useForms = () => {
 
 export const useCreateForm = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (form: Partial<CrmForm>) => {
       const { data, error } = await supabase
         .from("crm_forms")
-        .insert({ ...form, user_id: user!.id })
+        .insert({ ...form, user_id: ownerUserId! })
         .select()
         .single();
       if (error) throw error;
@@ -535,12 +551,12 @@ export const useSales = () => {
 
 export const useCreateSale = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (sale: Partial<CrmSale>) => {
       const { data, error } = await supabase
         .from("crm_sales")
-        .insert({ ...sale, user_id: user!.id })
+        .insert({ ...sale, user_id: ownerUserId! })
         .select()
         .single();
       if (error) throw error;
@@ -610,12 +626,12 @@ export const useCalendars = () => {
 
 export const useCreateCalendarConfig = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (config: Omit<Partial<CrmCalendarConfig>, "id" | "user_id" | "created_at">) => {
       const { data, error } = await supabase
         .from("crm_calendar_config")
-        .insert({ ...config, user_id: user!.id })
+        .insert({ ...config, user_id: ownerUserId! })
         .select()
         .single();
       if (error) throw error;
@@ -651,7 +667,7 @@ export const useUpdateCalendarConfig = () => {
 /** @deprecated kept for CrmCalendar missing-form recovery; prefer useUpdateCalendarConfig */
 export const useUpsertCalendarConfig = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (config: Partial<CrmCalendarConfig>) => {
       if (config.id) {
@@ -667,7 +683,7 @@ export const useUpsertCalendarConfig = () => {
       }
       const { data, error } = await supabase
         .from("crm_calendar_config")
-        .insert({ ...config, user_id: user!.id })
+        .insert({ ...config, user_id: ownerUserId! })
         .select()
         .single();
       if (error) throw error;
@@ -755,12 +771,12 @@ export const usePipelines = () => {
 
 export const useCreatePipeline = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (pipeline: Pick<CrmPipeline, "name" | "type" | "column_names">) => {
       const { data, error } = await supabase
         .from("crm_pipelines")
-        .insert({ ...pipeline, user_id: user!.id })
+        .insert({ ...pipeline, user_id: ownerUserId! })
         .select()
         .single();
       if (error) throw error;
@@ -999,12 +1015,12 @@ export const useTasks = (pipelineId: string | null) => {
 
 export const useCreateTask = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (task: Pick<CrmTask, "pipeline_id" | "title" | "description" | "priority" | "stage"> & { contact_id?: string | null; position?: number }) => {
       const { data, error } = await supabase
         .from("crm_tasks")
-        .insert({ ...task, user_id: user!.id, position: task.position ?? 0 })
+        .insert({ ...task, user_id: ownerUserId!, position: task.position ?? 0 })
         .select()
         .single();
       if (error) throw error;
@@ -1167,12 +1183,12 @@ export const useContactNotes = (contactId: string | null) => {
 
 export const useCreateContactNote = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async ({ contactId, body }: { contactId: string; body: string }) => {
       const { data, error } = await supabase
         .from("crm_contact_notes")
-        .insert({ contact_id: contactId, user_id: user!.id, body })
+        .insert({ contact_id: contactId, user_id: ownerUserId!, body })
         .select()
         .single();
       if (error) throw error;
@@ -1570,12 +1586,12 @@ export const usePersonalReminders = () => {
 
 export const useCreateReminder = () => {
   const qc = useQueryClient();
-  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (reminder: Omit<CrmReminder, "id" | "created_at" | "user_id" | "status" | "sent_at" | "error">) => {
       const { data, error } = await supabase
         .from("crm_reminders")
-        .insert({ ...reminder, user_id: user!.id, status: "pending" })
+        .insert({ ...reminder, user_id: ownerUserId!, status: "pending" })
         .select()
         .single();
       if (error) throw error;

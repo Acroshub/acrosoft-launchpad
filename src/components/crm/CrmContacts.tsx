@@ -103,7 +103,7 @@ const InlineEdit = ({
 };
 
 // ─── Contact Notes Thread ─────────────────────────────────────────────────────
-const ContactNotesThread = ({ contactId }: { contactId: string }) => {
+const ContactNotesThread = ({ contactId, canEdit }: { contactId: string; canEdit: boolean }) => {
   const { data: notes = [], isLoading } = useContactNotes(contactId);
   const createNote = useCreateContactNote();
   const [body, setBody] = useState("");
@@ -145,27 +145,29 @@ const ContactNotesThread = ({ contactId }: { contactId: string }) => {
         </div>
       )}
 
-      <div className="space-y-1.5">
-        <Textarea
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit();
-          }}
-          rows={2}
-          placeholder="Escribe una nota… (Cmd+Enter para guardar)"
-          className="text-xs resize-none"
-        />
-        <Button
-          size="sm"
-          className="h-7 text-xs"
-          onClick={handleSubmit}
-          disabled={!body.trim() || createNote.isPending}
-        >
-          {createNote.isPending && <Loader2 size={12} className="animate-spin mr-1" />}
-          Guardar nota
-        </Button>
-      </div>
+      {canEdit && (
+        <div className="space-y-1.5">
+          <Textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) handleSubmit();
+            }}
+            rows={2}
+            placeholder="Escribe una nota… (Cmd+Enter para guardar)"
+            className="text-xs resize-none"
+          />
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            onClick={handleSubmit}
+            disabled={!body.trim() || createNote.isPending}
+          >
+            {createNote.isPending && <Loader2 size={12} className="animate-spin mr-1" />}
+            Guardar nota
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -1302,7 +1304,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                 />
 
                 {/* Historial de notas */}
-                <ContactNotesThread contactId={detail.id} />
+                <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
               </div>
               </>
             ) : (

@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays } from "lucide-react";
+import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog } from "lucide-react";
 import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmLog } from "@/hooks/useCrmData";
+import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -24,18 +25,47 @@ const ACTION_LABEL: Record<string, string> = {
   delete: "Eliminado",
 };
 
-const LogRow = ({ log, isLast }: { log: CrmLog; isLast: boolean }) => {
+const LogRow = ({
+  log,
+  isLast,
+  ownerUserId,
+  staffMap,
+}: {
+  log: CrmLog;
+  isLast: boolean;
+  ownerUserId: string | null;
+  staffMap: Record<string, string>;
+}) => {
   const [expanded, setExpanded] = useState(false);
+
+  const isOwnerAction =
+    !log.performed_by_user_id || log.performed_by_user_id === ownerUserId;
+  const actorLabel = isOwnerAction
+    ? "Dueño"
+    : (staffMap[log.performed_by_user_id!] ?? "Staff");
 
   return (
     <div className={isLast ? "" : "border-b"}>
-      <div className="px-5 py-3.5 flex items-center gap-4">
+      <div className="px-5 py-3.5 flex items-center gap-3">
         <span
           className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wide shrink-0 ${
             ACTION_STYLE[log.action] ?? "text-muted-foreground bg-secondary"
           }`}
         >
           {ACTION_LABEL[log.action] ?? log.action}
+        </span>
+
+        {/* Actor badge */}
+        <span
+          className={`inline-flex items-center gap-1 text-[9px] font-semibold px-2 py-0.5 rounded-full border shrink-0 ${
+            isOwnerAction
+              ? "bg-primary/8 text-primary border-primary/20"
+              : "bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-900/20 dark:text-violet-400 dark:border-violet-800/40"
+          }`}
+          title={isOwnerAction ? "Acción del dueño" : `Staff: ${actorLabel}`}
+        >
+          {isOwnerAction ? null : <UserCog size={9} />}
+          {actorLabel}
         </span>
 
         <div className="flex-1 min-w-0">
@@ -71,16 +101,20 @@ const LogRow = ({ log, isLast }: { log: CrmLog; isLast: boolean }) => {
               <dd className="text-xs text-foreground mt-0.5">{ACTION_LABEL[log.action] ?? log.action}</dd>
             </div>
             <div>
+              <dt className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">Realizado por</dt>
+              <dd className="text-xs text-foreground mt-0.5">{actorLabel}</dd>
+            </div>
+            <div>
               <dt className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">Entidad</dt>
               <dd className="text-xs text-foreground mt-0.5">{log.entity}</dd>
             </div>
             <div>
-              <dt className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">Descripción</dt>
-              <dd className="text-xs text-foreground mt-0.5">{log.description ?? "—"}</dd>
-            </div>
-            <div>
               <dt className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">ID del registro</dt>
               <dd className="text-[10px] text-muted-foreground mt-0.5 font-mono truncate">{log.entity_id ?? "—"}</dd>
+            </div>
+            <div className="col-span-2">
+              <dt className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">Descripción</dt>
+              <dd className="text-xs text-foreground mt-0.5">{log.description ?? "—"}</dd>
             </div>
             <div className="col-span-2">
               <dt className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">Fecha y hora exacta</dt>
@@ -101,8 +135,23 @@ const LogRow = ({ log, isLast }: { log: CrmLog; isLast: boolean }) => {
 const LOGS_PER_PAGE = 20;
 
 const LogsTab = () => {
+  const { user } = useCurrentUser();
   const { data: logs = [], isLoading } = useLogs();
+  const { data: staffList = [] } = useStaff();
+
+  // Map staff_user_id → display name (name or email)
+  const staffMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const s of staffList) {
+      map[s.staff_user_id] = (s as any).name || s.email || "Staff";
+    }
+    return map;
+  }, [staffList]);
+
+  const ownerUserId = user?.id ?? null;
+
   const [actionFilter, setActionFilter] = useState<"all" | "create" | "update" | "delete">("all");
+  const [actorFilter, setActorFilter]   = useState<"all" | "owner" | "staff">("all");
   const [search, setSearch] = useState("");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo]   = useState("");
@@ -114,20 +163,26 @@ const LogsTab = () => {
       if (actionFilter !== "all" && l.action !== actionFilter) return false;
       if (dateFrom && l.created_at < dateFrom) return false;
       if (dateTo   && l.created_at.slice(0, 10) > dateTo) return false;
+      if (actorFilter === "owner") {
+        if (l.performed_by_user_id && l.performed_by_user_id !== ownerUserId) return false;
+      }
+      if (actorFilter === "staff") {
+        if (!l.performed_by_user_id || l.performed_by_user_id === ownerUserId) return false;
+      }
       if (q) {
         const haystack = [l.description, l.entity, l.entity_id].join(" ").toLowerCase();
         if (!haystack.includes(q)) return false;
       }
       return true;
     });
-  }, [logs, actionFilter, search, dateFrom, dateTo]);
+  }, [logs, actionFilter, actorFilter, ownerUserId, search, dateFrom, dateTo]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / LOGS_PER_PAGE));
   const safePage   = Math.min(page, totalPages);
   const visible    = filtered.slice((safePage - 1) * LOGS_PER_PAGE, safePage * LOGS_PER_PAGE);
 
-  const resetFilters = () => { setSearch(""); setDateFrom(""); setDateTo(""); setActionFilter("all"); setPage(1); };
-  const hasFilters = search || dateFrom || dateTo || actionFilter !== "all";
+  const resetFilters = () => { setSearch(""); setDateFrom(""); setDateTo(""); setActionFilter("all"); setActorFilter("all"); setPage(1); };
+  const hasFilters = search || dateFrom || dateTo || actionFilter !== "all" || actorFilter !== "all";
 
   return (
     <div className="space-y-5">
@@ -166,6 +221,26 @@ const LogsTab = () => {
               }`}
             >
               {f === "all" ? "Todos" : ACTION_LABEL[f]}
+            </button>
+          ))}
+        </div>
+
+        {/* Actor filter */}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0">
+            <UserCog size={12} /> Actor:
+          </div>
+          {(["all", "owner", "staff"] as const).map((f) => (
+            <button
+              key={f}
+              onClick={() => { setActorFilter(f); setPage(1); }}
+              className={`text-xs font-semibold px-3 py-1 rounded-full border transition-all ${
+                actorFilter === f
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+              }`}
+            >
+              {f === "all" ? "Todos" : f === "owner" ? "Dueño" : "Staff"}
             </button>
           ))}
 
@@ -218,7 +293,13 @@ const LogsTab = () => {
         <>
           <div className="bg-card border rounded-2xl overflow-hidden">
             {visible.map((log, i) => (
-              <LogRow key={log.id} log={log} isLast={i === visible.length - 1} />
+              <LogRow
+                key={log.id}
+                log={log}
+                isLast={i === visible.length - 1}
+                ownerUserId={ownerUserId}
+                staffMap={staffMap}
+              />
             ))}
           </div>
 

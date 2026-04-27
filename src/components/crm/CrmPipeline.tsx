@@ -41,6 +41,7 @@ const PRIORITY_ORDER: Record<string, number> = { high: 0, medium: 1, low: 2 };
 const ContactCard = ({
   contact,
   forms,
+  canEdit,
   onDelete,
   onDragStart,
   onDragOverCard,
@@ -48,6 +49,7 @@ const ContactCard = ({
 }: {
   contact: CrmContact;
   forms: CrmForm[];
+  canEdit: boolean;
   onDelete?: () => void;
   onDragStart?: () => void;
   onDragOverCard?: () => void;
@@ -139,54 +141,60 @@ const ContactCard = ({
               </a>
             </div>
           )}
-          {/* Tags editor */}
-          <div className="flex items-start gap-1.5">
-            <Tag size={10} className="shrink-0 text-muted-foreground/40 mt-0.5" />
-            <div className="flex-1 min-w-0 space-y-1">
-              {(contact.tags ?? []).length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {(contact.tags ?? []).map((t) => (
-                    <span
-                      key={t}
-                      className="inline-flex items-center gap-0.5 text-[9px] border rounded-full pl-1.5 pr-0.5 py-0.5 bg-secondary/60 text-muted-foreground"
-                    >
-                      {t}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          const next = (contact.tags ?? []).filter((tag) => tag !== t);
-                          updateContact.mutate({ id: contact.id, tags: next });
-                        }}
-                        className="rounded-full hover:bg-destructive/20 hover:text-destructive p-0.5 transition-colors"
-                        title={`Eliminar etiqueta "${t}"`}
+          {/* Tags */}
+          {((contact.tags ?? []).length > 0 || canEdit) && (
+            <div className="flex items-start gap-1.5">
+              <Tag size={10} className="shrink-0 text-muted-foreground/40 mt-0.5" />
+              <div className="flex-1 min-w-0 space-y-1">
+                {(contact.tags ?? []).length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {(contact.tags ?? []).map((t) => (
+                      <span
+                        key={t}
+                        className="inline-flex items-center gap-0.5 text-[9px] border rounded-full pl-1.5 pr-0.5 py-0.5 bg-secondary/60 text-muted-foreground"
                       >
-                        <X size={8} />
-                      </button>
-                    </span>
-                  ))}
-                </div>
-              )}
-              <div className="flex items-center gap-1">
-                <input
-                  value={newTag}
-                  onChange={(e) => setNewTag(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key !== "Enter") return;
-                    e.preventDefault();
-                    const tag = newTag.trim();
-                    if (!tag) return;
-                    const current = contact.tags ?? [];
-                    if (current.includes(tag)) { setNewTag(""); return; }
-                    updateContact.mutate({ id: contact.id, tags: [...current, tag] });
-                    setNewTag("");
-                  }}
-                  onClick={(e) => e.stopPropagation()}
-                  placeholder="+ etiqueta"
-                  className="text-[9px] h-5 px-1.5 rounded-full border border-dashed bg-transparent text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary w-20"
-                />
+                        {t}
+                        {canEdit && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const next = (contact.tags ?? []).filter((tag) => tag !== t);
+                              updateContact.mutate({ id: contact.id, tags: next });
+                            }}
+                            className="rounded-full hover:bg-destructive/20 hover:text-destructive p-0.5 transition-colors"
+                            title={`Eliminar etiqueta "${t}"`}
+                          >
+                            <X size={8} />
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {canEdit && (
+                  <div className="flex items-center gap-1">
+                    <input
+                      value={newTag}
+                      onChange={(e) => setNewTag(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key !== "Enter") return;
+                        e.preventDefault();
+                        const tag = newTag.trim();
+                        if (!tag) return;
+                        const current = contact.tags ?? [];
+                        if (current.includes(tag)) { setNewTag(""); return; }
+                        updateContact.mutate({ id: contact.id, tags: [...current, tag] });
+                        setNewTag("");
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                      placeholder="+ etiqueta"
+                      className="text-[9px] h-5 px-1.5 rounded-full border border-dashed bg-transparent text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary w-20"
+                    />
+                  </div>
+                )}
               </div>
             </div>
-          </div>
+          )}
 
           {/* Form data — one collapsible row per form that has data */}
           {formsWithData.length > 0 && (
@@ -404,15 +412,17 @@ const TaskCard = ({
             </div>
           )}
         </div>
-        {/* Action buttons — always visible */}
+        {/* Action buttons */}
         <div className="flex items-center gap-0.5 shrink-0">
-          <button
-            onClick={openEdit}
-            title="Editar tarea"
-            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-          >
-            <Pencil size={12} />
-          </button>
+          {onDelete && (
+            <button
+              onClick={openEdit}
+              title="Editar tarea"
+              className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            >
+              <Pencil size={12} />
+            </button>
+          )}
           {hasExpandable && (
             <button
               onClick={() => setExpanded((v) => !v)}
@@ -500,10 +510,10 @@ const BoardColumn = ({
   onCardDragOver: () => void;
   onCardDrop: () => void;
   onCardDragLeave: () => void;
-  onColDragStart: () => void;
-  onColDragEnd: () => void;
-  onRename: (newName: string) => void;
-  onDelete: () => void;
+  onColDragStart?: () => void;
+  onColDragEnd?: () => void;
+  onRename?: (newName: string) => void;
+  onDelete?: () => void;
   children: React.ReactNode;
   footer: React.ReactNode;
 }) => {
@@ -511,7 +521,7 @@ const BoardColumn = ({
   const [val, setVal] = useState(name);
 
   const commit = () => {
-    if (val.trim() && val.trim() !== name) onRename(val.trim());
+    if (val.trim() && val.trim() !== name) onRename?.(val.trim());
     setEditing(false);
   };
 
@@ -528,16 +538,18 @@ const BoardColumn = ({
     >
       {/* Header */}
       <div className="px-3 py-3 flex items-center gap-1.5 bg-card border-b">
-        {/* Column drag handle */}
-        <div
-          draggable
-          onDragStart={(e) => { e.stopPropagation(); onColDragStart(); }}
-          onDragEnd={onColDragEnd}
-          className="cursor-grab active:cursor-grabbing p-0.5 rounded text-muted-foreground/25 hover:text-muted-foreground/60 transition-colors shrink-0"
-          title="Arrastrar para mover columna"
-        >
-          <GripVertical size={14} />
-        </div>
+        {/* Column drag handle — only shown when reordering is allowed */}
+        {onColDragStart && (
+          <div
+            draggable
+            onDragStart={(e) => { e.stopPropagation(); onColDragStart(); }}
+            onDragEnd={onColDragEnd}
+            className="cursor-grab active:cursor-grabbing p-0.5 rounded text-muted-foreground/25 hover:text-muted-foreground/60 transition-colors shrink-0"
+            title="Arrastrar para mover columna"
+          >
+            <GripVertical size={14} />
+          </div>
+        )}
 
         {editing ? (
           <div className="flex items-center gap-2 flex-1">
@@ -554,23 +566,29 @@ const BoardColumn = ({
           </div>
         ) : (
           <>
-            <button
-              onClick={() => { setVal(name); setEditing(true); }}
-              className="text-xs font-semibold flex-1 truncate text-left hover:text-primary transition-colors"
-              title="Renombrar columna"
-            >
-              {name}
-            </button>
+            {onRename ? (
+              <button
+                onClick={() => { setVal(name); setEditing(true); }}
+                className="text-xs font-semibold flex-1 truncate text-left hover:text-primary transition-colors"
+                title="Renombrar columna"
+              >
+                {name}
+              </button>
+            ) : (
+              <span className="text-xs font-semibold flex-1 truncate">{name}</span>
+            )}
             <span className="text-[10px] text-muted-foreground bg-secondary rounded-full px-2 py-0.5 font-medium shrink-0">
               {count}
             </span>
-            <button
-              onClick={onDelete}
-              className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors shrink-0"
-              title="Eliminar columna"
-            >
-              <X size={12} />
-            </button>
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                className="p-1 rounded hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                title="Eliminar columna"
+              >
+                <X size={12} />
+              </button>
+            )}
           </>
         )}
       </div>
@@ -754,10 +772,10 @@ const ContactsBoard = ({
         onDragOver={canEdit ? setDragOver : () => {}}
         onDrop={handleDrop}
         onDragLeave={() => { setDragOver(null); setDragOverCardId(null); }}
-        onRenameCol={canEdit ? handleRenameCol : async () => {}}
-        onDeleteCol={canEdit ? handleDeleteCol : () => {}}
-        onAddCol={canEdit ? handleAddCol : async () => {}}
-        onReorderCols={canEdit ? (newOrder) => onUpdatePipeline({ column_names: newOrder }) : async () => {}}
+        onRenameCol={canEdit ? handleRenameCol : undefined}
+        onDeleteCol={canEdit ? handleDeleteCol : undefined}
+        onAddCol={canEdit ? handleAddCol : undefined}
+        onReorderCols={canEdit ? (newOrder) => onUpdatePipeline({ column_names: newOrder }) : undefined}
         getCount={(col) => memberships.filter((m) => m.stage === col).length}
         renderCards={(col) => {
           const sorted = memberships
@@ -778,6 +796,7 @@ const ContactsBoard = ({
                     <ContactCard
                       contact={contact}
                       forms={forms}
+                      canEdit={canEdit}
                       onDelete={canEdit ? () => setDeleteTarget(membership.id) : undefined}
                       onDragStart={canEdit ? () => { setDragCard({ id: membership.id, fromCol: col }); setDragOverCardId(null); } : undefined}
                       onDragOverCard={canEdit ? () => setDragOverCardId(membership.id) : undefined}
@@ -1021,10 +1040,10 @@ const TasksBoard = ({
         onDragOver={canEdit ? setDragOver : () => {}}
         onDrop={handleDrop}
         onDragLeave={() => { setDragOver(null); setDragOverCardId(null); }}
-        onRenameCol={canEdit ? handleRenameCol : async () => {}}
-        onDeleteCol={canEdit ? handleDeleteCol : () => {}}
-        onAddCol={canEdit ? handleAddCol : async () => {}}
-        onReorderCols={canEdit ? (newOrder) => onUpdatePipeline({ column_names: newOrder }) : async () => {}}
+        onRenameCol={canEdit ? handleRenameCol : undefined}
+        onDeleteCol={canEdit ? handleDeleteCol : undefined}
+        onAddCol={canEdit ? handleAddCol : undefined}
+        onReorderCols={canEdit ? (newOrder) => onUpdatePipeline({ column_names: newOrder }) : undefined}
         getCount={(col) => tasks.filter((t) => t.stage === col).length}
         renderCards={(col) => {
           const sorted = sortTasks(tasks.filter((t) => t.stage === col));
@@ -1164,10 +1183,10 @@ const BoardGrid = ({
   onDragOver: (col: string) => void;
   onDrop: (col: string) => void;
   onDragLeave: () => void;
-  onRenameCol: (old: string, next: string) => void;
-  onDeleteCol: (col: string) => void;
-  onAddCol: (name: string) => void;
-  onReorderCols: (newOrder: string[]) => void;
+  onRenameCol?: (old: string, next: string) => void;
+  onDeleteCol?: (col: string) => void;
+  onAddCol?: (name: string) => void;
+  onReorderCols?: (newOrder: string[]) => void;
   getCount: (col: string) => number;
   renderCards: (col: string) => React.ReactNode;
   renderCreation: (col: string) => React.ReactNode;
@@ -1184,7 +1203,7 @@ const BoardGrid = ({
     const next = [...columns];
     next.splice(from, 1);
     next.splice(to, 0, draggingCol);
-    onReorderCols(next);
+    onReorderCols?.(next);
     setDraggingCol(null);
     setColDragOver(null);
   };
@@ -1219,10 +1238,10 @@ const BoardGrid = ({
               onCardDragOver={() => { if (!draggingCol) onDragOver(col); }}
               onCardDrop={() => { if (!draggingCol) onDrop(col); }}
               onCardDragLeave={() => { if (!draggingCol) onDragLeave(); }}
-              onColDragStart={() => setDraggingCol(col)}
-              onColDragEnd={() => { setDraggingCol(null); setColDragOver(null); }}
-              onRename={(next) => onRenameCol(col, next)}
-              onDelete={() => onDeleteCol(col)}
+              onColDragStart={onReorderCols ? () => setDraggingCol(col) : undefined}
+              onColDragEnd={onReorderCols ? () => { setDraggingCol(null); setColDragOver(null); } : undefined}
+              onRename={onRenameCol ? (next) => onRenameCol(col, next) : undefined}
+              onDelete={onDeleteCol ? () => onDeleteCol(col) : undefined}
               footer={renderCreation(col)}
             >
               {renderCards(col)}
@@ -1230,8 +1249,8 @@ const BoardGrid = ({
           </div>
         ))}
 
-        {/* Add column */}
-        {addingCol ? (
+        {/* Add column — only when allowed */}
+        {onAddCol && (addingCol ? (
           <div className="w-64 rounded-2xl border bg-card p-3 h-fit space-y-2">
             <Input
               placeholder="Nombre de la columna"
@@ -1266,7 +1285,7 @@ const BoardGrid = ({
           >
             <Plus size={14} /> Nueva columna
           </button>
-        )}
+        ))}
       </div>
     </div>
   );
