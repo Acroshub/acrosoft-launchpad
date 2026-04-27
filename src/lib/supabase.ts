@@ -141,6 +141,7 @@ export type CrmCalendarConfig = {
   min_advance_hours: number
   max_future_days: number
   schedule_interval: number
+  timezone: string
 }
 
 export type CrmService = {

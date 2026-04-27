@@ -581,8 +581,8 @@ const WeekView = ({
 
 // MONTH VIEW
 const MonthView = ({
-  current, onSelect, selected, blocked, appointments,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; blocked: BlockedSlot[]; appointments: any[] }) => {
+  current, onSelect, selected, onBlockClick, selectedBlockId, blocked, appointments,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onBlockClick: (blk: BlockedSlot) => void; selectedBlockId: string | null; blocked: BlockedSlot[]; appointments: any[] }) => {
   const year  = current.getFullYear();
   const month = current.getMonth();
 
@@ -631,10 +631,17 @@ const MonthView = ({
               </div>
               <div className="space-y-1">
                 {dayBlk && (
-                  <div className="w-full rounded px-1.5 py-1 text-[9px] bg-amber-100 dark:bg-amber-900/40 text-amber-900 dark:text-amber-100 border border-amber-200/40 dark:border-amber-800/60 flex items-center justify-center gap-1.5 truncate">
+                  <button
+                    onClick={() => onBlockClick(dayBlk)}
+                    className={`w-full rounded px-1.5 py-1 text-[9px] text-amber-900 dark:text-amber-100 border flex items-center justify-center gap-1.5 truncate transition-colors ${
+                      selectedBlockId === dayBlk.id
+                        ? "bg-amber-400 dark:bg-amber-600 border-amber-500 dark:border-amber-500"
+                        : "bg-amber-100 dark:bg-amber-900/40 border-amber-200/40 dark:border-amber-800/60 hover:bg-amber-200 dark:hover:bg-amber-800/60"
+                    }`}
+                  >
                     <Coffee size={10} className="shrink-0 text-amber-600 dark:text-amber-400" />
                     <span className="truncate">{dayBlk.reason || "Reservado"}</span>
-                  </div>
+                  </button>
                 )}
                 {dayAppts.slice(0, dayBlk ? 2 : 3).map((a) => (
                   <button
@@ -656,6 +663,70 @@ const MonthView = ({
             </div>
           );
         })}
+      </div>
+    </div>
+  );
+};
+
+// ─── Block Detail Panel ───────────────────────────────────────
+
+const BLOCK_TYPE_LABEL: Record<string, string> = {
+  hours:   "Horas específicas",
+  fullday: "Día completo",
+  range:   "Rango de días",
+};
+
+const BlockDetailPanel = ({
+  block, canEdit, onEdit, onDelete,
+}: { block: BlockedSlot; canEdit: boolean; onEdit: () => void; onDelete: () => void }) => {
+  const rows: [string, string][] = [];
+  rows.push(["Tipo", BLOCK_TYPE_LABEL[block.type] ?? block.type]);
+  if (block.type === "hours" && block.date)  rows.push(["Fecha", block.date]);
+  if (block.type === "fullday" && block.date) rows.push(["Fecha", block.date]);
+  if (block.type === "range")  rows.push(["Período", `${block.startDate ?? "—"} → ${block.endDate ?? "—"}`]);
+  if (block.type === "hours" && block.startHour != null && block.endHour != null) {
+    const sh = `${String(block.startHour).padStart(2,"0")}:${String(block.startMinute ?? 0).padStart(2,"0")}`;
+    const eh = `${String(block.endHour).padStart(2,"0")}:${String(block.endMinute ?? 0).padStart(2,"0")}`;
+    rows.push(["Horario", `${sh} – ${eh}`]);
+  }
+  if (block.reason) rows.push(["Motivo", block.reason]);
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start gap-3">
+        <div className="w-11 h-11 rounded-xl bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+          <Coffee size={18} className="text-amber-600 dark:text-amber-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-semibold text-sm">{block.reason || "Tiempo reservado"}</p>
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">{BLOCK_TYPE_LABEL[block.type]}</p>
+        </div>
+        {canEdit && (
+          <div className="flex items-center gap-0.5 shrink-0">
+            <button
+              onClick={onEdit}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+              title="Editar bloqueo"
+            >
+              <Pencil size={14} />
+            </button>
+            <button
+              onClick={onDelete}
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+              title="Eliminar bloqueo"
+            >
+              <Trash2 size={14} />
+            </button>
+          </div>
+        )}
+      </div>
+      <div className="space-y-3 text-sm">
+        {rows.map(([label, value]) => (
+          <div key={label}>
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">{label}</p>
+            <p className="font-medium mt-0.5 text-sm">{value}</p>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -763,6 +834,8 @@ const CrmCalendar = () => {
   const [editHour, setEditHour]           = useState(10);
   const [editMinute, setEditMinute]       = useState(0);
   const [deleteApptTarget, setDeleteApptTarget] = useState<{ id: string; name: string } | null>(null);
+  const [selectedBlockId, setSelectedBlockId]   = useState<string | null>(null);
+  const [deleteBlockTarget, setDeleteBlockTarget] = useState<{ id: string; name: string } | null>(null);
 
   // New appointment modal
   const [newAppt, setNewAppt] = useState<{ open: boolean; date: string; hour: number; minute: number; contactId: string; notes: string; service: string } | null>(null);
@@ -868,7 +941,19 @@ const CrmCalendar = () => {
   const slotMinuteOptions = minutesForInterval(calendarInterval);
   const { min: hourMin, max: hourMax } = availabilityHourRange(availability);
   const slotHourOptions = Array.from({ length: hourMax - hourMin + 1 }, (_, i) => i + hourMin);
-  const detail = appointments.find((a) => a.id === selected);
+  const detail      = appointments.find((a) => a.id === selected);
+  const blockDetail = blockedSlots.find((b) => b.id === selectedBlockId);
+
+  const handleSelectAppt = (id: string) => {
+    setSelected(id || null);
+    if (id) setSelectedBlockId(null);
+  };
+
+  const handleSelectBlock = (blk: BlockedSlot) => {
+    const newId = blk.id === selectedBlockId ? null : blk.id;
+    setSelectedBlockId(newId);
+    if (newId) setSelected(null);
+  };
 
   const isLoading = loadingConfig || loadingForms || loadingAppts || loadingBlocked;
 
@@ -1055,6 +1140,23 @@ const CrmCalendar = () => {
       isPending={deleteAppointment.isPending}
       description="Se eliminará la cita permanentemente."
     />
+    <DeleteConfirmDialog
+      open={!!deleteBlockTarget}
+      onOpenChange={(open) => { if (!open) setDeleteBlockTarget(null); }}
+      onConfirm={async () => {
+        if (!deleteBlockTarget) return;
+        try {
+          await deleteBlockedSlotMut.mutateAsync({ id: deleteBlockTarget.id, name: deleteBlockTarget.name });
+          toast.success("Bloqueo eliminado");
+          setDeleteBlockTarget(null);
+          setSelectedBlockId(null);
+        } catch {
+          toast.error("Error al eliminar bloqueo");
+        }
+      }}
+      isPending={deleteBlockedSlotMut.isPending}
+      description="Se eliminará el bloqueo permanentemente."
+    />
     <div className="space-y-6">
       {/* Top Toolbar */}
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -1183,15 +1285,22 @@ const CrmCalendar = () => {
       <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6" : ""}`}>
         {/* Calendar view */}
         <div>
-          {view === "day"   && <DayView   current={current} onSelect={setSelected} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={canEditCalendar ? openEditBlockModal : () => {}} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
-          {view === "week"  && <WeekView  current={current} onSelect={setSelected} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={canEditCalendar ? openEditBlockModal : () => {}} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
-          {view === "month" && <MonthView current={current} onSelect={setSelected} selected={selected} blocked={blockedSlots} appointments={appointments} />}
+          {view === "day"   && <DayView   current={current} onSelect={handleSelectAppt} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
+          {view === "week"  && <WeekView  current={current} onSelect={handleSelectAppt} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
+          {view === "month" && <MonthView current={current} onSelect={handleSelectAppt} selected={selected} onBlockClick={handleSelectBlock} selectedBlockId={selectedBlockId} blocked={blockedSlots} appointments={appointments} />}
         </div>
 
         {/* Detail panel — day & week only */}
         {view !== "month" && (
           <div className="bg-card border rounded-2xl p-5 h-fit">
-            {detail ? (
+            {blockDetail ? (
+              <BlockDetailPanel
+                block={blockDetail}
+                canEdit={canEditCalendar}
+                onEdit={() => openEditBlockModal(blockDetail)}
+                onDelete={() => setDeleteBlockTarget({ id: blockDetail.id, name: blockDetail.reason || "Bloqueo" })}
+              />
+            ) : detail ? (
               <div className="space-y-5">
                 <div className="flex items-start gap-3">
                   <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
@@ -1253,9 +1362,21 @@ const CrmCalendar = () => {
             ) : (
               <div className="py-10 text-center">
                 <User size={22} className="text-muted-foreground/20 mx-auto mb-2" />
-                <p className="text-xs text-muted-foreground">Selecciona una cita para ver los detalles</p>
+                <p className="text-xs text-muted-foreground">Selecciona una cita o bloqueo para ver los detalles</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Block detail — month view (below) */}
+        {view === "month" && blockDetail && !detail && (
+          <div className="bg-card border rounded-2xl p-5 mt-4">
+            <BlockDetailPanel
+              block={blockDetail}
+              canEdit={canEditCalendar}
+              onEdit={() => openEditBlockModal(blockDetail)}
+              onDelete={() => setDeleteBlockTarget({ id: blockDetail.id, name: blockDetail.reason || "Bloqueo" })}
+            />
           </div>
         )}
 
@@ -1679,6 +1800,7 @@ const CrmCalendar = () => {
                   try {
                     await deleteBlockedSlotMut.mutateAsync({ id: blockModal.editingId, name: blockModal.reason || "Bloqueo" });
                     toast.success("Bloqueo eliminado");
+                    setSelectedBlockId(null);
                     closeBlockModal();
                   } catch {
                     toast.error("Error al eliminar bloqueo");

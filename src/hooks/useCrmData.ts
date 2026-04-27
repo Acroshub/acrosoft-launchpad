@@ -308,8 +308,9 @@ export const useUpdateBlockedSlot = () => {
       const { error } = await supabase.from("crm_blocked_slots").update(patch).eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
+    onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ["crm_blocked_slots"] });
+      logAction("update", "Bloqueo", "Bloqueo de horario actualizado", id);
     },
   });
 };

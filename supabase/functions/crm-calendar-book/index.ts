@@ -151,7 +151,7 @@ Deno.serve(async (req) => {
 
     const { data: calendar, error: calError } = await supabase
       .from("crm_calendar_config")
-      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability, reminder_rules")
+      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability, reminder_rules, timezone")
       .eq("id", calendar_id)
       .single();
 
@@ -162,27 +162,43 @@ Deno.serve(async (req) => {
     const minAdvanceHours: number = (calendar as any).min_advance_hours ?? 1;
     const maxFutureDays: number   = (calendar as any).max_future_days ?? 60;
 
-    // TODO(F-5): replace hardcoded La Paz offset with calendar.timezone (IANA).
-    // All existing calendars are America/La_Paz (UTC-4, no DST).
-    const TZ_OFFSET_HOURS = -4;
-    const TZ_OFFSET_MS = TZ_OFFSET_HOURS * 3600_000;
+    const calTz: string = (calendar as any).timezone ?? "America/La_Paz";
 
     const [yy, mm, dd] = date.split("-").map(Number);
-    // Booking local wall-clock → absolute UTC ms (La Paz = UTC-4, so UTC = local + 4h)
-    const scheduledMs = Date.UTC(yy, mm - 1, dd, hour, minute) - TZ_OFFSET_MS;
+
+    // Converts wall-clock time in calTz → absolute UTC ms (2-iteration convergence for DST)
+    const wallClockToUtcMs = (y: number, mo: number, d: number, h: number, min: number): number => {
+      const fmt = new Intl.DateTimeFormat("en", {
+        timeZone: calTz,
+        year: "numeric", month: "numeric", day: "numeric",
+        hour: "numeric", minute: "numeric", hour12: false,
+      });
+      let utcMs = Date.UTC(y, mo - 1, d, h, min);
+      for (let i = 0; i < 2; i++) {
+        const parts = fmt.formatToParts(new Date(utcMs));
+        const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+        const dh = get("hour") % 24;
+        const displayedMs = Date.UTC(get("year"), get("month") - 1, get("day"), dh, get("minute"));
+        utcMs += Date.UTC(y, mo - 1, d, h, min) - displayedMs;
+      }
+      return utcMs;
+    };
+
+    const scheduledMs = wallClockToUtcMs(yy, mm, dd, hour, minute);
     const nowMs = Date.now();
 
     if (scheduledMs < nowMs + minAdvanceHours * 3600_000) {
       return respond({ error: `Debe reservar con al menos ${minAdvanceHours}h de anticipación` }, 422);
     }
 
-    // "Today" in the business timezone
-    const nowLocal = new Date(nowMs + TZ_OFFSET_MS);
-    const tyr = nowLocal.getUTCFullYear();
-    const tmo = nowLocal.getUTCMonth();
-    const tdy = nowLocal.getUTCDate();
-    const maxMs = Date.UTC(tyr, tmo, tdy + maxFutureDays);
-    const bookingMs = Date.UTC(yy, mm - 1, dd);
+    // "Today" in the calendar timezone
+    const todayParts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: calTz, year: "numeric", month: "2-digit", day: "2-digit",
+    }).formatToParts(new Date(nowMs));
+    const getPart = (t: string) => Number(todayParts.find((p) => p.type === t)?.value ?? 0);
+    const tyr = getPart("year"), tmo = getPart("month"), tdy = getPart("day");
+    const maxMs = wallClockToUtcMs(tyr, tmo, tdy + maxFutureDays, 0, 0);
+    const bookingMs = wallClockToUtcMs(yy, mm, dd, 0, 0);
     if (bookingMs > maxMs) {
       return respond({ error: `No se puede reservar más allá de ${maxFutureDays} días en el futuro` }, 422);
     }

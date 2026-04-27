@@ -766,29 +766,20 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-5 · Soporte de Timezones en Calendarios
-**Descripción:** Cada calendario tiene un timezone configurado. El CalendarRenderer muestra los horarios convertidos al timezone del visitante.
+### F-5 · Soporte de Timezones en Calendarios ✅ COMPLETADO
 
-**Implementación — 4 capas:**
+**Implementado:**
+- **DB:** `crm_calendar_config.timezone text NOT NULL DEFAULT 'America/La_Paz'`. Calendarios existentes heredan La Paz automáticamente.
+- **CrmCalendarConfig:** Selector de timezone con todos los IANA vía `Intl.supportedValuesOf("timeZone")`. Auto-detecta el timezone del navegador al crear un calendario nuevo.
+- **CalendarRenderer:** Auto-detecta timezone del visitante. Selector de timezone en el header (visitante puede cambiarlo). Los horarios disponibles se muestran convertidos al timezone del visitante usando `formatSlotInTz`. La lógica de `minBookableMs` y `isDayAvailable` usa `wallClockToUtcMs` para comparaciones UTC correctas independientemente del timezone del browser.
+- **crm-calendar-book:** Reemplazado `TZ_OFFSET_HOURS = -4` por `wallClockToUtcMs()` con convergencia de 2 iteraciones (maneja DST). Lee `calendar.timezone` dinámicamente. Deployed v20.
+- **Datos existentes:** Sin migración de datos — `date+hour+minute` se interpreta en el timezone del calendario. Calendarios existentes quedan en `America/La_Paz`.
 
-1. **DB:** Migración: `ALTER TABLE crm_calendar_config ADD COLUMN timezone text NOT NULL DEFAULT 'America/La_Paz'`. Migrar calendarios existentes con `'America/La_Paz'` como timezone.
-
-2. **CrmCalendarConfig (admin):** Nuevo campo selector de timezone. Detección automática del timezone del navegador del admin al crear un calendario nuevo (`Intl.DateTimeFormat().resolvedOptions().timeZone`). Editable manualmente (dropdown con todos los timezones IANA).
-
-3. **CalendarRenderer (público):** Detectar timezone del visitante vía `Intl.DateTimeFormat().resolvedOptions().timeZone`. Convertir slots disponibles del timezone del calendario al timezone del visitante para display. Mostrar selector de timezone con el detectado como default (el visitante puede cambiarlo). Al enviar reserva a `crm-calendar-book`, enviar la hora en el timezone del calendario (conversión client-side antes de POST).
-
-4. **crm-calendar-book (edge function):** Recibir `hour`/`minute` en el timezone del calendario. **Reemplazar el hardcode `TZ_OFFSET_HOURS = -4` (La Paz) por lookup dinámico del `calendar.timezone`** usando `Intl.DateTimeFormat` o librería de timezones (ej. `date-fns-tz`) para convertir wall-clock → absolute UTC ms en las validaciones de `min_advance_hours` y `max_future_days`. Opcionalmente recibir `visitor_timezone` para logging.
-
-5. **CrmCalendar (admin):** Las citas se muestran en el timezone del calendario seleccionado. Si el admin cambia de calendario y los timezones difieren, las horas se ajustan.
-
-**Datos existentes:** Citas actuales se asumen en `America/La_Paz` (timezone actual del admin). No requieren migración de datos — se almacenan como date+hour+minute y el nuevo campo timezone del calendario contextualiza la interpretación.
-
-**Archivos:** migración SQL, `src/components/crm/CrmCalendarConfig.tsx`, `src/components/crm/CalendarRenderer.tsx`, `src/components/crm/CrmCalendar.tsx`, `src/lib/supabase.ts`
-**Complejidad:** Alta — lógica de conversión de timezone en múltiples componentes + UX de detección automática.
+**Archivos:** migración SQL, `src/components/crm/CrmCalendarConfig.tsx`, `src/components/crm/CalendarRenderer.tsx`, `src/lib/supabase.ts`, `supabase/functions/crm-calendar-book/index.ts`
 
 ---
 
-### F-6 · Bloqueos de tiempo — edición, eliminación y panel de detalle
+### ✅ F-6 · Bloqueos de tiempo — edición, eliminación y panel de detalle
 **Problema:** Los slots bloqueados (ícono de café ☕) en CrmCalendar son de solo lectura. Una vez creados no se pueden editar (cambiar fecha, horario, rango o motivo) ni eliminar desde la UI del calendario. El usuario debe borrar y recrear para cualquier cambio.
 
 **Alcance:**

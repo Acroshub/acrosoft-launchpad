@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { ChevronLeft, ChevronRight, Loader2, Check, Clock, Calendar } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Check, Clock, Calendar, Globe } from "lucide-react";
 import { usePublicCalendar, usePublicAppointments, usePublicBlockedSlots, usePublicForm, usePublicBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmBlockedSlot } from "@/lib/supabase";
 import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
@@ -64,19 +64,56 @@ const isDayBlockedFully = (blocked: CrmBlockedSlot[], dayKey: string): boolean =
 const toDateKey = (y: number, m: number, d: number) =>
   `${y}-${String(m + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 
-const formatHour = (h: number) => {
-  if (h === 0) return "12:00 AM";
-  if (h < 12) return `${h}:00 AM`;
-  if (h === 12) return "12:00 PM";
-  return `${h - 12}:00 PM`;
-};
-
 const formatSlot = (h: number, m: number): string => {
   const mm = String(m).padStart(2, "0");
   if (h === 0)  return `12:${mm} AM`;
   if (h < 12)  return `${h}:${mm} AM`;
   if (h === 12) return `12:${mm} PM`;
   return `${h - 12}:${mm} PM`;
+};
+
+// ─── Timezone utilities ───────────────────────────────────────────────────────
+
+/**
+ * Converts a wall-clock time in a given IANA timezone to absolute UTC ms.
+ * Uses 2-iteration convergence to handle DST transitions correctly.
+ */
+const wallClockToUtcMs = (
+  year: number, month: number, day: number,
+  hour: number, minute: number,
+  tz: string,
+): number => {
+  const fmt = new Intl.DateTimeFormat("en", {
+    timeZone: tz,
+    year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", hour12: false,
+  });
+  let utcMs = Date.UTC(year, month - 1, day, hour, minute);
+  for (let i = 0; i < 2; i++) {
+    const parts = fmt.formatToParts(new Date(utcMs));
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+    const h = get("hour") % 24;
+    const displayedMs = Date.UTC(get("year"), get("month") - 1, get("day"), h, get("minute"));
+    utcMs += Date.UTC(year, month - 1, day, hour, minute) - displayedMs;
+  }
+  return utcMs;
+};
+
+/**
+ * Formats a wall-clock slot (in calendarTz) for display in displayTz.
+ * Returns a label like "3:00 PM" in the visitor's local time.
+ */
+const formatSlotInTz = (
+  date: string, hour: number, minute: number,
+  calendarTz: string, displayTz: string,
+): string => {
+  const [y, m, d] = date.split("-").map(Number);
+  const utcMs = wallClockToUtcMs(y, m, d, hour, minute, calendarTz);
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: displayTz,
+    hour: "numeric", minute: "2-digit", hour12: true,
+  }).formatToParts(new Date(utcMs));
+  return parts.map((p) => p.value).join("").replace(/\s?(AM|PM)/, " $1").trim();
 };
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
@@ -140,6 +177,8 @@ interface BookingFormProps {
   calendarName: string;
   durationMin: number;
   primaryColor: string;
+  calendarTz: string;
+  visitorTz: string;
   onSuccess: () => void;
   onBack: () => void;
 }
@@ -153,6 +192,8 @@ const BookingForm = ({
   calendarName,
   durationMin,
   primaryColor,
+  calendarTz,
+  visitorTz,
   onSuccess,
   onBack,
 }: BookingFormProps) => {
@@ -211,7 +252,7 @@ const BookingForm = ({
           <p className="text-xs text-gray-500">{dateLabel}</p>
           <span className="text-gray-300 text-xs">·</span>
           <Clock size={11} className="text-gray-400" />
-          <p className="text-xs text-gray-500">{formatSlot(selectedHour, selectedMinute)}</p>
+          <p className="text-xs text-gray-500">{formatSlotInTz(selectedDate, selectedHour, selectedMinute, calendarTz, visitorTz)}</p>
           <span className="text-gray-300 text-xs">·</span>
           <p className="text-xs text-gray-500">{durationMin} min</p>
         </div>
@@ -276,6 +317,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [selectedSlot, setSelectedSlot] = useState<{ hour: number; minute: number } | null>(null);
   const [step, setStep] = useState<"calendar" | "form" | "success">("calendar");
+  const [visitorTz, setVisitorTz] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
 
   const { data: calendar, isLoading } = usePublicCalendar(calendarId);
   const userId = (calendar as any)?.user_id as string | undefined;
@@ -291,6 +333,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   const { data: branding } = usePublicBusinessProfile(userId);
 
   const primaryColor = branding?.color_primary ?? "#3b82f6";
+
+  const calendarTz = (calendar as any)?.timezone ?? "America/La_Paz";
 
   const avail = useMemo((): WeeklySchedule | null => {
     const raw = calendar?.availability;
@@ -309,12 +353,14 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   const minAdvanceHours = (calendar as any)?.min_advance_hours ?? 1;
   const maxFutureDays   = (calendar as any)?.max_future_days   ?? 60;
 
-  // Absolute cutoff: slots before this timestamp cannot be booked
+  // Absolute cutoff in UTC — uses calendar timezone for accurate min_advance_hours
   const minBookableMs = today.getTime() + minAdvanceHours * 3600 * 1000;
 
-  // Last bookable date key
-  const maxDate    = new Date(today.getFullYear(), today.getMonth(), today.getDate() + maxFutureDays);
-  const maxDateKey = toDateKey(maxDate.getFullYear(), maxDate.getMonth(), maxDate.getDate());
+  // Last bookable date key — derived in calendar timezone
+  const todayInCalTz = new Intl.DateTimeFormat("en-CA", { timeZone: calendarTz, year: "numeric", month: "2-digit", day: "2-digit" }).format(today);
+  const [cty, ctm, ctd] = todayInCalTz.split("-").map(Number);
+  const maxDateMs  = Date.UTC(cty, ctm - 1, ctd + maxFutureDays);
+  const maxDateKey = new Intl.DateTimeFormat("en-CA", { timeZone: calendarTz }).format(new Date(maxDateMs));
 
   const appointmentsByDate = useMemo(() => {
     const map: Record<string, { startMin: number; endMin: number }[]> = {};
@@ -335,7 +381,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
     );
   };
 
-  const todayKey = toDateKey(today.getFullYear(), today.getMonth(), today.getDate());
+  // todayKey in calendar timezone so past-day detection is accurate for remote TZs
+  const todayKey = todayInCalTz;
 
   const isDayAvailable = (day: number) => {
     const key = toDateKey(viewYear, viewMonth, day);
@@ -347,7 +394,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
     for (let totalMin = 6 * 60; totalMin < 21 * 60; totalMin += slotStep) {
       const h  = Math.floor(totalMin / 60);
       const m  = totalMin % 60;
-      const slotMs = new Date(viewYear, viewMonth, day, h, m).getTime();
+      // Use calendar timezone to convert wall-clock → UTC for min_advance_hours check
+      const slotMs = wallClockToUtcMs(viewYear, viewMonth + 1, day, h, m, calendarTz);
       if (slotMs < minBookableMs) continue;
       if (!isSlotAvailable(avail, dow, h, m, slotStep)) continue;
       if (isBufferBlocked(key, totalMin, slotStep)) continue;
@@ -366,7 +414,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
     for (let totalMin = 6 * 60; totalMin < 21 * 60; totalMin += slotStep) {
       const h      = Math.floor(totalMin / 60);
       const mn     = totalMin % 60;
-      const slotMs = new Date(y, m - 1, d, h, mn).getTime();
+      const slotMs = wallClockToUtcMs(y, m, d, h, mn, calendarTz);
       if (slotMs < minBookableMs) continue;
       if (!isSlotAvailable(avail, dayOfWeek, h, mn, slotStep)) continue;
       if (isBufferBlocked(selectedDate, totalMin, slotStep)) continue;
@@ -374,7 +422,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
       slots.push({ hour: h, minute: mn });
     }
     return slots;
-  }, [selectedDate, avail, appointmentsByDate, blockedSlots, minBookableMs, slotStep, bufferMin]);
+  }, [selectedDate, avail, appointmentsByDate, blockedSlots, minBookableMs, slotStep, bufferMin, calendarTz]);
 
   // First day of the next view-month — used to block navigation past maxFutureDays
   const nextMonthFirstKey = (() => {
@@ -445,6 +493,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
         calendarName={calendar.name ?? "Cita"}
         durationMin={calendar.duration_min ?? 30}
         primaryColor={primaryColor}
+        calendarTz={calendarTz}
+        visitorTz={visitorTz}
         onSuccess={() => setStep("success")}
         onBack={() => setStep("calendar")}
       />
@@ -463,7 +513,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
         {calendar.description && (
           <p className="text-sm text-gray-500 leading-relaxed">{calendar.description}</p>
         )}
-        {/* Duration badge */}
+        {/* Duration + timezone badges */}
         <div className="flex items-center gap-2 flex-wrap">
           <span
             className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
@@ -476,6 +526,19 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
             <Calendar size={11} strokeWidth={2} />
             Agenda online
           </span>
+          {/* Timezone selector */}
+          <label className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-500 cursor-pointer hover:bg-gray-200 transition-colors">
+            <Globe size={11} strokeWidth={2} />
+            <select
+              value={visitorTz}
+              onChange={(e) => setVisitorTz(e.target.value)}
+              className="bg-transparent text-xs text-gray-500 focus:outline-none cursor-pointer max-w-[160px] truncate"
+            >
+              {((Intl as any).supportedValuesOf?.("timeZone") ?? [calendarTz]).map((tz: string) => (
+                <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
+              ))}
+            </select>
+          </label>
         </div>
       </div>
 
@@ -591,6 +654,9 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
             <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
               {availableSlots.map(({ hour: h, minute: m }) => {
                 const isSelected = selectedSlot?.hour === h && selectedSlot?.minute === m;
+                const label = selectedDate
+                  ? formatSlotInTz(selectedDate, h, m, calendarTz, visitorTz)
+                  : formatSlot(h, m);
                 return (
                   <button
                     key={`${h}:${m}`}
@@ -603,7 +669,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
                         : "border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 bg-white",
                     ].join(" ")}
                   >
-                    {formatSlot(h, m)}
+                    {label}
                   </button>
                 );
               })}
@@ -620,7 +686,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
             style={{ backgroundColor: primaryColor }}
             className="w-full text-white rounded-lg py-3 text-sm font-semibold transition-all hover:opacity-90 flex items-center justify-center gap-2"
           >
-            Continuar con {formatSlot(selectedSlot.hour, selectedSlot.minute)}
+            Continuar con {selectedDate ? formatSlotInTz(selectedDate, selectedSlot.hour, selectedSlot.minute, calendarTz, visitorTz) : formatSlot(selectedSlot.hour, selectedSlot.minute)}
             <ChevronRight size={15} strokeWidth={2.5} />
           </button>
         </div>

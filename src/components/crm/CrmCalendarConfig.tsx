@@ -89,6 +89,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
   const [linkedFormId, setLinkedFormId]   = useState<string | null>(null);
   const [availability, setAvailability]   = useState<WeeklySchedule>(DEFAULT_WEEKLY_SCHEDULE);
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
+  const [timezone, setTimezone]               = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [minAdvanceHours, setMinAdvanceHours] = useState(1);
   const [maxFutureDays, setMaxFutureDays]     = useState(60);
   const [isEditingHours, setIsEditingHours] = useState(false);
@@ -110,6 +111,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
       setLinkedFormId(existingCalendar.linked_form_id ?? null);
       setAvailability(normalizeAvail(existingCalendar.availability));
       setReminderRules((existingCalendar.reminder_rules as unknown as ReminderRule[] | null) ?? []);
+      setTimezone(existingCalendar.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
       setMinAdvanceHours(existingCalendar.min_advance_hours ?? 1);
       setMaxFutureDays(existingCalendar.max_future_days ?? 60);
     }
@@ -174,6 +176,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
         description: description || null,
         duration_min: duration,
         buffer_min: bufferTime,
+        timezone,
         min_advance_hours: minAdvanceHours,
         max_future_days: maxFutureDays,
         slug: slug || null,
@@ -308,6 +311,21 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
             </div>
             <p className="text-[10px] text-muted-foreground mt-1">
               El calendario funciona sin slug — se usa el ID automáticamente.
+            </p>
+          </Field>
+
+          <Field label="Zona horaria del negocio">
+            <select
+              value={timezone}
+              onChange={(e) => setTimezone(e.target.value)}
+              className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
+            >
+              {((Intl as any).supportedValuesOf?.("timeZone") ?? ["America/La_Paz"]).map((tz: string) => (
+                <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
+              ))}
+            </select>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              Los horarios del calendario se interpretan en esta zona horaria.
             </p>
           </Field>
 
