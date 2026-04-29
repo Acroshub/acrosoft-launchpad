@@ -61,6 +61,22 @@ const usePublicForm = (formId: string) =>
     enabled: !!formId,
   });
 
+const usePublicBusinessProfile = (userId?: string | null) =>
+  useQuery({
+    queryKey: ["public_business_profile", userId],
+    queryFn: async () => {
+      if (!userId) return null;
+      const { data, error } = await supabase
+        .from("crm_business_profile")
+        .select("logo_url, color_primary, theme")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { logo_url: string | null; color_primary: string; theme: string } | null;
+    },
+    enabled: !!userId,
+  });
+
 const usePublicServices = (userId?: string | null, allowedIds?: string[]) =>
   useQuery({
     queryKey: ["public_services", userId, allowedIds?.join(",")],
@@ -197,12 +213,13 @@ const ServicesField = ({
                       ) : (
                         <span className="text-2xl font-bold text-foreground">${svc.price}</span>
                       )}
-                      <span className="text-xs text-muted-foreground uppercase tracking-tight">setup</span>
+                      <span className="text-xs text-muted-foreground uppercase tracking-tight">
+                        {svc.is_recurring && svc.recurring_price ? "setup" : svc.is_recurring ? `/ ${svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}` : "pago único"}
+                      </span>
                     </div>
                     {svc.recurring_price && (
                       <span className="text-sm text-muted-foreground">
-                        ${svc.recurring_price}/{svc.recurring_interval}
-                        {svc.recurring_label ? ` ${svc.recurring_label}` : ""}
+                        ${svc.recurring_price} / {svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}
                       </span>
                     )}
                     {svc.delivery_time && (
@@ -751,6 +768,8 @@ const FormRenderer = ({ formId }: { formId: string }) => {
   const [submitted, setSubmitted] = useState(false);
   const [submissionId, setSubmissionId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsError, setTermsError] = useState(false);
 
   // ── Facebook Pixel: init + ViewContent on mount ──────────────────
   const pixelId = (form as any)?.facebook_pixel_id as string | undefined;
@@ -771,6 +790,10 @@ const FormRenderer = ({ formId }: { formId: string }) => {
           : f.sectionId === currentSection?.id
       );
   const formUserId = (form as any)?.user_id ?? null;
+  const { data: branding } = usePublicBusinessProfile(formUserId);
+  const isBranded = branding?.theme === "branded";
+  const brandPrimary = isBranded ? (branding?.color_primary ?? null) : null;
+  const brandLogo = isBranded ? (branding?.logo_url ?? null) : null;
 
   const hasServicesField = fields.some(f => f.type === "services");
   const servicesFieldAllowedIds = useMemo(() => {
@@ -828,7 +851,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
           "Content-Type": "application/json",
           "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ form_id: formId, data: formValues }),
+        body: JSON.stringify({ form_id: formId, data: formValues, terms_accepted_at: new Date().toISOString() }),
       });
       if (!res.ok) throw new Error("Error en el servidor");
       const result = await res.json();
@@ -900,9 +923,17 @@ const FormRenderer = ({ formId }: { formId: string }) => {
       {/* Stepper Progress — only show when multi-step */}
       {totalSteps > 1 && <div className="bg-card/50 border-b py-6 mb-8">
         <div className="container mx-auto px-4 max-w-4xl">
+          {brandLogo && (
+            <div className="mb-4">
+              <img src={brandLogo} alt="Logo" className="h-9 max-w-[180px] object-contain" />
+            </div>
+          )}
           <div className="flex items-center justify-between mb-4">
             <div className="flex flex-col">
-              <span className="text-[10px] font-bold text-primary uppercase tracking-widest">
+              <span
+                className="text-[10px] font-bold uppercase tracking-widest"
+                style={brandPrimary ? { color: brandPrimary } : undefined}
+              >
                 Paso {currentStep + 1} de {totalSteps}
               </span>
               <h2 className="text-lg font-black tracking-tight">{stepNames[currentStep]}</h2>
@@ -917,9 +948,10 @@ const FormRenderer = ({ formId }: { formId: string }) => {
                 key={i}
                 className={`h-full flex-1 rounded-full transition-all duration-500 ${
                   i <= currentStep
-                    ? "bg-primary shadow-sm shadow-primary/20"
+                    ? brandPrimary ? "" : "bg-primary shadow-sm shadow-primary/20"
                     : "bg-muted-foreground/10"
                 }`}
+                style={i <= currentStep && brandPrimary ? { backgroundColor: brandPrimary } : undefined}
               />
             ))}
           </div>
@@ -929,6 +961,12 @@ const FormRenderer = ({ formId }: { formId: string }) => {
       {/* Main Content */}
       <main className="container mx-auto px-4 pb-20">
         <div className="max-w-2xl mx-auto">
+          {/* Brand logo — only on single-page forms (multi-step shows it in stepper) */}
+          {brandLogo && totalSteps === 1 && (
+            <div className="mb-6">
+              <img src={brandLogo} alt="Logo" className="h-9 max-w-[180px] object-contain" />
+            </div>
+          )}
           <div className="bg-card border border-border/60 rounded-3xl p-8 md:p-10 shadow-xl shadow-foreground/5 animate-in fade-in slide-in-from-bottom-6 duration-700">
             {/* Section header */}
             {currentSection && (
@@ -988,6 +1026,32 @@ const FormRenderer = ({ formId }: { formId: string }) => {
               </div>
             )}
 
+            {/* Terms checkbox — only on submit step */}
+            {(isOnConfirm || (!confirmSection && currentStep === activeSections.length - 1)) && (
+              <div className="mt-8 pt-6 border-t border-border/30 space-y-1.5">
+                <label className="flex items-start gap-3 cursor-pointer group" onClick={() => { setTermsAccepted(v => !v); setTermsError(false); }}>
+                  <div className={`mt-0.5 w-5 h-5 rounded border-2 flex-none flex items-center justify-center transition-all ${termsAccepted ? "bg-primary border-primary" : termsError ? "border-destructive" : "border-border group-hover:border-primary/50"}`}>
+                    {termsAccepted && <Check size={12} className="text-primary-foreground" />}
+                  </div>
+                  <span className="text-sm text-muted-foreground leading-snug select-none">
+                    Acepto los{" "}
+                    <a
+                      href="/terminos_y_politicas_de_privacidad"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
+                    >
+                      términos y políticas de privacidad
+                    </a>
+                  </span>
+                </label>
+                {termsError && (
+                  <p className="text-xs text-destructive ml-8">Debes aceptar los términos para continuar.</p>
+                )}
+              </div>
+            )}
+
             {/* Navigation */}
             <div className="flex items-center justify-between mt-12 pt-8 border-t border-border/50">
               {totalSteps > 1 ? (
@@ -1003,9 +1067,12 @@ const FormRenderer = ({ formId }: { formId: string }) => {
 
               {isOnConfirm || (!confirmSection && currentStep === activeSections.length - 1) ? (
                 <Button
-                  onClick={isOnConfirm ? handleSubmit : () => { if (validate()) handleSubmit(); }}
+                  onClick={isOnConfirm
+                    ? () => { if (!termsAccepted) { setTermsError(true); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); return; } handleSubmit(); }
+                    : () => { if (!termsAccepted) { setTermsError(true); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); return; } if (validate()) handleSubmit(); }}
                   disabled={isSubmitting}
-                  className="rounded-xl h-12 px-8 font-black shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  className="rounded-xl h-12 px-8 font-black shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  style={brandPrimary ? { backgroundColor: brandPrimary, borderColor: brandPrimary, boxShadow: `0 4px 14px ${brandPrimary}33` } : undefined}
                 >
                   {isSubmitting ? (
                     <><Loader2 size={18} className="mr-2 animate-spin" /> Enviando…</>
@@ -1016,7 +1083,8 @@ const FormRenderer = ({ formId }: { formId: string }) => {
               ) : (
                 <Button
                   onClick={next}
-                  className="rounded-xl h-12 px-8 font-black shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  className="rounded-xl h-12 px-8 font-black shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
+                  style={brandPrimary ? { backgroundColor: brandPrimary, borderColor: brandPrimary, boxShadow: `0 4px 14px ${brandPrimary}33` } : undefined}
                 >
                   Continuar <ChevronRight size={18} className="ml-2" />
                 </Button>

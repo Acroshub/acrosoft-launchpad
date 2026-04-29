@@ -1,12 +1,15 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Pencil, User, Building2, Image as ImageIcon, Palette, Briefcase, Check, Loader2 } from "lucide-react";
+import { Pencil, User, Building2, Image as ImageIcon, Palette, Briefcase, Check, Loader2, Trash2, Upload } from "lucide-react";
 import CrmServices from "./CrmServices";
 import { useBusinessProfile, useUpsertBusinessProfile, useUpdateStaff } from "@/hooks/useCrmData";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import type { CrmBusinessProfile, CrmStaff } from "@/lib/supabase";
+
+const LOGO_BUCKET = "form-uploads";
 
 type Tab = "personal" | "negocio" | "logo" | "colores" | "servicios";
 
@@ -203,36 +206,122 @@ const NegocioTab = ({ profile, update, readOnly = false }: { profile: CrmBusines
     );
 };
 
-const LogoTab = ({ profile, update }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void> }) => (
-  <div className="bg-card border rounded-2xl p-6 space-y-5 max-w-md">
-    <h2 className="text-sm font-semibold">Logo</h2>
-    <div className="border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center py-16 gap-3 bg-secondary/20 hover:bg-secondary/40 hover:border-primary/30 transition-all cursor-pointer">
-      {profile?.logo_url ? (
-        <img src={profile.logo_url} alt="Logo" className="w-24 h-24 object-contain" />
-      ) : (
-        <>
-            <ImageIcon size={32} className="text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">Arrastra tu logo aquí o haz clic para subir</p>
-            <p className="text-xs text-muted-foreground/60">PNG, SVG o JPG — máx. 2 MB</p>
-        </>
-      )}
-    </div>
-    <Button variant="outline" className="w-full h-9 rounded-xl text-sm" onClick={() => toast.info("Subida de imagenes requerirá el bucket de Storage (Pendiente)")}>
-      Subir nuevo logo
-    </Button>
-  </div>
-);
+const LogoTab = ({ profile, update }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void> }) => {
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
 
-const ColoresTab = ({ profile, update }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void> }) => (
-  <div className="bg-card border rounded-2xl p-6 space-y-6 max-w-sm">
-    <h2 className="text-sm font-semibold">Colores de marca</h2>
-    <div className="space-y-5">
-      <ColorField label="Color primario"   value={profile?.color_primary || "#3b82f6"}   onSave={val => update({ color_primary: val })} />
-      <ColorField label="Color secundario" value={profile?.color_secondary || "#ffffff"} onSave={val => update({ color_secondary: val })} />
-      <ColorField label="Color de acento"  value={profile?.color_accent || "#f59e0b"}    onSave={val => update({ color_accent: val })} />
+  const handleFile = async (file: File) => {
+    if (!file) return;
+    if (file.size > 2 * 1024 * 1024) { toast.error("El archivo supera el límite de 2 MB"); return; }
+    if (!["image/png", "image/jpeg", "image/svg+xml", "image/webp"].includes(file.type)) {
+      toast.error("Formato no soportado. Usa PNG, JPG, SVG o WEBP"); return;
+    }
+    setUploading(true);
+    try {
+      const ext  = file.name.split(".").pop() ?? "png";
+      const path = `logos/${Date.now()}.${ext}`;
+      const { error: upErr } = await supabase.storage.from(LOGO_BUCKET).upload(path, file, { upsert: false, contentType: file.type });
+      if (upErr) throw upErr;
+      const { data: urlData } = supabase.storage.from(LOGO_BUCKET).getPublicUrl(path);
+      await update({ logo_url: urlData.publicUrl });
+      toast.success("Logo actualizado");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Error al subir el logo");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleRemove = async () => {
+    await update({ logo_url: null });
+    toast.success("Logo eliminado");
+  };
+
+  return (
+    <div className="bg-card border rounded-2xl p-6 space-y-5 max-w-md">
+      <h2 className="text-sm font-semibold">Logo del negocio</h2>
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+
+      {/* Preview or drop zone */}
+      <button
+        type="button"
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading}
+        className="w-full border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center py-12 gap-3 bg-secondary/20 hover:bg-secondary/40 hover:border-primary/30 transition-all disabled:opacity-60"
+      >
+        {uploading ? (
+          <Loader2 size={28} className="animate-spin text-primary" />
+        ) : profile?.logo_url ? (
+          <img src={profile.logo_url} alt="Logo" className="max-h-20 max-w-[200px] object-contain" />
+        ) : (
+          <>
+            <ImageIcon size={28} className="text-muted-foreground/30" />
+            <p className="text-sm text-muted-foreground">Haz clic para subir tu logo</p>
+            <p className="text-xs text-muted-foreground/60">PNG, SVG, WEBP o JPG — máx. 2 MB</p>
+          </>
+        )}
+      </button>
+
+      <div className="flex gap-2">
+        <Button variant="outline" className="flex-1 h-9 rounded-xl text-sm gap-2" onClick={() => fileRef.current?.click()} disabled={uploading}>
+          <Upload size={14} /> {profile?.logo_url ? "Cambiar logo" : "Subir logo"}
+        </Button>
+        {profile?.logo_url && (
+          <Button variant="ghost" className="h-9 px-3 rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleRemove} disabled={uploading}>
+            <Trash2 size={14} />
+          </Button>
+        )}
+      </div>
+      <p className="text-xs text-muted-foreground">El logo aparece en el sidebar del CRM y en tus páginas públicas cuando el tema "Branded" está activo.</p>
     </div>
-  </div>
-);
+  );
+};
+
+const ColoresTab = ({ profile, update }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void> }) => {
+  const currentTheme = profile?.theme ?? "classic";
+
+  return (
+    <div className="space-y-5 max-w-sm">
+      {/* Theme selector */}
+      <div className="bg-card border rounded-2xl p-6 space-y-4">
+        <h2 className="text-sm font-semibold">Tema de apariencia</h2>
+        <div className="grid grid-cols-2 gap-3">
+          {(["classic", "branded"] as const).map((t) => {
+            const active = currentTheme === t;
+            return (
+              <button
+                key={t}
+                onClick={() => update({ theme: t })}
+                className={`rounded-xl border-2 p-4 text-left transition-all ${
+                  active ? "border-primary bg-primary/5" : "border-border hover:border-primary/40"
+                }`}
+              >
+                <div className={`w-6 h-6 rounded-full mb-3 ${t === "classic" ? "bg-primary" : ""}`}
+                  style={t === "branded" ? { backgroundColor: profile?.color_primary ?? "#3b82f6" } : {}} />
+                <p className="text-sm font-semibold">{t === "classic" ? "Clásico" : "Branded"}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5">
+                  {t === "classic" ? "Tema Acrosoft por defecto" : "Tus colores de marca"}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+        {currentTheme === "branded" && (
+          <p className="text-xs text-muted-foreground">Los colores definidos abajo se aplican al CRM y a tus páginas públicas.</p>
+        )}
+      </div>
+
+      {/* Color fields */}
+      <div className="bg-card border rounded-2xl p-6 space-y-5">
+        <h2 className="text-sm font-semibold">Colores de marca</h2>
+        <ColorField label="Color primario"   value={profile?.color_primary   || "#3b82f6"} onSave={val => update({ color_primary: val })} />
+        <ColorField label="Color secundario" value={profile?.color_secondary || "#ffffff"}  onSave={val => update({ color_secondary: val })} />
+        <ColorField label="Color de acento"  value={profile?.color_accent    || "#f59e0b"} onSave={val => update({ color_accent: val })} />
+      </div>
+    </div>
+  );
+};
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 

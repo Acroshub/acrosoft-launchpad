@@ -169,12 +169,18 @@ const Index = () => {
                     ) : (
                       <span className="text-4xl font-black text-foreground">${svc.price.toLocaleString()}</span>
                     )}
-                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">Setup inicial</span>
+                    <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
+                      {svc.is_recurring && svc.recurring_price == null
+                        ? `/ ${svc.recurring_interval ?? "mes"}`
+                        : svc.is_recurring
+                        ? "Setup inicial"
+                        : "Pago único"}
+                    </span>
                   </div>
                   {svc.is_recurring && svc.recurring_price != null && (
                     <div className="flex items-center gap-2 font-bold">
                       <Badge variant="secondary" className={popular ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary"}>
-                        {svc.recurring_label ?? `$${svc.recurring_price.toLocaleString()}/${svc.recurring_interval ?? "mes"}`}
+                        ${svc.recurring_price.toLocaleString(undefined, { maximumFractionDigits: 0 })} / {svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}
                       </Badge>
                     </div>
                   )}

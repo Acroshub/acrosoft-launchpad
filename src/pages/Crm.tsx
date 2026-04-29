@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
 import CrmOverview from "@/components/crm/CrmOverview";
@@ -11,10 +11,12 @@ import CrmPipeline from "@/components/crm/CrmPipeline";
 import CrmBusiness from "@/components/crm/CrmBusiness";
 import CrmSettings from "@/components/crm/CrmSettings";
 import CrmReminders from "@/components/crm/CrmReminders";
+import CrmVentas from "@/components/crm/CrmVentas";
+import { useBusinessProfile } from "@/hooks/useCrmData";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "reminders" | "settings";
+type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings";
 
 const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
   { id: "overview",   label: "Resumen",        icon: LayoutDashboard, group: "Principal"      },
@@ -23,6 +25,7 @@ const navItems: { id: View; label: string; icon: React.ElementType; group: strin
   { id: "forms",      label: "Formularios",    icon: ClipboardList,   group: "Calendario"     },
   { id: "contacts",   label: "Contactos",      icon: Users,           group: "CRM"            },
   { id: "pipeline",   label: "Pipeline",       icon: Kanban,          group: "CRM"            },
+  { id: "ventas",     label: "Ventas",         icon: DollarSign,      group: "CRM"            },
   { id: "reminders",  label: "Recordatorios",  icon: Bell,            group: "CRM"            },
   { id: "settings",   label: "Configuración",  icon: Settings,        group: "Configuración"  },
 ];
@@ -33,6 +36,10 @@ const Crm = () => {
   const navigate = useNavigate();
   const { user } = useCurrentUser();
   const { isStaff, navItems: allowedNavItems, can } = useStaffPermissions();
+  const { data: businessProfile } = useBusinessProfile();
+  const isBranded = businessProfile?.theme === "branded";
+  const brandLogo = isBranded ? (businessProfile?.logo_url ?? null) : null;
+  const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
   const [view, setView]             = useState<View>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -52,6 +59,7 @@ const Crm = () => {
       case "forms":     return can("formularios", "read")  ? <CrmForms />     : null;
       case "contacts":  return can("contactos", "read")    ? <CrmContacts isSuperAdmin={effectiveIsAdmin} /> : null;
       case "pipeline":   return can("pipeline", "read")     ? <CrmPipeline />   : null;
+      case "ventas":     return can("ventas", "read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} /> : null;
       case "reminders":  return can("recordatorios", "read") ? <CrmReminders /> : null;
       case "settings":   return !isStaff                   ? <CrmSettings isSuperAdmin={effectiveIsAdmin} />   : null;
     }
@@ -60,8 +68,11 @@ const Crm = () => {
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
       <div className="px-5 py-5 border-b">
-        <AcrosoftLogo size="sm" />
-        {/* {VAR_DB} — nombre del negocio desde el perfil */}
+        {brandLogo ? (
+          <img src={brandLogo} alt="Logo" className="h-8 max-w-[140px] object-contain" />
+        ) : (
+          <AcrosoftLogo size="sm" />
+        )}
         <p className="text-[11px] text-muted-foreground mt-2 font-medium truncate">{user?.email}</p>
       </div>
 
@@ -81,9 +92,10 @@ const Crm = () => {
                     <button
                       key={item.id}
                       onClick={() => { setView(item.id); setSidebarOpen(false); }}
+                      style={active && brandPrimary ? { backgroundColor: brandPrimary, color: "#fff" } : {}}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${
                         active
-                          ? "bg-primary text-primary-foreground"
+                          ? brandPrimary ? "" : "bg-primary text-primary-foreground"
                           : "text-muted-foreground hover:text-foreground hover:bg-secondary"
                       }`}
                     >

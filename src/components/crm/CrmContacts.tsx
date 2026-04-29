@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -10,8 +10,9 @@ import {
   ArrowLeft, FolderOpen, Star, FileText, MessageSquare,
   TrendingUp, Briefcase, Target, ImagePlus, Plus,
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
-  Trash2, ChevronDown, ExternalLink, Bell,
+  Trash2, ChevronDown, ExternalLink, Bell, Upload, FileUp, CheckCircle2,
 } from "lucide-react";
+import Papa from "papaparse";
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
@@ -662,6 +663,645 @@ const ClientDetail = ({
   );
 };
 
+// ─── CSV Export ───────────────────────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const parseCustomFields = (cf: unknown): Record<string, unknown> => {
+  if (!cf || typeof cf !== "object" || Array.isArray(cf)) return {};
+  return cf as Record<string, unknown>;
+};
+
+const serializeValue = (val: unknown): string => {
+  if (val === null || val === undefined) return "";
+  if (typeof val === "object") return JSON.stringify(val);
+  return String(val);
+};
+
+// UUID top-level keys are form submission containers — flatten their nested data.
+// Two-pass: UUID keys first (lower priority), then non-UUID keys override.
+const flattenCustomFields = (cf: Record<string, unknown>): Record<string, string> => {
+  const flat: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(cf)) {
+    if (UUID_RE.test(key) && val && typeof val === "object" && !Array.isArray(val)) {
+      for (const [nestedKey, nestedVal] of Object.entries(val as Record<string, unknown>)) {
+        flat[nestedKey] = nestedVal;
+      }
+    }
+  }
+  for (const [key, val] of Object.entries(cf)) {
+    if (!UUID_RE.test(key)) flat[key] = val;
+  }
+  return Object.fromEntries(Object.entries(flat).map(([k, v]) => [k, serializeValue(v)]));
+};
+
+const exportContactsCsv = (contacts: CrmContact[]) => {
+  if (contacts.length === 0) {
+    toast.info("No hay contactos para exportar");
+    return;
+  }
+  const flatCf = contacts.map((c) => flattenCustomFields(parseCustomFields(c.custom_fields)));
+
+  const customKeys = Array.from(
+    new Set(flatCf.flatMap((cf) => Object.keys(cf)))
+  );
+
+  // stage y creado_en se omiten: stage es gestionado por el pipeline,
+  // y creado_en no puede setearse al reimportar — incluirlos generaría campos basura.
+  const rows = contacts.map((c, i) => ({
+    nombre: c.name,
+    email: c.email ?? "",
+    telefono: c.phone ?? "",
+    empresa: c.company ?? "",
+    etiquetas: Array.isArray(c.tags) ? c.tags.join(", ") : "",
+    notas: c.notes ?? "",
+    ...Object.fromEntries(customKeys.map((k) => [k, flatCf[i][k] ?? ""])),
+  }));
+
+  const csv = Papa.unparse(rows);
+  const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `contactos_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+// ─── Import Wizard ────────────────────────────────────────────────────────────
+const SYSTEM_FIELD_OPTIONS = [
+  { value: "__skip",   label: "— Ignorar —" },
+  { value: "name",     label: "Nombre" },
+  { value: "email",    label: "Email" },
+  { value: "phone",    label: "Teléfono" },
+  { value: "company",  label: "Empresa" },
+  { value: "tags",     label: "Etiquetas (sep. por coma)" },
+  { value: "notes",    label: "Notas" },
+  { value: "__custom", label: "Campo personalizado…" },
+];
+
+function guessField(header: string): string {
+  const h = header.toLowerCase().trim();
+  if (["nombre", "name", "full name", "fullname"].some((x) => h.includes(x))) return "name";
+  if (["email", "correo", "e-mail"].some((x) => h.includes(x))) return "email";
+  if (["tel", "phone", "cel", "whatsapp", "móvil", "movil"].some((x) => h.includes(x))) return "phone";
+  if (["empresa", "company", "negocio", "organización", "organization"].some((x) => h.includes(x))) return "company";
+  if (["tag", "etiqueta"].some((x) => h.includes(x))) return "tags";
+  if (["nota", "note", "comentario"].some((x) => h.includes(x))) return "notes";
+  if (["stage", "etapa", "creado_en", "created_at", "fecha_creacion"].some((x) => h.includes(x))) return "__skip";
+  return "__custom";
+}
+
+function buildContactFromRow(
+  row: string[],
+  headers: string[],
+  mapping: Record<string, string>,
+  customLabels: Record<string, string>,
+  userId: string,
+  defaultStage: string | null
+): Record<string, any> {
+  const obj: Record<string, any> = {
+    user_id: userId,
+    name: "",
+    tags: [],
+    custom_fields: {},
+    stage: defaultStage ?? null,
+  };
+  headers.forEach((header, i) => {
+    const mapped = mapping[header] ?? "__skip";
+    if (mapped === "__skip") return;
+    const val = (row[i] ?? "").trim();
+    if (mapped === "__custom") {
+      const key = (customLabels[header] ?? header).trim() || header;
+      if (val) obj.custom_fields[key] = val;
+    } else if (mapped === "tags") {
+      obj.tags = val ? val.split(",").map((t) => t.trim()).filter(Boolean) : [];
+    } else {
+      obj[mapped] = val || null;
+    }
+  });
+  if (!obj.name) obj.name = obj.email ?? "Sin nombre";
+  return obj;
+}
+
+interface ImportWizardProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  existingContacts: CrmContact[];
+  defaultStage: string | null;
+}
+
+const ImportWizard = ({ open, onOpenChange, existingContacts, defaultStage }: ImportWizardProps) => {
+  const qc = useQueryClient();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [step, setStep] = useState<"upload" | "mapping" | "preview" | "done">("upload");
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [rows, setRows] = useState<string[][]>([]);
+  const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [customLabels, setCustomLabels] = useState<Record<string, string>>({});
+  const [newRows, setNewRows] = useState<string[][]>([]);
+  const [duplicates, setDuplicates] = useState<{ row: string[]; existing: CrmContact }[]>([]);
+  const [dupChoices, setDupChoices] = useState<Record<number, "update" | "skip">>({});
+  const [importing, setImporting] = useState(false);
+  const [result, setResult] = useState<{ created: number; updated: number; skipped: number } | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const reset = () => {
+    setStep("upload");
+    setHeaders([]);
+    setRows([]);
+    setMapping({});
+    setCustomLabels({});
+    setNewRows([]);
+    setDuplicates([]);
+    setDupChoices({});
+    setImporting(false);
+    setResult(null);
+    setDragging(false);
+  };
+
+  const handleFile = (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      toast.error("Solo se aceptan archivos .csv");
+      return;
+    }
+    Papa.parse<string[]>(file, {
+      skipEmptyLines: true,
+      complete: (parsed) => {
+        const data = parsed.data as string[][];
+        if (data.length < 2) { toast.error("El archivo CSV está vacío"); return; }
+        const hdrs = data[0];
+        const dataRows = data.slice(1);
+        const initMapping: Record<string, string> = {};
+        hdrs.forEach((h) => { initMapping[h] = guessField(h); });
+        setHeaders(hdrs);
+        setRows(dataRows);
+        setMapping(initMapping);
+        setCustomLabels({});
+        setStep("mapping");
+      },
+      error: () => toast.error("Error al leer el archivo CSV"),
+    });
+  };
+
+  const computeDiff = (row: string[], existing: CrmContact): { field: string; from: string; to: string }[] => {
+    const LABELS: Record<string, string> = { name: "Nombre", phone: "Teléfono", company: "Empresa", notes: "Notas", tags: "Etiquetas" };
+    const diffs: { field: string; from: string; to: string }[] = [];
+    headers.forEach((header, i) => {
+      const mapped = mapping[header] ?? "__skip";
+      if (mapped === "__skip" || mapped === "email" || mapped === "__custom") return;
+      const newVal = (row[i] ?? "").trim();
+      if (mapped === "tags") {
+        const newTags = newVal ? newVal.split(",").map((t) => t.trim()).filter(Boolean).sort() : [];
+        const oldTags = (Array.isArray(existing.tags) ? [...existing.tags] : []).sort();
+        const from = oldTags.join(", ");
+        const to = newTags.join(", ");
+        if (from !== to) diffs.push({ field: LABELS.tags, from: from || "—", to: to || "—" });
+      } else {
+        const oldVal = (existing[mapped as keyof CrmContact] as string | null) ?? "";
+        const normalizedNew = newVal || null;
+        const normalizedOld = oldVal || null;
+        if (normalizedNew !== normalizedOld)
+          diffs.push({ field: LABELS[mapped] ?? mapped, from: oldVal || "—", to: newVal || "—" });
+      }
+    });
+    const flatExistingCf = flattenCustomFields(parseCustomFields(existing.custom_fields));
+    headers.forEach((header, i) => {
+      if ((mapping[header] ?? "__skip") !== "__custom") return;
+      const key = (customLabels[header] ?? header).trim() || header;
+      const newVal = (row[i] ?? "").trim();
+      const oldVal = flatExistingCf[key] ?? "";
+      if (newVal !== oldVal)
+        diffs.push({ field: key, from: oldVal || "—", to: newVal || "—" });
+    });
+    return diffs;
+  };
+
+  const goToPreview = () => {
+    const hasName  = Object.values(mapping).includes("name");
+    const hasEmail = Object.values(mapping).includes("email");
+    if (!hasName)  { toast.error("Debes mapear al menos una columna como Nombre");  return; }
+    if (!hasEmail) { toast.error("Debes mapear al menos una columna como Email");   return; }
+
+    const systemFields = ["name","email","phone","company","tags","notes"];
+    for (const f of systemFields) {
+      const count = Object.values(mapping).filter((v) => v === f).length;
+      if (count > 1) {
+        const label = SYSTEM_FIELD_OPTIONS.find((o) => o.value === f)?.label ?? f;
+        toast.error(`El campo "${label}" está asignado a más de una columna. Revisa el mapeo.`);
+        return;
+      }
+    }
+
+    const emailIndex = headers.findIndex((h) => mapping[h] === "email");
+    const emailSet = new Map(existingContacts.filter((c) => c.email).map((c) => [c.email!.toLowerCase(), c]));
+    const dupes: typeof duplicates = [];
+    const news: string[][] = [];
+    rows.forEach((row) => {
+      const email = emailIndex >= 0 ? (row[emailIndex] ?? "").trim().toLowerCase() : "";
+      const existing = email ? emailSet.get(email) : undefined;
+      if (existing) dupes.push({ row, existing });
+      else news.push(row);
+    });
+    setNewRows(news);
+    setDuplicates(dupes);
+    // Auto-skip duplicates with no changes; default to "update" those that have diffs
+    const choices: Record<number, "update" | "skip"> = {};
+    dupes.forEach(({ row, existing }, i) => {
+      // computeDiff needs headers/mapping/customLabels which are already set in state
+      const hasDiff = headers.some((header, hi) => {
+        const mapped = mapping[header] ?? "__skip";
+        if (mapped === "__skip" || mapped === "email") return false;
+        const newVal = (row[hi] ?? "").trim();
+        if (mapped === "tags") {
+          const newTags = newVal ? newVal.split(",").map((t) => t.trim()).filter(Boolean).sort() : [];
+          const oldTags = (Array.isArray(existing.tags) ? [...existing.tags] : []).sort();
+          return newTags.join(",") !== oldTags.join(",");
+        }
+        if (mapped === "__custom") {
+          const key = (customLabels[header] ?? header).trim() || header;
+          const flatCfGP = flattenCustomFields(parseCustomFields(existing.custom_fields));
+          return newVal !== (flatCfGP[key] ?? "");
+        }
+        const oldVal = (existing[mapped as keyof CrmContact] as string | null) ?? "";
+        return (newVal || null) !== (oldVal || null);
+      });
+      choices[i] = hasDiff ? "update" : "skip";
+    });
+    setDupChoices(choices);
+    setStep("preview");
+  };
+
+  const handleImport = async () => {
+    setImporting(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error("No autenticado");
+
+      let created = 0, updated = 0, skipped = 0;
+
+      if (newRows.length > 0) {
+        const toInsert = newRows.map((r) => buildContactFromRow(r, headers, mapping, customLabels, user.id, defaultStage));
+        const CHUNK = 500;
+        for (let j = 0; j < toInsert.length; j += CHUNK) {
+          const { error } = await supabase.from("crm_contacts").insert(toInsert.slice(j, j + CHUNK));
+          if (error) throw error;
+        }
+        created = newRows.length;
+      }
+
+      for (let i = 0; i < duplicates.length; i++) {
+        if ((dupChoices[i] ?? "skip") === "update") {
+          const built = buildContactFromRow(duplicates[i].row, headers, mapping, customLabels, user.id, defaultStage);
+          const { name, email, phone, company, tags, notes, custom_fields } = built;
+          const mergedCustomFields = {
+            ...(duplicates[i].existing.custom_fields as Record<string, unknown> ?? {}),
+            ...(custom_fields as Record<string, unknown>),
+          };
+          const { error } = await supabase.from("crm_contacts").update({ name, email, phone, company, tags, notes, custom_fields: mergedCustomFields }).eq("id", duplicates[i].existing.id);
+          if (error) throw error;
+          updated++;
+        } else {
+          skipped++;
+        }
+      }
+
+      await qc.invalidateQueries({ queryKey: ["crm_contacts"] });
+      setResult({ created, updated, skipped });
+      setStep("done");
+    } catch (e: any) {
+      toast.error(e?.message ?? "Error al importar contactos");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) reset(); onOpenChange(v); }}>
+      <DialogContent className="max-w-2xl rounded-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="text-base font-semibold">
+            {step === "upload"  && "Importar contactos desde CSV"}
+            {step === "mapping" && `Mapear columnas (${headers.length} columnas)`}
+            {step === "preview" && "Confirmar importación"}
+            {step === "done"    && "Importación completada"}
+          </DialogTitle>
+        </DialogHeader>
+
+        {/* ── Step 1: Upload ── */}
+        {step === "upload" && (
+          <div className="space-y-4 py-2">
+            <p className="text-sm text-muted-foreground">
+              Sube un archivo CSV con tus contactos. La primera fila debe contener los nombres de las columnas.
+            </p>
+
+            {/* How it works */}
+            <div className="bg-secondary/40 rounded-xl p-4 space-y-2.5">
+              <p className="text-xs font-semibold text-foreground">¿Cómo funciona la importación?</p>
+              <ul className="space-y-1.5 text-xs text-muted-foreground">
+                <li className="flex items-start gap-2"><span className="text-green-600 font-bold mt-0.5">+</span><span><span className="font-medium text-foreground">Contacto nuevo</span> — si el email no existe en el CRM, se crea un contacto nuevo.</span></li>
+                <li className="flex items-start gap-2"><span className="text-amber-600 font-bold mt-0.5">~</span><span><span className="font-medium text-foreground">Contacto duplicado</span> — si el email ya existe, tú decides: <em>Sobreescribir</em> (reemplaza sus datos con los del CSV) o <em>Conservar</em> (lo deja intacto).</span></li>
+                <li className="flex items-start gap-2"><span className="text-primary font-bold mt-0.5">*</span><span><span className="font-medium text-foreground">Columnas desconocidas</span> — cualquier columna que no sea nombre, email, etc. se guarda como campo personalizado del contacto (ej. "ciudad", "nombre de mascota").</span></li>
+              </ul>
+              <p className="text-xs text-muted-foreground pt-0.5">Los campos obligatorios son <span className="font-medium text-foreground">nombre</span> y <span className="font-medium text-foreground">email</span>.</p>
+            </div>
+
+            {/* Template preview */}
+            <div className="space-y-2">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Ejemplo de formato</p>
+              <div className="overflow-x-auto rounded-xl border">
+                <table className="w-full text-xs">
+                  <thead className="bg-secondary/50">
+                    <tr>
+                      {["nombre", "email", "telefono", "empresa", "etiquetas"].map((col) => (
+                        <th key={col} className="px-3 py-2 text-left font-semibold text-muted-foreground whitespace-nowrap">{col}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="border-t">
+                      <td className="px-3 py-2 text-foreground whitespace-nowrap">María García</td>
+                      <td className="px-3 py-2 text-foreground whitespace-nowrap">maria@gmail.com</td>
+                      <td className="px-3 py-2 text-foreground whitespace-nowrap">+591 70000001</td>
+                      <td className="px-3 py-2 text-foreground whitespace-nowrap">Acme S.A.</td>
+                      <td className="px-3 py-2 text-foreground whitespace-nowrap">cliente, vip</td>
+                    </tr>
+                    <tr className="border-t bg-secondary/20">
+                      <td className="px-3 py-2 text-foreground whitespace-nowrap">Juan Pérez</td>
+                      <td className="px-3 py-2 text-foreground whitespace-nowrap">juan@empresa.com</td>
+                      <td className="px-3 py-2 text-foreground whitespace-nowrap">+591 70000002</td>
+                      <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">—</td>
+                      <td className="px-3 py-2 text-foreground whitespace-nowrap">prospecto</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <p className="text-[11px] text-muted-foreground">Las columnas pueden estar en cualquier orden. Podrás mapear cada una al campo correcto en el siguiente paso.</p>
+            </div>
+
+            {/* Download template */}
+            <button
+              onClick={() => {
+                const csv = Papa.unparse({
+                  fields: ["nombre", "email", "telefono", "empresa", "etiquetas", "notas"],
+                  data: [["María García", "maria@gmail.com", "+591 70000001", "Acme S.A.", "cliente, vip", ""]],
+                });
+                const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url; a.download = "plantilla_contactos.csv";
+                document.body.appendChild(a); a.click();
+                document.body.removeChild(a); URL.revokeObjectURL(url);
+              }}
+              className="flex items-center gap-2 text-xs font-medium text-primary hover:underline"
+            >
+              <Download size={13} /> Descargar plantilla CSV
+            </button>
+
+            <input ref={fileRef} type="file" accept=".csv,text/csv" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+            <button
+              onClick={() => fileRef.current?.click()}
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                const f = e.dataTransfer.files?.[0];
+                if (f) handleFile(f);
+              }}
+              className={`w-full border-2 border-dashed rounded-2xl py-10 flex flex-col items-center gap-3 transition-all ${
+                dragging
+                  ? "border-primary bg-primary/5 scale-[1.01]"
+                  : "border-border bg-secondary/20 hover:bg-secondary/40 hover:border-primary/30"
+              }`}
+            >
+              <FileUp size={28} className={dragging ? "text-primary" : "text-muted-foreground/40"} />
+              <p className="text-sm font-medium text-muted-foreground">
+                {dragging ? "Suelta el archivo aquí" : "Arrastra un archivo .csv o haz clic para seleccionar"}
+              </p>
+            </button>
+          </div>
+        )}
+
+        {/* ── Step 2: Mapping ── */}
+        {step === "mapping" && (
+          <div className="space-y-3 py-2">
+            <p className="text-sm text-muted-foreground">Indica a qué campo corresponde cada columna del CSV.</p>
+
+            {/* Required fields status */}
+            {(() => {
+              const hasName  = Object.values(mapping).includes("name");
+              const hasEmail = Object.values(mapping).includes("email");
+              return (
+                <div className="flex gap-2 flex-wrap">
+                  {[{ label: "Nombre", ok: hasName }, { label: "Email", ok: hasEmail }].map(({ label, ok }) => (
+                    <span key={label} className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border ${ok ? "border-green-500/30 bg-green-500/10 text-green-700" : "border-amber-500/30 bg-amber-500/10 text-amber-700"}`}>
+                      {ok ? <CheckCircle2 size={11} /> : <span className="font-black">!</span>}
+                      {label} {ok ? "mapeado" : "requerido"}
+                    </span>
+                  ))}
+                  <span className="inline-flex items-center text-[11px] text-muted-foreground">
+                    — columnas sin mapear se guardan como campos personalizados del contacto
+                  </span>
+                </div>
+              );
+            })()}
+            <div className="border rounded-xl overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-secondary/40">
+                  <tr>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground w-1/2">Columna CSV</th>
+                    <th className="text-left px-4 py-2.5 text-xs font-semibold text-muted-foreground">Campo destino</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {headers.map((header) => (
+                    <tr key={header}>
+                      <td className="px-4 py-2.5 font-medium text-xs">{header}</td>
+                      <td className="px-4 py-2.5 space-y-1.5">
+                        <select
+                          value={mapping[header] ?? "__custom"}
+                          onChange={(e) => setMapping((m) => ({ ...m, [header]: e.target.value }))}
+                          className="w-full h-8 rounded-lg border bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                        >
+                          {SYSTEM_FIELD_OPTIONS.map((o) => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                        </select>
+                        {mapping[header] === "__custom" && (
+                          <Input
+                            placeholder="Nombre del campo personalizado"
+                            value={customLabels[header] ?? header}
+                            onChange={(e) => setCustomLabels((l) => ({ ...l, [header]: e.target.value }))}
+                            className="h-7 text-xs"
+                          />
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Vista previa: {rows.length} fila{rows.length !== 1 ? "s" : ""} de datos detectadas.
+            </p>
+          </div>
+        )}
+
+        {/* ── Step 3: Preview ── */}
+        {step === "preview" && (
+          <div className="space-y-4 py-2">
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: "Nuevos",      value: newRows.length,    color: "text-green-600" },
+                { label: "Duplicados",  value: duplicates.length, color: "text-amber-600" },
+                { label: "Total",       value: rows.length,       color: "text-foreground" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="bg-secondary/40 rounded-xl p-3 text-center">
+                  <p className={`text-2xl font-black ${color}`}>{value}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1 text-xs text-muted-foreground">
+              {newRows.length > 0 && (
+                <p><span className="text-green-600 font-semibold">{newRows.length} contacto{newRows.length !== 1 ? "s" : ""} nuevo{newRows.length !== 1 ? "s" : ""}</span> — se crearán en el CRM.</p>
+              )}
+              {duplicates.length > 0 && (
+                <p><span className="text-amber-600 font-semibold">{duplicates.length} duplicado{duplicates.length !== 1 ? "s" : ""}</span> — ya existen en el CRM (mismo email). Elige qué hacer con los que tienen cambios: <em>Sobreescribir</em> reemplaza sus datos con los del CSV; <em>Conservar</em> los deja intactos. <strong className="text-foreground">Nada se guarda hasta que presiones "Confirmar importación".</strong></p>
+              )}
+              {duplicates.length === 0 && newRows.length === 0 && (
+                <p>No hay contactos para importar.</p>
+              )}
+            </div>
+
+            {duplicates.length > 0 && (
+              <div className="space-y-2">
+                {(() => {
+                  const autoSkipped = duplicates.filter((_, i) => (dupChoices[i] ?? "skip") === "skip" && computeDiff(duplicates[i].row, duplicates[i].existing).length === 0);
+                  if (autoSkipped.length > 0)
+                    return (
+                      <p className="text-xs text-muted-foreground bg-secondary/40 rounded-xl px-3 py-2">
+                        <span className="font-medium text-foreground">{autoSkipped.length} contacto{autoSkipped.length !== 1 ? "s" : ""} sin cambios</span> — sus datos en el CSV son idénticos a los del CRM, se ignorarán automáticamente.
+                      </p>
+                    );
+                })()}
+                {duplicates.some((_, i) => computeDiff(duplicates[i].row, duplicates[i].existing).length > 0) && (
+                <div className="flex items-center justify-between">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contactos con cambios</p>
+                  <div className="flex gap-2">
+                    <button onClick={() => setDupChoices((c) => ({ ...c, ...Object.fromEntries(duplicates.map((d, i) => computeDiff(d.row, d.existing).length > 0 ? [i, "update" as const] : [i, c[i]])) }))}
+                      className="text-xs text-primary hover:underline">Sobreescribir todo</button>
+                    <span className="text-muted-foreground/40">·</span>
+                    <button onClick={() => setDupChoices((c) => ({ ...c, ...Object.fromEntries(duplicates.map((d, i) => computeDiff(d.row, d.existing).length > 0 ? [i, "skip" as const] : [i, c[i]])) }))}
+                      className="text-xs text-muted-foreground hover:underline">Conservar todo</button>
+                  </div>
+                </div>
+                )}
+                <div className="border rounded-xl overflow-hidden max-h-96 overflow-y-auto">
+                  {duplicates.map(({ row, existing }, i) => {
+                    const diff = computeDiff(row, existing);
+                    if (diff.length === 0) return null; // auto-skipped, shown in summary above
+                    const isUpdate = (dupChoices[i] ?? "update") === "update";
+                    return (
+                      <div key={i} className="px-4 py-3 border-b last:border-0 space-y-2">
+                        {/* Header row: name + buttons */}
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium truncate">{existing.name}</p>
+                            <p className="text-xs text-muted-foreground truncate">{existing.email}</p>
+                          </div>
+                          <div className="flex gap-1.5 shrink-0">
+                            {(["update", "skip"] as const).map((choice) => (
+                              <button key={choice}
+                                onClick={() => setDupChoices((c) => ({ ...c, [i]: choice }))}
+                                className={`h-7 px-2.5 rounded-lg text-[11px] font-semibold border transition-all ${
+                                  (dupChoices[i] ?? "update") === choice
+                                    ? choice === "update" ? "bg-primary text-primary-foreground border-primary" : "bg-secondary text-foreground border-border"
+                                    : "border-transparent text-muted-foreground hover:border-border"
+                                }`}
+                              >
+                                {choice === "update" ? "Sobreescribir" : "Conservar"}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Diff — only when "Sobreescribir" is selected */}
+                        {isUpdate && diff.length > 0 && (
+                          <div className="rounded-lg bg-amber-500/5 border border-amber-500/20 px-3 py-2 space-y-1">
+                            {diff.map((d) => (
+                              <div key={d.field} className="flex items-baseline gap-1.5 text-[11px] flex-wrap">
+                                <span className="font-semibold text-foreground shrink-0">{d.field}:</span>
+                                <span className="text-muted-foreground line-through">{d.from}</span>
+                                <span className="text-muted-foreground">→</span>
+                                <span className="text-amber-700 font-medium">{d.to}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── Step 4: Done ── */}
+        {step === "done" && result && (
+          <div className="py-6 text-center space-y-4">
+            <div className="mx-auto w-16 h-16 rounded-full bg-green-500/10 flex items-center justify-center">
+              <CheckCircle2 size={36} className="text-green-600" />
+            </div>
+            <div className="grid grid-cols-3 gap-3 max-w-xs mx-auto">
+              {[
+                { label: "Creados",      value: result.created,  color: "text-green-600" },
+                { label: "Actualizados", value: result.updated,  color: "text-blue-600"  },
+                { label: "Ignorados",    value: result.skipped,  color: "text-muted-foreground" },
+              ].map(({ label, value, color }) => (
+                <div key={label} className="bg-secondary/40 rounded-xl p-3 text-center">
+                  <p className={`text-2xl font-black ${color}`}>{value}</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">{label}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <DialogFooter className="flex gap-2 pt-2">
+          {step === "mapping" && (
+            <>
+              <Button variant="ghost" onClick={() => setStep("upload")} className="rounded-xl">Atrás</Button>
+              <Button onClick={goToPreview} className="rounded-xl">Ver resumen</Button>
+            </>
+          )}
+          {step === "preview" && (
+            <>
+              <Button variant="ghost" onClick={() => setStep("mapping")} className="rounded-xl">Atrás</Button>
+              <Button
+                onClick={handleImport}
+                disabled={importing || (newRows.length === 0 && duplicates.every((_, i) => (dupChoices[i] ?? "skip") === "skip"))}
+                className="rounded-xl gap-2"
+              >
+                {importing && <Loader2 size={14} className="animate-spin" />}
+                Confirmar importación
+              </Button>
+            </>
+          )}
+          {step === "done" && (
+            <Button onClick={() => { reset(); onOpenChange(false); }} className="rounded-xl">Cerrar</Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
+
 // ─── Contacts list ────────────────────────────────────────────────────────────
 const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const { can } = useStaffPermissions();
@@ -726,6 +1366,9 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const [showNew, setShowNew]       = useState(false);
   const [newName, setNewName]       = useState("");
   const [newEmail, setNewEmail]     = useState("");
+
+  // Import wizard
+  const [showImport, setShowImport] = useState(false);
 
   const clientContactIds = useMemo(
     () => new Set(sales.map((s) => s.contact_id).filter(Boolean) as string[]),
@@ -851,17 +1494,43 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       contactName={reminderContact?.name}
     />
 
+    <ImportWizard
+      open={showImport}
+      onOpenChange={setShowImport}
+      existingContacts={contacts}
+      defaultStage={defaultStage}
+    />
+
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold">Contactos</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Todos los contactos registrados en el CRM</p>
         </div>
-        {canCreate && (
-          <Button onClick={() => setShowNew(true)} className="rounded-xl gap-2 h-9 text-xs font-medium">
-            <Plus size={14} /> Nuevo contacto
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => exportContactsCsv(filtered)}
+            className="rounded-xl gap-1.5 h-9 text-xs font-medium"
+            title={filtered.length < contacts.length ? `Exportar ${filtered.length} contactos (filtrados)` : "Exportar todos los contactos a CSV"}
+          >
+            <Upload size={13} /> Exportar
           </Button>
-        )}
+          {canCreate && (
+            <Button
+              variant="outline"
+              onClick={() => setShowImport(true)}
+              className="rounded-xl gap-1.5 h-9 text-xs font-medium"
+            >
+              <Download size={13} /> Importar
+            </Button>
+          )}
+          {canCreate && (
+            <Button onClick={() => setShowNew(true)} className="rounded-xl gap-2 h-9 text-xs font-medium">
+              <Plus size={14} /> Nuevo contacto
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* New contact dialog */}
@@ -1294,6 +1963,31 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                     </button>
                   </div>
                 )}
+
+                {/* Campos personalizados (importados por CSV u otros) */}
+                {(() => {
+                  const flatFields = Object.entries(
+                    (detail.custom_fields as Record<string, unknown>) ?? {}
+                  ).filter(([k, v]) => !UUID_RE.test(k) && v !== null && v !== undefined && v !== "");
+                  if (flatFields.length === 0) return null;
+                  return (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">
+                        Campos personalizados
+                      </p>
+                      <div className="border rounded-xl overflow-hidden divide-y">
+                        {flatFields.map(([key, value]) => (
+                          <div key={key} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                            <p className="text-xs text-muted-foreground capitalize shrink-0">{key.replace(/_/g, " ")}</p>
+                            <p className="text-xs font-medium text-right break-all">
+                              {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Formularios */}
                 <FormDataPanel

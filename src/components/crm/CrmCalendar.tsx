@@ -456,7 +456,6 @@ const DayView = ({
                   {blk.type === "hours" && (
                     <span className="ml-auto font-mono text-[11px] text-amber-700/80 dark:text-amber-300/80">{formatBlockRange(blk)}</span>
                   )}
-                  <Pencil size={11} className="ml-1 shrink-0 text-amber-500/60" />
                 </button>
               ) : unavailable ? (
                 <div className="flex-1" />

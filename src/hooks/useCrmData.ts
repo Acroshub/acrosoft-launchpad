@@ -1335,11 +1335,11 @@ export const usePublicBusinessProfile = (userId?: string | null) =>
       if (!userId) return null;
       const { data, error } = await supabase
         .from("crm_business_profile")
-        .select("color_primary, color_secondary, color_accent")
+        .select("color_primary, color_secondary, color_accent, logo_url, theme")
         .eq("user_id", userId)
-        .single();
+        .maybeSingle();
       if (error) return null; // Non-critical — fall back to defaults
-      return data as { color_primary: string; color_secondary: string; color_accent: string } | null;
+      return data as { color_primary: string; color_secondary: string; color_accent: string; logo_url: string | null; theme: string } | null;
     },
     enabled: !!userId,
   });

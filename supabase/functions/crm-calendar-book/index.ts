@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { calendar_id, date, hour, minute: rawMinute, form_data } = await req.json();
+    const { calendar_id, date, hour, minute: rawMinute, form_data, terms_accepted_at } = await req.json();
     const minute: number = typeof rawMinute === "number" ? rawMinute : 0;
     if (!calendar_id || !date || hour == null) {
       return respond({ error: "calendar_id, date and hour are required" }, 400);
@@ -300,12 +300,14 @@ Deno.serve(async (req) => {
       await addContactToPipelines(calendar.user_id, contactId, formPipelineIds);
     }
 
+    const termsAt: string | null = typeof terms_accepted_at === "string" ? terms_accepted_at : null;
     const { data: appointment, error: apptError } = await supabase
       .from("crm_appointments")
       .insert({
         user_id: calendar.user_id, contact_id: contactId,
         calendar_id, date, hour, minute, duration_min: calendar.duration_min ?? 30,
         service: null, status: "confirmed", notes: null,
+        terms_accepted_at: termsAt,
       })
       .select("id")
       .single();

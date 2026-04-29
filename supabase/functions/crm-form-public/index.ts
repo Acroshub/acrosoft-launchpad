@@ -360,7 +360,7 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { form_id, data } = await req.json();
+    const { form_id, data, terms_accepted_at } = await req.json();
     if (!form_id) return respond({ error: "form_id required" }, 400);
 
     const { data: form, error: formError } = await supabase
@@ -372,9 +372,15 @@ Deno.serve(async (req) => {
     if (formError) return respond({ error: `Form load failed: ${formError.message}` }, 404);
     if (!form) return respond({ error: "Form not found" }, 404);
 
+    const termsAt: string | null = typeof terms_accepted_at === "string" ? terms_accepted_at : null;
     const { data: submission, error: submissionError } = await supabase
       .from("crm_form_submissions")
-      .insert({ form_id, data: data ?? {} })
+      .insert({
+        form_id,
+        data: data ?? {},
+        terms_accepted: termsAt !== null,
+        terms_accepted_at: termsAt,
+      })
       .select("id")
       .single();
 

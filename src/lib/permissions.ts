@@ -107,7 +107,7 @@ export function canAccessItem(
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
     // Principal sees everything
-    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "reminders", "settings"]);
+    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings"]);
   }
 
   const can = buildPermChecker(staffRecord);
@@ -120,6 +120,7 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (can("formularios",  "read")) visible.add("forms");
   if (can("contactos",     "read")) visible.add("contacts");
   if (can("pipeline",     "read")) visible.add("pipeline");
+  if (can("ventas",       "read")) visible.add("ventas");
   if (can("recordatorios","read")) visible.add("reminders");
   // Staff cannot access settings (can't create more staff)
 

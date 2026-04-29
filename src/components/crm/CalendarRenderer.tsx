@@ -201,6 +201,8 @@ const BookingForm = ({
   const [values, setValues] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [termsError, setTermsError] = useState(false);
 
   const fields = useMemo(() => {
     if (!form?.fields) return defaultBookingFields;
@@ -216,8 +218,14 @@ const BookingForm = ({
       setError(`Completa los campos requeridos: ${missing.map((f: any) => f.label).join(", ")}`);
       return;
     }
+    if (!termsAccepted) {
+      setTermsError(true);
+      return;
+    }
     setError("");
+    setTermsError(false);
     setIsSubmitting(true);
+    const termsAt = new Date().toISOString();
     try {
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/crm-calendar-book`, {
         method: "POST",
@@ -225,7 +233,7 @@ const BookingForm = ({
           "Content-Type": "application/json",
           "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ calendar_id: calendarId, date: selectedDate, hour: selectedHour, minute: selectedMinute, form_data: values }),
+        body: JSON.stringify({ calendar_id: calendarId, date: selectedDate, hour: selectedHour, minute: selectedMinute, form_data: values, terms_accepted_at: termsAt }),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? "Error al agendar");
       onSuccess();
@@ -288,6 +296,40 @@ const BookingForm = ({
         <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
       )}
 
+      {/* Terms checkbox */}
+      <div className="space-y-1">
+        <label
+          className="flex items-start gap-3 cursor-pointer group"
+          onClick={() => { setTermsAccepted(v => !v); setTermsError(false); }}
+        >
+          <div className={`mt-0.5 w-5 h-5 rounded border-2 flex-none flex items-center justify-center transition-all ${
+            termsAccepted ? "border-transparent" : termsError ? "border-red-400" : "border-gray-300 group-hover:border-gray-400"
+          }`} style={termsAccepted ? { backgroundColor: primaryColor, borderColor: primaryColor } : undefined}>
+            {termsAccepted && (
+              <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            )}
+          </div>
+          <span className="text-sm text-gray-500 leading-snug select-none">
+            Acepto los{" "}
+            <a
+              href="/terminos_y_politicas_de_privacidad"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="underline underline-offset-2 hover:opacity-80 transition-opacity"
+              style={{ color: primaryColor }}
+            >
+              términos y políticas de privacidad
+            </a>
+          </span>
+        </label>
+        {termsError && (
+          <p className="text-xs text-red-500 ml-8">Debes aceptar los términos para continuar.</p>
+        )}
+      </div>
+
       <div className="flex gap-2.5">
         <button
           onClick={onBack}
@@ -331,6 +373,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
   const { data: appointments = [] } = usePublicAppointments(resolvedCalendarId, viewYear, viewMonth);
   const { data: blockedSlots   = [] } = usePublicBlockedSlots(resolvedCalendarId);
   const { data: branding } = usePublicBusinessProfile(userId);
+  const isBranded   = branding?.theme === "branded";
+  const brandLogo   = isBranded ? (branding?.logo_url ?? null) : null;
 
   const primaryColor = branding?.color_primary ?? "#3b82f6";
 
@@ -507,6 +551,9 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
 
       {/* ── Service header ── */}
       <div className="pt-5 pb-4 md:pt-4 md:pb-3 space-y-2.5">
+        {brandLogo && (
+          <img src={brandLogo} alt="Logo" className="h-8 max-w-[160px] object-contain mb-1" />
+        )}
         <h2 className="text-xl font-bold text-gray-900 leading-tight">
           {calendar.name ?? "Reservar cita"}
         </h2>

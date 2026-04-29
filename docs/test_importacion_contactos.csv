@@ -1,0 +1,51 @@
+nombre,email,telefono,empresa,etiquetas,notas,ciudad,referido_por,mascota,hobby,red_social,cumpleanos,profesion
+Moises,moiseschun999@gmail.com,(385) 405-0081,,,,,,,,,,
+Edwin,example@gmail.com,70750194,,,,,,,,,,
+Ejemplo,example3@gmail.com,70750195,,,,,,,,,,
+FSFS,DFSFSF,,,,,,,,,,,
+Testing,dffdg,dfgdfgd,,,,,,,,,,,
+Moises Churata,moiseschun999@gmail.com,(385) 405-0081,Tech Solutions,cliente,,,,,,,,
+Edwin Mamani,example@gmail.com,70750194,,vip,Actualizado desde CSV,,,,,,
+Ejemplo S.A.,example3@gmail.com,70750195,Empresa Nueva,activo,,La Paz,,,,,
+FSFS Corp,DFSFSF,,Startup Bolivia,,Nota añadida en la importación,,,,,,
+Testing QA,dffdg,70000099,,qa-tester,Usuario de pruebas del sistema,,,,,,
+Ana Gutierrez,ana.gutierrez@gmail.com,+591 72100001,,,,,,,,,,
+Carlos Mendoza,carlos.mendoza@hotmail.com,+591 72100002,,,,,,,,,,
+Lucia Fernandez,lucia.f@empresa.com,+591 72100003,Fernandez & Co.,,,,,,,,,
+Roberto Silva,roberto.silva@gmail.com,+591 72100004,,prospecto,,,,,,,,
+Maria Elena Torres,me.torres@outlook.com,+591 72100005,Torres Import,,,,,,,,,
+Diego Alvarado,diego.alvarado@gmail.com,+591 72100006,,cliente,Interesado en plan premium,,,,,,
+Valentina Cruz,v.cruz@gmail.com,+591 72100007,,,,,,,,,,
+Andres Morales,andres.morales@empresa.bo,+591 72100008,Morales Consulting,cliente,,,,,,,,
+Patricia Ramos,patricia.ramos@gmail.com,+591 72100009,,,Prefiere contacto por WhatsApp,,,,,,
+Fernando Castillo,fcastillo@gmail.com,+591 72100010,,vip,,,,,,,,
+Alejandra Vega,ale.vega@hotmail.com,+591 72100011,,,,La Paz,,,,,Diseñadora Gráfica
+Juan Pablo Rios,jp.rios@gmail.com,+591 72100012,Rios Tech,,,,Daniel Acero,,,,Desarrollador
+Sofia Montoya,sofia.montoya@gmail.com,+591 72100013,,nueva,,Cochabamba,,,Lectura,Instagram,
+Nicolas Herrera,n.herrera@empresa.com,+591 72100014,Herrera SA,cliente,,Santa Cruz,,,,LinkedIn,
+Isabella Campos,isa.campos@gmail.com,+591 72100015,,,Primera reunión pendiente,El Alto,Ana Gutierrez,Luna,,Facebook,15/03/1992,
+Camila Vargas,camila.v@gmail.com,+591 72100016,,prospecto,,La Paz,,,Yoga,Instagram,22/07/1990,Coach
+Sebastian Paredes,seba.paredes@outlook.com,+591 72100017,Paredes & Hijos,,,,Carlos Mendoza,Rex,Fútbol,,05/11/1988,Vendedor
+Daniela Salinas,dani.salinas@gmail.com,+591 72100018,,cliente,Renovó contrato en marzo,,,,Pintura,TikTok,,Arquitecta
+Mateo Jimenez,mateo.j@empresa.bo,+591 72100019,JimCorp,vip,,Cochabamba,Roberto Silva,,Viajes,LinkedIn,30/01/1985,Gerente
+Valeria Rojas,valeria.rojas@gmail.com,+591 72100020,,,,Santa Cruz,,,Cocina,Instagram,14/02/1993,Chef
+Emilio Suarez,emilio.s@hotmail.com,+591 72100021,Suarez Logistics,cliente,,La Paz,,Mango,,Facebook,08/09/1980,Logístico
+Gabriela Ponce,gabi.ponce@gmail.com,+591 72100022,,nueva,Conocida en evento Acrosoft 2024,El Alto,Valeria Rojas,,Danza,,25/12/1997,Bailarina
+Ignacio Flores,i.flores@empresa.com,+591 72100023,Flores Inversiones,vip,,Sucre,,,,LinkedIn,03/06/1975,Inversor
+Renata Medina,renata.medina@gmail.com,+591 72100024,,,Le interesa el servicio SaaS,,Camila Vargas,Pelusa,Fotografía,Instagram,19/08/1995,Fotógrafa
+Tomas Aguirre,tomas.a@outlook.com,+591 72100025,Aguirre SA,,,,,,Tenis,LinkedIn,,CEO
+Paula Delgado,paula.delgado@gmail.com,+591 72100026,,prospecto,,Cochabamba,Mateo Jimenez,,Meditación,,11/04/1991,Terapeuta
+Gonzalo Ibarra,gonzalo.i@empresa.bo,+591 72100027,Ibarra Group,cliente,,La Paz,,Buddy,Golf,Facebook,27/10/1983,Director
+Mariana Espinoza,mariana.e@gmail.com,+591 72100028,,nueva,Referida por cliente VIP,,Ignacio Flores,,Escritura,Twitter,02/03/1999,Escritora
+Ricardo Navarro,r.navarro@hotmail.com,+591 72100029,Navarro Tech,cliente,,Santa Cruz,,,,LinkedIn,16/07/1987,Técnico
+Lucia Molina,lucia.molina@gmail.com,+591 72100030,,,,Oruro,Paula Delgado,Kiwi,Costura,,09/11/1994,Modista
+Arturo Peña,arturo.p@empresa.com,+591 72100031,Peña Consulting,vip,,La Paz,,,Ajedrez,LinkedIn,21/05/1979,Consultor
+Natalia Romero,natalia.r@gmail.com,+591 72100032,,prospecto,Primer contacto por formulario web,,Ricardo Navarro,,Pilates,Instagram,30/09/1996,Instructora
+Kevin Soto,kevin.soto@outlook.com,+591 72100033,Soto Diseño,,,,,,Running,Behance,,Diseñador
+Fernanda Calderon,fer.calderon@gmail.com,+591 72100034,,cliente,,Cochabamba,Gonzalo Ibarra,Chispa,Leer,,13/06/1990,Abogada
+Marco Fuentes,marco.f@empresa.bo,+591 72100035,Fuentes Import,vip,,La Paz,,,,LinkedIn,28/02/1982,Importador
+Daniela Quispe,dani.quispe@gmail.com,+591 72100036,,nueva,Agendó demo para próxima semana,,Arturo Peña,,Manualidades,Pinterest,07/01/2000,Estudiante
+Hugo Blanco,hugo.blanco@hotmail.com,+591 72100037,Blanco & Asociados,cliente,,Sucre,,Max,Ciclismo,Facebook,18/08/1985,Abogado
+Elena Tapia,elena.tapia@gmail.com,+591 72100038,,,,El Alto,Fernanda Calderon,,Teatro,Instagram,24/04/1998,Actriz
+Julian Castro,julian.c@empresa.com,+591 72100039,Castro Holdings,vip,,La Paz,,,Squash,LinkedIn,12/12/1978,Empresario
+Sofia Alarcon,sofia.alarcon@gmail.com,+591 72100040,,prospecto,Interesada en consultoría,,Hugo Blanco,,Surf,TikTok,05/03/1997,Comunicadora

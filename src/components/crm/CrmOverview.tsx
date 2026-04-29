@@ -631,7 +631,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                         }}
                         className="text-primary focus:ring-primary h-4 w-4 accent-primary"
                       />
-                      Pago Recurrente{s.recurring_price ? ` ($${s.recurring_price}${s.recurring_interval ? ` ${s.recurring_interval}` : ""})` : ""}
+                      Pago Recurrente{s.recurring_price ? ` ($${s.recurring_price} / ${s.recurring_label ? s.recurring_label.replace(/^[/\s]+/, "") : (s.recurring_interval ?? "mes")})` : ""}
                     </label>
                   </div>
                 </div>

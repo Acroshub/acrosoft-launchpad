@@ -209,6 +209,7 @@ export type CrmBusinessProfile = {
   color_primary: string
   color_secondary: string
   color_accent: string
+  theme: string
   metrics_order?: Json
   landing_calendar_id?: string | null
 }

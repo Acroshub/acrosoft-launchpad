@@ -797,7 +797,7 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-6b · Vista completa de Ventas (página dedicada con filtros)
+### ✅ F-6b · Vista completa de Ventas (página dedicada con filtros)
 **Descripción:** Nueva página `/crm/ventas` accesible desde la navegación del CRM. Contiene exactamente los mismos elementos del panel "Ventas" del resumen (CrmOverview): registro manual de ventas, historial paginado, métricas de ingresos y proyección de recurrentes. Reutiliza los mismos hooks y DB — no se duplica lógica.
 
 **Diferencias respecto al panel del resumen:**
@@ -822,7 +822,7 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-7 · White Label básico — logo y colores por cliente SaaS
+### ✅ F-7 · White Label básico — logo y colores por cliente SaaS
 **Descripción:** Cada cliente SaaS puede personalizar la apariencia de su CRM (panel admin) y páginas públicas (formularios, CalendarRenderer) eligiendo entre dos temas: **Clásico** (tema Acrosoft por default) y **Branded** (colores de marca registrados durante el onboarding).
 
 **Alcance:**
@@ -847,7 +847,7 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-8 · Importador y Exportador de Contactos (.csv)
+### ✅ F-8 · Importador y Exportador de Contactos (.csv)
 **Descripción:** Los usuarios pueden importar contactos desde un archivo CSV con mapeo flexible de columnas, y exportar todos sus contactos a CSV incluyendo todos los campos.
 
 **Importador:**
@@ -872,7 +872,7 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-9 · Términos y Políticas de Privacidad — página estática + check obligatorio en formularios
+### ✅ F-9 · Términos y Políticas de Privacidad — página estática + check obligatorio en formularios
 **Descripción:** Todos los formularios del CRM (FormRenderer) incluyen un checkbox obligatorio "Acepto los términos y políticas de privacidad" que bloquea el envío si no está marcado. Los términos son redactados una vez por Acrosoft y aplican universalmente a todos los clientes SaaS y sus usuarios finales.
 
 **Alcance:**
@@ -893,16 +893,74 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### F-10 · Actualizar logo del sistema a Acros Logo (1).svg
+### F-10 · Actualizar logo del sistema a Acros Logo (1).svg ✅ COMPLETADO
 **Descripción:** Reemplazar el logo actual del sistema (navbar, login, onboarding, cualquier lugar donde aparezca el logo de Acrosoft) por `Acros Logo (1).svg` ubicado en la carpeta `assets/`.
 
-**Alcance:**
-1. Buscar todos los usos del logo actual en el codebase (img src, imports de SVG, referencias en CSS).
-2. Reemplazar con la referencia a `Acros Logo (1).svg` (o renombrar el archivo a `acros-logo.svg` para evitar espacios y paréntesis en el nombre).
-3. Verificar tamaños y proporciones en cada contexto (navbar, sidebar, login, formularios públicos).
+**Implementado:**
+- SVG copiado a `src/assets/acros-logo.svg` (nombre limpio sin espacios ni paréntesis).
+- `AcrosoftLogo.tsx` actualizado: reemplaza el ícono matraz inline por `<img src={acrosLogo}>` con las mismas dimensiones por size (sm=32px, md=40px, lg=56px). Mantiene el texto "Acrosoft Labs" junto al ícono.
+- El cambio aplica automáticamente a los 6 lugares donde se usa el componente: `Navbar`, `Crm`, `Login`, `Onboarding`, `Dashboard`, `Admin`.
 
-**Archivos:** todos los componentes que referencien el logo actual.
-**Complejidad:** Muy baja. Búsqueda y reemplazo puntual.
+**Archivos:** `src/assets/acros-logo.svg` (nuevo), `src/components/shared/AcrosoftLogo.tsx`.
+
+---
+
+## BLOQUE 4b — Fixes y Mejoras Rápidas Pendientes
+> Items identificados tras completar los Bloques 1–4. Baja-media complejidad, sin dependencias de backend nuevo.
+
+### QW-8 · Precio recurrente visible en tabla de precios (Landing) ✅ COMPLETADO
+**Implementado:**
+- **Root cause:** `recurring_label` se usaba como el contenido completo del badge (sobreescribiendo el precio). El admin configuró el label como `"/mes mantenimiento"` esperando que se combinara con el precio, pero el código lo trataba como texto libre.
+- **Fix:** El precio recurrente siempre se muestra. `recurring_label` se usa como descriptor del intervalo (se normaliza quitando el `/` inicial si lo tiene). Patrón: `$recurring_price / {recurring_label ?? recurring_interval ?? "mes"}`.
+- Label del precio de setup: dinámico — "Setup inicial" si hay `recurring_price`, "Pago único" si no es recurrente, `/ {interval}` si es recurrente sin precio separado.
+- Mismo fix aplicado en los 4 lugares donde se muestra el precio recurrente:
+  1. `src/pages/Index.tsx` — landing pública (cards de servicios)
+  2. `src/components/crm/FormRenderer.tsx` — selector de servicios en formularios públicos
+  3. `src/components/crm/CrmOverview.tsx` — formulario de venta manual
+  4. `src/components/crm/CrmVentas.tsx` — formulario de venta manual (página Ventas)
+
+---
+
+### QW-9 · Toggle de idioma en Landing — arreglar funcionalidad
+**Problema:** La landing page tiene un botón de cambio de idioma (ES/EN) que no funciona actualmente.
+**Fix:** Revisar la implementación actual del toggle. Si falta el mecanismo de traducción, implementar con `i18next` o un context simple de strings estáticos EN/ES. Asegurar que el estado del idioma persista durante la sesión (localStorage).
+**Archivos:** `src/pages/Index.tsx`, posiblemente `src/i18n/` o context nuevo.
+**Complejidad:** Baja-Media — depende del estado actual del toggle.
+
+---
+
+### QW-10 · Descuento aplicado en registro manual de ventas
+**Problema:** Al registrar una venta manualmente desde el CRM (formulario en `CrmOverview` y `CrmVentas`), el precio se toma directamente de `crm_services.price` sin considerar `discount_pct`. Solo L-5 (ventas automáticas desde formulario) aplica el descuento correctamente.
+**Fix:** En el formulario de registro manual de venta, al seleccionar un servicio con `discount_pct > 0`:
+1. Mostrar el precio calculado con descuento como valor por defecto en el campo de monto.
+2. Mostrar indicador visual "precio con X% de descuento aplicado" junto al campo.
+3. El usuario puede editar el monto final (por si quiere sobreescribir manualmente).
+**Archivos:** `src/components/crm/CrmOverview.tsx`, `src/pages/CrmVentas.tsx` (cuando se implemente F-6b).
+**Complejidad:** Baja — lógica de precio ya existe en L-5, solo hay que replicarla en el formulario manual.
+
+---
+
+### QW-11 · Descuento en precio recurrente del servicio
+**Problema:** `discount_pct` actualmente solo aplica al precio de setup (`price`). El precio recurrente (`recurring_price`) siempre se muestra y registra sin descuento, aunque el servicio tenga un descuento vigente.
+**Alcance:**
+1. **Landing (`Index.tsx`):** el badge de recurrencia muestra `$recurring_price` sin descuento → mostrar precio tachado + precio descontado, igual que el precio de setup.
+2. **Editor de servicios (`CrmServices.tsx`):** en el preview del servicio, mostrar también el precio recurrente con descuento aplicado.
+3. **Venta automática desde formulario (`crm-form-public`):** `handleServicesField` ya aplica `discount_pct` al precio de setup → aplicar el mismo factor al `recurring_price` si existe y guardarlo en `crm_sales.recurring_amount` (o campo equivalente).
+4. **Venta manual (QW-10):** al calcular el precio con descuento, también mostrar el recurrente descontado.
+**Nota:** Decidir si `discount_pct` aplica igual a setup y recurrente, o si se necesita un `recurring_discount_pct` separado. Por simplicidad, reutilizar el mismo campo.
+**Archivos:** `src/pages/Index.tsx`, `src/components/crm/CrmServices.tsx`, `supabase/functions/crm-form-public/index.ts`.
+**Complejidad:** Baja — mismo cálculo que el precio de setup, aplicado en 3 lugares.
+
+---
+
+### L-29 · Formulario básico por usuario — crear solo una vez
+**Problema:** Cuando el admin crea un calendario sin vincularlo a un formulario existente, el sistema auto-crea un "formulario básico" cada vez. Si el usuario tiene 3 calendarios sin formulario, se crean 3 formularios básicos duplicados — confuso y difícil de gestionar.
+**Comportamiento deseado:** El formulario básico auto-generado es único por usuario. Si ya existe uno (`crm_forms` con `is_basic_form: true`), los calendarios siguientes lo reutilizan en vez de crear uno nuevo.
+**Fix:**
+1. **Migración DB:** añadir columna `is_basic_form BOOLEAN DEFAULT false` en `crm_forms`.
+2. **Lógica en `CrmCalendarConfig`:** antes de crear, hacer query `SELECT id FROM crm_forms WHERE user_id = auth.uid() AND is_basic_form = true LIMIT 1`. Si existe, reutilizar ese `id`. Si no, crear uno nuevo marcado con `is_basic_form = true`.
+**Archivos:** migración SQL, `src/components/crm/CrmCalendarConfig.tsx`, `src/hooks/useCrmData.ts`.
+**Complejidad:** Baja — query de lookup + flag en DB.
 
 ---
 
@@ -1039,9 +1097,13 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### UI-3 · CalendarRenderer — fechas circulares
-**Problema:** Las celdas de fecha del calendario público usan `rounded-md` (cuadrados redondeados) con `h-12 w-full`. Deberían ser celdas cuadradas perfectas con `rounded-full` para verse como círculos modernos (estilo Calendly/Cal.com/GHL).
-**Fix:** Cambiar las celdas de fecha de `h-12 w-full rounded-md` a dimensiones cuadradas fijas (`w-10 h-10` o similar) con `rounded-full`. Centrar cada celda en su columna del grid. Mantener los colores configurables del CRM (`primaryColor`) — solo cambiar la forma. Ajustar estados: hoy (ring circular), seleccionado (fondo primary circular), disponible (texto), no disponible (texto gris tenue).
+### UI-3 · CalendarRenderer — fechas circulares con estados visuales claros
+**Problema:** Las celdas de fecha del calendario público usan `rounded-md` (cuadrados redondeados) con `h-12 w-full`. Deberían ser celdas cuadradas perfectas con `rounded-full` para verse como círculos modernos (estilo Calendly/Cal.com/GHL). Además, los días disponibles no tienen ningún indicador visual — el visitante no puede distinguir fácilmente cuáles días puede seleccionar.
+**Fix:** Cambiar las celdas de fecha de `h-12 w-full rounded-md` a dimensiones cuadradas fijas (`w-10 h-10` o similar) con `rounded-full`. Centrar cada celda en su columna del grid. Mantener los colores configurables del CRM (`primaryColor`) — solo cambiar la forma. Ajustar estados:
+- **Disponible:** fondo circular tenue del color `primaryColor` con ~15% de opacidad, texto oscuro — indica que el día es seleccionable.
+- **Seleccionado:** fondo circular sólido `primaryColor`, texto blanco — acento fuerte igual que ahora.
+- **Hoy:** ring circular (borde) sin fondo, texto normal.
+- **No disponible / pasado:** sin círculo, texto gris tenue, cursor `not-allowed`.
 **Archivos:** `src/components/crm/CalendarRenderer.tsx`
 **Complejidad:** Baja — solo CSS/Tailwind.
 
@@ -1091,37 +1153,18 @@ URGENTE — antes del primer cliente SaaS:
   A-2   Impersonación del Admin (verificar + completar)
   A-3   RLS crm_client_accounts fix
 
-ALTA PRIORIDAD — mejoran el producto activo:
-  QW-1  isSuperAdmin dinámico
-  QW-2  Eliminar CrmClients.tsx
-  QW-4  Métricas del Overview reestructuradas
-  QW-5  Servicios dinámicos en Landing
-  S-1   crm_appointments + minute
-  S-2   crm_blocked_slots + calendar_id
-  L-1   useCalendars multi-calendario
-  L-2   Hooks públicos por calendar_id
-  L-5   Venta automática desde formulario
-  F-1   Documento Maestro (.md)
+PENDIENTE — continuación tras F-9:
+  F-10  Actualizar logo del sistema
+  QW-8  Precio recurrente en tabla de precios (Landing)
+  QW-9  Toggle de idioma en Landing — arreglar funcionalidad
+  QW-10 Descuento aplicado en registro manual de ventas
+  L-29  Formulario básico por usuario — crear solo una vez
 
-MEDIA PRIORIDAD:
-  QW-3  Stage dinámico en contactos
-  QW-6  Descuento en servicios
-  QW-7  Heading no cuenta como campo
-  S-3   crm_calendar_config campos anticipación
-  S-6   crm_blocked_slots minutos en bloqueos
-  L-9   buffer_min tiempo entre citas (no se aplica actualmente)
-  L-3   Renombrar columna pipeline
-  L-4   Pipeline múltiple en formularios
-  L-6   CrmServices sync con schema
-  L-7   isConfirmation en FormRenderer ✅
-  L-7b  Facebook Pixel en formularios ✅
-  L-8   WeeklySchedulePicker horarios sub-hora ✅
-  F-2   FormRenderer multi-página stepper
-  F-3   Staff invitación email
-
-MEJORAS VISUALES:
+MEJORAS VISUALES (pendientes):
   UI-1  Bloques sub-hora con overlay preciso en vista admin del calendario
-  UI-2  Slots visuales y agendamiento manual según schedule_interval
+  UI-3  CalendarRenderer — fechas circulares con estados visuales claros
+
+LARGO PLAZO:
 
 LARGO PLAZO:
   F-4   /onboarding → FormRenderer
