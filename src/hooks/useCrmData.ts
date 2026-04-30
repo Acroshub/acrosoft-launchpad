@@ -391,17 +391,20 @@ export const useDeleteDeal = () => {
 
 export const useForms = () => {
   const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useQuery({
-    queryKey: ["crm_forms", user?.id],
+    queryKey: ["crm_forms", ownerUserId ?? user?.id],
     queryFn: async () => {
+      const uid = ownerUserId ?? user!.id;
       const { data, error } = await supabase
         .from("crm_forms")
         .select("*")
+        .eq("user_id", uid)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as CrmForm[];
     },
-    enabled: !!user,
+    enabled: !!(ownerUserId ?? user?.id),
   });
 };
 
@@ -463,18 +466,21 @@ export const useDeleteForm = () => {
 
 export const useServices = () => {
   const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useQuery({
-    queryKey: ["crm_services", user?.id],
+    queryKey: ["crm_services", ownerUserId ?? user?.id],
     queryFn: async () => {
+      const uid = ownerUserId ?? user!.id;
       const { data, error } = await supabase
         .from("crm_services")
         .select("*")
+        .eq("user_id", uid)
         .order("sort_order", { ascending: true, nullsFirst: false })
         .order("created_at", { ascending: true });
       if (error) throw error;
       return data as CrmService[];
     },
-    enabled: !!user,
+    enabled: !!(ownerUserId ?? user?.id),
   });
 };
 
@@ -609,18 +615,21 @@ export const useDeleteSale = () => {
 /** Returns calendars owned by the admin (excludes SaaS client calendars that have a contact_id) */
 export const useCalendars = () => {
   const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
   return useQuery({
-    queryKey: ["crm_calendar_config", user?.id],
+    queryKey: ["crm_calendar_config", ownerUserId ?? user?.id],
     queryFn: async () => {
+      const uid = ownerUserId ?? user!.id;
       const { data, error } = await supabase
         .from("crm_calendar_config")
         .select("*")
+        .eq("user_id", uid)
         .is("contact_id", null)
         .order("created_at", { ascending: true });
       if (error) throw error;
       return (data ?? []) as CrmCalendarConfig[];
     },
-    enabled: !!user,
+    enabled: !!(ownerUserId ?? user?.id),
   });
 };
 
@@ -724,8 +733,9 @@ export const useBusinessProfile = () => {
       const { data, error } = await supabase
         .from("crm_business_profile")
         .select("*")
+        .eq("user_id", user!.id)
         .single();
-      if (error && error.code !== "PGRST116") throw error; // PGRST116 = no rows
+      if (error && error.code !== "PGRST116") throw error;
       return (data as CrmBusinessProfile) ?? null;
     },
     enabled: !!user,
