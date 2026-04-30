@@ -39,9 +39,11 @@ const Index = () => {
   const { user, loading } = useCurrentUser();
   const navigate = useNavigate();
 
-  // Redirect authenticated users (e.g. after magic link) straight to their CRM
+  // Redirect SaaS clients (not admins) to their CRM after magic link auth
   useEffect(() => {
-    if (!loading && user) navigate("/crm", { replace: true });
+    if (!loading && user?.user_metadata?.account_type === "saas_client") {
+      navigate("/crm", { replace: true });
+    }
   }, [user, loading, navigate]);
 
   const { data: adminProfile } = useLandingProfile();

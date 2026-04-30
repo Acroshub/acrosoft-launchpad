@@ -1338,12 +1338,13 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       const { data, error } = await supabase.functions.invoke("generate-magic-link", {
         body: { contact_id: contactId, redirect_to: `${window.location.origin}/crm` },
       });
+      if (data?.error) throw new Error(data.error);
       if (error) throw error;
-      if (data?.magic_link) {
-        window.open(data.magic_link, "_blank");
-      }
+      if (!data?.magic_link) throw new Error("No se recibió el enlace de acceso");
+      window.open(data.magic_link, "_blank");
     } catch (err) {
-      toast.error("No se pudo generar el acceso. Verifica que el cliente haya activado su cuenta.");
+      const msg = err instanceof Error ? err.message : "Error desconocido";
+      toast.error(`No se pudo generar el acceso: ${msg}`);
     } finally {
       setAccessingCrm(null);
     }
@@ -1854,7 +1855,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                               {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente" : "Deshabilitada"}
                             </span>
                           </div>
-                          {acc.status === "active" && (
+                          {acc.status === "active" && isSuperAdmin && (
                             <button
                               onClick={() => setDisableSaasTarget({ id: acc.id, name: detail.name })}
                               className="text-[10px] text-destructive/60 hover:text-destructive underline underline-offset-2 transition-colors"
@@ -1883,7 +1884,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                             Esperando que el cliente active su cuenta vía email.
                           </p>
                         )}
-                        {acc.status === "disabled" && (
+                        {acc.status === "disabled" && isSuperAdmin && (
                           <button
                             onClick={async () => {
                               try {

@@ -1023,10 +1023,14 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### A-3 · RLS para crm_client_accounts — acceso del cliente
+### A-3 · RLS para crm_client_accounts — acceso del cliente ✅ COMPLETADO
 **Problema:** La política actual solo permite al Admin leer/escribir `crm_client_accounts`. La página `/crm-setup` necesita que el cliente pueda actualizar su propio registro (`status → active`).
-**Fix:** Añadir política que permita `UPDATE` cuando `client_user_id = auth.uid()`, solo para el campo `status`.
-**Archivos:** migración SQL
+**Implementado:** Políticas ya existentes y verificadas en DB:
+- `"Client can view own account"` SELECT: `client_user_id = auth.uid()`
+- `"Client can update own account status"` UPDATE: `client_user_id = auth.uid()`
+- `CrmSetup.tsx` usa correctamente `.update({ status: "active" }).eq("client_user_id", user.id)`
+- `crm_staff` RLS devuelve null para clientes SaaS sin errores (correcto)
+**Archivos:** migración SQL (ya aplicada), `src/pages/CrmSetup.tsx`
 
 ---
 
@@ -1071,7 +1075,135 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-## BLOQUE 6 — Features avanzadas
+## BLOQUE 6 — Sistema de Soporte
+> Comunicación bidireccional entre Dueños de Negocio / Staff y el Admin de Acrosoft.
+
+### SP-1 · Schema de base de datos
+
+**Tablas nuevas:**
+
+```sql
+-- Ticket o sugerencia
+CREATE TABLE support_tickets (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at      timestamptz DEFAULT now(),
+  user_id         uuid REFERENCES auth.users NOT NULL,  -- quien lo envía
+  type            text CHECK (type IN ('ticket', 'suggestion')) NOT NULL,
+  subject         text NOT NULL,
+  status          text CHECK (status IN ('open','in_progress','resolved','read')) NOT NULL DEFAULT 'open',
+  -- 'read' solo aplica a sugerencias (sin respuesta)
+  -- 'open','in_progress','resolved' aplican a tickets
+  updated_at      timestamptz DEFAULT now()
+);
+
+-- Mensajes del hilo (tickets) o el cuerpo único (sugerencias)
+CREATE TABLE support_messages (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  created_at  timestamptz DEFAULT now(),
+  ticket_id   uuid REFERENCES support_tickets NOT NULL,
+  sender_id   uuid REFERENCES auth.users NOT NULL,
+  sender_role text CHECK (sender_role IN ('client','admin')) NOT NULL,
+  content     text NOT NULL,
+  attachments jsonb DEFAULT '[]'   -- array de URLs públicas (bucket: support-attachments)
+);
+
+-- Qué staff de Acrosoft recibe emails de soporte (configurado por el Admin)
+CREATE TABLE support_notification_recipients (
+  id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id   uuid REFERENCES auth.users NOT NULL UNIQUE
+);
+```
+
+**RLS:**
+- `support_tickets`: el dueño (`user_id`) puede SELECT/INSERT/UPDATE propio. El Admin de Acrosoft (service role en edge functions) gestiona todo.
+- `support_messages`: el dueño del ticket puede SELECT mensajes de su ticket. Puede INSERT solo con `sender_role = 'client'`. Admin puede hacer todo via service role.
+- `support_notification_recipients`: solo Admin puede leer/escribir.
+
+**Storage:** bucket `support-attachments` (privado, URLs firmadas de 24h).
+
+**Archivos:** migración SQL, bucket Supabase Storage.
+
+---
+
+### SP-2 · Vista del Cliente / Staff (enviador)
+
+**Ubicación:** Sidebar CRM → sección "Soporte" debajo de "Configuración".
+
+**Componente:** `src/components/crm/CrmSupport.tsx`
+
+**UI:**
+- Dos tabs: **Tickets** | **Sugerencias**
+- Botón "+ Nuevo Ticket" / "+ Nueva Sugerencia"
+- Lista de tickets/sugerencias propios con badge de estado (`Abierto`, `En proceso`, `Resuelto` / `Leído`)
+- Al abrir un ticket: vista de chat con hilo de mensajes y campo para escribir respuesta + adjuntos
+- Sugerencias: solo muestra el mensaje enviado, sin campo de respuesta
+- Badge numérico en el icono del sidebar: tickets con respuesta nueva del Admin no leída por el cliente
+
+**Formulario nuevo ticket:**
+- Asunto (texto)
+- Mensaje (textarea)
+- Adjuntos (file upload → bucket `support-attachments`)
+
+---
+
+### SP-3 · Vista del Admin de Acrosoft
+
+**Ubicación:** Misma sección "Soporte" en el sidebar, pero con vista diferente cuando `isSuperAdmin === true`.
+
+**Componente:** `src/components/crm/CrmSupportAdmin.tsx`
+
+**UI:**
+- Tabs: **Tickets** | **Sugerencias**
+- Filtros: por estado (Abierto / En proceso / Resuelto / Todos), por usuario/negocio
+- Lista con: nombre del remitente, asunto, fecha, badge de estado y badge "NUEVO" si no ha sido leído
+- Al abrir un ticket: hilo de chat completo + campo para responder + cambiar estado
+- Al abrir una sugerencia: solo ver el contenido, botón "Marcar como leída"
+- El Admin **no puede** crear tickets ni sugerencias
+- Badge numérico en el sidebar: total de tickets/sugerencias no leídos
+
+---
+
+### SP-4 · Notificaciones por email
+
+**Trigger A — Nuevo ticket o sugerencia:**
+- Destinatarios: Admin de Acrosoft + staff configurados en `support_notification_recipients`
+- Contenido: asunto, mensaje, nombre del remitente, tipo (ticket/sugerencia), link directo
+
+**Trigger B — Admin responde un ticket:**
+- Destinatario: el cliente/staff que abrió el ticket
+- Contenido: la respuesta, asunto original, link para ver el hilo
+
+**Implementación:** Edge Function `send-support-email` usando Resend. Se invoca desde el frontend cuando se crea un ticket/sugerencia o cuando el Admin responde.
+
+**Archivos:** `supabase/functions/send-support-email/index.ts`
+
+---
+
+### SP-5 · Configuración de notificaciones (Admin)
+
+**Ubicación:** `CrmSettings.tsx` → nueva tab o sección "Soporte".
+
+**UI:** Lista de staff de Acrosoft con toggle para activar/desactivar recepción de emails de soporte. Se guarda en `support_notification_recipients`.
+
+---
+
+### SP-6 · Badge en sidebar
+
+**Lógica:**
+- Cliente: cuenta mensajes del Admin en sus tickets que tienen `created_at > última_visita_al_soporte`. Se resetea al abrir la sección.
+- Admin: cuenta tickets/sugerencias con status `open` no leídos. Se resetea al marcarlos como leídos/resueltos.
+
+**Implementación:** Hook `useSupportUnreadCount()` con query a `support_tickets` + `support_messages`. Pasa el número al componente del sidebar.
+
+**Archivos:** `src/hooks/useCrmData.ts`, `src/pages/Crm.tsx` (sidebar), componentes de soporte.
+
+---
+
+**Orden de implementación sugerido:** SP-1 → SP-2 → SP-3 → SP-4 → SP-5 → SP-6
+
+---
+
+## BLOQUE 7 — Features avanzadas
 > Requieren infraestructura externa o lógica compleja.
 
 ### I-1 · Soporte bilingüe de contenido (ES/EN) en CRM y widgets
@@ -1245,6 +1377,12 @@ MEJORAS VISUALES (pendientes):
 LARGO PLAZO:
 
 LARGO PLAZO:
+  SP-1  Sistema de Soporte — DB + Storage
+  SP-2  Vista Cliente/Staff (envío de tickets y sugerencias)
+  SP-3  Vista Admin (inbox, responder, estados)
+  SP-4  Emails de notificación (Resend edge function)
+  SP-5  Configuración de staff notificados
+  SP-6  Badge de no leídos en sidebar
   F-4   /onboarding → FormRenderer
   AV-1  Google Calendar sync
   AV-2  WhatsApp UI beta
