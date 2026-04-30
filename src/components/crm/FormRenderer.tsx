@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
+import { widgetTranslations } from "@/i18n/widgets";
+import type { WidgetLang } from "@/hooks/useLangWidget";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import type { CrmForm, CrmService } from "@/lib/supabase";
@@ -214,12 +216,19 @@ const ServicesField = ({
                         <span className="text-2xl font-bold text-foreground">${svc.price}</span>
                       )}
                       <span className="text-xs text-muted-foreground uppercase tracking-tight">
-                        {svc.is_recurring && svc.recurring_price ? "setup" : svc.is_recurring ? `/ ${svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}` : "pago único"}
+                        {svc.is_recurring && svc.recurring_price ? TF.paymentSetup : svc.is_recurring ? `/ ${svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}` : TF.paymentOneTime}
                       </span>
                     </div>
                     {svc.recurring_price && (
                       <span className="text-sm text-muted-foreground">
-                        ${svc.recurring_price} / {svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}
+                        {(svc.recurring_discount_pct ?? 0) > 0 ? (
+                          <>
+                            <span className="line-through opacity-60">${svc.recurring_price}</span>
+                            {" "}${Math.round(svc.recurring_price * (1 - (svc.recurring_discount_pct ?? 0) / 100))}
+                          </>
+                        ) : (
+                          `$${svc.recurring_price}`
+                        )} / {svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}
                       </span>
                     )}
                     {svc.delivery_time && (
@@ -494,13 +503,16 @@ const FieldRenderer = ({
   onChange,
   formUserId,
   error,
+  lang = "es",
 }: {
   field: PublicField;
   value: any;
   onChange: (v: any) => void;
   formUserId: string | null;
   error?: string;
+  lang?: WidgetLang;
 }) => {
+  const TF = widgetTranslations[lang].form;
   if (field.type === "heading") {
     return (
       <div className="pt-2 pb-1 border-b border-border/50">
@@ -576,7 +588,7 @@ const FieldRenderer = ({
             onChange={e => onChange(e.target.value)}
             className="w-full h-11 rounded-xl border border-input bg-background text-sm px-3 pr-8 appearance-none focus:outline-none focus:ring-2 focus:ring-primary/20"
           >
-            <option value="">{field.placeholder || "Selecciona una opción…"}</option>
+            <option value="">{field.placeholder || TF.selectOption}</option>
             {(field.options ?? []).map(opt => (
               <option key={opt} value={opt}>{opt}</option>
             ))}
@@ -623,7 +635,7 @@ const FieldRenderer = ({
             onChange={e => onChange(e.target.checked)}
             className="rounded border-input h-4 w-4 text-primary"
           />
-          <span className="text-sm text-muted-foreground">{field.placeholder || "Sí"}</span>
+          <span className="text-sm text-muted-foreground">{field.placeholder || TF.checkYes}</span>
         </label>
       </FieldWrapper>
     );
@@ -683,23 +695,26 @@ const ConfirmationView = ({
   fields,
   formValues,
   serviceMap,
+  lang = "es",
 }: {
   sections: PublicSection[];
   fields: PublicField[];
   formValues: Record<string, any>;
   serviceMap: Map<string, string>;
+  lang?: WidgetLang;
 }) => {
+  const TC = widgetTranslations[lang].form;
   const formatValue = (field: PublicField, val: any): string => {
     if (val === undefined || val === null || val === "") return "—";
     if (field.type === "repeatable" && Array.isArray(val)) {
-      return `${val.length} elemento${val.length !== 1 ? "s" : ""}`;
+      return TC.items(val.length);
     }
-    if (field.type === "checkbox") return val ? "Sí" : "No";
-    if (field.type === "schedule") return "Horario configurado";
+    if (field.type === "checkbox") return val ? TC.checkYes : TC.checkNo;
+    if (field.type === "schedule") return TC.scheduleSet;
     if (field.type === "file") {
       const fileUrls = Array.isArray(val) ? val.filter(Boolean) : val ? [val] : [];
       if (!fileUrls.length) return "—";
-      return `${fileUrls.length} archivo${fileUrls.length !== 1 ? "s" : ""} adjunto${fileUrls.length !== 1 ? "s" : ""}`;
+      return TC.filesAttached(fileUrls.length);
     }
     if (field.type === "color") return val;
     if (field.type === "services") return serviceMap.get(val) ?? val;
@@ -739,7 +754,8 @@ const ConfirmationView = ({
 
 // ─── Main FormRenderer Component ──────────────────────────────────────────────
 
-const FormRenderer = ({ formId }: { formId: string }) => {
+const FormRenderer = ({ formId, lang = "es" }: { formId: string; lang?: WidgetLang }) => {
+  const T = widgetTranslations[lang].form;
   const { data: form, isLoading, error: loadError } = usePublicForm(formId);
 
   const sections = useMemo<PublicSection[]>(() => {
@@ -819,7 +835,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
         val === null ||
         val === "" ||
         (Array.isArray(val) && val.length === 0);
-      if (isEmpty) newErrors[field.id] = `${field.label} es obligatorio`;
+      if (isEmpty) newErrors[field.id] = T.requiredError(field.label);
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -853,7 +869,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
         },
         body: JSON.stringify({ form_id: formId, data: formValues, terms_accepted_at: new Date().toISOString() }),
       });
-      if (!res.ok) throw new Error("Error en el servidor");
+      if (!res.ok) throw new Error(T.errorServer);
       const result = await res.json();
       setSubmissionId(result.submission_id ?? "");
       fbTrack("Lead");
@@ -866,7 +882,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
       }
     } catch (e) {
       console.error(e);
-      alert("Hubo un problema enviando tu solicitud. Por favor intenta de nuevo.");
+      alert(T.errorSubmit);
     } finally {
       if (!redirecting) setIsSubmitting(false);
     }
@@ -885,7 +901,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
   if (loadError || !form) {
     return (
       <div className="text-center py-24 text-muted-foreground">
-        <p className="text-sm">No se pudo cargar el formulario.</p>
+        <p className="text-sm">{T.loadError}</p>
       </div>
     );
   }
@@ -900,10 +916,9 @@ const FormRenderer = ({ formId }: { formId: string }) => {
             <CheckCircle2 size={56} className="text-primary" />
           </div>
           <div className="space-y-3">
-            <h1 className="text-3xl font-black tracking-tight">¡Todo listo!</h1>
+            <h1 className="text-3xl font-black tracking-tight">{T.successTitle}</h1>
             <p className="text-muted-foreground leading-relaxed">
-              {form.success_message ||
-                "Hemos recibido tu información. Nuestro equipo estará en contacto pronto."}
+              {form.success_message || T.successDefault}
             </p>
           </div>
         </div>
@@ -997,6 +1012,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
                   fields={fields}
                   formValues={formValues}
                   serviceMap={serviceMap}
+                  lang={lang}
                 />
               </div>
             ) : (
@@ -1006,7 +1022,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
                   <div className="flex items-start gap-3 bg-destructive/10 border border-destructive/30 rounded-2xl px-4 py-3">
                     <span className="text-destructive font-bold text-base leading-none mt-0.5">!</span>
                     <p className="text-sm text-destructive font-medium">
-                      Por favor completa los campos obligatorios antes de continuar.
+                      {T.requiredBanner}
                     </p>
                   </div>
                 )}
@@ -1017,6 +1033,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
                     value={formValues[field.id]}
                     error={errors[field.id]}
                     formUserId={formUserId}
+                    lang={lang}
                     onChange={val => {
                       setFormValues(v => ({ ...v, [field.id]: val }));
                       if (errors[field.id]) setErrors(e => ({ ...e, [field.id]: "" }));
@@ -1034,7 +1051,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
                     {termsAccepted && <Check size={12} className="text-primary-foreground" />}
                   </div>
                   <span className="text-sm text-muted-foreground leading-snug select-none">
-                    Acepto los{" "}
+                    {T.termsAccept}{" "}
                     <a
                       href="/terminos_y_politicas_de_privacidad"
                       target="_blank"
@@ -1042,12 +1059,12 @@ const FormRenderer = ({ formId }: { formId: string }) => {
                       onClick={(e) => e.stopPropagation()}
                       className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
                     >
-                      términos y políticas de privacidad
+                      {T.termsLink}
                     </a>
                   </span>
                 </label>
                 {termsError && (
-                  <p className="text-xs text-destructive ml-8">Debes aceptar los términos para continuar.</p>
+                  <p className="text-xs text-destructive ml-8">{T.termsError}</p>
                 )}
               </div>
             )}
@@ -1061,7 +1078,7 @@ const FormRenderer = ({ formId }: { formId: string }) => {
                   disabled={currentStep === 0}
                   className="rounded-xl h-12 px-6 font-bold text-muted-foreground hover:text-foreground transition-all"
                 >
-                  <ChevronLeft size={18} className="mr-2" /> Anterior
+                  <ChevronLeft size={18} className="mr-2" /> {T.back}
                 </Button>
               ) : <div />}
 
@@ -1075,9 +1092,9 @@ const FormRenderer = ({ formId }: { formId: string }) => {
                   style={brandPrimary ? { backgroundColor: brandPrimary, borderColor: brandPrimary, boxShadow: `0 4px 14px ${brandPrimary}33` } : undefined}
                 >
                   {isSubmitting ? (
-                    <><Loader2 size={18} className="mr-2 animate-spin" /> Enviando…</>
+                    <><Loader2 size={18} className="mr-2 animate-spin" /> {T.submitting}</>
                   ) : (
-                    <>{form.submit_label || "Enviar"} <ArrowRight size={18} className="ml-2" /></>
+                    <>{form.submit_label || T.submit} <ArrowRight size={18} className="ml-2" /></>
                   )}
                 </Button>
               ) : (
@@ -1086,14 +1103,14 @@ const FormRenderer = ({ formId }: { formId: string }) => {
                   className="rounded-xl h-12 px-8 font-black shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
                   style={brandPrimary ? { backgroundColor: brandPrimary, borderColor: brandPrimary, boxShadow: `0 4px 14px ${brandPrimary}33` } : undefined}
                 >
-                  Continuar <ChevronRight size={18} className="ml-2" />
+                  {T.next} <ChevronRight size={18} className="ml-2" />
                 </Button>
               )}
             </div>
           </div>
 
           <p className="text-center text-[10px] font-medium text-muted-foreground/40 mt-8 uppercase tracking-[0.2em]">
-            Acrosoft Labs · Formulario Seguro
+            {T.footer}
           </p>
         </div>
       </main>

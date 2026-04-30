@@ -1,13 +1,13 @@
 import { useState, useMemo } from "react";
 import { ChevronLeft, ChevronRight, Loader2, Check, Clock, Calendar, Globe } from "lucide-react";
+import { widgetTranslations } from "@/i18n/widgets";
+import type { WidgetLang } from "@/hooks/useLangWidget";
 import { usePublicCalendar, usePublicAppointments, usePublicBlockedSlots, usePublicForm, usePublicBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmBlockedSlot } from "@/lib/supabase";
 import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DAYS_ES   = ["Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sá"];
-const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 const SCHEDULE_KEY = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 // ─── Availability helpers ─────────────────────────────────────────────────────
@@ -162,11 +162,6 @@ const inputCls =
 
 // ─── Booking Form ─────────────────────────────────────────────────────────────
 
-const defaultBookingFields = [
-  { id: "f-name",  label: "Nombre",             type: "text",  required: true,  placeholder: "Tu nombre completo" },
-  { id: "f-email", label: "Correo electrónico",  type: "email", required: true,  placeholder: "hola@ejemplo.com"  },
-  { id: "f-phone", label: "WhatsApp / Teléfono", type: "phone", required: false, placeholder: "+1 (000) 000-0000" },
-];
 
 interface BookingFormProps {
   calendarId: string;
@@ -181,6 +176,7 @@ interface BookingFormProps {
   visitorTz: string;
   onSuccess: () => void;
   onBack: () => void;
+  lang?: WidgetLang;
 }
 
 const BookingForm = ({
@@ -196,7 +192,9 @@ const BookingForm = ({
   visitorTz,
   onSuccess,
   onBack,
+  lang = "es",
 }: BookingFormProps) => {
+  const T = widgetTranslations[lang].calendar;
   const { data: form } = usePublicForm(linkedFormId ?? "");
   const [values, setValues] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -204,18 +202,24 @@ const BookingForm = ({
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsError, setTermsError] = useState(false);
 
+  const defaultBookingFields = useMemo(() => [
+    { id: "f-name",  label: T.fieldName,  type: "text",  required: true,  placeholder: T.fieldNamePh  },
+    { id: "f-email", label: T.fieldEmail, type: "email", required: true,  placeholder: T.fieldEmailPh },
+    { id: "f-phone", label: T.fieldPhone, type: "phone", required: false, placeholder: T.fieldPhonePh },
+  ], [T]);
+
   const fields = useMemo(() => {
     if (!form?.fields) return defaultBookingFields;
     const f = (form.fields as any[]).filter(
       (f: any) => ["text", "email", "phone", "textarea"].includes(f.type),
     );
     return f.length > 0 ? f : defaultBookingFields;
-  }, [form]);
+  }, [form, defaultBookingFields]);
 
   const handleSubmit = async () => {
     const missing = fields.filter((f: any) => f.required && !values[f.id]?.trim());
     if (missing.length > 0) {
-      setError(`Completa los campos requeridos: ${missing.map((f: any) => f.label).join(", ")}`);
+      setError(T.errorRequired(missing.map((f: any) => f.label).join(", ")));
       return;
     }
     if (!termsAccepted) {
@@ -235,17 +239,17 @@ const BookingForm = ({
         },
         body: JSON.stringify({ calendar_id: calendarId, date: selectedDate, hour: selectedHour, minute: selectedMinute, form_data: values, terms_accepted_at: termsAt }),
       });
-      if (!res.ok) throw new Error((await res.json())?.error ?? "Error al agendar");
+      if (!res.ok) throw new Error((await res.json())?.error ?? T.errorBooking);
       onSuccess();
     } catch (e: any) {
-      setError(e.message ?? "Hubo un problema. Intenta de nuevo.");
+      setError(e.message ?? T.errorGeneral);
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const [y, m, d] = selectedDate.split("-").map(Number);
-  const dateLabel = `${d} de ${MONTHS_ES[m - 1]}, ${y}`;
+  const dateLabel = T.dateLabel(d, T.months[m - 1], y);
 
   return (
     <div className="space-y-6 font-sans">
@@ -268,7 +272,7 @@ const BookingForm = ({
 
       {/* Fields */}
       <div className="space-y-3.5">
-        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Tus datos</p>
+        <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{T.yourData}</p>
         {fields.map((field: any) => (
           <Field key={field.id} label={field.label} required={field.required}>
             {field.type === "textarea" ? (
@@ -312,7 +316,7 @@ const BookingForm = ({
             )}
           </div>
           <span className="text-sm text-gray-500 leading-snug select-none">
-            Acepto los{" "}
+            {T.termsAccept}{" "}
             <a
               href="/terminos_y_politicas_de_privacidad"
               target="_blank"
@@ -321,12 +325,12 @@ const BookingForm = ({
               className="underline underline-offset-2 hover:opacity-80 transition-opacity"
               style={{ color: primaryColor }}
             >
-              términos y políticas de privacidad
+              {T.termsLink}
             </a>
           </span>
         </label>
         {termsError && (
-          <p className="text-xs text-red-500 ml-8">Debes aceptar los términos para continuar.</p>
+          <p className="text-xs text-red-500 ml-8">{T.termsError}</p>
         )}
       </div>
 
@@ -335,7 +339,7 @@ const BookingForm = ({
           onClick={onBack}
           className="flex-none border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
         >
-          ← Volver
+          {T.back}
         </button>
         <button
           onClick={handleSubmit}
@@ -343,7 +347,7 @@ const BookingForm = ({
           style={{ backgroundColor: primaryColor }}
           className="flex-1 text-white rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition-all hover:opacity-90"
         >
-          {isSubmitting ? "Confirmando…" : "Confirmar cita"}
+          {isSubmitting ? T.confirming : T.confirm}
         </button>
       </div>
     </div>
@@ -352,7 +356,8 @@ const BookingForm = ({
 
 // ─── Main CalendarRenderer ────────────────────────────────────────────────────
 
-const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
+const CalendarRenderer = ({ calendarId, lang = "es" }: { calendarId: string; lang?: WidgetLang }) => {
+  const T = widgetTranslations[lang].calendar;
   const today = new Date();
   const [viewYear, setViewYear]   = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -501,7 +506,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
 
   if (!calendar) {
     return (
-      <p className="text-center py-10 text-sm text-gray-400">No se pudo cargar el calendario.</p>
+      <p className="text-center py-10 text-sm text-gray-400">{T.loadError}</p>
     );
   }
 
@@ -516,10 +521,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
           <Check size={26} strokeWidth={2.5} style={{ color: primaryColor }} />
         </div>
         <div className="space-y-1.5">
-          <p className="text-lg font-bold text-gray-900">¡Cita confirmada!</p>
-          <p className="text-sm text-gray-400 max-w-xs mx-auto">
-            Hemos registrado tu solicitud. Nuestro equipo se pondrá en contacto contigo pronto.
-          </p>
+          <p className="text-lg font-bold text-gray-900">{T.successTitle}</p>
+          <p className="text-sm text-gray-400 max-w-xs mx-auto">{T.successMessage}</p>
         </div>
       </div>
     );
@@ -534,7 +537,8 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
         selectedDate={selectedDate}
         selectedHour={selectedSlot.hour}
         selectedMinute={selectedSlot.minute}
-        calendarName={calendar.name ?? "Cita"}
+        calendarName={calendar.name ?? T.appointmentName}
+        lang={lang}
         durationMin={calendar.duration_min ?? 30}
         primaryColor={primaryColor}
         calendarTz={calendarTz}
@@ -555,7 +559,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
           <img src={brandLogo} alt="Logo" className="h-8 max-w-[160px] object-contain mb-1" />
         )}
         <h2 className="text-xl font-bold text-gray-900 leading-tight">
-          {calendar.name ?? "Reservar cita"}
+          {calendar.name ?? T.bookingTitle}
         </h2>
         {calendar.description && (
           <p className="text-sm text-gray-500 leading-relaxed">{calendar.description}</p>
@@ -567,11 +571,11 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
             style={{ backgroundColor: `${primaryColor}12`, color: primaryColor }}
           >
             <Clock size={11} strokeWidth={2.5} />
-            {calendar.duration_min ?? 30} min por sesión
+            {T.minPerSession(calendar.duration_min ?? 30)}
           </span>
           <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-500">
             <Calendar size={11} strokeWidth={2} />
-            Agenda online
+            {T.onlineBooking}
           </span>
           {/* Timezone selector */}
           <label className="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-500 cursor-pointer hover:bg-gray-200 transition-colors">
@@ -596,12 +600,12 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
 
         {/* Left column: calendar */}
         <div className="flex-1 min-w-0 pb-1">
-          <StepLabel number={1} label="Elige una fecha" primaryColor={primaryColor} />
+          <StepLabel number={1} label={T.step1} primaryColor={primaryColor} />
 
           {/* Month nav */}
           <div className="flex items-center justify-between mb-3 md:mb-2">
             <span className="text-sm font-semibold text-gray-800">
-              {MONTHS_ES[viewMonth]} {viewYear}
+              {T.months[viewMonth]} {viewYear}
             </span>
             <div className="flex items-center gap-0.5">
               <button
@@ -633,7 +637,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
 
           {/* Day headers */}
           <div className="grid grid-cols-7 mb-1.5">
-            {DAYS_ES.map((d) => (
+            {T.days.map((d) => (
               <div key={d} className="text-center text-[10px] text-gray-300 uppercase tracking-widest py-1 font-semibold">
                 {d}
               </div>
@@ -692,10 +696,10 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
             borderLeftStyle: 'solid',
           }}
         >
-          <StepLabel number={2} label="Horario" primaryColor={primaryColor} />
+          <StepLabel number={2} label={T.step2} primaryColor={primaryColor} />
           {availableSlots.length === 0 ? (
             <p className="text-[11px] text-gray-400 leading-relaxed">
-              Sin disponibilidad.<br />Elige otra fecha.
+              {T.noSlots}<br />{T.noSlotsHint}
             </p>
           ) : (
             <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
@@ -733,7 +737,7 @@ const CalendarRenderer = ({ calendarId }: { calendarId: string }) => {
             style={{ backgroundColor: primaryColor }}
             className="w-full text-white rounded-lg py-3 text-sm font-semibold transition-all hover:opacity-90 flex items-center justify-center gap-2"
           >
-            Continuar con {selectedDate ? formatSlotInTz(selectedDate, selectedSlot.hour, selectedSlot.minute, calendarTz, visitorTz) : formatSlot(selectedSlot.hour, selectedSlot.minute)}
+            {T.continueWith} {selectedDate ? formatSlotInTz(selectedDate, selectedSlot.hour, selectedSlot.minute, calendarTz, visitorTz) : formatSlot(selectedSlot.hour, selectedSlot.minute)}
             <ChevronRight size={15} strokeWidth={2.5} />
           </button>
         </div>

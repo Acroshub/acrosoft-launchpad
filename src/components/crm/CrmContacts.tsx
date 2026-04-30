@@ -1336,7 +1336,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
     setAccessingCrm(contactId);
     try {
       const { data, error } = await supabase.functions.invoke("generate-magic-link", {
-        body: { contact_id: contactId },
+        body: { contact_id: contactId, redirect_to: `${window.location.origin}/crm` },
       });
       if (error) throw error;
       if (data?.magic_link) {
@@ -1361,6 +1361,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const [tagInputId, setTagInputId] = useState<string | null>(null);
   const [tagValue, setTagValue]     = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const [disableSaasTarget, setDisableSaasTarget] = useState<{ id: string; name: string } | null>(null);
 
   // New contact dialog
   const [showNew, setShowNew]       = useState(false);
@@ -1484,6 +1485,40 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       isPending={deleteContact.isPending}
       description="Se eliminará el contacto y todos sus datos permanentemente."
     />
+
+    {/* SaaS disable confirmation */}
+    {disableSaasTarget && (
+      <Dialog open onOpenChange={(open) => { if (!open) setDisableSaasTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>Deshabilitar cuenta SaaS</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <p className="text-sm text-muted-foreground">
+              El cliente <span className="font-semibold text-foreground">{disableSaasTarget.name}</span> perderá acceso a su CRM.
+              Podrás reactivar la cuenta más adelante.
+            </p>
+            <div className="flex gap-3 justify-end">
+              <Button variant="ghost" onClick={() => setDisableSaasTarget(null)}>Cancelar</Button>
+              <Button
+                variant="destructive"
+                disabled={disableClient.isPending}
+                onClick={async () => {
+                  try {
+                    await disableClient.mutateAsync(disableSaasTarget.id);
+                    toast.success("Cuenta SaaS deshabilitada");
+                    setDisableSaasTarget(null);
+                  } catch { toast.error("Error al deshabilitar"); }
+                }}
+              >
+                {disableClient.isPending && <Loader2 size={14} className="animate-spin mr-2" />}
+                Deshabilitar
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    )}
 
     <CreateReminderModal
       open={!!reminderContact}
@@ -1653,6 +1688,8 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                   const account = accountByContact[c.id];
                   const isSaasActive = account?.status === "active";
                   const isSaasPending = account?.status === "pending";
+                  const isSaasDisabled = account?.status === "disabled";
+                  const hasSaasService = (contactServices.get(c.id) ?? []).some((s) => s.isSaas);
 
                   return (
                   <div key={c.id} className="space-y-0">
@@ -1688,35 +1725,30 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                                 {svc.serviceName}
                               </Badge>
                             ))}
-                            {(isSaasActive || isSaasPending) && (
-                              <Badge className={`text-[10px] px-2 py-0 shrink-0 font-semibold ${
-                                isSaasActive
-                                  ? "bg-amber-100 text-amber-700 border border-amber-200 hover:bg-amber-100"
-                                  : "bg-yellow-50 text-yellow-600 border border-yellow-200 hover:bg-yellow-50"
-                              }`}>
-                                Booking System
+                            {hasSaasService && !account && (
+                              <Badge className="text-[10px] px-2 py-0 shrink-0 font-medium bg-secondary text-muted-foreground border border-border hover:bg-secondary">
+                                Sin invitación
+                              </Badge>
+                            )}
+                            {isSaasPending && (
+                              <Badge className="text-[10px] px-2 py-0 shrink-0 font-semibold bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-50">
+                                Invitación enviada
+                              </Badge>
+                            )}
+                            {isSaasActive && (
+                              <Badge className="text-[10px] px-2 py-0 shrink-0 font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50">
+                                SaaS Activo
+                              </Badge>
+                            )}
+                            {isSaasDisabled && (
+                              <Badge className="text-[10px] px-2 py-0 shrink-0 font-medium bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/10">
+                                Cuenta deshabilitada
                               </Badge>
                             )}
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-0.5">{c.email ?? "Sin email"}</p>
                         </div>
                       </button>
-
-                      {/* Acceder a CRM (only for active SaaS clients) */}
-                      {isSaasActive && (
-                        <button
-                          onClick={() => handleAccessCrm(c.id)}
-                          disabled={accessingCrm === c.id}
-                          className="flex items-center gap-1.5 px-3 h-8 rounded-lg text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white transition-colors shrink-0 disabled:opacity-60"
-                          title="Acceder al CRM del cliente"
-                        >
-                          {accessingCrm === c.id
-                            ? <Loader2 size={12} className="animate-spin" />
-                            : <ExternalLink size={12} />
-                          }
-                          CRM
-                        </button>
-                      )}
 
                       {/* Delete button */}
                       {canDelete && (
@@ -1789,8 +1821,12 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                               await createSaasClient.mutateAsync(detail.id);
                               toast.success("Invitación enviada. El cliente recibirá un email para activar su cuenta.");
                             } catch (err) {
-                              const msg = err instanceof Error ? err.message : "Error desconocido";
-                              toast.error(`Error al activar: ${msg}`);
+                              const e = err as Error & { alreadyExists?: boolean };
+                              if (e.alreadyExists) {
+                                toast.info("La cuenta SaaS ya existía — el panel se ha actualizado.");
+                              } else {
+                                toast.error(`Error al activar: ${e.message ?? "Error desconocido"}`);
+                              }
                             }
                           }}
                           disabled={createSaasClient.isPending}
@@ -1807,31 +1843,41 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
 
                     return (
                       <div className="border rounded-xl p-3 space-y-2 bg-amber-50/50 border-amber-200">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] uppercase tracking-widest text-amber-700/70 font-semibold">Cuenta SaaS</span>
-                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                            acc.status === "active"   ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                            acc.status === "pending"  ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
-                                                        "bg-secondary text-muted-foreground border-border"
-                          }`}>
-                            {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente de activación" : "Deshabilitada"}
-                          </span>
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-[10px] uppercase tracking-widest text-amber-700/70 font-semibold">Cuenta SaaS</span>
+                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                              acc.status === "active"   ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                              acc.status === "pending"  ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+                                                          "bg-secondary text-muted-foreground border-border"
+                            }`}>
+                              {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente" : "Deshabilitada"}
+                            </span>
+                          </div>
+                          {acc.status === "active" && (
+                            <button
+                              onClick={() => setDisableSaasTarget({ id: acc.id, name: detail.name })}
+                              className="text-[10px] text-destructive/60 hover:text-destructive underline underline-offset-2 transition-colors"
+                            >
+                              Deshabilitar
+                            </button>
+                          )}
                         </div>
-                        {acc.status === "active" && (
+
+                        {acc.status === "active" && isSuperAdmin && (
                           <button
-                            onClick={async () => {
-                              try {
-                                await disableClient.mutateAsync(acc.id);
-                                toast.success("Cuenta SaaS deshabilitada");
-                              } catch { toast.error("Error al deshabilitar"); }
-                            }}
-                            disabled={disableClient.isPending}
-                            className="w-full h-8 rounded-lg text-xs font-medium border border-destructive/30 text-destructive hover:bg-destructive/5 transition-colors flex items-center justify-center gap-1.5"
+                            onClick={() => handleAccessCrm(detail.id)}
+                            disabled={accessingCrm === detail.id}
+                            className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2"
                           >
-                            {disableClient.isPending ? <Loader2 size={12} className="animate-spin" /> : null}
-                            Deshabilitar cuenta
+                            {accessingCrm === detail.id
+                              ? <Loader2 size={12} className="animate-spin" />
+                              : <span>🔐</span>
+                            }
+                            Acceder al CRM del cliente
                           </button>
                         )}
+
                         {acc.status === "pending" && (
                           <p className="text-[11px] text-muted-foreground">
                             Esperando que el cliente active su cuenta vía email.

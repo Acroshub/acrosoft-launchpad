@@ -1370,12 +1370,23 @@ export const useCreateSaasClient = () => {
       const { data, error } = await supabase.functions.invoke("create-saas-client", {
         body: { contact_id: contactId, admin_user_id: user!.id },
       });
+      // data contains the actual JSON body even on non-2xx; check it first for a real message
+      if (data?.error) {
+        const err = new Error(data.error) as Error & { alreadyExists?: boolean };
+        if (data.error === "Client account already exists") err.alreadyExists = true;
+        throw err;
+      }
       if (error) throw error;
-      if (data?.error) throw new Error(data.error);
       return data as { account_id: string; client_user_id: string; email: string; reactivated?: boolean };
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["crm_client_accounts"] });
+    },
+    onError: (err: Error & { alreadyExists?: boolean }) => {
+      // Account existed before cache knew about it — refresh so UI reflects real state
+      if (err.alreadyExists) {
+        qc.invalidateQueries({ queryKey: ["crm_client_accounts"] });
+      }
     },
   });
 };

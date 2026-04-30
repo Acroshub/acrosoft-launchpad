@@ -115,6 +115,7 @@ export type CrmForm = {
   facebook_pixel_id?: string | null
   pipeline_ids?: string[]
   reminder_rules?: Json[]
+  is_basic_form?: boolean
 }
 
 export type CrmFormSubmission = {
@@ -163,6 +164,7 @@ export type CrmService = {
   sort_order?: number
   is_saas: boolean
   discount_pct: number
+  recurring_discount_pct: number
 }
 
 export type CrmSale = {

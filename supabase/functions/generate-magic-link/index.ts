@@ -43,7 +43,7 @@ Deno.serve(async (req) => {
   if (authErr || !caller) return respond({ error: "Unauthorized" }, 401);
 
   try {
-    const { contact_id } = await req.json();
+    const { contact_id, redirect_to } = await req.json();
     if (!contact_id) return respond({ error: "contact_id required" }, 400);
 
     // ── 1. Verify the account belongs to the calling admin ──────────────────
@@ -59,13 +59,12 @@ Deno.serve(async (req) => {
     if (!account.client_user_id) return respond({ error: "Client has not accepted invitation yet" }, 400);
 
     // ── 2. Generate OTP link for the client user ─────────────────────────────
-    const siteUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
+    const fallbackUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
+    const redirectTo = redirect_to ?? `${fallbackUrl}/crm`;
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
       type: "magiclink",
       email: account.client_email,
-      options: {
-        redirectTo: `${siteUrl}/crm`,
-      },
+      options: { redirectTo },
     });
 
     if (linkErr) throw linkErr;

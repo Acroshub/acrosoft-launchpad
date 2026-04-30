@@ -233,14 +233,17 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
 
   // ─── Sales form ───
 
+  const calcDiscounted = (price: number, discountPct: number) =>
+    discountPct > 0 ? Math.round(price * (1 - discountPct / 100) * 100) / 100 : price;
+
   const handleServiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const sId = e.target.value;
     setSelectedService(sId);
     setSaleType("initial");
-    
+
     const s = services.find(x => x.id === sId);
     if (s) {
-      setSaleAmount(s.price);
+      setSaleAmount(calcDiscounted(s.price, s.discount_pct));
     } else {
       setSaleAmount("");
     }
@@ -576,13 +579,15 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
             >
               <option value="">Seleccionar...</option>
               {services.map(s => (
-                <option key={s.id} value={s.id}>{s.name} — ${s.price}</option>
+                <option key={s.id} value={s.id}>
+                  {s.name} — ${s.discount_pct > 0 ? calcDiscounted(s.price, s.discount_pct) : s.price}{s.discount_pct > 0 ? ` (-${s.discount_pct}%)` : ""}
+                </option>
               ))}
             </select>
           </div>
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Monto (USD)</label>
-            <Input 
+            <Input
               type="number"
               value={saleAmount}
               onChange={(e) => setSaleAmount(e.target.value as any)}
@@ -591,9 +596,9 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
               className="h-10"
             />
           </div>
-          <Button 
-            onClick={handleRegisterSale} 
-            className="h-10 w-full" 
+          <Button
+            onClick={handleRegisterSale}
+            className="h-10 w-full"
             disabled={!selectedContact || !selectedService || saleAmount === "" || createSale.isPending}
           >
             {createSale.isPending ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Plus size={16} className="mr-1.5" />}
@@ -602,42 +607,55 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
 
           {(() => {
             const s = services.find(x => x.id === selectedService);
-            if (s && s.is_recurring) {
-              return (
-                <div className="md:col-span-4 p-3 bg-secondary/30 rounded-xl border border-secondary">
-                  <p className="text-xs font-medium text-muted-foreground mb-2">Tipo de cobro para este servicio</p>
-                  <div className="flex gap-4">
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input 
-                        type="radio" 
-                        name="saleType" 
-                        checked={saleType === "initial"} 
-                        onChange={() => {
-                           setSaleType("initial");
-                           setSaleAmount(s.price);
-                        }} 
-                        className="text-primary focus:ring-primary h-4 w-4 accent-primary" 
-                      />
-                      Pago Inicial (${s.price})
-                    </label>
-                    <label className="flex items-center gap-2 text-sm cursor-pointer">
-                      <input
-                        type="radio"
-                        name="saleType"
-                        checked={saleType === "recurring"}
-                        onChange={() => {
-                           setSaleType("recurring");
-                           setSaleAmount(s.recurring_price ?? s.price);
-                        }}
-                        className="text-primary focus:ring-primary h-4 w-4 accent-primary"
-                      />
-                      Pago Recurrente{s.recurring_price ? ` ($${s.recurring_price} / ${s.recurring_label ? s.recurring_label.replace(/^[/\s]+/, "") : (s.recurring_interval ?? "mes")})` : ""}
-                    </label>
+            if (!s) return null;
+            const hasDiscount    = s.discount_pct > 0;
+            const hasRecDiscount = (s.recurring_discount_pct ?? 0) > 0;
+            const recBase  = s.recurring_price ?? s.price;
+            const recLabel = s.recurring_label ? s.recurring_label.replace(/^[/\s]+/, "") : (s.recurring_interval ?? "mes");
+
+            return (
+              <>
+                {(hasDiscount || hasRecDiscount) && (
+                  <div className="md:col-span-4 flex items-center gap-3 px-1">
+                    {hasDiscount    && <span className="text-xs font-semibold text-emerald-600">✓ {s.discount_pct}% descuento en setup</span>}
+                    {hasRecDiscount && <span className="text-xs font-semibold text-emerald-600">✓ {s.recurring_discount_pct}% descuento en recurrente</span>}
                   </div>
-                </div>
-              );
-            }
-            return null;
+                )}
+                {s.is_recurring && (
+                  <div className="md:col-span-4 p-3 bg-secondary/30 rounded-xl border border-secondary">
+                    <p className="text-xs font-medium text-muted-foreground mb-2">Tipo de cobro para este servicio</p>
+                    <div className="flex flex-wrap gap-4">
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="radio"
+                          name="saleType"
+                          checked={saleType === "initial"}
+                          onChange={() => { setSaleType("initial"); setSaleAmount(calcDiscounted(s.price, s.discount_pct)); }}
+                          className="h-4 w-4 accent-primary"
+                        />
+                        <span>Pago Inicial</span>
+                        {hasDiscount
+                          ? <span className="text-muted-foreground">(<span className="line-through">${s.price}</span> <span className="text-emerald-600 font-medium">${calcDiscounted(s.price, s.discount_pct)}</span>)</span>
+                          : <span className="text-muted-foreground">(${s.price})</span>}
+                      </label>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                        <input
+                          type="radio"
+                          name="saleType"
+                          checked={saleType === "recurring"}
+                          onChange={() => { setSaleType("recurring"); setSaleAmount(calcDiscounted(recBase, s.recurring_discount_pct ?? 0)); }}
+                          className="h-4 w-4 accent-primary"
+                        />
+                        <span>Pago Recurrente</span>
+                        {s.recurring_price && (hasRecDiscount
+                          ? <span className="text-muted-foreground">(<span className="line-through">${s.recurring_price}</span> <span className="text-emerald-600 font-medium">${calcDiscounted(s.recurring_price, s.recurring_discount_pct ?? 0)}</span> / {recLabel})</span>
+                          : <span className="text-muted-foreground">(${s.recurring_price} / {recLabel})</span>)}
+                      </label>
+                    </div>
+                  </div>
+                )}
+              </>
+            );
           })()}
         </div>
         <div className="mt-4 space-y-1.5">

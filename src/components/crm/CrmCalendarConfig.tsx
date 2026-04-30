@@ -138,8 +138,8 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
 
   const resolveFormId = async (): Promise<string | null> => {
     if (linkedFormId) return linkedFormId;
-    // Reuse existing basic form or create one
-    const existing = forms.find((f) => f.name === BASIC_FORM_NAME);
+    // Reusar el formulario básico existente (por flag, no por nombre)
+    const existing = forms.find((f) => f.is_basic_form);
     if (existing) {
       setLinkedFormId(existing.id);
       toast.info("Se vinculó el formulario básico existente al calendario");
@@ -157,6 +157,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
       success_image: "icon",
       redirect_url: null,
       slug: null,
+      is_basic_form: true,
     });
     setLinkedFormId(basicForm.id);
     toast.info("Se creó un formulario básico vinculado al calendario");

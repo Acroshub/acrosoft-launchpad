@@ -921,39 +921,78 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### QW-9 · Toggle de idioma en Landing — arreglar funcionalidad
+### QW-9 · Toggle de idioma en Landing — arreglar funcionalidad ✅ COMPLETADO
 **Problema:** La landing page tiene un botón de cambio de idioma (ES/EN) que no funciona actualmente.
-**Fix:** Revisar la implementación actual del toggle. Si falta el mecanismo de traducción, implementar con `i18next` o un context simple de strings estáticos EN/ES. Asegurar que el estado del idioma persista durante la sesión (localStorage).
-**Archivos:** `src/pages/Index.tsx`, posiblemente `src/i18n/` o context nuevo.
-**Complejidad:** Baja-Media — depende del estado actual del toggle.
+**Fix:** Implementado React Context (`LanguageProvider`) con persistencia en localStorage. Traducciones completas ES/EN en `src/i18n/landing.ts`. Todo texto estático en `Index.tsx` y `Navbar.tsx` reemplazado con `T.*` del contexto.
+**Archivos:**
+  1. `src/hooks/useLanguage.tsx` — LanguageProvider + useLang hook (nuevo)
+  2. `src/i18n/landing.ts` — traducciones completas ES/EN (nuevo)
+  3. `src/App.tsx` — envuelto con LanguageProvider
+  4. `src/components/Navbar.tsx` — toggle funcional con idioma activo resaltado
+  5. `src/pages/Index.tsx` — todo texto estático traducido vía `T.*`
 
 ---
 
-### QW-10 · Descuento aplicado en registro manual de ventas
+### QW-10 · Descuento aplicado en registro manual de ventas ✅ COMPLETADO
 **Problema:** Al registrar una venta manualmente desde el CRM (formulario en `CrmOverview` y `CrmVentas`), el precio se toma directamente de `crm_services.price` sin considerar `discount_pct`. Solo L-5 (ventas automáticas desde formulario) aplica el descuento correctamente.
-**Fix:** En el formulario de registro manual de venta, al seleccionar un servicio con `discount_pct > 0`:
-1. Mostrar el precio calculado con descuento como valor por defecto en el campo de monto.
-2. Mostrar indicador visual "precio con X% de descuento aplicado" junto al campo.
-3. El usuario puede editar el monto final (por si quiere sobreescribir manualmente).
-**Archivos:** `src/components/crm/CrmOverview.tsx`, `src/pages/CrmVentas.tsx` (cuando se implemente F-6b).
-**Complejidad:** Baja — lógica de precio ya existe en L-5, solo hay que replicarla en el formulario manual.
+**Fix implementado:**
+1. Helper `calcDiscounted(price, discountPct)` en `CrmOverview.tsx`
+2. `handleServiceChange` aplica descuento al setear monto inicial
+3. Radio "Pago Inicial" y "Pago Recurrente": monto pre-cargado con descuento, precios tachado+verde visibles
+4. Indicador `✓ X% de descuento aplicado` debajo del campo de monto
+5. Dropdown de servicios muestra precio descontado + `(-X%)`
+**Archivos:** `src/components/crm/CrmOverview.tsx`
 
 ---
 
-### QW-11 · Descuento en precio recurrente del servicio
-**Problema:** `discount_pct` actualmente solo aplica al precio de setup (`price`). El precio recurrente (`recurring_price`) siempre se muestra y registra sin descuento, aunque el servicio tenga un descuento vigente.
-**Alcance:**
-1. **Landing (`Index.tsx`):** el badge de recurrencia muestra `$recurring_price` sin descuento → mostrar precio tachado + precio descontado, igual que el precio de setup.
-2. **Editor de servicios (`CrmServices.tsx`):** en el preview del servicio, mostrar también el precio recurrente con descuento aplicado.
-3. **Venta automática desde formulario (`crm-form-public`):** `handleServicesField` ya aplica `discount_pct` al precio de setup → aplicar el mismo factor al `recurring_price` si existe y guardarlo en `crm_sales.recurring_amount` (o campo equivalente).
-4. **Venta manual (QW-10):** al calcular el precio con descuento, también mostrar el recurrente descontado.
-**Nota:** Decidir si `discount_pct` aplica igual a setup y recurrente, o si se necesita un `recurring_discount_pct` separado. Por simplicidad, reutilizar el mismo campo.
-**Archivos:** `src/pages/Index.tsx`, `src/components/crm/CrmServices.tsx`, `supabase/functions/crm-form-public/index.ts`.
-**Complejidad:** Baja — mismo cálculo que el precio de setup, aplicado en 3 lugares.
+### QW-11a · Descuentos independientes por precio (DB + editor de servicios) ✅ COMPLETADO
+**Decisión de diseño:** Setup y recurrente tienen descuentos separados e independientes. El admin puede aplicar 20% al setup y 0% al recurrente, o cualquier combinación.
+**Migración DB:** Agregar `recurring_discount_pct INTEGER NOT NULL DEFAULT 0` en `crm_services`.
+**Fix en editor (`CrmServices.tsx`):** Dentro de la sección de precio recurrente, agregar campo "Descuento recurrente (%)" junto al campo de descuento de setup. Ambos campos con el mismo estilo y comportamiento.
+**Archivos:** migración SQL en Supabase, `src/components/crm/CrmServices.tsx`, `src/lib/supabase.ts` (tipo).
+**Complejidad:** Baja — campo nuevo en DB + input adicional en el editor.
 
 ---
 
-### L-29 · Formulario básico por usuario — crear solo una vez
+### QW-11b · Aplicar descuentos independientes en todos los displays ✅ COMPLETADO
+**Depende de:** QW-11a completado.
+**Problema:** Todos los lugares que muestran precios deben usar `discount_pct` para setup y `recurring_discount_pct` para recurrente — no el mismo campo para ambos.
+**Corrección en QW-10:** `CrmOverview.tsx` actualmente aplica `discount_pct` al precio recurrente — corregir para usar `recurring_discount_pct`.
+**Alcance completo:**
+1. **`CrmOverview.tsx` (QW-10 fix):** radio "Pago Recurrente" usa `recurring_discount_pct`
+2. **`Index.tsx`:** badge de recurrencia usa `recurring_discount_pct`
+3. **`FormRenderer.tsx`:** precio recurrente en selector de servicio usa `recurring_discount_pct`
+4. **`CrmServices.tsx`:** preview del servicio muestra ambos descuentos correctamente
+5. **`crm-form-public` edge function:** venta automática aplica cada descuento al precio correspondiente
+**Archivos:** `src/components/crm/CrmOverview.tsx`, `src/pages/Index.tsx`, `src/components/crm/FormRenderer.tsx`, `src/components/crm/CrmServices.tsx`, `supabase/functions/crm-form-public/index.ts`.
+**Complejidad:** Baja — sustitución de campo en cada display, lógica ya existe.
+
+---
+
+### QW-12 · Widgets bilingües (calendario y formulario) para sites de clientes ✅ COMPLETADO
+**Problema:** Los componentes `/book/:calendarId` y `/f/:formId` están en español fijo. Cuando se embeben en el site de un cliente (via iframe), no hay forma de controlar el idioma desde el exterior.
+**Contexto:** Cada cliente tiene su propio site/Vercel. El CRM provee widgets embebibles (iframe). El cliente pasa el idioma como parámetro.
+**Solución:** Parámetro `?lang=es|en` en la URL del widget. Cascada de resolución:
+  1. `?lang=` en el URL → usa ese valor
+  2. `navigator.language` del visitante → detecta automáticamente
+  3. Fallback → `es`
+**Implementación:**
+  1. `src/i18n/widgets.ts` — traducciones ES/EN para FormRenderer y BookingPage (campos, botones, mensajes de error, estados de carga)
+  2. `src/hooks/useLangWidget.ts` — hook que lee `?lang` del URL → `navigator.language` → `"es"`
+  3. `src/pages/FormPage.tsx` — conectar con `useLangWidget()`
+  4. `src/pages/BookingPage.tsx` — conectar con `useLangWidget()`
+  5. Mini-toggle ES/EN dentro del widget (opcional, para que el visitante cambie si quiere)
+**Snippet de embed para clientes:**
+```html
+<iframe src="https://acrosoftlabs.com/book/CALENDAR_ID?lang=es" width="100%" height="700px" frameborder="0"></iframe>
+```
+**Nota:** No afecta la landing de Acrosoft Labs (usa su propio LanguageProvider con toggle en Navbar).
+**Archivos:** `src/i18n/widgets.ts` (nuevo), `src/hooks/useLangWidget.ts` (nuevo), `src/pages/FormPage.tsx`, `src/pages/BookingPage.tsx`, `src/components/crm/FormRenderer.tsx`.
+**Complejidad:** Media — traducciones + hook + conectar 2 páginas públicas.
+
+---
+
+### L-29 · Formulario básico por usuario — crear solo una vez ✅ COMPLETADO
 **Problema:** Cuando el admin crea un calendario sin vincularlo a un formulario existente, el sistema auto-crea un "formulario básico" cada vez. Si el usuario tiene 3 calendarios sin formulario, se crean 3 formularios básicos duplicados — confuso y difícil de gestionar.
 **Comportamiento deseado:** El formulario básico auto-generado es único por usuario. Si ya existe uno (`crm_forms` con `is_basic_form: true`), los calendarios siguientes lo reutilizan en vez de crear uno nuevo.
 **Fix:**
@@ -968,10 +1007,10 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 > Afectan seguridad y aislamiento de datos. Necesarios antes de tener clientes reales.
 > Nota: A-1 (RLS Staff) fue movido al Bloque 4, antes de F-3, por ser prerequisito directo de esa feature.
 
-### A-2 · Impersonación del Admin (magic link)
+### A-2 · Impersonación del Admin (magic link) ✅
 **Problema:** El Admin necesita entrar al CRM de un cliente SaaS sin credenciales.
 
-**Estado:** Edge Function `generate-magic-link` existe — verificar si está completa y funcional.
+**Estado:** ✅ Completado. Botón gateado por `isSuperAdmin`, `redirect_to` pasado desde el frontend, edge function desplegada (v7).
 
 **Flujo:**
 1. Admin clic en botón de impersonación junto al contacto SaaS en `CrmContacts`
@@ -1034,6 +1073,45 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ## BLOQUE 6 — Features avanzadas
 > Requieren infraestructura externa o lógica compleja.
+
+### I-1 · Soporte bilingüe de contenido (ES/EN) en CRM y widgets
+**Contexto:** Los widgets de calendario y formulario se embeben en los sites de clientes vía iframe. Los clientes son negocios bilingües (latino en USA). El contenido escrito por el admin (nombres, descripciones, beneficios, etiquetas) debe estar disponible en ES y EN.
+**Solución:** Campos dobles en la DB. El admin llena ambas versiones desde una sección colapsable **"🌐 Configuración de idiomas"** en cada editor del CRM. El widget usa `?lang=es|en` en el URL para elegir qué versión mostrar. Fallback al español si el campo EN está vacío.
+
+**Campos afectados por tabla:**
+- `crm_services`: `name_en`, `description_en`, `benefits_en JSONB`, `recurring_label_en`
+- `crm_forms`: `button_label_en`, y por cada campo: `label_en`, `placeholder_en`
+- `crm_calendars`: `description_en`, `cta_label_en`
+
+**UI en el CRM:**
+- Sección colapsable **"🌐 Configuración de idiomas ▼"** en `CrmServices`, `CrmForms`, `CrmCalendarConfig`
+- Muestra campos `_en` de los mismos campos que ya existen
+- Colapsada por defecto — no interrumpe el flujo principal
+- Badge visual si la versión EN está incompleta (para recordar al admin)
+
+**En los widgets públicos (`/book/:id`, `/f/:id`):**
+- Hook `useLangWidget` lee `?lang` → `navigator.language` → `"es"`
+- Textos de UI (botones, mensajes) → `src/i18n/widgets.ts`
+- Contenido de DB → campo `_en` si `lang === "en"` y no está vacío, sino campo base
+
+**Implementación:**
+  1. Migraciones SQL: añadir columnas `_en` en `crm_services`, `crm_forms`, `crm_calendars`
+  2. `src/i18n/widgets.ts` — traducciones de UI para FormRenderer y BookingPage
+  3. `src/hooks/useLangWidget.ts` — hook de resolución de idioma para widgets
+  4. `src/components/crm/CrmServices.tsx` — sección "Configuración de idiomas" colapsable
+  5. `src/components/crm/CrmForms.tsx` — ídem
+  6. `src/components/crm/CrmCalendarConfig.tsx` — ídem
+  7. `src/pages/FormPage.tsx` + `src/pages/BookingPage.tsx` — conectar `useLangWidget`
+  8. `src/components/crm/FormRenderer.tsx` — renderizar campo `_en` según lang
+
+**Snippet de embed para clientes:**
+```html
+<iframe src="https://acrosoftlabs.com/book/CALENDAR_ID?lang=en" width="100%" height="700px" frameborder="0"></iframe>
+```
+**Archivos:** Migración SQL, 3 componentes CRM, 2 páginas públicas, 1 componente renderer, 2 archivos nuevos (hook + i18n).
+**Complejidad:** Media-Alta — toca DB, CRM editor UI y widgets públicos. Hacer en orden: DB → CRM UI → widgets.
+
+---
 
 ### AV-1 · Google Calendar OAuth + Sync
 **Estado:** UI lista. Edge Function `google-calendar-oauth` deployada. Token guardado. Falta el sync real.

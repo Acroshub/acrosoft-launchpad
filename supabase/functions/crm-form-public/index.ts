@@ -202,7 +202,7 @@ async function handleServicesField(
   try {
     const { data: service, error } = await supabase
       .from("crm_services")
-      .select("id, name, price, currency, is_saas, is_recurring, discount_pct")
+      .select("id, name, price, recurring_price, currency, is_saas, is_recurring, discount_pct, recurring_discount_pct")
       .eq("id", serviceId)
       .eq("user_id", userId)
       .single();
@@ -224,11 +224,12 @@ async function handleServicesField(
 
     if (existingSale) return;
 
-    // ── Register the sale (apply discount if configured) ──────────────────
+    // ── Register the sale (apply setup discount) ─────────────────────────────
     const discountPct = (service as any).discount_pct ?? 0;
     const finalAmount = discountPct > 0
       ? service.price * (1 - discountPct / 100)
       : service.price;
+    // recurring_discount_pct se aplica al registrar ventas recurrentes (type: "recurring")
 
     await supabase.from("crm_sales").insert({
       user_id: userId,

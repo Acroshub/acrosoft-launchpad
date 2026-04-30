@@ -47,10 +47,13 @@ const ServiceEditor = ({
   const [isRecommended, setIsRecommended]   = useState(service.is_recommended ?? false);
   const [active, setActive]                 = useState(service.active ?? true);
   const [isSaas, setIsSaas]                 = useState(service.is_saas ?? false);
-  const [discountPct, setDiscountPct]       = useState(service.discount_pct ?? 0);
+  const [discountPct, setDiscountPct]                   = useState(service.discount_pct ?? 0);
+  const [recurringDiscountPct, setRecurringDiscountPct] = useState(service.recurring_discount_pct ?? 0);
   const [saving, setSaving] = useState(false);
 
-  const discountedPrice = discountPct > 0 ? price * (1 - discountPct / 100) : null;
+  const discountedPrice          = discountPct > 0 ? price * (1 - discountPct / 100) : null;
+  const discountedRecurringPrice = recurringPrice > 0 && recurringDiscountPct > 0
+    ? recurringPrice * (1 - recurringDiscountPct / 100) : null;
 
   const handleSave = async () => {
     setSaving(true);
@@ -69,6 +72,7 @@ const ServiceEditor = ({
         active,
         is_saas: isSaas,
         discount_pct: discountPct,
+        recurring_discount_pct: recurringDiscountPct,
       });
     } finally {
       setSaving(false);
@@ -218,6 +222,26 @@ const ServiceEditor = ({
                 className="h-9 text-sm"
                 placeholder="Mantenimiento, Soporte..."
               />
+            </div>
+            <div className="space-y-1">
+              <span className="text-[10px] text-muted-foreground/70">Descuento recurrente (%)</span>
+              <div className="relative">
+                <Input
+                  type="number"
+                  value={recurringDiscountPct}
+                  onChange={(e) => setRecurringDiscountPct(Math.max(0, Math.min(100, Number(e.target.value))))}
+                  className="h-9 text-sm pr-8"
+                  min={0}
+                  max={100}
+                  placeholder="0"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">%</span>
+              </div>
+              {discountedRecurringPrice !== null && (
+                <p className="text-xs text-primary font-medium">
+                  Precio con descuento: ${discountedRecurringPrice.toFixed(2)}
+                </p>
+              )}
             </div>
           </div>
 
@@ -369,7 +393,16 @@ const SortableServiceItem = ({
             )}
             {svc.recurring_price != null && svc.recurring_price > 0 && (
               <span className="text-muted-foreground text-xs font-normal">
-                {" "}+ ${svc.recurring_price.toFixed(2)}{svc.recurring_interval ? ` ${svc.recurring_interval}` : ""}
+                {" "}+{" "}
+                {(svc.recurring_discount_pct ?? 0) > 0 ? (
+                  <>
+                    <span className="line-through opacity-60">${svc.recurring_price.toFixed(2)}</span>
+                    {" "}<span className="text-primary">${(svc.recurring_price * (1 - (svc.recurring_discount_pct ?? 0) / 100)).toFixed(2)}</span>
+                  </>
+                ) : (
+                  `$${svc.recurring_price.toFixed(2)}`
+                )}
+                {svc.recurring_interval ? ` ${svc.recurring_interval}` : ""}
               </span>
             )}
           </p>
@@ -468,6 +501,7 @@ const CrmServices = ({
         active: true,
         is_saas: false,
         discount_pct: 0,
+        recurring_discount_pct: 0,
       });
       setSelectedId(created.id);
       setView("editor");

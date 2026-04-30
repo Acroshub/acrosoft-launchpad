@@ -1,4 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +9,9 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CalendarRenderer from "@/components/crm/CalendarRenderer";
 import { useLandingProfile, useLandingServices } from "@/hooks/useCrmData";
+import { useLang } from "@/hooks/useLanguage";
+import { translations } from "@/i18n/landing";
+import { useCurrentUser } from "@/hooks/useAuth";
 
 const useLandingCalendar = (profile: { user_id: string; landing_calendar_id: string | null } | null | undefined) =>
   useQuery({
@@ -27,25 +32,26 @@ const useLandingCalendar = (profile: { user_id: string; landing_calendar_id: str
     enabled: !!profile,
   });
 
-
-const steps = [
-  { icon: CalendarDays, title: "Agendas una llamada", desc: "Reserva 30 minutos con nuestro equipo para contarnos sobre tu negocio." },
-  { icon: Hammer, title: "Nosotros construimos", desc: "Tu sitio web profesional y bilingüe." },
-  { icon: Rocket, title: "Tú creces online", desc: "Listo para recibir clientes desde el día 1." },
-];
-
-const benefits = [
-  { icon: Globe, title: "Bilingüe por defecto", desc: "Español e inglés desde el inicio." },
-  { icon: Sparkles, title: "Contenido profesional", desc: "Textos escritos por expertos para tu negocio." },
-  { icon: Zap, title: "Entrega en días, no meses", desc: "Rapidez sin sacrificar calidad." },
-  { icon: DollarSign, title: "Precios para latinos", desc: "Precios para negocios latinos, no corporativos." },
-];
-
+const STEP_ICONS = [CalendarDays, Hammer, Rocket];
+const BENEFIT_ICONS = [Globe, Sparkles, Zap, DollarSign];
 
 const Index = () => {
+  const { user, loading } = useCurrentUser();
+  const navigate = useNavigate();
+
+  // Redirect authenticated users (e.g. after magic link) straight to their CRM
+  useEffect(() => {
+    if (!loading && user) navigate("/crm", { replace: true });
+  }, [user, loading, navigate]);
+
   const { data: adminProfile } = useLandingProfile();
   const { data: landingCalendarId } = useLandingCalendar(adminProfile);
   const { data: services = [] } = useLandingServices(adminProfile?.user_id);
+  const { lang } = useLang();
+  const T = translations[lang];
+
+  const steps = T.steps.items.map((item, i) => ({ icon: STEP_ICONS[i], ...item }));
+  const benefits = T.benefits.map((item, i) => ({ icon: BENEFIT_ICONS[i], ...item }));
   return (
   <div className="min-h-screen bg-background selection:bg-primary/10">
     <Navbar />
@@ -62,25 +68,25 @@ const Index = () => {
         <div className="grid lg:grid-cols-2 gap-16 items-center">
           <div className="space-y-8 animate-in fade-in slide-in-from-left-8 duration-1000">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-xs font-bold tracking-wider uppercase">
-              <Star size={14} className="fill-primary" /> Agencia #1 para negocios latinos en USA
+              <Star size={14} className="fill-primary" /> {T.hero.badge}
             </div>
 
             <h1 className="text-5xl md:text-6xl lg:text-7xl font-black tracking-tight text-foreground leading-[1.1]">
-              Tu negocio en internet, <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-blue-600">sin complicaciones.</span>
+              {T.hero.h1a} <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-blue-600">{T.hero.h1b}</span>
             </h1>
 
             <p className="text-xl text-muted-foreground max-w-lg leading-relaxed">
-              Creamos sitios web profesionales para restaurantes, salones, clínicas y más. Bilingüe, rápido y sin pagar precios de agencia americana.
+              {T.hero.p}
             </p>
 
             <div className="flex flex-wrap gap-4">
               <Button asChild size="lg" className="h-14 px-8 rounded-2xl font-black text-lg shadow-xl shadow-primary/25 hover:scale-105 transition-all group">
                 <a href="#agendar">
-                  Agendar Llamada <ArrowRight size={20} className="ml-2 group-hover:translate-x-1 transition-transform" />
+                  {T.hero.cta1} <ArrowRight size={20} className="ml-2 group-hover:translate-x-1 transition-transform" />
                 </a>
               </Button>
               <Button asChild variant="outline" size="lg" className="h-14 px-8 rounded-2xl font-bold border-2 border-border hover:bg-secondary hover:border-primary/30 text-foreground transition-all">
-                <a href="#como-funciona">¿Cómo funciona?</a>
+                <a href="#como-funciona">{T.hero.cta2}</a>
               </Button>
             </div>
 
@@ -93,7 +99,7 @@ const Index = () => {
                 ))}
               </div>
               <p className="text-sm font-medium text-muted-foreground">
-                <span className="text-foreground font-bold">+50 negocios</span> ya están creciendo con nosotros.
+                <span className="text-foreground font-bold">{T.hero.socialBold}</span> {T.hero.social}
               </p>
             </div>
           </div>
@@ -104,12 +110,12 @@ const Index = () => {
             {/* Clean calendar widget — minimal, embeddable design */}
             <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden p-6">
               {landingCalendarId ? (
-                <CalendarRenderer calendarId={landingCalendarId} />
+                <CalendarRenderer calendarId={landingCalendarId} lang={lang} />
               ) : (
                 <div className="text-center py-8 space-y-2">
                   <CalendarDays size={28} className="mx-auto text-gray-200 mb-3" />
-                  <p className="text-sm font-medium text-gray-400">Crea un calendario en el CRM</p>
-                  <p className="text-xs text-gray-300">Aparecerá aquí automáticamente.</p>
+                  <p className="text-sm font-medium text-gray-400">{T.calendar.empty}</p>
+                  <p className="text-xs text-gray-300">{T.calendar.sub}</p>
                 </div>
               )}
             </div>
@@ -120,9 +126,9 @@ const Index = () => {
 
     {/* Trusted By */}
     <div className="container mx-auto px-4 pb-20">
-      <p className="text-center text-xs font-bold text-muted-foreground/50 uppercase tracking-[0.3em] mb-8">Especialistas en Industrias de Servicios</p>
+      <p className="text-center text-xs font-bold text-muted-foreground/50 uppercase tracking-[0.3em] mb-8">{T.trusted.label}</p>
       <div className="flex flex-wrap justify-center items-center gap-8 md:gap-16 opacity-40 grayscale">
-        {["RESTAURANTES", "SALONES DE BELLEZA", "CONSTRUCCIÓN", "CLÍNICAS DENTALES", "SERVICIOS LEGALES"].map((text) => (
+        {T.trusted.industries.map((text) => (
           <span key={text} className="text-sm font-black tracking-tighter">{text}</span>
         ))}
       </div>
@@ -132,9 +138,9 @@ const Index = () => {
     <section id="planes" className="relative bg-secondary/30 py-24 md:py-32 overflow-hidden">
       <div className="container mx-auto px-4 relative z-10">
         <div className="text-center max-w-3xl mx-auto mb-20 space-y-4">
-          <Badge className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/15 transition-colors">Precios Claros</Badge>
-          <h2 className="text-4xl md:text-5xl font-black tracking-tight">Inversión Inteligente para tu Negocio</h2>
-          <p className="text-lg text-muted-foreground">Selecciona el plan que se adapte a tu etapa actual. Escala cuando estés listo.</p>
+          <Badge className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/15 transition-colors">{T.plans.badge}</Badge>
+          <h2 className="text-4xl md:text-5xl font-black tracking-tight">{T.plans.h2}</h2>
+          <p className="text-lg text-muted-foreground">{T.plans.p}</p>
         </div>
 
         <div className={`grid gap-8 max-w-6xl mx-auto ${services.length === 2 ? "md:grid-cols-2" : services.length >= 3 ? "md:grid-cols-3" : "md:grid-cols-1 max-w-sm"}`}>
@@ -154,7 +160,7 @@ const Index = () => {
 
                 {popular && (
                   <Badge className="absolute -top-3 left-1/2 -translate-x-1/2 px-4 py-1 bg-amber-500 text-white text-xs font-bold shadow-lg shadow-amber-500/30">
-                    MÁS RECOMENDADO
+                    {T.plans.recommended}
                   </Badge>
                 )}
 
@@ -171,16 +177,23 @@ const Index = () => {
                     )}
                     <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
                       {svc.is_recurring && svc.recurring_price == null
-                        ? `/ ${svc.recurring_interval ?? "mes"}`
+                        ? `/ ${svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}`
                         : svc.is_recurring
-                        ? "Setup inicial"
-                        : "Pago único"}
+                        ? T.plans.setupLabel
+                        : T.plans.oneTime}
                     </span>
                   </div>
                   {svc.is_recurring && svc.recurring_price != null && (
                     <div className="flex items-center gap-2 font-bold">
                       <Badge variant="secondary" className={popular ? "bg-amber-500/10 text-amber-600" : "bg-primary/10 text-primary"}>
-                        ${svc.recurring_price.toLocaleString(undefined, { maximumFractionDigits: 0 })} / {svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}
+                        {(svc.recurring_discount_pct ?? 0) > 0 ? (
+                          <>
+                            <span className="line-through opacity-60 mr-1">${svc.recurring_price.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                            ${Math.round(svc.recurring_price * (1 - (svc.recurring_discount_pct ?? 0) / 100)).toLocaleString()}
+                          </>
+                        ) : (
+                          `$${svc.recurring_price.toLocaleString(undefined, { maximumFractionDigits: 0 })}`
+                        )} / {svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}
                       </Badge>
                     </div>
                   )}
@@ -203,7 +216,7 @@ const Index = () => {
                 <div className="space-y-6 pt-6 border-t border-border/50">
                   {svc.delivery_time && (
                     <div className="flex items-center justify-between text-xs font-bold">
-                      <span className="text-muted-foreground uppercase tracking-tight">Tiempo de entrega:</span>
+                      <span className="text-muted-foreground uppercase tracking-tight">{T.plans.deliveryLabel}</span>
                       <span className="text-foreground">{svc.delivery_time}</span>
                     </div>
                   )}
@@ -214,7 +227,7 @@ const Index = () => {
                     }`}
                     variant={popular ? "default" : "outline"}
                   >
-                    <a href="#agendar">Agendar Llamada</a>
+                    <a href="#agendar">{T.plans.cta}</a>
                   </Button>
                 </div>
               </div>
@@ -228,9 +241,9 @@ const Index = () => {
     <section id="como-funciona" className="py-24 md:py-32">
       <div className="container mx-auto px-4">
         <div className="text-center max-w-2xl mx-auto mb-20 space-y-4">
-          <Badge variant="outline" className="border-primary/30 text-primary">Flujo de Trabajo</Badge>
-          <h2 className="text-4xl font-black">De cero a online en 3 pasos</h2>
-          <p className="text-muted-foreground font-medium">Hemos optimizado el proceso para que no pierdas tiempo.</p>
+          <Badge variant="outline" className="border-primary/30 text-primary">{T.steps.badge}</Badge>
+          <h2 className="text-4xl font-black">{T.steps.h2}</h2>
+          <p className="text-muted-foreground font-medium">{T.steps.p}</p>
         </div>
 
         <div className="grid md:grid-cols-3 gap-12 max-w-5xl mx-auto relative">
@@ -260,27 +273,27 @@ const Index = () => {
         <div className="grid lg:grid-cols-2 gap-16 items-center max-w-6xl mx-auto">
           <div className="space-y-8">
             <h2 className="text-4xl md:text-5xl font-black tracking-tight leading-tight">
-              ¿Por qué elegir <span className="text-primary">Acrosoft?</span>
+              {T.why.h2a} <span className="text-primary">Acrosoft?</span>
             </h2>
             <p className="text-lg text-muted-foreground leading-relaxed">
-              Sabemos lo que necesita un negocio latino en USA: presencia profesional, en ambos idiomas, sin pagar precios de agencia corporativa.
+              {T.why.p}
             </p>
             <div className="space-y-4">
               <div className="flex items-center gap-3 p-4 bg-background rounded-2xl border border-border/50 shadow-sm">
                 <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
                   <Check className="text-emerald-500" size={20} />
                 </div>
-                <p className="text-sm font-bold">Sin contratos de permanencia a largo plazo.</p>
+                <p className="text-sm font-bold">{T.why.check1}</p>
               </div>
               <div className="flex items-center gap-3 p-4 bg-background rounded-2xl border border-border/50 shadow-sm">
                 <div className="w-10 h-10 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0">
                   <Check className="text-emerald-500" size={20} />
                 </div>
-                <p className="text-sm font-bold">Propiedad total de tu dominio y contenido.</p>
+                <p className="text-sm font-bold">{T.why.check2}</p>
               </div>
             </div>
             <Button asChild size="lg" className="rounded-2xl font-black px-10 h-14">
-              <a href="#agendar">Quiero más información</a>
+              <a href="#agendar">{T.why.cta}</a>
             </Button>
           </div>
 
@@ -303,14 +316,14 @@ const Index = () => {
 
       <div className="container mx-auto px-4 text-center space-y-10 relative">
         <h2 className="text-4xl md:text-6xl font-black text-white leading-tight max-w-4xl mx-auto">
-          ¿Listo para subir de nivel tu negocio en Estados Unidos?
+          {T.cta.h2}
         </h2>
         <p className="text-xl text-white/80 max-w-2xl mx-auto font-medium">
-          Agenda una llamada gratuita de 30 minutos con nuestro equipo y te mostramos cómo hacerlo.
+          {T.cta.p}
         </p>
         <Button asChild size="lg" className="h-16 px-12 rounded-2xl bg-white text-primary hover:bg-white/90 font-extrabold text-xl shadow-2xl transition-all hover:scale-105">
           <a href="#agendar" className="flex items-center gap-3">
-            <CalendarDays size={22} /> Agendar Llamada Gratuita
+            <CalendarDays size={22} /> {T.cta.btn}
           </a>
         </Button>
       </div>
