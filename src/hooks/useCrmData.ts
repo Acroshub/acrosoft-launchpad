@@ -1787,6 +1787,10 @@ export const useCreateSupportMessage = () => {
     onSuccess: (msg) => {
       qc.invalidateQueries({ queryKey: ["support_messages", msg.ticket_id] });
       qc.invalidateQueries({ queryKey: ["support_tickets"] });
+      // Trigger C — notify admin of client reply (fire-and-forget)
+      supabase.functions.invoke("send-support-email", {
+        body: { trigger: "client_reply", ticketId: msg.ticket_id, messageContent: msg.content },
+      }).catch(() => null);
     },
   });
 };

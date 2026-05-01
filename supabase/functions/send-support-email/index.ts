@@ -110,6 +110,37 @@ function templateAdminReply(opts: {
 </body></html>`;
 }
 
+function templateClientReply(opts: {
+  clientEmail: string;
+  ticketSubject: string;
+  replyContent: string;
+}) {
+  const s = escapeHtml(opts.ticketSubject);
+  const r = escapeHtml(opts.replyContent);
+  const e = escapeHtml(opts.clientEmail);
+  return `<!DOCTYPE html><html lang="es"><body style="font-family:sans-serif;background:#f4f4f5;padding:32px 0;margin:0">
+<div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7">
+  <div style="background:#18181b;padding:24px 28px">
+    <p style="color:#fff;font-size:15px;font-weight:600;margin:0">Acrosoft Soporte</p>
+  </div>
+  <div style="padding:28px">
+    <p style="margin:0 0 4px;font-size:12px;color:#71717a;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Respuesta de cliente</p>
+    <h2 style="margin:0 0 20px;font-size:18px;color:#18181b">${s}</h2>
+    <p style="margin:0 0 6px;font-size:12px;color:#71717a">De:</p>
+    <p style="margin:0 0 20px;font-size:14px;color:#18181b">${e}</p>
+    <p style="margin:0 0 6px;font-size:12px;color:#71717a">Mensaje:</p>
+    <div style="background:#f4f4f5;border-radius:8px;padding:14px;font-size:14px;color:#18181b;line-height:1.6;white-space:pre-wrap">${r}</div>
+    <div style="margin-top:24px">
+      <a href="${APP_URL}/crm" style="display:inline-block;background:#18181b;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:500">Responder &rarr;</a>
+    </div>
+  </div>
+  <div style="padding:16px 28px;border-top:1px solid #e4e4e7">
+    <p style="margin:0;font-size:11px;color:#a1a1aa">Acrosoft Labs &middot; Sistema de soporte</p>
+  </div>
+</div>
+</body></html>`;
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 Deno.serve(async (req) => {
@@ -120,7 +151,7 @@ Deno.serve(async (req) => {
   if (!RESEND_API_KEY) return respond({ error: "RESEND_API_KEY not configured" }, 500);
 
   let body: {
-    trigger: "new_ticket" | "admin_reply";
+    trigger: "new_ticket" | "admin_reply" | "client_reply";
     ticketId: string;
     messageContent?: string;
   };
@@ -222,6 +253,45 @@ Deno.serve(async (req) => {
     );
 
     return respond({ ok: result.ok, trigger, to: clientEmail, resend: result });
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────────
+  if (trigger === "client_reply") {
+    if (!messageContent) return respond({ error: "Missing messageContent" }, 400);
+
+    const html = templateClientReply({
+      clientEmail: clientEmail ?? ticket.user_id,
+      ticketSubject: ticket.subject,
+      replyContent: messageContent,
+    });
+
+    const recipients = [ADMIN_EMAIL];
+
+    try {
+      const { data: extra } = await supabase
+        .from("support_notification_recipients")
+        .select("email")
+        .eq("active", true);
+      for (const r of extra ?? []) {
+        if (r.email && !recipients.includes(r.email)) recipients.push(r.email);
+      }
+    } catch {
+      // Table doesn't exist yet — ignore
+    }
+
+    const results = await Promise.all(
+      recipients.map((to) =>
+        sendEmail(
+          to,
+          `[Soporte] Respuesta de cliente: ${ticket.subject}`,
+          html,
+          RESEND_API_KEY,
+        ).then((r) => ({ to, ...r }))
+      ),
+    );
+
+    const allOk = results.every((r) => r.ok);
+    return respond({ ok: allOk, trigger, recipients, results });
   }
 
   return respond({ error: "Unknown trigger" }, 400);
