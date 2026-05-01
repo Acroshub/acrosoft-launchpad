@@ -164,6 +164,43 @@ Deno.serve(async (req) => {
       console.error("Business profile seed (non-fatal):", e);
     }
 
+    // ── 7. Seed crm_services from onboarding ob-4-1 field ───────────────────
+    try {
+      const cf = (contact.custom_fields as Record<string, any>) ?? {};
+      // Find the onboarding form entry — it's the first key that has ob-4-1
+      const onboardingEntry = Object.values(cf).find(
+        (v) => typeof v === "object" && v !== null && "ob-4-1" in v
+      ) as Record<string, any> | undefined;
+
+      const rawServices = onboardingEntry?.["ob-4-1"];
+      const serviceNames: string[] = Array.isArray(rawServices)
+        ? rawServices.filter((s: unknown) => typeof s === "string" && s.trim())
+        : typeof rawServices === "string" && rawServices.trim()
+          ? [rawServices.trim()]
+          : [];
+
+      if (serviceNames.length > 0) {
+        // Only insert if client has no services yet
+        const { count } = await supabase
+          .from("crm_services")
+          .select("id", { count: "exact", head: true })
+          .eq("user_id", clientUserId);
+
+        if ((count ?? 0) === 0) {
+          await supabase.from("crm_services").insert(
+            serviceNames.map((name, i) => ({
+              user_id: clientUserId,
+              name: name.trim(),
+              active: true,
+              sort_order: i,
+            }))
+          );
+        }
+      }
+    } catch (e) {
+      console.error("Services seed (non-fatal):", e);
+    }
+
     return respond({
       success: true,
       account_id: account.id,

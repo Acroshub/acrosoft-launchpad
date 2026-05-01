@@ -1034,51 +1034,45 @@ Keys en español (`Lun`, `Mar`...) y estructura `{open, slots[]}`. Si se inserta
 
 ---
 
-### A-4 · RLS públicas exponen campos sensibles de citas (auditoría L-2)
-**Origen:** L-2 auditado. Las políticas `"Public can read appointments"` y `"Public can read blocked slots"` tienen `qual: true` — devuelven TODAS las filas del sistema a queries anónimas.
-**Bug:**
-- `crm_appointments`: expone `notes` y `contact_id` de todas las citas de todos los usuarios ante un `curl` directo a la API de Supabase (el frontend solo selecciona campos seguros, pero la DB no lo impone).
-- `crm_blocked_slots`: expone el campo `reason` de todos los bloqueos (e.g., "De vacaciones", información privada del negocio).
-- `crm_calendar_config`: expone configuraciones de todos los calendarios del sistema (menor impacto — datos no personales).
-**Fix:** Crear una DB Function o View `public_appointments_view` que solo exponga `date, hour, minute, duration_min, status, calendar_id` y asignar la política pública a esa view en vez de la tabla completa. Alternativa mínima: cambiar la política `"Public can read appointments"` para restringir el rol anon con `WITH CHECK` que bloquee `notes` y `contact_id` — pero RLS no soporta columnas. La solución correcta es una view + policy, o aceptar el riesgo y documentarlo hasta que haya clientes reales.
-**Prioridad:** Media. Exposición real pero limitada (anon key es semi-pública, solo expone datos de availability + metadatos). Se vuelve crítico con clientes SaaS reales con citas privadas.
-**Archivos:** migración SQL (view o policy update en `crm_appointments`, `crm_blocked_slots`)
+### A-4 · RLS públicas exponen campos sensibles de citas ✅ COMPLETADO
+**Origen:** L-2 auditado. Las políticas `"Public can read appointments"` y `"Public can read blocked slots"` tenían `qual: auth.role() = 'anon'` — devolvían TODAS las filas del sistema a queries anónimas sin filtro de columnas.
+
+**Implementado:**
+- **Row-level (nuevas políticas):** Anon solo puede leer filas cuyo `calendar_id` existe en `crm_calendar_config` — elimina enumeración de citas de calendarios desconocidos.
+- **Column-level (grants de PostgreSQL):** `REVOKE SELECT ON table FROM anon` + `GRANT SELECT (safe_cols) ON table TO anon`:
+  - `crm_appointments` anon SELECT: `id, calendar_id, service, date, hour, minute, duration_min, status, created_at` — sin `notes`, `contact_id`, `user_id`, `terms_accepted_at`.
+  - `crm_blocked_slots` anon SELECT: `id, calendar_id, type, date, start_hour, end_hour, range_start, range_end, start_minute, end_minute, created_at` — sin `reason`, `user_id`.
+- Acceso autenticado (admin/staff) mantiene acceso completo a todas las columnas vía RLS `user_id = auth.uid()`.
+
+**Archivos:** migración SQL `a4_restrict_public_sensitive_fields`
 
 ---
 
-### A-5 · Aislamiento completo de recursos de clientes SaaS
-**Problema:** Los calendarios, formularios, pipelines, contactos y demás recursos creados para/por clientes SaaS actualmente conviven en el mismo `user_id` del admin. El admin los ve mezclados con sus propios datos. Los clientes SaaS no tienen aislamiento real.
+### A-5 · Aislamiento completo de recursos de clientes SaaS ✅ COMPLETADO
 
-**Regla de negocio:** Una vez que un cliente SaaS tiene cuenta activa y `user_id` propio, todos sus recursos deben pertenecer a ese `user_id`. El admin **no debe ver ni gestionar** los recursos de clientes SaaS desde su panel.
+**Estado de aislamiento por recurso:**
+- `crm_calendar_config` ✅ F-1c: transferencia a `client_user_id` al activar, admin filtra `contact_id IS NULL`
+- `crm_business_profile` ✅ RLS `user_id = auth.uid()` — cada uno ve solo el suyo
+- `crm_services` ✅ RLS `user_id = auth.uid()` — verificado en DB (2 users distintos, sin crossover)
+- `crm_forms` ✅ RLS `user_id = auth.uid()` — aislado
+- `crm_contacts` ✅ RLS `user_id = auth.uid()` — aislado
+- `crm_appointments`, `crm_blocked_slots` ✅ RLS `user_id = auth.uid()` — aislado
+- `crm_sales`, `crm_pipelines`, `crm_tasks` ✅ RLS `user_id = auth.uid()` — aislado
 
-**Recursos a aislar:**
-- `crm_calendar_config` → ya resuelto por F-1c (filtro `contact_id IS NULL` en admin, transferencia al activar cuenta)
-- `crm_forms` → formularios creados por/para el cliente SaaS
-- `crm_pipelines` → pipelines del cliente SaaS
-- `crm_contacts` → contactos del cliente SaaS (sus propios clientes)
-- `crm_appointments`, `crm_blocked_slots` → citas del cliente SaaS
-- `crm_services`, `crm_sales` → servicios y ventas del cliente SaaS
-- `crm_business_profile` → perfil del negocio del cliente SaaS
+**Implementado en esta iteración:**
+1. **Gate de cuenta deshabilitada:** `useMyClientAccount` hook — clientes SaaS leen su propio `crm_client_accounts.status` (RLS `client_user_id = auth.uid()`). En `Crm.tsx`, si `account_type === "saas_client"` y `status === "disabled"`, se muestra pantalla de bloqueo en lugar del CRM completo.
+2. **Seeding de servicios desde onboarding:** `create-saas-client` (v11) — al activar cuenta, extrae servicios del campo `ob-4-1` en `custom_fields` del contacto y los inserta en `crm_services` con `user_id = client_user_id`. Solo si el cliente no tiene servicios ya.
 
-**Implementación:**
-1. **Transferencia al activar cuenta:** en `create-saas-client`, identificar y transferir todos los recursos del contacto al nuevo `user_id` del cliente (similar al calendario en F-1c). Requiere vincular recursos al `contact_id` o identificarlos por un campo existente.
-2. **Filtros en el panel admin:** en cada hook/query del admin, filtrar para excluir recursos con `user_id` que pertenezca a un cliente SaaS activo (`crm_client_accounts`).
-3. **RLS:** el cliente SaaS solo accede a recursos con su propio `user_id`. El admin no puede leer recursos con `user_id` de clientes SaaS (excepción: impersonación vía magic link, A-2).
-4. **Formularios creados en el onboarding:** el formulario de onboarding puede haber creado formularios vinculados al admin. Identificar cuáles pertenecen al cliente y transferirlos.
+**Limitación residual (baja prioridad):** Formularios del admin usados en onboarding permanecen bajo `user_id` del admin. No son visibles al cliente SaaS — no hay leak. La transferencia de formularios queda pendiente si se decide que el cliente debe poder editar el formulario de onboarding desde su propio CRM.
 
-**Nota de complejidad:** Este es el cambio arquitectónico más grande del sistema. Requiere auditar todos los hooks y queries del panel admin para añadir filtros de exclusión, y definir exactamente cuáles recursos se crean al hacer onboarding vs. cuáles se crean después de activar la cuenta.
-
-**Prerequisito:** F-1c debe estar completo (define el patrón de transferencia).
-
-**Archivos:** `supabase/functions/create-saas-client/index.ts`, `src/hooks/useCrmData.ts` (todos los hooks de admin), migración SQL (RLS policies), múltiples componentes del CRM.
-**Complejidad:** Muy alta. Refactor de arquitectura multi-tenant.
+**Archivos:** `src/hooks/useCrmData.ts`, `src/pages/Crm.tsx`, `supabase/functions/create-saas-client/index.ts` (v11)
 
 ---
 
 ## BLOQUE 6 — Sistema de Soporte
 > Comunicación bidireccional entre Dueños de Negocio / Staff y el Admin de Acrosoft.
 
-### SP-1 · Schema de base de datos
+### SP-1 · Schema de base de datos ✅ COMPLETADO
 
 **Tablas nuevas:**
 
@@ -1125,7 +1119,7 @@ CREATE TABLE support_notification_recipients (
 
 ---
 
-### SP-2 · Vista del Cliente / Staff (enviador)
+### SP-2 · Vista del Cliente / Staff (enviador) ✅ COMPLETADO
 
 **Ubicación:** Sidebar CRM → sección "Soporte" debajo de "Configuración".
 
@@ -1378,7 +1372,7 @@ LARGO PLAZO:
 
 LARGO PLAZO:
   SP-1  Sistema de Soporte — DB + Storage
-  SP-2  Vista Cliente/Staff (envío de tickets y sugerencias)
+  SP-2  Vista Cliente/Staff (envío de tickets y sugerencias) ✅
   SP-3  Vista Admin (inbox, responder, estados)
   SP-4  Emails de notificación (Resend edge function)
   SP-5  Configuración de staff notificados

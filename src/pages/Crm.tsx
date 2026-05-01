@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
 import CrmOverview from "@/components/crm/CrmOverview";
@@ -12,11 +12,13 @@ import CrmBusiness from "@/components/crm/CrmBusiness";
 import CrmSettings from "@/components/crm/CrmSettings";
 import CrmReminders from "@/components/crm/CrmReminders";
 import CrmVentas from "@/components/crm/CrmVentas";
-import { useBusinessProfile } from "@/hooks/useCrmData";
+import CrmSupport from "@/components/crm/CrmSupport";
+import CrmSupportAdmin from "@/components/crm/CrmSupportAdmin";
+import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount } from "@/hooks/useCrmData";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings";
+type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte";
 
 const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
   { id: "overview",   label: "Resumen",        icon: LayoutDashboard, group: "Principal"      },
@@ -28,6 +30,7 @@ const navItems: { id: View; label: string; icon: React.ElementType; group: strin
   { id: "ventas",     label: "Ventas",         icon: DollarSign,      group: "CRM"            },
   { id: "reminders",  label: "Recordatorios",  icon: Bell,            group: "CRM"            },
   { id: "settings",   label: "Configuración",  icon: Settings,        group: "Configuración"  },
+  { id: "soporte",    label: "Soporte",        icon: MessageCircle,   group: "Configuración"  },
 ];
 
 const groups = [...new Set(navItems.map((n) => n.group))];
@@ -37,6 +40,7 @@ const Crm = () => {
   const { user } = useCurrentUser();
   const { isStaff, navItems: allowedNavItems, can } = useStaffPermissions();
   const { data: businessProfile } = useBusinessProfile();
+  const { data: myClientAccount, isLoading: accountLoading } = useMyClientAccount();
   const isBranded = businessProfile?.theme === "branded";
   const brandLogo = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
@@ -45,6 +49,45 @@ const Crm = () => {
 
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
   const effectiveIsAdmin = isSuperAdmin && !isStaff;
+
+  const isSaasClient = user?.user_metadata?.account_type === "saas_client";
+  const { data: supportUnread = 0 } = useSupportUnreadCount();
+  const { data: adminUnread = 0 } = useAdminUnreadCount();
+  const soporteBadge = effectiveIsAdmin ? adminUnread : supportUnread;
+
+  // While loading account status, show spinner to avoid CRM flash for disabled clients
+  if (isSaasClient && accountLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 size={24} className="animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  // Block disabled SaaS clients before rendering the full CRM
+  if (isSaasClient && myClientAccount?.status === "disabled") {
+    return (
+      <div className="min-h-screen bg-secondary/20 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm text-center space-y-4">
+          <div className="w-14 h-14 rounded-2xl bg-destructive/10 flex items-center justify-center mx-auto">
+            <ShieldOff size={28} className="text-destructive" />
+          </div>
+          <div className="space-y-1">
+            <h1 className="text-lg font-semibold">Cuenta deshabilitada</h1>
+            <p className="text-sm text-muted-foreground">
+              Tu acceso al CRM ha sido suspendido. Contacta a Acrosoft Labs para más información.
+            </p>
+          </div>
+          <button
+            onClick={() => signOut().then(() => navigate("/login"))}
+            className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors"
+          >
+            Cerrar sesión
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const handleSignOut = async () => {
     await signOut();
@@ -62,6 +105,7 @@ const Crm = () => {
       case "ventas":     return can("ventas", "read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} /> : null;
       case "reminders":  return can("recordatorios", "read") ? <CrmReminders /> : null;
       case "settings":   return !isStaff                   ? <CrmSettings isSuperAdmin={effectiveIsAdmin} />   : null;
+      case "soporte":    return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;
     }
   };
 
@@ -100,7 +144,10 @@ const Crm = () => {
                       }`}
                     >
                       <Icon size={15} />
-                      {item.label}
+                      <span className="flex-1 text-left">{item.label}</span>
+                      {item.id === "soporte" && soporteBadge > 0 && (
+                        <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0" />
+                      )}
                     </button>
                   );
                 })}

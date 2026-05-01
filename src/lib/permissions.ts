@@ -107,7 +107,7 @@ export function canAccessItem(
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
     // Principal sees everything
-    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings"]);
+    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings", "soporte"]);
   }
 
   const can = buildPermChecker(staffRecord);
@@ -122,6 +122,8 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (can("pipeline",     "read")) visible.add("pipeline");
   if (can("ventas",       "read")) visible.add("ventas");
   if (can("recordatorios","read")) visible.add("reminders");
+  // Soporte es visible para todo el staff (sin permiso específico requerido)
+  visible.add("soporte");
   // Staff cannot access settings (can't create more staff)
 
   return visible;

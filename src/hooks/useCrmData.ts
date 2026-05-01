@@ -1356,19 +1356,41 @@ export const usePublicBusinessProfile = (userId?: string | null) =>
 
 // ─── CLIENT ACCOUNTS ──────────────────────────────────────────────────────────
 
+// Used by SaaS clients to check their own account status (e.g. disabled gate)
+export const useMyClientAccount = () => {
+  const { user } = useCurrentUser();
+  const isSaasClient = user?.user_metadata?.account_type === "saas_client";
+  return useQuery({
+    queryKey: ["my_client_account", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_client_accounts")
+        .select("id, status, admin_user_id")
+        .eq("client_user_id", user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data as { id: string; status: string; admin_user_id: string } | null;
+    },
+    enabled: !!user && isSaasClient,
+  });
+};
+
 export const useClientAccounts = () => {
   const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
   return useQuery({
-    queryKey: ["crm_client_accounts", user?.id],
+    queryKey: ["crm_client_accounts", uid],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("crm_client_accounts")
         .select("*")
+        .eq("admin_user_id", uid!)
         .order("created_at", { ascending: false });
       if (error) throw error;
       return data as CrmClientAccount[];
     },
-    enabled: !!user,
+    enabled: !!uid,
   });
 };
 
@@ -1651,4 +1673,259 @@ export const useWhatsappConfig = () => {
 export const useWhatsappEnabled = () => {
   const { data } = useWhatsappConfig();
   return data?.status === "connected";
+};
+
+// ─── SOPORTE ──────────────────────────────────────────────────────────────────
+
+import type { SupportTicket, SupportMessage } from "@/lib/supabase";
+
+export const useMyTickets = (type: "ticket" | "suggestion") => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["support_tickets", user?.id, type],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("support_tickets")
+        .select("*")
+        .eq("type", type)
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return data as SupportTicket[];
+    },
+    enabled: !!user,
+  });
+};
+
+export const useTicketMessages = (ticketId: string | null) =>
+  useQuery({
+    queryKey: ["support_messages", ticketId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("support_messages")
+        .select("*")
+        .eq("ticket_id", ticketId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as SupportMessage[];
+    },
+    enabled: !!ticketId,
+    refetchInterval: 15_000,
+  });
+
+export const useCreateTicket = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async ({
+      type,
+      subject,
+      content,
+      attachments = [],
+    }: {
+      type: "ticket" | "suggestion";
+      subject: string;
+      content: string;
+      attachments?: string[];
+    }) => {
+      const { data: ticket, error: tErr } = await supabase
+        .from("support_tickets")
+        .insert({ user_id: user!.id, type, subject, status: "open" })
+        .select()
+        .single();
+      if (tErr) throw tErr;
+
+      const { error: mErr } = await supabase
+        .from("support_messages")
+        .insert({
+          ticket_id: ticket.id,
+          sender_id: user!.id,
+          sender_role: "client",
+          content,
+          attachments,
+        });
+      if (mErr) throw mErr;
+      return ticket as SupportTicket;
+    },
+    onSuccess: (ticket) => {
+      qc.invalidateQueries({ queryKey: ["support_tickets"] });
+      qc.invalidateQueries({ queryKey: ["support_messages", ticket.id] });
+    },
+  });
+};
+
+export const useCreateSupportMessage = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async ({
+      ticketId,
+      content,
+      attachments = [],
+    }: {
+      ticketId: string;
+      content: string;
+      attachments?: string[];
+    }) => {
+      const { data, error } = await supabase
+        .from("support_messages")
+        .insert({
+          ticket_id: ticketId,
+          sender_id: user!.id,
+          sender_role: "client",
+          content,
+          attachments,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as SupportMessage;
+    },
+    onSuccess: (msg) => {
+      qc.invalidateQueries({ queryKey: ["support_messages", msg.ticket_id] });
+      qc.invalidateQueries({ queryKey: ["support_tickets"] });
+    },
+  });
+};
+
+export const useMarkTicketSeen = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ticketId: string) => {
+      const { error } = await supabase.rpc("mark_ticket_seen", { p_ticket_id: ticketId });
+      if (error) throw error;
+    },
+    onSuccess: (_data, ticketId) => {
+      qc.invalidateQueries({ queryKey: ["support_tickets"] });
+      qc.invalidateQueries({ queryKey: ["support_unread"] });
+    },
+  });
+};
+
+export const useSupportUnreadCount = () => {
+  const { user } = useCurrentUser();
+  const isSaasClient = user?.user_metadata?.account_type === "saas_client";
+  return useQuery({
+    queryKey: ["support_unread", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("support_tickets")
+        .select("id, client_last_seen_at, updated_at")
+        .eq("type", "ticket")
+        .in("status", ["open", "in_progress"]);
+      if (error) return 0;
+      // Count tickets where admin replied after client last saw them
+      return (data ?? []).filter((t) => {
+        if (!t.client_last_seen_at) return true;
+        return new Date(t.updated_at) > new Date(t.client_last_seen_at);
+      }).length;
+    },
+    enabled: !!user && isSaasClient,
+    refetchInterval: 30_000,
+  });
+};
+
+// ─── SOPORTE — Admin ──────────────────────────────────────────────────────────
+
+const ACROSOFT_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
+
+export const useAllTickets = (type: "ticket" | "suggestion") => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["all_support_tickets", type],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("support_tickets")
+        .select("*")
+        .eq("type", type)
+        .order("updated_at", { ascending: false });
+      if (error) throw error;
+      return data as SupportTicket[];
+    },
+    enabled: !!user && user.email === ACROSOFT_ADMIN_EMAIL,
+    refetchInterval: 30_000,
+  });
+};
+
+export const useClientEmailMap = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["client_email_map"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_client_accounts")
+        .select("client_user_id, client_email");
+      if (error) throw error;
+      const map: Record<string, string> = {};
+      for (const a of data ?? []) {
+        if (a.client_user_id) map[a.client_user_id] = a.client_email;
+      }
+      return map;
+    },
+    enabled: !!user && user.email === ACROSOFT_ADMIN_EMAIL,
+  });
+};
+
+export const useAdminSendMessage = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async ({ ticketId, content }: { ticketId: string; content: string }) => {
+      const { data, error } = await supabase
+        .from("support_messages")
+        .insert({
+          ticket_id: ticketId,
+          sender_id: user!.id,
+          sender_role: "admin",
+          content,
+          attachments: [],
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as SupportMessage;
+    },
+    onSuccess: (msg) => {
+      qc.invalidateQueries({ queryKey: ["support_messages", msg.ticket_id] });
+      qc.invalidateQueries({ queryKey: ["all_support_tickets"] });
+    },
+  });
+};
+
+export const useUpdateTicketStatus = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      ticketId,
+      status,
+    }: {
+      ticketId: string;
+      status: SupportTicket["status"];
+    }) => {
+      const { error } = await supabase
+        .from("support_tickets")
+        .update({ status })
+        .eq("id", ticketId);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["all_support_tickets"] });
+    },
+  });
+};
+
+export const useAdminUnreadCount = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["admin_support_unread"],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from("support_tickets")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "open");
+      if (error) return 0;
+      return count ?? 0;
+    },
+    enabled: !!user && user.email === ACROSOFT_ADMIN_EMAIL,
+    refetchInterval: 30_000,
+  });
 };

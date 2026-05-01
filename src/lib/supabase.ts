@@ -268,6 +268,27 @@ export type CrmClientAccount = {
   deleted_at: string | null
 }
 
+export type SupportTicket = {
+  id: string
+  created_at: string
+  updated_at: string
+  user_id: string
+  type: 'ticket' | 'suggestion'
+  subject: string
+  status: 'open' | 'in_progress' | 'resolved' | 'read'
+  client_last_seen_at: string | null
+}
+
+export type SupportMessage = {
+  id: string
+  created_at: string
+  ticket_id: string
+  sender_id: string | null
+  sender_role: 'client' | 'admin'
+  content: string
+  attachments: string[]
+}
+
 export type StaffPermission = {
   read: boolean
   edit?: boolean

@@ -1814,7 +1814,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
 
                     // No account yet — show activation button only if contact bought a SaaS service
                     if (!acc) {
-                      if (!detail.email || !hasSaasService) return null;
+                      if (!detail.email || !hasSaasService || !isSuperAdmin) return null;
                       return (
                         <button
                           onClick={async () => {
