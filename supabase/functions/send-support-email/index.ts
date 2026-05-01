@@ -11,7 +11,7 @@ const supabase = createClient(
 );
 
 const ADMIN_EMAIL   = "e.daniel.acero.r@gmail.com";
-const RESEND_FROM   = Deno.env.get("RESEND_FROM_EMAIL") ?? "soporte@acrosoft.app";
+const RESEND_FROM   = Deno.env.get("RESEND_FROM_EMAIL") ?? "soporte@acrosoftlabs.com";
 const APP_URL       = Deno.env.get("SITE_URL") ?? "https://app.acrosoft.app";
 
 function respond(body: unknown, status = 200) {
@@ -21,12 +21,21 @@ function respond(body: unknown, status = 200) {
   });
 }
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 async function sendEmail(
   to: string,
   subject: string,
   html: string,
   resendKey: string,
-) {
+): Promise<{ ok: boolean; status: number; body: string }> {
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -35,10 +44,8 @@ async function sendEmail(
     },
     body: JSON.stringify({ from: `Acrosoft Soporte <${RESEND_FROM}>`, to, subject, html }),
   });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Resend error ${res.status}: ${err}`);
-  }
+  const body = await res.text();
+  return { ok: res.ok, status: res.status, body };
 }
 
 // ─── Email templates ──────────────────────────────────────────────────────────
@@ -50,27 +57,27 @@ function templateNewTicket(opts: {
   content: string;
 }) {
   const typeLabel = opts.type === "ticket" ? "Ticket de soporte" : "Sugerencia";
-  return `
-<!DOCTYPE html><html lang="es"><body style="font-family:sans-serif;background:#f4f4f5;padding:32px 0;margin:0">
+  const s = escapeHtml(opts.subject);
+  const c = escapeHtml(opts.content);
+  const e = escapeHtml(opts.clientEmail);
+  return `<!DOCTYPE html><html lang="es"><body style="font-family:sans-serif;background:#f4f4f5;padding:32px 0;margin:0">
 <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7">
   <div style="background:#18181b;padding:24px 28px">
     <p style="color:#fff;font-size:15px;font-weight:600;margin:0">Acrosoft Soporte</p>
   </div>
   <div style="padding:28px">
     <p style="margin:0 0 4px;font-size:12px;color:#71717a;text-transform:uppercase;letter-spacing:.05em;font-weight:600">${typeLabel}</p>
-    <h2 style="margin:0 0 20px;font-size:18px;color:#18181b">${opts.subject}</h2>
+    <h2 style="margin:0 0 20px;font-size:18px;color:#18181b">${s}</h2>
     <p style="margin:0 0 6px;font-size:12px;color:#71717a">De:</p>
-    <p style="margin:0 0 20px;font-size:14px;color:#18181b">${opts.clientEmail}</p>
+    <p style="margin:0 0 20px;font-size:14px;color:#18181b">${e}</p>
     <p style="margin:0 0 6px;font-size:12px;color:#71717a">Mensaje:</p>
-    <div style="background:#f4f4f5;border-radius:8px;padding:14px;font-size:14px;color:#18181b;line-height:1.6;white-space:pre-wrap">${opts.content}</div>
+    <div style="background:#f4f4f5;border-radius:8px;padding:14px;font-size:14px;color:#18181b;line-height:1.6;white-space:pre-wrap">${c}</div>
     <div style="margin-top:24px">
-      <a href="${APP_URL}/crm" style="display:inline-block;background:#18181b;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:500">
-        Ver en Acrosoft →
-      </a>
+      <a href="${APP_URL}/crm" style="display:inline-block;background:#18181b;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:500">Ver en Acrosoft &rarr;</a>
     </div>
   </div>
   <div style="padding:16px 28px;border-top:1px solid #e4e4e7">
-    <p style="margin:0;font-size:11px;color:#a1a1aa">Acrosoft Labs · Sistema de soporte</p>
+    <p style="margin:0;font-size:11px;color:#a1a1aa">Acrosoft Labs &middot; Sistema de soporte</p>
   </div>
 </div>
 </body></html>`;
@@ -80,25 +87,24 @@ function templateAdminReply(opts: {
   ticketSubject: string;
   replyContent: string;
 }) {
-  return `
-<!DOCTYPE html><html lang="es"><body style="font-family:sans-serif;background:#f4f4f5;padding:32px 0;margin:0">
+  const s = escapeHtml(opts.ticketSubject);
+  const r = escapeHtml(opts.replyContent);
+  return `<!DOCTYPE html><html lang="es"><body style="font-family:sans-serif;background:#f4f4f5;padding:32px 0;margin:0">
 <div style="max-width:520px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e7">
   <div style="background:#18181b;padding:24px 28px">
     <p style="color:#fff;font-size:15px;font-weight:600;margin:0">Acrosoft Soporte</p>
   </div>
   <div style="padding:28px">
     <p style="margin:0 0 4px;font-size:12px;color:#71717a;text-transform:uppercase;letter-spacing:.05em;font-weight:600">Respuesta a tu ticket</p>
-    <h2 style="margin:0 0 20px;font-size:18px;color:#18181b">${opts.ticketSubject}</h2>
-    <p style="margin:0 0 6px;font-size:12px;color:#71717a">El equipo de Acrosoft respondió:</p>
-    <div style="background:#f4f4f5;border-radius:8px;padding:14px;font-size:14px;color:#18181b;line-height:1.6;white-space:pre-wrap">${opts.replyContent}</div>
+    <h2 style="margin:0 0 20px;font-size:18px;color:#18181b">${s}</h2>
+    <p style="margin:0 0 6px;font-size:12px;color:#71717a">El equipo de Acrosoft respondi&oacute;:</p>
+    <div style="background:#f4f4f5;border-radius:8px;padding:14px;font-size:14px;color:#18181b;line-height:1.6;white-space:pre-wrap">${r}</div>
     <div style="margin-top:24px">
-      <a href="${APP_URL}/crm" style="display:inline-block;background:#18181b;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:500">
-        Ver hilo completo →
-      </a>
+      <a href="${APP_URL}/crm" style="display:inline-block;background:#18181b;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px;font-size:13px;font-weight:500">Ver hilo completo &rarr;</a>
     </div>
   </div>
   <div style="padding:16px 28px;border-top:1px solid #e4e4e7">
-    <p style="margin:0;font-size:11px;color:#a1a1aa">Acrosoft Labs · Sistema de soporte</p>
+    <p style="margin:0;font-size:11px;color:#a1a1aa">Acrosoft Labs &middot; Sistema de soporte</p>
   </div>
 </div>
 </body></html>`;
@@ -183,18 +189,19 @@ Deno.serve(async (req) => {
       // Table doesn't exist yet (SP-5 not implemented) — ignore
     }
 
-    await Promise.allSettled(
+    const results = await Promise.all(
       recipients.map((to) =>
         sendEmail(
           to,
           `[Soporte] Nuevo ${typeLabel}: ${ticket.subject}`,
           html,
           RESEND_API_KEY,
-        )
+        ).then((r) => ({ to, ...r }))
       ),
     );
 
-    return respond({ ok: true, trigger, recipients });
+    const allOk = results.every((r) => r.ok);
+    return respond({ ok: allOk, trigger, recipients, results });
   }
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -207,14 +214,14 @@ Deno.serve(async (req) => {
       replyContent: messageContent,
     });
 
-    await sendEmail(
+    const result = await sendEmail(
       clientEmail,
       `[Acrosoft Soporte] Respuesta a tu ticket: ${ticket.subject}`,
       html,
       RESEND_API_KEY,
     );
 
-    return respond({ ok: true, trigger, to: clientEmail });
+    return respond({ ok: result.ok, trigger, to: clientEmail, resend: result });
   }
 
   return respond({ error: "Unknown trigger" }, 400);
