@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { ArrowLeft, Plus, Paperclip, Send, Loader2, X, FileText } from "lucide-react";
+import { ArrowLeft, Plus, Send, Loader2, X, FileText, ImageIcon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -65,26 +65,46 @@ async function getSignedUrl(path: string): Promise<string> {
   return data.signedUrl;
 }
 
-// ─── Attachment chip ──────────────────────────────────────────────────────────
+// ─── Attachment preview ───────────────────────────────────────────────────────
 
-function AttachmentChip({ path }: { path: string }) {
+function AttachmentPreview({ path }: { path: string }) {
   const [url, setUrl] = useState<string | null>(null);
-  const name = path.split("/").pop() ?? path;
+  const [lightbox, setLightbox] = useState(false);
 
   useEffect(() => {
     getSignedUrl(path).then(setUrl).catch(() => null);
   }, [path]);
 
   return (
-    <a
-      href={url ?? "#"}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-secondary hover:bg-secondary/80 transition-colors border text-muted-foreground"
-    >
-      <FileText size={11} />
-      {name.substring(0, 30)}
-    </a>
+    <>
+      <button
+        onClick={() => url && setLightbox(true)}
+        className="relative w-20 h-20 rounded-xl overflow-hidden border bg-secondary shrink-0 hover:opacity-80 transition-opacity"
+        title="Ver imagen"
+      >
+        {url ? (
+          <img src={url} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <Loader2 size={14} className="animate-spin text-muted-foreground" />
+          </div>
+        )}
+      </button>
+
+      {lightbox && url && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-6"
+          onClick={() => setLightbox(false)}
+        >
+          <img
+            src={url}
+            alt=""
+            className="max-w-full max-h-full object-contain rounded-xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -189,8 +209,8 @@ function TicketThread({
                     {msg.content}
                   </div>
                   {msg.attachments.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {msg.attachments.map((p, i) => <AttachmentChip key={i} path={p} />)}
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {msg.attachments.map((p, i) => <AttachmentPreview key={i} path={p} />)}
                     </div>
                   )}
                   <span className="text-[10px] text-muted-foreground px-1">
@@ -238,9 +258,9 @@ function TicketThread({
                 type="button"
                 onClick={() => fileRef.current?.click()}
                 className="p-2 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
-                title="Adjuntar archivo"
+                title="Adjuntar imagen"
               >
-                <Paperclip size={15} />
+                <ImageIcon size={15} />
               </button>
               <Button
                 size="icon"
@@ -259,7 +279,7 @@ function TicketThread({
             ref={fileRef}
             type="file"
             multiple
-            accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain"
+            accept="image/jpeg,image/png,image/webp,image/gif"
             className="hidden"
             onChange={(e) => setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])])}
           />
@@ -362,21 +382,21 @@ function NewTicketForm({
         {type === "ticket" && (
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">
-              Adjuntos <span className="text-muted-foreground/60">(opcional)</span>
+              Imágenes <span className="text-muted-foreground/60">(opcional · JPG, PNG, WEBP, GIF)</span>
             </label>
             <button
               type="button"
               onClick={() => fileRef.current?.click()}
               className="w-full h-16 border-2 border-dashed rounded-xl text-xs text-muted-foreground hover:border-primary/40 hover:text-primary transition-colors flex items-center justify-center gap-2"
             >
-              <Paperclip size={14} />
-              Seleccionar archivos
+              <ImageIcon size={14} />
+              Seleccionar imágenes
             </button>
             <input
               ref={fileRef}
               type="file"
               multiple
-              accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain"
+              accept="image/jpeg,image/png,image/webp,image/gif"
               className="hidden"
               onChange={(e) => setFiles((prev) => [...prev, ...Array.from(e.target.files ?? [])])}
             />

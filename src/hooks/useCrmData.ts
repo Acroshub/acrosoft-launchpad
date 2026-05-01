@@ -1749,6 +1749,10 @@ export const useCreateTicket = () => {
     onSuccess: (ticket) => {
       qc.invalidateQueries({ queryKey: ["support_tickets"] });
       qc.invalidateQueries({ queryKey: ["support_messages", ticket.id] });
+      // Trigger A — notify admin of new ticket/suggestion (fire-and-forget)
+      supabase.functions.invoke("send-support-email", {
+        body: { trigger: "new_ticket", ticketId: ticket.id },
+      }).catch(() => null);
     },
   });
 };
@@ -1887,6 +1891,10 @@ export const useAdminSendMessage = () => {
     onSuccess: (msg) => {
       qc.invalidateQueries({ queryKey: ["support_messages", msg.ticket_id] });
       qc.invalidateQueries({ queryKey: ["all_support_tickets"] });
+      // Trigger B — notify client of admin reply (fire-and-forget)
+      supabase.functions.invoke("send-support-email", {
+        body: { trigger: "admin_reply", ticketId: msg.ticket_id, messageContent: msg.content },
+      }).catch(() => null);
     },
   });
 };

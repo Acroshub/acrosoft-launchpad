@@ -35,6 +35,7 @@ const FILTER_OPTIONS: { value: SupportTicket["status"] | "all"; label: string }[
   { value: "open",        label: "Abiertos"   },
   { value: "in_progress", label: "En proceso" },
   { value: "resolved",    label: "Resueltos"  },
+  { value: "read",        label: "Leídas"     },
 ];
 
 function formatDate(iso: string) {
@@ -51,26 +52,46 @@ async function getSignedUrl(path: string): Promise<string> {
   return data.signedUrl;
 }
 
-// ─── Attachment chip ──────────────────────────────────────────────────────────
+// ─── Attachment preview ───────────────────────────────────────────────────────
 
-function AttachmentChip({ path }: { path: string }) {
+function AttachmentPreview({ path }: { path: string }) {
   const [url, setUrl] = useState<string | null>(null);
-  const name = path.split("/").pop() ?? path;
+  const [lightbox, setLightbox] = useState(false);
 
   useEffect(() => {
     getSignedUrl(path).then(setUrl).catch(() => null);
   }, [path]);
 
   return (
-    <a
-      href={url ?? "#"}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-secondary hover:bg-secondary/80 transition-colors border text-muted-foreground"
-    >
-      <FileText size={11} />
-      {name.substring(0, 30)}
-    </a>
+    <>
+      <button
+        onClick={() => url && setLightbox(true)}
+        className="relative w-20 h-20 rounded-xl overflow-hidden border bg-secondary shrink-0 hover:opacity-80 transition-opacity"
+        title="Ver imagen"
+      >
+        {url ? (
+          <img src={url} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <Loader2 size={14} className="animate-spin text-muted-foreground" />
+          </div>
+        )}
+      </button>
+
+      {lightbox && url && (
+        <div
+          className="fixed inset-0 z-50 bg-black/85 flex items-center justify-center p-6"
+          onClick={() => setLightbox(false)}
+        >
+          <img
+            src={url}
+            alt=""
+            className="max-w-full max-h-full object-contain rounded-xl shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
+    </>
   );
 }
 
@@ -158,20 +179,6 @@ function AdminTicketThread({
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages.length]);
 
-  const handleSend = async () => {
-    if (!content.trim()) return;
-    try {
-      await sendMessage.mutateAsync({ ticketId: ticket.id, content: content.trim() });
-      setContent("");
-      // Auto-set to in_progress when admin first replies on open ticket
-      if (localStatus === "open" && ticket.type === "ticket") {
-        await handleStatusChange("in_progress");
-      }
-    } catch {
-      toast.error("Error al enviar mensaje");
-    }
-  };
-
   const handleStatusChange = async (status: SupportTicket["status"]) => {
     try {
       await updateStatus.mutateAsync({ ticketId: ticket.id, status });
@@ -179,6 +186,20 @@ function AdminTicketThread({
       onStatusChange({ ...ticket, status });
     } catch {
       toast.error("Error al cambiar estado");
+    }
+  };
+
+  const handleSend = async () => {
+    if (!content.trim()) return;
+    try {
+      await sendMessage.mutateAsync({ ticketId: ticket.id, content: content.trim() });
+      setContent("");
+      // Auto-set to in_progress when admin first replies on an open ticket
+      if (localStatus === "open" && ticket.type === "ticket") {
+        await handleStatusChange("in_progress");
+      }
+    } catch {
+      toast.error("Error al enviar mensaje");
     }
   };
 
@@ -239,8 +260,8 @@ function AdminTicketThread({
                     {msg.content}
                   </div>
                   {msg.attachments.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {msg.attachments.map((p, i) => <AttachmentChip key={i} path={p} />)}
+                    <div className="flex flex-wrap gap-2 mt-1">
+                      {msg.attachments.map((p, i) => <AttachmentPreview key={i} path={p} />)}
                     </div>
                   )}
                   <span className="text-[10px] text-muted-foreground px-1">

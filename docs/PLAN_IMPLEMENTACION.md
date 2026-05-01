@@ -1140,7 +1140,7 @@ CREATE TABLE support_notification_recipients (
 
 ---
 
-### SP-3 · Vista del Admin de Acrosoft
+### SP-3 · Vista del Admin de Acrosoft ✅ COMPLETADO
 
 **Ubicación:** Misma sección "Soporte" en el sidebar, pero con vista diferente cuando `isSuperAdmin === true`.
 
@@ -1157,7 +1157,7 @@ CREATE TABLE support_notification_recipients (
 
 ---
 
-### SP-4 · Notificaciones por email
+### SP-4 · Notificaciones por email ✅ COMPLETADO
 
 **Trigger A — Nuevo ticket o sugerencia:**
 - Destinatarios: Admin de Acrosoft + staff configurados en `support_notification_recipients`
@@ -1373,8 +1373,8 @@ LARGO PLAZO:
 LARGO PLAZO:
   SP-1  Sistema de Soporte — DB + Storage
   SP-2  Vista Cliente/Staff (envío de tickets y sugerencias) ✅
-  SP-3  Vista Admin (inbox, responder, estados)
-  SP-4  Emails de notificación (Resend edge function)
+  SP-3  Vista Admin (inbox, responder, estados) ✅
+  SP-4  Emails de notificación (Resend edge function) ✅
   SP-5  Configuración de staff notificados
   SP-6  Badge de no leídos en sidebar
   F-4   /onboarding → FormRenderer
