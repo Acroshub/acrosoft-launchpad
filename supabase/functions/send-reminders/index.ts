@@ -33,10 +33,20 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-  const RESEND_FROM    = Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoft.app";
+  const RESEND_FROM    = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
   const now            = new Date();
 
   // ── 1. Fetch pending queue items (max 50 per run) ───────────────────────────
+  // Reset items stuck in "processing" for more than 10 min (crash recovery)
+  // Edge functions time out in <60s, so anything still "processing" after 10 min is a crashed run
+  const staleThreshold = new Date(now.getTime() - 10 * 60_000).toISOString();
+  await supabase
+    .from("crm_reminder_queue")
+    .update({ status: "pending" })
+    .eq("status", "processing")
+    .lt("updated_at", staleThreshold)
+    .lt("attempts", 3);
+
   const { data: queueItems, error: qErr } = await supabase
     .from("crm_reminder_queue")
     .select("id, reminder_id, attempts")
@@ -152,7 +162,17 @@ Deno.serve(async (req) => {
 
 // ── Email HTML template ────────────────────────────────────────────────────────
 
+function escapeHtml(str: string): string {
+  return str
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 function buildEmailHtml(message: string): string {
+  const m = escapeHtml(message);
   return `<!DOCTYPE html>
 <html lang="es">
 <head>
@@ -172,7 +192,7 @@ function buildEmailHtml(message: string): string {
           </tr>
           <tr>
             <td style="padding:32px;">
-              <p style="margin:0 0 16px;font-size:16px;color:#18181b;line-height:1.6;">${message}</p>
+              <p style="margin:0 0 16px;font-size:16px;color:#18181b;line-height:1.6;white-space:pre-wrap">${m}</p>
               <p style="margin:24px 0 0;font-size:13px;color:#71717a;">Si tienes alguna duda, no dudes en contactarnos.</p>
             </td>
           </tr>

@@ -20,6 +20,7 @@ import CreateReminderModal from "@/components/shared/CreateReminderModal";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { useStaffPermissions } from "@/hooks/useAuth";
+import PhoneInput from "@/components/shared/PhoneInput";
 
 // ─── Inline editable field ────────────────────────────────────────────────────
 const InlineEdit = ({
@@ -59,6 +60,26 @@ const InlineEdit = ({
   };
 
   if (editing) {
+    if (type === "tel") {
+      return (
+        <div
+          className="flex items-center gap-2"
+          onBlur={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) commit();
+          }}
+        >
+          <Icon size={13} className="shrink-0 text-muted-foreground" />
+          <PhoneInput
+            value={val}
+            onChange={setVal}
+            compact
+            disabled={saving}
+          />
+          {saving && <Loader2 size={13} className="animate-spin text-muted-foreground shrink-0" />}
+        </div>
+      );
+    }
+
     return (
       <div className="flex items-center gap-2">
         <Icon size={13} className="shrink-0 text-muted-foreground" />

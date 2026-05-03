@@ -15,6 +15,7 @@ import WeeklySchedulePicker, {
   WeeklySchedule,
   DEFAULT_WEEKLY_SCHEDULE,
 } from "@/components/shared/WeeklySchedulePicker";
+import PhoneInput from "@/components/shared/PhoneInput";
 
 // ─── Local Types ──────────────────────────────────────────────────────────────
 
@@ -666,7 +667,21 @@ const FieldRenderer = ({
     );
   }
 
-  // text, email, phone, url, number, address, date, time
+  if (field.type === "phone") {
+    return (
+      <FieldWrapper label={field.label} required={field.required} error={error}>
+        <div className="mt-1">
+          <PhoneInput
+            value={value ?? ""}
+            onChange={onChange}
+            placeholder={field.placeholder}
+          />
+        </div>
+      </FieldWrapper>
+    );
+  }
+
+  // text, email, url, number, address, date, time
   const inputType =
     field.type === "email" ? "email"
     : field.type === "number" ? "number"

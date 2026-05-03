@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog } from "lucide-react";
-import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
+import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell } from "lucide-react";
+import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient } from "@/hooks/useCrmData";
 import type { CrmLog } from "@/hooks/useCrmData";
 import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
@@ -1218,12 +1218,105 @@ const GeneralTab = () => {
   );
 };
 
+// ─── Support Notifications Tab (admin only) ───────────────────────────────────
+
+const SupportTab = () => {
+  const { data: staff = [], isLoading: loadingStaff }             = useStaff();
+  const { data: recipients = [], isLoading: loadingRecipients }   = useNotificationRecipients();
+  const addRecipient    = useAddNotificationRecipient();
+  const toggleRecipient = useToggleNotificationRecipient();
+
+  const isLoading = loadingStaff || loadingRecipients;
+
+  // Map email → recipient row for quick lookup
+  const recipientByEmail = useMemo(
+    () => Object.fromEntries(recipients.map((r) => [r.email, r])),
+    [recipients],
+  );
+
+  const handleToggle = async (email: string) => {
+    const existing = recipientByEmail[email];
+    try {
+      if (existing) {
+        if (existing.active) {
+          // disable: just mark inactive
+          await toggleRecipient.mutateAsync({ id: existing.id, active: false });
+        } else {
+          // re-enable
+          await toggleRecipient.mutateAsync({ id: existing.id, active: true });
+        }
+      } else {
+        // first time enabling
+        await addRecipient.mutateAsync(email);
+      }
+    } catch {
+      toast.error("Error al actualizar");
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex justify-center py-16">
+        <Loader2 size={22} className="animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-card border rounded-2xl p-5 space-y-4">
+        <div className="flex items-start gap-3">
+          <Bell size={16} className="text-primary mt-0.5 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold">Notificaciones de soporte por email</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Activa los miembros del equipo que recibirán un email cuando un cliente abra o responda un ticket.
+            </p>
+          </div>
+        </div>
+
+        {staff.length === 0 ? (
+          <p className="text-xs text-muted-foreground text-center py-6">
+            No hay miembros de staff registrados.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {staff.map((member) => {
+              const rec = recipientByEmail[member.email];
+              const isActive = !!rec && rec.active;
+              return (
+                <div key={member.id} className="flex items-center gap-3 px-3 py-2.5 border rounded-xl">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{member.name}</p>
+                    <p className="text-xs text-muted-foreground truncate">{member.email}</p>
+                  </div>
+                  <button
+                    onClick={() => handleToggle(member.email)}
+                    className="shrink-0 transition-colors"
+                    title={isActive ? "Desactivar notificaciones" : "Activar notificaciones"}
+                  >
+                    {isActive
+                      ? <ToggleRight size={22} className="text-primary" />
+                      : <ToggleLeft size={22} className="text-muted-foreground" />
+                    }
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 // ─── Settings shell ───────────────────────────────────────────────────────────
 
-type TabId = "general" | "logs" | "staff" | "reminders" | "saas";
+type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte";
 
 const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; adminOnly?: boolean }[] = [
   { id: "general",   label: "General",        Component: GeneralTab,   adminOnly: true },
+  { id: "soporte",   label: "Soporte",        Component: SupportTab,   adminOnly: true },
   { id: "logs",      label: "Logs",           Component: LogsTab       },
   { id: "staff",     label: "Staff",          Component: StaffTab      },
   { id: "reminders", label: "Recordatorios",  Component: RemindersTab  },

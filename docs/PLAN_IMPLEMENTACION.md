@@ -1173,27 +1173,95 @@ CREATE TABLE support_notification_recipients (
 
 ---
 
-### SP-5 · Configuración de notificaciones (Admin)
+### SP-5 · Configuración de notificaciones (Admin) ✅ COMPLETADO
 
-**Ubicación:** `CrmSettings.tsx` → nueva tab o sección "Soporte".
+**Ubicación:** `CrmSettings.tsx` → tab "Soporte" (adminOnly).
 
-**UI:** Lista de staff de Acrosoft con toggle para activar/desactivar recepción de emails de soporte. Se guarda en `support_notification_recipients`.
+**Implementado:**
+- Tabla `support_notification_recipients` con columnas `id`, `email`, `active`, `created_at`. RLS: solo superadmin.
+- Tab "Soporte" en CrmSettings visible únicamente para el superadmin.
+- Muestra la lista de staff del CRM (via `useStaff`) con toggle por persona.
+- Toggle ON → inserta en `support_notification_recipients` con `active=true`. Toggle OFF → marca `active=false`. Subsiguientes toggles actualizan el registro existente.
+- Edge function `send-support-email` lee esta tabla (con service role) para los triggers `new_ticket` y `client_reply`, y agrega los emails activos como destinatarios adicionales al admin.
+- Hooks: `useNotificationRecipients`, `useAddNotificationRecipient`, `useToggleNotificationRecipient`.
 
 ---
 
-### SP-6 · Badge en sidebar
+### SP-6 · Badge en sidebar ✅ COMPLETADO
 
-**Lógica:**
-- Cliente: cuenta mensajes del Admin en sus tickets que tienen `created_at > última_visita_al_soporte`. Se resetea al abrir la sección.
-- Admin: cuenta tickets/sugerencias con status `open` no leídos. Se resetea al marcarlos como leídos/resueltos.
-
-**Implementación:** Hook `useSupportUnreadCount()` con query a `support_tickets` + `support_messages`. Pasa el número al componente del sidebar.
-
-**Archivos:** `src/hooks/useCrmData.ts`, `src/pages/Crm.tsx` (sidebar), componentes de soporte.
+**Implementado:**
+- Dot azul en sidebar aparece cuando `soporteBadge > 0` (cliente o admin según rol).
+- **Admin:** `useAdminUnreadCount` — cuenta todos los tickets+sugerencias con `status='open'`. Refetch cada 30s. Se resetea naturalmente al cambiar el estado del ticket.
+- **Cliente:** `useSupportUnreadCount` — cuenta tickets+sugerencias con `updated_at > client_last_seen_at`. Refetch cada 30s. Se resetea al abrir el hilo vía `useMarkTicketSeen` → `mark_ticket_seen()` (SECURITY DEFINER).
+- Fix aplicado: el conteo del cliente ahora incluye sugerencias (antes solo contaba tickets).
 
 ---
 
 **Orden de implementación sugerido:** SP-1 → SP-2 → SP-3 → SP-4 → SP-5 → SP-6
+
+---
+
+### SP-7 · Revisión end-to-end de recordatorios (`send-reminders`) ✅ COMPLETADO
+
+**Objetivo:** Verificar que el sistema de recordatorios de citas funciona correctamente de extremo a extremo, igual que se hizo con el sistema de soporte (SP-2 → SP-4).
+
+**Áreas a revisar:**
+
+1. **Edge function `send-reminders`** — ¿envía emails y/o SMS correctamente? ¿maneja errores sin crashear? ¿usa dominio verificado en Resend (`acrosoftlabs.com`)?
+2. **Edge function `crm-calendar-book`** — trigger `on_booking`: ¿inserta correctamente en `crm_reminders` y `crm_reminder_queue`? ¿llama a `send-reminders`?
+3. **CRON de recordatorios programados** — ¿existe un job que procese `crm_reminder_queue` periódicamente para recordatorios `X horas/días antes`?
+4. **RLS y permisos** — ¿los clientes pueden ver sus propios recordatorios? ¿el staff tiene acceso correcto?
+5. **Templates de email** — ¿el contenido del email de recordatorio es claro y tiene el formato correcto? ¿escapa HTML para prevenir inyección?
+6. **Recipient `business` vs `contact`** — ¿ambos tipos de destinatario funcionan? ¿multi-target para admin + staff?
+7. **Registro en `crm_reminders`** — ¿el campo `sent_at` se actualiza al enviar? ¿el status refleja éxito/fallo?
+
+**Archivos clave:**
+- `supabase/functions/send-reminders/index.ts`
+- `supabase/functions/crm-calendar-book/index.ts`
+- `src/components/crm/ReminderRulesEditor.tsx`
+- `src/hooks/useCrmData.ts` (hooks de recordatorios)
+
+---
+
+### SP-8 · Selector de país en inputs de teléfono ✅ COMPLETADO
+
+**Problema:** Los inputs de teléfono en todos los formularios (FormRenderer, CrmForms) aceptan texto libre sin indicación de país. Un número "7712345" es ambiguo sin saber si pertenece a Bolivia (+591), México (+52) u otro país. Esto afecta futuros recordatorios WhatsApp y la calidad del dato.
+
+**Alcance:**
+1. **Nuevo campo de teléfono con selector de país:** En `FormRenderer`, los campos `type === "phone"` muestran un dropdown de prefijo de país (bandera + código) seguido del input numérico. Al enviar, el valor guardado incluye el prefijo: `+591 71234567`.
+2. **Prefijos disponibles:** Lista estática de países con código ISO y prefijo. Ordenar: Bolivia primero (default), luego México, USA, España, Argentina, Colombia, Chile — luego el resto alfabético.
+3. **CrmForms (builder):** El tipo de campo `phone` ya existe. No requiere cambio en el builder — el selector de país se aplica automáticamente en el renderer.
+4. **Formulario de contacto manual en el CRM (`CrmContacts` / detalle):** El campo `phone` del formulario de edición de contacto también debe tener el selector de país.
+5. **Valor guardado:** Siempre incluir el código de país en el string: `+591 71234567`. Si el campo ya tiene un valor que empieza con `+`, detectar el prefijo automáticamente al cargar.
+
+**Archivos:** `src/components/crm/FormRenderer.tsx`, `src/components/crm/CrmContacts.tsx`, `src/i18n/phone-countries.ts` (lista de países, nuevo).
+**Complejidad:** Baja-Media — componente nuevo de PhoneInput + integración en los dos lugares que usan campos phone.
+
+---
+
+### SP-9 · Validación de tipo en inputs de formularios
+
+**Problema:** Los inputs de los formularios no validan el tipo del valor ingresado antes de enviar. Un campo `email` acepta cualquier texto, un campo `phone` acepta letras, etc. Esto genera datos sucios en la DB y puede romper flujos downstream (envío de emails, recordatorios WhatsApp).
+
+**Alcance — validación por tipo de campo:**
+
+| Tipo de campo | Validación requerida |
+|---|---|
+| `email` | Formato de email válido (`/^[^\s@]+@[^\s@]+\.[^\s@]+$/`) |
+| `phone` | Solo dígitos, espacios, `+`, `-`, `()`. Mínimo 7 dígitos. |
+| `number` | Solo números. Respetar `min`/`max` si están configurados. |
+| `date` | Fecha válida. Respetar `min`/`max` si están configurados. |
+| `text` / `textarea` | Respetar `minLength`/`maxLength` si están configurados. |
+| `url` | URL válida (empieza con `http://` o `https://`). |
+
+**Implementación:**
+1. Función `validateFieldValue(field, value): string | null` — retorna mensaje de error o `null` si es válido.
+2. En `FormRenderer`, la validación existente por página (campos obligatorios vacíos) se extiende para incluir la validación de tipo: si el campo tiene valor pero el formato es inválido → bloquear avance y mostrar error debajo del input.
+3. Los errores se muestran en tiempo real al hacer blur del campo (`onBlur`), igual que en los mejores formularios de onboarding.
+4. En el builder (`CrmForms`), no hay cambios de schema — los tipos ya existen. Solo la lógica de validación del renderer cambia.
+
+**Archivos:** `src/components/crm/FormRenderer.tsx`.
+**Complejidad:** Baja — función de validación pura + integración en el loop de validación existente.
 
 ---
 
@@ -1375,8 +1443,9 @@ LARGO PLAZO:
   SP-2  Vista Cliente/Staff (envío de tickets y sugerencias) ✅
   SP-3  Vista Admin (inbox, responder, estados) ✅
   SP-4  Emails de notificación (Resend edge function) ✅
-  SP-5  Configuración de staff notificados
-  SP-6  Badge de no leídos en sidebar
+  SP-5  Configuración de staff notificados ✅
+  SP-6  Badge de no leídos en sidebar ✅
+  SP-7  Revisión end-to-end de recordatorios (send-reminders) ✅
   F-4   /onboarding → FormRenderer
   AV-1  Google Calendar sync
   AV-2  WhatsApp UI beta

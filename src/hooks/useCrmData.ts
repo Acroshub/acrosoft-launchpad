@@ -1818,7 +1818,6 @@ export const useSupportUnreadCount = () => {
       const { data, error } = await supabase
         .from("support_tickets")
         .select("id, client_last_seen_at, updated_at")
-        .eq("type", "ticket")
         .in("status", ["open", "in_progress"]);
       if (error) return 0;
       // Count tickets where admin replied after client last saw them
@@ -1939,5 +1938,74 @@ export const useAdminUnreadCount = () => {
     },
     enabled: !!user && user.email === ACROSOFT_ADMIN_EMAIL,
     refetchInterval: 30_000,
+  });
+};
+
+// ─── SOPORTE — Notification Recipients (SP-5) ─────────────────────────────────
+
+export type SupportNotificationRecipient = {
+  id: string;
+  email: string;
+  active: boolean;
+  created_at: string;
+};
+
+export const useNotificationRecipients = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["support_notification_recipients"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("support_notification_recipients")
+        .select("*")
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as SupportNotificationRecipient[];
+    },
+    enabled: !!user && user.email === ACROSOFT_ADMIN_EMAIL,
+  });
+};
+
+export const useAddNotificationRecipient = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (email: string) => {
+      const { data, error } = await supabase
+        .from("support_notification_recipients")
+        .insert({ email, active: true })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as SupportNotificationRecipient;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["support_notification_recipients"] }),
+  });
+};
+
+export const useToggleNotificationRecipient = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
+      const { error } = await supabase
+        .from("support_notification_recipients")
+        .update({ active })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["support_notification_recipients"] }),
+  });
+};
+
+export const useDeleteNotificationRecipient = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("support_notification_recipients")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["support_notification_recipients"] }),
   });
 };
