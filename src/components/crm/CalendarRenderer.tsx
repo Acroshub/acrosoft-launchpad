@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import PhoneInput from "@/components/shared/PhoneInput";
 import { ChevronLeft, ChevronRight, Loader2, Check, Clock, Calendar, Globe } from "lucide-react";
 import { widgetTranslations } from "@/i18n/widgets";
 import type { WidgetLang } from "@/hooks/useLangWidget";
@@ -283,9 +284,15 @@ const BookingForm = ({
                 rows={3}
                 className={`${inputCls} resize-none`}
               />
+            ) : field.type === "phone" ? (
+              <PhoneInput
+                value={values[field.id] ?? ""}
+                onChange={(v) => setValues((sv) => ({ ...sv, [field.id]: v }))}
+                placeholder={field.placeholder}
+              />
             ) : (
               <input
-                type={field.type === "email" ? "email" : field.type === "phone" ? "tel" : "text"}
+                type={field.type === "email" ? "email" : "text"}
                 value={values[field.id] ?? ""}
                 onChange={(e) => setValues((v) => ({ ...v, [field.id]: e.target.value }))}
                 placeholder={field.placeholder ?? ""}

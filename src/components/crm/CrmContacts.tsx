@@ -73,6 +73,7 @@ const InlineEdit = ({
             value={val}
             onChange={setVal}
             compact
+            autoFocus
             disabled={saving}
           />
           {saving && <Loader2 size={13} className="animate-spin text-muted-foreground shrink-0" />}

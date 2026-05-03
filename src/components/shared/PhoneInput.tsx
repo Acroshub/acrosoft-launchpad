@@ -8,6 +8,7 @@ interface PhoneInputProps {
   placeholder?: string;
   compact?: boolean;
   disabled?: boolean;
+  autoFocus?: boolean;
 }
 
 export default function PhoneInput({
@@ -16,6 +17,7 @@ export default function PhoneInput({
   placeholder,
   compact = false,
   disabled = false,
+  autoFocus = false,
 }: PhoneInputProps) {
   const [dial, setDial] = useState(() => parsePhoneValue(value).dial);
   const [number, setNumber] = useState(() => parsePhoneValue(value).number);
@@ -68,6 +70,7 @@ export default function PhoneInput({
         onChange={(e) => handleNumber(e.target.value)}
         placeholder={placeholder ?? "71234567"}
         disabled={disabled}
+        autoFocus={autoFocus}
         className={`${h} ${text} flex-1 min-w-0`}
       />
     </div>
