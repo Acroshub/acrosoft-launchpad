@@ -3,7 +3,7 @@ import { useStaffPermissions } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Link2, Loader2, Trash2 } from "lucide-react";
-import { useCreateCalendarConfig, useUpdateCalendarConfig, useDeleteCalendarConfig, useForms, useCreateForm } from "@/hooks/useCrmData";
+import { useCreateCalendarConfig, useUpdateCalendarConfig, useDeleteCalendarConfig, useForms, useCreateForm, useBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmCalendarConfig as CalendarData } from "@/lib/supabase";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
@@ -73,6 +73,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
   const { can } = useStaffPermissions();
   const canEditReminders = can("recordatorios", "create");
   const { data: forms = [] } = useForms();
+  const { data: businessProfile } = useBusinessProfile();
   const createConfig = useCreateCalendarConfig();
   const updateConfig = useUpdateCalendarConfig();
   const deleteConfig = useDeleteCalendarConfig();
@@ -90,6 +91,10 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
   const [availability, setAvailability]   = useState<WeeklySchedule>(DEFAULT_WEEKLY_SCHEDULE);
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
   const [timezone, setTimezone]               = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  // For new calendars, inherit business profile timezone once it loads
+  useEffect(() => {
+    if (isNew && businessProfile?.timezone) setTimezone(businessProfile.timezone);
+  }, [isNew, businessProfile?.timezone]);
   const [minAdvanceHours, setMinAdvanceHours] = useState(1);
   const [maxFutureDays, setMaxFutureDays]     = useState(60);
   const [isEditingHours, setIsEditingHours] = useState(false);

@@ -152,6 +152,8 @@ const PersonalTab = ({ profile, update }: { profile: CrmBusinessProfile | null, 
   </div>
 );
 
+const TIMEZONE_OPTIONS = (Intl as any).supportedValuesOf?.("timeZone") as string[] | undefined ?? ["America/La_Paz"];
+
 const NegocioTab = ({ profile, update, readOnly = false }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void>, readOnly?: boolean }) => {
     const [desc, setDesc] = useState(profile?.description || "");
     const [savingDesc, setSavingDesc] = useState(false);
@@ -183,6 +185,29 @@ const NegocioTab = ({ profile, update, readOnly = false }: { profile: CrmBusines
           <EditableField label="WhatsApp"            value={profile?.whatsapp || ""}      readOnly={readOnly} onSave={val => update({ whatsapp: val })} />
           <EditableField label="Instagram"           value={profile?.instagram || ""}     readOnly={readOnly} onSave={val => update({ instagram: val })} />
           <EditableField label="Facebook"            value={profile?.facebook || ""}      readOnly={readOnly} onSave={val => update({ facebook: val })} />
+        </div>
+
+        {/* Zona horaria */}
+        <div>
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">Zona horaria del negocio</p>
+          {readOnly ? (
+            <p className="text-sm font-medium">{profile?.timezone?.replace(/_/g, " ") ?? "America/La Paz"}</p>
+          ) : (
+            <>
+              <select
+                value={profile?.timezone ?? "America/La_Paz"}
+                onChange={(e) => update({ timezone: e.target.value })}
+                className="flex h-10 w-full items-center rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
+              >
+                {TIMEZONE_OPTIONS.map((tz) => (
+                  <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+              <p className="text-[10px] text-muted-foreground mt-1">
+                Zona horaria base del negocio. Los calendarios nuevos la heredan automáticamente.
+              </p>
+            </>
+          )}
         </div>
         <div>
           <div className="flex items-center justify-between mb-1.5">

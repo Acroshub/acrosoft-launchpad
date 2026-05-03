@@ -214,6 +214,7 @@ export type CrmBusinessProfile = {
   theme: string
   metrics_order?: Json
   landing_calendar_id?: string | null
+  timezone: string
 }
 
 export type CrmReminderConfig = {

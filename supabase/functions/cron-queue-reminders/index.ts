@@ -15,9 +15,7 @@ const supabase = createClient(
 interface ReminderRule {
   id: string;
   recipient:        "contact" | "business";
-  /** New multi-select array */
   businessTargets?: string[];
-  /** @deprecated kept for backward-compat */
   businessTarget?:  string;
   channel:          "email" | "whatsapp";
   channelValue:     string;
@@ -26,7 +24,6 @@ interface ReminderRule {
   unit:             "minutes" | "hours" | "days";
 }
 
-/** Normalize old single-target field to array */
 function getTargets(rule: ReminderRule): string[] {
   if (rule.businessTargets?.length) return rule.businessTargets;
   if (rule.businessTarget)          return [rule.businessTarget];
@@ -48,9 +45,30 @@ function scheduledAtFor(apptTime: Date, rule: ReminderRule): Date {
     : new Date(apptTime.getTime() + offsetMs);
 }
 
-/** Stored in business_target to deduplicate rule-based reminders */
 function ruleMarker(sourceId: string, ruleId: string, targetId: string) {
   return `rule:${sourceId}:${ruleId}:${targetId}`;
+}
+
+/**
+ * Converts a wall-clock date+hour in the given IANA timezone to an absolute UTC ms.
+ * Uses the same 2-iteration convergence as crm-calendar-book to handle DST correctly.
+ */
+function wallClockToUtcMs(date: string, hour: number, tz: string): number {
+  const [y, mo, d] = date.split("-").map(Number);
+  const fmt = new Intl.DateTimeFormat("en", {
+    timeZone: tz,
+    year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", hour12: false,
+  });
+  let utcMs = Date.UTC(y, mo - 1, d, hour, 0);
+  for (let i = 0; i < 2; i++) {
+    const parts = fmt.formatToParts(new Date(utcMs));
+    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
+    const dh = get("hour") % 24;
+    const displayedMs = Date.UTC(get("year"), get("month") - 1, get("day"), dh, get("minute"));
+    utcMs += Date.UTC(y, mo - 1, d, hour, 0) - displayedMs;
+  }
+  return utcMs;
 }
 
 interface Appointment {
@@ -74,11 +92,13 @@ async function processRules(
   sourceId: string,
   now: Date,
   lookaheadEnd: Date,
+  timezone = "America/La_Paz",
 ): Promise<number> {
   let queued = 0;
 
   for (const appt of appointments) {
-    const apptTime = new Date(`${appt.date}T${String(appt.hour).padStart(2, "0")}:00:00`);
+    // Convert appointment wall-clock time to UTC using the calendar's timezone
+    const apptTime = new Date(wallClockToUtcMs(appt.date, appt.hour, timezone));
     if (apptTime < now) continue;
 
     const { data: contact } = await supabase
@@ -101,7 +121,6 @@ async function processRules(
       if (scheduledAt < new Date(now.getTime() - 3_600_000)) continue;
 
       if (rule.recipient === "contact") {
-        // ── Contact reminder — resolve from the actual contact row ──────────
         const channelValue = rule.channel === "email"
           ? (contact?.email ?? "")
           : (contact?.phone ?? "");
@@ -143,7 +162,6 @@ async function processRules(
         }
 
       } else {
-        // ── Business reminder — one per selected target ──────────────────────
         const targets = getTargets(rule);
 
         for (const targetId of targets) {
@@ -157,7 +175,6 @@ async function processRules(
 
           if ((existingCount ?? 0) > 0) continue;
 
-          // Resolve contact info for this target from DB
           let channelValue = "";
           if (targetId === "admin") {
             const { data: profile } = await supabase
@@ -168,7 +185,6 @@ async function processRules(
             channelValue = rule.channel === "email"
               ? (profile?.contact_email ?? "")
               : (profile?.contact_phone ?? profile?.whatsapp ?? "");
-            // Fallback: use auth email when contact_email is not configured
             if (!channelValue && rule.channel === "email") {
               const { data: { user: authUser } } = await supabase.auth.admin.getUserById(appt.user_id);
               channelValue = authUser?.email ?? "";
@@ -227,12 +243,15 @@ async function processRules(
  *  A) Legacy config-based auto-reminders (crm_reminder_config.auto_enabled)
  *  B) Calendar reminder_rules (crm_calendar_config.reminder_rules)
  *  C) Form reminder_rules for forms linked to calendars
- *     (crm_forms.reminder_rules where crm_calendar_config.linked_form_id = form.id)
+ *
+ * Always flushes send-reminders at the end so personal reminders in the queue
+ * are processed even when no new auto-reminders are enqueued.
  */
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
-  const SITE_URL          = Deno.env.get("SUPABASE_URL") ?? "";
+  const SUPABASE_URL      = Deno.env.get("SUPABASE_URL") ?? "";
+  const SERVICE_KEY       = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
   const LOOKAHEAD_MINUTES = 15;
   const LOOKAHEAD_DAYS    = 7;
   const now               = new Date();
@@ -266,7 +285,6 @@ Deno.serve(async (req) => {
 
       if (!appointments?.length) continue;
 
-      // Monthly limit check
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
       const { count: usedThisMonth } = await supabase
         .from("crm_reminders")
@@ -328,11 +346,11 @@ Deno.serve(async (req) => {
     }
 
     // ════════════════════════════════════════════════════════════════════════════
-    // PASS B — Calendar reminder_rules
+    // PASS B — Calendar reminder_rules (timezone-aware)
     // ════════════════════════════════════════════════════════════════════════════
     const { data: calendarConfigs } = await supabase
       .from("crm_calendar_config")
-      .select("id, user_id, reminder_rules, linked_form_id")
+      .select("id, user_id, reminder_rules, linked_form_id, timezone")
       .not("reminder_rules", "is", null);
 
     for (const calConfig of calendarConfigs ?? []) {
@@ -349,7 +367,9 @@ Deno.serve(async (req) => {
 
       if (!appointments?.length) continue;
 
-      const n = await processRules(calRules, appointments as Appointment[], calConfig.id, now, lookaheadEnd);
+      const calTz = (calConfig as any).timezone ?? "America/La_Paz";
+
+      const n = await processRules(calRules, appointments as Appointment[], calConfig.id, now, lookaheadEnd, calTz);
       totalQueued += n;
 
       // ── Pass C: form rules linked to this calendar ──────────────────────────
@@ -363,20 +383,22 @@ Deno.serve(async (req) => {
         if (form) {
           const formRules = (form.reminder_rules ?? []) as ReminderRule[];
           if (formRules.length) {
-            const m = await processRules(formRules, appointments as Appointment[], form.id, now, lookaheadEnd);
+            const m = await processRules(formRules, appointments as Appointment[], form.id, now, lookaheadEnd, calTz);
             totalQueued += m;
           }
         }
       }
     }
 
-    // ── Flush queue immediately ───────────────────────────────────────────────
-    if (totalQueued > 0) {
-      await fetch(`${SITE_URL}/functions/v1/send-reminders`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      });
-    }
+    // ── Always flush send-reminders so personal/manual queue items are processed
+    // even when no new auto-reminders were enqueued this run.
+    await fetch(`${SUPABASE_URL}/functions/v1/send-reminders`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${SERVICE_KEY}`,
+      },
+    });
 
     return new Response(JSON.stringify({ queued: totalQueued }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
