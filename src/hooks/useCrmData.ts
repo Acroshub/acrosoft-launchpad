@@ -1639,8 +1639,11 @@ export const useCreateReminder = () => {
         .select()
         .single();
       if (error) throw error;
-      // Also enqueue it immediately
-      await supabase.from("crm_reminder_queue").insert({ reminder_id: (data as CrmReminder).id });
+      // Enqueue for processing — RLS allows insert when reminder belongs to current user
+      const { error: qErr } = await supabase
+        .from("crm_reminder_queue")
+        .insert({ reminder_id: (data as CrmReminder).id });
+      if (qErr) console.error("crm_reminder_queue insert failed:", qErr.message);
       return data as CrmReminder;
     },
     onSuccess: () => {

@@ -310,9 +310,10 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
               />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold leading-none">{adminLabel}</p>
-                {profile?.contact_email && (
-                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{profile.contact_email}</p>
-                )}
+                {profile?.contact_email
+                  ? <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{profile.contact_email}</p>
+                  : <p className="text-[10px] text-amber-600 mt-0.5">⚠ Sin email — configúralo en Mi Negocio</p>
+                }
               </div>
             </label>
             {/* Staff */}

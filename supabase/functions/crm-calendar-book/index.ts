@@ -364,6 +364,11 @@ Deno.serve(async (req) => {
                 channelValue = rule.channel === "email"
                   ? (profile?.contact_email ?? "")
                   : (profile?.contact_phone ?? (profile as any)?.whatsapp ?? "");
+                // Fallback: use auth email when contact_email is not configured
+                if (!channelValue && rule.channel === "email") {
+                  const { data: { user: authUser } } = await supabase.auth.admin.getUserById(calendar.user_id);
+                  channelValue = authUser?.email ?? "";
+                }
               } else {
                 const { data: staff } = await supabase
                   .from("crm_staff").select("email, phone").eq("id", targetId).single();

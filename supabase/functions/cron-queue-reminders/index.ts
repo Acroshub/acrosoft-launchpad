@@ -168,6 +168,11 @@ async function processRules(
             channelValue = rule.channel === "email"
               ? (profile?.contact_email ?? "")
               : (profile?.contact_phone ?? profile?.whatsapp ?? "");
+            // Fallback: use auth email when contact_email is not configured
+            if (!channelValue && rule.channel === "email") {
+              const { data: { user: authUser } } = await supabase.auth.admin.getUserById(appt.user_id);
+              channelValue = authUser?.email ?? "";
+            }
           } else {
             const { data: staffMember } = await supabase
               .from("crm_staff")

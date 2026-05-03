@@ -483,6 +483,103 @@ Deno.serve(async (req) => {
       }).catch((e) => console.error("generate-master-doc trigger (non-fatal):", e));
     }
 
+    // ── Fire form submission reminder rules ─────────────────────────────────
+    if (contactId) {
+      try {
+        const formRules = ((form as any).reminder_rules ?? []) as any[];
+        // "on_booking" timing on a form means "on_submission" (same field, different context)
+        const submissionRules = formRules.filter((r: any) =>
+          r.timing === "on_booking" || r.timing === "on_submission"
+        );
+
+        if (submissionRules.length > 0) {
+          const nowIso = new Date().toISOString();
+          let queued = 0;
+
+          for (const rule of submissionRules) {
+            if (rule.recipient === "contact") {
+              const channelValue = rule.channel === "email" ? (email || null) : (phone || null);
+              if (!channelValue) continue;
+
+              const marker = `rule:${form_id}:${rule.id}:contact`;
+              const { count: existing } = await supabase
+                .from("crm_reminders").select("id", { count: "exact", head: true })
+                .eq("contact_id", contactId).eq("business_target", marker);
+              if ((existing ?? 0) > 0) continue;
+
+              const msg = `Hola ${name || "Cliente"}, gracias por completar nuestro formulario. Nos pondremos en contacto contigo pronto.`;
+              const { data: rem } = await supabase.from("crm_reminders").insert({
+                user_id: form.user_id, contact_id: contactId,
+                type: rule.channel,
+                recipient_email: rule.channel === "email" ? channelValue : null,
+                recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
+                scheduled_at: nowIso, message: msg, status: "pending", is_auto: true,
+                business_target: marker,
+              }).select("id").single();
+              if (rem?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: rem.id }); queued++; }
+
+            } else {
+              const targets: string[] = rule.businessTargets?.length
+                ? rule.businessTargets
+                : rule.businessTarget ? [rule.businessTarget] : ["admin"];
+
+              for (const targetId of targets) {
+                const marker = `rule:${form_id}:${rule.id}:${targetId}`;
+                const { count: existing } = await supabase
+                  .from("crm_reminders").select("id", { count: "exact", head: true })
+                  .eq("contact_id", contactId).eq("business_target", marker);
+                if ((existing ?? 0) > 0) continue;
+
+                let channelValue = "";
+                if (targetId === "admin") {
+                  const { data: profile } = await supabase
+                    .from("crm_business_profile").select("contact_email, contact_phone, whatsapp")
+                    .eq("user_id", form.user_id).single();
+                  channelValue = rule.channel === "email"
+                    ? (profile?.contact_email ?? "")
+                    : (profile?.contact_phone ?? profile?.whatsapp ?? "");
+                  // Fallback: use auth email when contact_email is not configured
+                  if (!channelValue && rule.channel === "email") {
+                    const { data: { user: authUser } } = await supabase.auth.admin.getUserById(form.user_id);
+                    channelValue = authUser?.email ?? "";
+                  }
+                } else {
+                  const { data: staffMember } = await supabase
+                    .from("crm_staff").select("email, phone").eq("id", targetId).single();
+                  channelValue = rule.channel === "email"
+                    ? (staffMember?.email ?? "")
+                    : (staffMember?.phone ?? "");
+                }
+                if (!channelValue) continue;
+
+                const msg = `Nuevo formulario completado: ${name || email || "Contacto"}.`;
+                const { data: rem } = await supabase.from("crm_reminders").insert({
+                  user_id: form.user_id, contact_id: contactId,
+                  type: rule.channel,
+                  recipient_email: rule.channel === "email" ? channelValue : null,
+                  recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
+                  scheduled_at: nowIso, message: msg, status: "pending", is_auto: true,
+                  business_target: marker,
+                }).select("id").single();
+                if (rem?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: rem.id }); queued++; }
+              }
+            }
+          }
+
+          if (queued > 0) {
+            const supabaseUrl = (globalThis as any).Deno?.env?.get("SUPABASE_URL") ?? "";
+            const serviceKey  = (globalThis as any).Deno?.env?.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+            fetch(`${supabaseUrl}/functions/v1/send-reminders`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+            }).catch(() => {});
+          }
+        }
+      } catch (e) {
+        console.error("form submission reminders (non-fatal):", e);
+      }
+    }
+
     return respond({ submission_id: submission.id });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
