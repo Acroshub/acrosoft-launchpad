@@ -182,6 +182,11 @@ export const useAppointments = (calendarId?: string | null) => {
   });
 };
 
+function syncToGoogle(appointment_id: string, action: "create" | "update" | "delete") {
+  supabase.functions.invoke("sync-to-google", { body: { appointment_id, action } })
+    .catch((e) => console.warn("sync-to-google (non-fatal):", e));
+}
+
 export const useCreateAppointment = () => {
   const qc = useQueryClient();
   const { ownerUserId } = useStaffPermissions();
@@ -198,6 +203,7 @@ export const useCreateAppointment = () => {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_appointments"] });
       logAction("create", "Cita", `Cita agendada: ${data.date} ${String(data.hour).padStart(2, "0")}:${String(data.minute ?? 0).padStart(2, "0")}`, data.id);
+      syncToGoogle(data.id, "create");
     },
   });
 };
@@ -218,6 +224,7 @@ export const useUpdateAppointment = () => {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_appointments"] });
       logAction("update", "Cita", `Cita actualizada: ${data.date}`, data.id);
+      syncToGoogle(data.id, data.status === "cancelled" ? "delete" : "update");
     },
   });
 };
@@ -226,6 +233,9 @@ export const useDeleteAppointment = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id }: { id: string; name: string }) => {
+      // Sync deletion to Google before removing from DB (needs google_event_id)
+      await supabase.functions.invoke("sync-to-google", { body: { appointment_id: id, action: "delete" } })
+        .catch(() => {});
       const { error } = await supabase.from("crm_appointments").delete().eq("id", id);
       if (error) throw error;
     },

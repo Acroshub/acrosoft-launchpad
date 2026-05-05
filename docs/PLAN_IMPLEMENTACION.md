@@ -1307,15 +1307,21 @@ CREATE TABLE support_notification_recipients (
 
 ---
 
-### AV-1 · Google Calendar OAuth + Sync
-**Estado:** UI lista. Edge Function `google-calendar-oauth` deployada. Token guardado. Falta el sync real.
+### AV-1 · Google Calendar OAuth + Sync ✅ COMPLETADO
+**Estado:** PRODUCCIÓN LISTA (solo pendiente Google Console para clientes reales)
 
-**Pendiente:**
-- Edge Function `sync-to-google`: crear/actualizar/cancelar eventos en Google al operar citas en el CRM
-- Guardar `google_event_id` en `crm_appointments`
-- Refresh automático del token cuando expira
+**Implementado:**
+- ✅ OAuth 2.0 via `google-calendar-oauth` edge function (authorization code flow)
+- ✅ Selección de múltiples calendarios con radio selector en callback page
+- ✅ Token storage con refresh automático (`getValidToken()` con expires_at validation)
+- ✅ Sincronización create/update/delete (edge function `sync-to-google`)
+- ✅ `google_event_id` guardado en `crm_appointments`
+- ✅ Manejo de conflictos de horarios en aplicación
+- ✅ Eliminación de attendees para evitar emails duplicados de Google
+- ✅ Graceful degradation cuando Google no está conectado
+- ✅ Migration SQL: `20260505_google_calendar_integration.sql`
 
-**Archivos:** `supabase/functions/sync-to-google/index.ts`, `src/components/crm/CrmCalendar.tsx`
+**Archivos:** `supabase/functions/google-calendar-oauth/index.ts`, `supabase/functions/sync-to-google/index.ts`, `src/pages/GoogleCalendarCallback.tsx`, `src/components/crm/CrmCalendarConfig.tsx`, `src/hooks/useCrmData.ts`
 
 ---
 
@@ -1341,6 +1347,97 @@ CREATE TABLE support_notification_recipients (
 ### AV-3 · Google Calendar Sync bidireccional
 **Dependencias:** AV-1 completado.
 **Descripción:** Eventos de Google → `crm_appointments`. CRON cada 15 min con `syncToken`. Acrosoft es source of truth en conflictos.
+
+---
+
+### AV-4 · Detalle Completo de Cita en Calendario
+**Prioridad:** ALTA
+**Complejidad:** Media
+**Estimación:** 4-6 horas
+
+**Descripción:**
+Al hacer clic en una cita dentro del calendario del CRM, abrir un modal/drawer mostrando:
+
+**Datos de la Cita:**
+- Fecha y hora
+- Duración
+- Estado (confirmada/cancelada)
+- Notas/descripción
+- Servicio (si aplica)
+- Estado de sincronización con Google
+
+**Datos del Contacto (similar a Contactos):**
+- Nombre y foto (si aplica)
+- Email y teléfono
+- Empresa
+- Tags/etiquetas
+- Campos personalizados
+- Última cita/próximas citas
+- Notas del contacto
+
+**Acciones disponibles:**
+- Editar cita
+- Cancelar cita
+- Ver perfil completo del contacto
+- Crear tarea relacionada (futuro)
+
+**Archivos:** `src/components/crm/CrmCalendar.tsx`, `src/components/crm/AppointmentDetailModal.tsx` (nuevo), `src/hooks/useCrmData.ts`
+
+---
+
+### AV-5 · Configuración Producción - Google Console
+**Prioridad:** ALTA (bloquea lanzamiento a clientes reales)
+**Complejidad:** Alta (proceso externo de Google)
+**Estimación:** 2-4 semanas (depende de Google review)
+**Dependencias:** AV-1 completado.
+
+**Descripción:**
+Preparar el proyecto de Google Cloud para producción con clientes reales.
+
+**Tareas:**
+
+**1. Google Cloud Console Setup (Ya completado básicamente)**
+- ✅ Proyecto de Google Cloud creado
+- ✅ OAuth 2.0 credentials configuradas
+- ⏳ Verificar scopes actuales vs requeridos
+
+**2. OAuth Consent Screen (PENDIENTE - CRÍTICO)**
+- [ ] Cambiar de "testing" a "production"
+- [ ] Completar Privacy Policy URL (debe ser accesible)
+- [ ] Completar Terms of Service URL (debe ser accesible)
+- [ ] Agregar información de contacto de soporte
+- [ ] Subir logo de marca
+- [ ] Definir "User Type" como "External"
+- [ ] Listar scopes requeridos de forma clara
+
+**3. Scopes Auditados (VERIFICAR)**
+- Scope actual: `https://www.googleapis.com/auth/calendar`
+- ✅ Permite leer calendarios, crear/editar/eliminar eventos
+- ⏳ Considerar limitar a solo "calendar.events" si es posible (menos permisivo)
+
+**4. Google Review Process**
+- [ ] Enviar para review
+- [ ] Esperar 1-2 semanas (típicamente)
+- [ ] Responder preguntas de Google (si las hay)
+- [ ] Recibir aprobación
+
+**5. Test Users (mientras está en review)**
+- [ ] Mantener lista de test users en Google Console
+- [ ] Permitir que clientes de prueba usen feature durante review
+
+**6. Documentación para Clientes**
+- [ ] Crear guía: "Cómo conectar tu Google Calendar"
+- [ ] Explicar qué permisos se solicitan y por qué
+- [ ] Guía de troubleshooting (token expirado, desconexión, etc.)
+
+**7. Monitoreo Post-Lanzamiento**
+- [ ] Logs del uso de Google Calendar API
+- [ ] Alertas de errores de sincronización
+- [ ] Dashboard de feature usage
+
+**Archivos a documentar:**
+- `docs/GOOGLE_CALENDAR_SETUP.md` (guía para clientes)
+- `docs/GOOGLE_CLOUD_PRODUCTION.md` (documentación interna)
 
 ---
 

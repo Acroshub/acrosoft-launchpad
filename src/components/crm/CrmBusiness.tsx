@@ -8,6 +8,7 @@ import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import type { CrmBusinessProfile, CrmStaff } from "@/lib/supabase";
+import { validateEmail, validatePhone, validateUrl } from "@/lib/validators";
 
 const LOGO_BUCKET = "form-uploads";
 
@@ -22,7 +23,13 @@ const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
 ];
 
 // ─── Editable field ──────────────────────────────────────────────────────────
-const EditableField = ({ label, value, onSave, readOnly }: { label: string; value: string; onSave: (val: string) => Promise<void>; readOnly?: boolean }) => {
+const EditableField = ({ label, value, onSave, readOnly, validate }: {
+  label: string;
+  value: string;
+  onSave: (val: string) => Promise<void>;
+  readOnly?: boolean;
+  validate?: (v: string) => string | null;
+}) => {
   if (readOnly) return (
     <div>
       <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1">{label}</p>
@@ -33,16 +40,19 @@ const EditableField = ({ label, value, onSave, readOnly }: { label: string; valu
   const [editing, setEditing] = useState(false);
   const [val, setVal]         = useState(value);
   const [saving, setSaving]   = useState(false);
+  const [fieldError, setFieldError] = useState<string | null>(null);
 
   useEffect(() => {
     setVal(value);
   }, [value]);
 
   const handleSave = async () => {
-    if (val === value) {
-      setEditing(false);
-      return;
+    if (val === value) { setEditing(false); return; }
+    if (validate) {
+      const err = validate(val);
+      if (err) { setFieldError(err); return; }
     }
+    setFieldError(null);
     setSaving(true);
     try {
       await onSave(val);
@@ -59,26 +69,29 @@ const EditableField = ({ label, value, onSave, readOnly }: { label: string; valu
     <div>
       <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1">{label}</p>
       {editing ? (
-        <div className="flex items-center gap-2">
-          <Input
-            value={val}
-            onChange={(e) => setVal(e.target.value)}
-            onBlur={handleSave}
-            onKeyDown={(e) => { 
-                if (e.key === "Enter") handleSave(); 
-                if (e.key === "Escape") { setVal(value); setEditing(false); }
-            }}
-            autoFocus
-            disabled={saving}
-            className="h-8 text-sm flex-1"
-          />
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="p-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
-          >
-            {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
-          </button>
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <Input
+              value={val}
+              onChange={(e) => { setVal(e.target.value); setFieldError(null); }}
+              onBlur={handleSave}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleSave();
+                if (e.key === "Escape") { setVal(value); setEditing(false); setFieldError(null); }
+              }}
+              autoFocus
+              disabled={saving}
+              className="h-8 text-sm flex-1"
+            />
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="p-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+            </button>
+          </div>
+          {fieldError && <p className="text-xs text-destructive">{fieldError}</p>}
         </div>
       ) : (
         <div className="flex items-center gap-2 group">
@@ -131,8 +144,8 @@ const StaffPersonalTab = ({ staff, canEdit, onUpdate }: {
   <div className="bg-card border rounded-2xl p-6 space-y-6 max-w-xl">
     <h2 className="text-sm font-semibold">Información Personal</h2>
     <div className="grid sm:grid-cols-2 gap-5">
-      <EditableField label="Nombre completo" value={staff.name}         readOnly={!canEdit} onSave={val => onUpdate({ name: val })} />
-      <EditableField label="Email"           value={staff.email}        readOnly onSave={() => Promise.resolve()} />
+      <EditableField label="Nombre completo" value={staff.name}              readOnly={!canEdit} onSave={val => onUpdate({ name: val })} />
+      <EditableField label="Email"           value={staff.email}             readOnly onSave={() => Promise.resolve()} />
       <EditableField label="Cargo / Rol"     value={staff.description ?? ""} readOnly={!canEdit} onSave={val => onUpdate({ description: val || null })} />
     </div>
   </div>
@@ -143,11 +156,11 @@ const PersonalTab = ({ profile, update }: { profile: CrmBusinessProfile | null, 
   <div className="bg-card border rounded-2xl p-6 space-y-6 max-w-xl">
     <h2 className="text-sm font-semibold">Información Personal</h2>
     <div className="grid sm:grid-cols-2 gap-5">
-      <EditableField label="Nombre"          value={profile?.first_name || ""}  onSave={val => update({ first_name: val })} />
-      <EditableField label="Apellido"         value={profile?.last_name || ""}   onSave={val => update({ last_name: val })} />
-      <EditableField label="Email de contacto" value={profile?.contact_email || ""} onSave={val => update({ contact_email: val })} />
-      <EditableField label="Teléfono"         value={profile?.contact_phone || ""} onSave={val => update({ contact_phone: val })} />
-      <EditableField label="Rol / Cargo"      value={profile?.role || ""}        onSave={val => update({ role: val })} />
+      <EditableField label="Nombre"            value={profile?.first_name || ""}    onSave={val => update({ first_name: val })} />
+      <EditableField label="Apellido"          value={profile?.last_name || ""}    onSave={val => update({ last_name: val })} />
+      <EditableField label="Email de contacto" value={profile?.contact_email || ""} onSave={val => update({ contact_email: val })} validate={validateEmail} />
+      <EditableField label="Teléfono"          value={profile?.contact_phone || ""} onSave={val => update({ contact_phone: val })} validate={validatePhone} />
+      <EditableField label="Rol / Cargo"       value={profile?.role || ""}          onSave={val => update({ role: val })} />
     </div>
   </div>
 );
@@ -181,8 +194,8 @@ const NegocioTab = ({ profile, update, readOnly = false }: { profile: CrmBusines
           <EditableField label="Rubro / Industria"  value={profile?.industry || ""}      readOnly={readOnly} onSave={val => update({ industry: val })} />
           <EditableField label="Ciudad"              value={profile?.city || ""}          readOnly={readOnly} onSave={val => update({ city: val })} />
           <EditableField label="País"                value={profile?.country || ""}       readOnly={readOnly} onSave={val => update({ country: val })} />
-          <EditableField label="Sitio web"           value={profile?.website || ""}       readOnly={readOnly} onSave={val => update({ website: val })} />
-          <EditableField label="WhatsApp"            value={profile?.whatsapp || ""}      readOnly={readOnly} onSave={val => update({ whatsapp: val })} />
+          <EditableField label="Sitio web"           value={profile?.website || ""}       readOnly={readOnly} onSave={val => update({ website: val })} validate={validateUrl} />
+          <EditableField label="WhatsApp"            value={profile?.whatsapp || ""}      readOnly={readOnly} onSave={val => update({ whatsapp: val })} validate={validatePhone} />
           <EditableField label="Instagram"           value={profile?.instagram || ""}     readOnly={readOnly} onSave={val => update({ instagram: val })} />
           <EditableField label="Facebook"            value={profile?.facebook || ""}      readOnly={readOnly} onSave={val => update({ facebook: val })} />
         </div>

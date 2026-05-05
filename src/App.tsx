@@ -14,6 +14,7 @@ import CrmSetup from "./pages/CrmSetup.tsx";
 import NotFound from "./pages/NotFound.tsx";
 import TerminosPoliticas from "./pages/TerminosPoliticas.tsx";
 import ProtectedRoute from "./components/shared/ProtectedRoute.tsx";
+import GoogleCalendarCallback from "./pages/GoogleCalendarCallback.tsx";
 
 const queryClient = new QueryClient();
 
@@ -32,6 +33,7 @@ const App = () => (
           <Route path="/f/:formId"     element={<FormPage />} />
           <Route path="/book/:calendarId" element={<BookingPage />} />
           <Route path="/terminos_y_politicas_de_privacidad" element={<TerminosPoliticas />} />
+          <Route path="/oauth/google-calendar" element={<GoogleCalendarCallback />} />
 
           {/* Client invitation setup — public (session comes from invite link) */}
           <Route path="/crm-setup" element={<CrmSetup />} />

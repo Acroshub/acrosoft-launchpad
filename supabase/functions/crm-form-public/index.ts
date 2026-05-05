@@ -366,7 +366,7 @@ Deno.serve(async (req) => {
 
     const { data: form, error: formError } = await supabase
       .from("crm_forms")
-      .select("user_id, fields, sections, auto_tags, pipeline_ids, slug")
+      .select("user_id, fields, sections, auto_tags, pipeline_ids, slug, reminder_rules")
       .eq("id", form_id)
       .single();
 

@@ -1292,25 +1292,32 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
              <div className="flex items-center gap-2 text-sm font-medium">
                <LinkIcon size={14} className="text-primary"/> Link (directo)
              </div>
-             <div className="flex gap-2">
-               <Input
-                 readOnly
-                 value={`${window.location.origin}/f/${form.id}`}
-                 className="h-8 text-[11px] bg-secondary/30 font-mono"
-               />
-               <Button
-                 variant="secondary" size="icon" className="h-8 w-8 shrink-0"
-                 onClick={() => navigator.clipboard.writeText(`${window.location.origin}/f/${form.id}`)}
-               >
-                 <Copy size={13}/>
-               </Button>
-               <Button
-                 variant="outline" size="icon" className="h-8 w-8 shrink-0"
-                 onClick={() => window.open(`/f/${form.id}`, "_blank")}
-               >
-                 <ExternalLink size={13}/>
-               </Button>
-             </div>
+             {(["es", "en"] as const).map((lang) => (
+               <div key={lang} className="space-y-1">
+                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                   {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
+                 </p>
+                 <div className="flex gap-2">
+                   <Input
+                     readOnly
+                     value={`${window.location.origin}/f/${form.id}?lang=${lang}`}
+                     className="h-8 text-[11px] bg-secondary/30 font-mono"
+                   />
+                   <Button
+                     variant="secondary" size="icon" className="h-8 w-8 shrink-0"
+                     onClick={() => navigator.clipboard.writeText(`${window.location.origin}/f/${form.id}?lang=${lang}`)}
+                   >
+                     <Copy size={13}/>
+                   </Button>
+                   <Button
+                     variant="outline" size="icon" className="h-8 w-8 shrink-0"
+                     onClick={() => window.open(`/f/${form.id}?lang=${lang}`, "_blank")}
+                   >
+                     <ExternalLink size={13}/>
+                   </Button>
+                 </div>
+               </div>
+             ))}
            </div>
 
            {/* Iframe */}
@@ -1318,19 +1325,29 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
              <div className="flex items-center gap-2 text-sm font-medium">
                <Code size={14} className="text-orange-500"/> Iframe (HTML)
              </div>
-             <div className="relative">
-               <textarea
-                 readOnly
-                 value={`<iframe src="${window.location.origin}/f/${form.id}" width="100%" height="600px" frameborder="0" style="border:none;border-radius:12px;"></iframe>`}
-                 className="w-full h-[76px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-               />
-               <Button
-                 variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"
-                 onClick={() => navigator.clipboard.writeText(`<iframe src="${window.location.origin}/f/${form.id}" width="100%" height="600px" frameborder="0" style="border:none;border-radius:12px;"></iframe>`)}
-               >
-                 <Copy size={11}/>
-               </Button>
-             </div>
+             {(["es", "en"] as const).map((lang) => {
+               const code = `<iframe src="${window.location.origin}/f/${form.id}?lang=${lang}" width="100%" height="600px" frameborder="0" style="border:none;border-radius:12px;"></iframe>`;
+               return (
+                 <div key={lang} className="space-y-1">
+                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                     {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
+                   </p>
+                   <div className="relative">
+                     <textarea
+                       readOnly
+                       value={code}
+                       className="w-full h-[76px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                     />
+                     <Button
+                       variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"
+                       onClick={() => navigator.clipboard.writeText(code)}
+                     >
+                       <Copy size={11}/>
+                     </Button>
+                   </div>
+                 </div>
+               );
+             })}
            </div>
 
            {/* Javascript */}
@@ -1338,19 +1355,29 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
              <div className="flex items-center gap-2 text-sm font-medium">
                <Braces size={14} className="text-blue-500"/> Javascript Embed
              </div>
-             <div className="relative">
-               <textarea
-                 readOnly
-                 value={`<div id="acrosoft-form-${form.id}"></div>\n<script>\n  (function(){\n    var i=document.createElement('iframe');\n    i.src='${window.location.origin}/f/${form.id}';\n    i.width='100%';i.height='600';i.frameBorder='0';\n    i.style.borderRadius='12px';\n    document.getElementById('acrosoft-form-${form.id}').appendChild(i);\n  })();\n</script>`}
-                 className="w-full h-[100px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-               />
-               <Button
-                 variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"
-                 onClick={() => navigator.clipboard.writeText(`<div id="acrosoft-form-${form.id}"></div>\n<script>\n  (function(){\n    var i=document.createElement('iframe');\n    i.src='${window.location.origin}/f/${form.id}';\n    i.width='100%';i.height='600';i.frameBorder='0';\n    i.style.borderRadius='12px';\n    document.getElementById('acrosoft-form-${form.id}').appendChild(i);\n  })();\n</script>`)}
-               >
-                 <Copy size={11}/>
-               </Button>
-             </div>
+             {(["es", "en"] as const).map((lang) => {
+               const code = `<div id="acrosoft-form-${form.id}-${lang}"></div>\n<script>\n  (function(){\n    var i=document.createElement('iframe');\n    i.src='${window.location.origin}/f/${form.id}?lang=${lang}';\n    i.width='100%';i.height='600';i.frameBorder='0';\n    i.style.borderRadius='12px';\n    document.getElementById('acrosoft-form-${form.id}-${lang}').appendChild(i);\n  })();\n</script>`;
+               return (
+                 <div key={lang} className="space-y-1">
+                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                     {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
+                   </p>
+                   <div className="relative">
+                     <textarea
+                       readOnly
+                       value={code}
+                       className="w-full h-[100px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                     />
+                     <Button
+                       variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"
+                       onClick={() => navigator.clipboard.writeText(code)}
+                     >
+                       <Copy size={11}/>
+                     </Button>
+                   </div>
+                 </div>
+               );
+             })}
            </div>
         </div>
       </div>

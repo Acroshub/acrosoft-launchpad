@@ -402,6 +402,15 @@ Deno.serve(async (req) => {
       console.error("on_booking reminders (non-fatal):", e);
     }
 
+    // ── Sync to Google Calendar (fire-and-forget) ────────────────────────────
+    const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+    const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    fetch(`${supabaseUrl}/functions/v1/sync-to-google`, {
+      method:  "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+      body:    JSON.stringify({ appointment_id: appointment.id, action: "create" }),
+    }).catch(() => {});
+
     return respond({ appointment_id: appointment.id, contact_id: contactId });
   } catch (err) {
     console.error(err);

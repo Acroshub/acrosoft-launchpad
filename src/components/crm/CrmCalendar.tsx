@@ -736,7 +736,7 @@ const BlockDetailPanel = ({
 const CrmCalendar = () => {
   // ─── Supabase hooks ───
   const { allowedIds, canItem } = useStaffPermissions();
-  const { data: allCalendars = [], isLoading: loadingConfig, isFetching: fetchingConfig } = useCalendars();
+  const { data: allCalendars = [], isLoading: loadingConfig, isFetching: fetchingConfig, refetch: refetchCalendars } = useCalendars();
   const allowedCalendarIds = allowedIds("calendarios");
   const calendars = allowedCalendarIds
     ? allCalendars.filter(c => allowedCalendarIds.includes(c.id))
@@ -1009,6 +1009,7 @@ const CrmCalendar = () => {
         existingCalendar={editingCalendar}
         onBack={() => setEditingCalendar(undefined)}
         onCreated={(id) => handleSelectCalendar(id)}
+        onGoogleConnected={() => refetchCalendars()}
       />
     );
   }

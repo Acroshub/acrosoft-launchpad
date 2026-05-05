@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import PhoneInput from "@/components/shared/PhoneInput";
+import { validateEmail, validatePhone } from "@/lib/validators";
 
 // ─── Inline editable field ────────────────────────────────────────────────────
 const InlineEdit = ({
@@ -38,15 +39,22 @@ const InlineEdit = ({
   onSave: (val: string) => Promise<void>;
   readOnly?: boolean;
 }) => {
-  const [editing, setEditing] = useState(false);
-  const [val, setVal] = useState(value ?? "");
-  const [saving, setSaving] = useState(false);
+  const [editing, setEditing]     = useState(false);
+  const [val, setVal]             = useState(value ?? "");
+  const [saving, setSaving]       = useState(false);
+  const [fieldError, setFieldError] = useState<string | null>(null);
 
   useEffect(() => { setVal(value ?? ""); }, [value]);
 
   const commit = async () => {
     const trimmed = val.trim();
     if (trimmed === (value ?? "")) { setEditing(false); return; }
+    // Format validation
+    let err: string | null = null;
+    if (trimmed && type === "email") err = validateEmail(trimmed);
+    if (trimmed && type === "tel")   err = validatePhone(trimmed);
+    if (err) { setFieldError(err); return; }
+    setFieldError(null);
     setSaving(true);
     try {
       await onSave(trimmed);
@@ -62,43 +70,49 @@ const InlineEdit = ({
   if (editing) {
     if (type === "tel") {
       return (
-        <div
-          className="flex items-center gap-2"
-          onBlur={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node)) commit();
-          }}
-        >
-          <Icon size={13} className="shrink-0 text-muted-foreground" />
-          <PhoneInput
-            value={val}
-            onChange={setVal}
-            compact
-            autoFocus
-            disabled={saving}
-          />
-          {saving && <Loader2 size={13} className="animate-spin text-muted-foreground shrink-0" />}
+        <div className="space-y-0.5">
+          <div
+            className="flex items-center gap-2"
+            onBlur={(e) => {
+              if (!e.currentTarget.contains(e.relatedTarget as Node)) commit();
+            }}
+          >
+            <Icon size={13} className="shrink-0 text-muted-foreground" />
+            <PhoneInput
+              value={val}
+              onChange={(v) => { setVal(v); setFieldError(null); }}
+              compact
+              autoFocus
+              disabled={saving}
+            />
+            {saving && <Loader2 size={13} className="animate-spin text-muted-foreground shrink-0" />}
+          </div>
+          {fieldError && <p className="text-[10px] text-destructive ml-5">{fieldError}</p>}
         </div>
       );
     }
 
     return (
-      <div className="flex items-center gap-2">
-        <Icon size={13} className="shrink-0 text-muted-foreground" />
-        <Input
-          autoFocus
-          type={type}
-          value={val}
-          onChange={(e) => setVal(e.target.value)}
-          onBlur={commit}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") commit();
-            if (e.key === "Escape") { setVal(value ?? ""); setEditing(false); }
-          }}
-          disabled={saving}
-          placeholder={placeholder}
-          className="h-7 text-xs flex-1"
-        />
-        {saving && <Loader2 size={13} className="animate-spin text-muted-foreground shrink-0" />}
+      <div className="space-y-0.5">
+        <div className="flex items-center gap-2">
+          <Icon size={13} className="shrink-0 text-muted-foreground" />
+          <Input
+            autoFocus
+            type={type}
+            value={val}
+            onChange={(e) => { setVal(e.target.value); setFieldError(null); }}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") commit();
+              if (e.key === "Escape") { setVal(value ?? ""); setEditing(false); setFieldError(null); }
+            }}
+            disabled={saving}
+            placeholder={placeholder}
+            className="h-7 text-xs flex-1"
+          />
+          {saving && <Loader2 size={13} className="animate-spin text-muted-foreground shrink-0" />}
+        </div>
+        {fieldError && <p className="text-[10px] text-destructive ml-5">{fieldError}</p>}
       </div>
     );
   }
@@ -1390,6 +1404,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const [showNew, setShowNew]       = useState(false);
   const [newName, setNewName]       = useState("");
   const [newEmail, setNewEmail]     = useState("");
+  const [newEmailError, setNewEmailError] = useState<string | null>(null);
 
   // Import wizard
   const [showImport, setShowImport] = useState(false);
@@ -1460,6 +1475,9 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
 
   const handleCreateContact = async () => {
     if (!newName.trim() || !newEmail.trim()) return;
+    const emailErr = validateEmail(newEmail.trim());
+    if (emailErr) { setNewEmailError(emailErr); return; }
+    setNewEmailError(null);
     try {
       await createContact.mutateAsync({
         name: newName.trim(),
@@ -1592,7 +1610,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       </div>
 
       {/* New contact dialog */}
-      <Dialog open={showNew} onOpenChange={setShowNew}>
+      <Dialog open={showNew} onOpenChange={(v) => { if (!v) { setShowNew(false); setNewName(""); setNewEmail(""); setNewEmailError(null); } else setShowNew(true); }}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader>
             <DialogTitle className="text-base font-semibold">Nuevo Contacto</DialogTitle>
@@ -1612,7 +1630,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Email *</label>
               <Input
                 value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
+                onChange={(e) => { setNewEmail(e.target.value); setNewEmailError(null); }}
                 placeholder="email@ejemplo.com"
                 className="h-9"
                 type="email"
@@ -1620,10 +1638,11 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                   if (e.key === "Enter" && newName.trim() && newEmail.trim()) handleCreateContact();
                 }}
               />
+              {newEmailError && <p className="text-xs text-destructive mt-1">{newEmailError}</p>}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" onClick={() => { setShowNew(false); setNewName(""); setNewEmail(""); }}>
+            <Button variant="ghost" onClick={() => { setShowNew(false); setNewName(""); setNewEmail(""); setNewEmailError(null); }}>
               Cancelar
             </Button>
             <Button

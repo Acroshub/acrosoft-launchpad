@@ -144,16 +144,19 @@ const StepLabel = ({
 const Field = ({
   label,
   required,
+  error,
   children,
 }: {
   label: string;
   required?: boolean;
+  error?: string;
   children: React.ReactNode;
 }) => (
   <div className="space-y-1">
     <label className="block text-xs font-medium text-gray-500">
       {label}{required && <span className="text-red-400 ml-0.5">*</span>}
     </label>
+    {error && <p className="text-xs text-red-500 font-medium">{error}</p>}
     {children}
   </div>
 );
@@ -195,11 +198,13 @@ const BookingForm = ({
   onBack,
   lang = "es",
 }: BookingFormProps) => {
-  const T = widgetTranslations[lang].calendar;
+  const T  = widgetTranslations[lang].calendar;
+  const TF = widgetTranslations[lang].form;
   const { data: form } = usePublicForm(linkedFormId ?? "");
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues]           = useState<Record<string, string>>({});
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState("");
+  const [submitError, setSubmitError] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsError, setTermsError] = useState(false);
 
@@ -217,17 +222,51 @@ const BookingForm = ({
     return f.length > 0 ? f : defaultBookingFields;
   }, [form, defaultBookingFields]);
 
+  const validateField = (field: any, value: string): string | null => {
+    const trimmed = value?.trim() ?? "";
+    if (!trimmed) return null; // vacío lo maneja el check de required
+    if (field.type === "email") {
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) return TF.invalidEmail;
+    }
+    if (field.type === "phone") {
+      const digits = trimmed.replace(/\D/g, "");
+      if (digits.length < 7) return TF.invalidPhone;
+    }
+    if (field.type === "url") {
+      if (!/^https?:\/\/.+/.test(trimmed)) return TF.invalidUrl;
+    }
+    return null;
+  };
+
+  const handleBlur = (fieldId: string) => {
+    const field = fields.find((f: any) => f.id === fieldId);
+    if (!field) return;
+    const err = validateField(field, values[fieldId] ?? "");
+    if (err) setFieldErrors(fe => ({ ...fe, [fieldId]: err }));
+  };
+
   const handleSubmit = async () => {
-    const missing = fields.filter((f: any) => f.required && !values[f.id]?.trim());
-    if (missing.length > 0) {
-      setError(T.errorRequired(missing.map((f: any) => f.label).join(", ")));
+    const newErrors: Record<string, string> = {};
+    for (const f of fields as any[]) {
+      const val = values[f.id]?.trim() ?? "";
+      if (f.required && !val) {
+        newErrors[f.id] = TF.requiredError(f.label);
+      } else if (val) {
+        const typeErr = validateField(f, val);
+        if (typeErr) newErrors[f.id] = typeErr;
+      }
+    }
+    if (Object.keys(newErrors).length > 0) {
+      setFieldErrors(newErrors);
+      setSubmitError("");
       return;
     }
     if (!termsAccepted) {
       setTermsError(true);
       return;
     }
-    setError("");
+    setFieldErrors({});
+    setSubmitError("");
     setTermsError(false);
     setIsSubmitting(true);
     const termsAt = new Date().toISOString();
@@ -243,7 +282,7 @@ const BookingForm = ({
       if (!res.ok) throw new Error((await res.json())?.error ?? T.errorBooking);
       onSuccess();
     } catch (e: any) {
-      setError(e.message ?? T.errorGeneral);
+      setSubmitError(e.message ?? T.errorGeneral);
     } finally {
       setIsSubmitting(false);
     }
@@ -275,26 +314,30 @@ const BookingForm = ({
       <div className="space-y-3.5">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{T.yourData}</p>
         {fields.map((field: any) => (
-          <Field key={field.id} label={field.label} required={field.required}>
+          <Field key={field.id} label={field.label} required={field.required} error={fieldErrors[field.id]}>
             {field.type === "textarea" ? (
               <textarea
                 value={values[field.id] ?? ""}
-                onChange={(e) => setValues((v) => ({ ...v, [field.id]: e.target.value }))}
+                onChange={(e) => { setValues((v) => ({ ...v, [field.id]: e.target.value })); if (fieldErrors[field.id]) setFieldErrors(fe => ({ ...fe, [field.id]: "" })); }}
+                onBlur={() => handleBlur(field.id)}
                 placeholder={field.placeholder ?? ""}
                 rows={3}
                 className={`${inputCls} resize-none`}
               />
             ) : field.type === "phone" ? (
-              <PhoneInput
-                value={values[field.id] ?? ""}
-                onChange={(v) => setValues((sv) => ({ ...sv, [field.id]: v }))}
-                placeholder={field.placeholder}
-              />
+              <div onBlur={() => handleBlur(field.id)}>
+                <PhoneInput
+                  value={values[field.id] ?? ""}
+                  onChange={(v) => { setValues((sv) => ({ ...sv, [field.id]: v })); if (fieldErrors[field.id]) setFieldErrors(fe => ({ ...fe, [field.id]: "" })); }}
+                  placeholder={field.placeholder}
+                />
+              </div>
             ) : (
               <input
                 type={field.type === "email" ? "email" : "text"}
                 value={values[field.id] ?? ""}
-                onChange={(e) => setValues((v) => ({ ...v, [field.id]: e.target.value }))}
+                onChange={(e) => { setValues((v) => ({ ...v, [field.id]: e.target.value })); if (fieldErrors[field.id]) setFieldErrors(fe => ({ ...fe, [field.id]: "" })); }}
+                onBlur={() => handleBlur(field.id)}
                 placeholder={field.placeholder ?? ""}
                 className={inputCls}
               />
@@ -303,8 +346,8 @@ const BookingForm = ({
         ))}
       </div>
 
-      {error && (
-        <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{error}</p>
+      {submitError && (
+        <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{submitError}</p>
       )}
 
       {/* Terms checkbox */}
@@ -363,8 +406,7 @@ const BookingForm = ({
 
 // ─── Main CalendarRenderer ────────────────────────────────────────────────────
 
-const CalendarRenderer = ({ calendarId, lang = "es" }: { calendarId: string; lang?: WidgetLang }) => {
-  const T = widgetTranslations[lang].calendar;
+const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; lang?: WidgetLang }) => {
   const today = new Date();
   const [viewYear, setViewYear]   = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -374,6 +416,9 @@ const CalendarRenderer = ({ calendarId, lang = "es" }: { calendarId: string; lan
   const [visitorTz, setVisitorTz] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
 
   const { data: calendar, isLoading } = usePublicCalendar(calendarId);
+  // URL param overrides stored language; stored language overrides default "es"
+  const lang: WidgetLang = langProp ?? (calendar?.language as WidgetLang | undefined) ?? "es";
+  const T = widgetTranslations[lang].calendar;
   const userId = (calendar as any)?.user_id as string | undefined;
 
   // Always use the resolved UUID from the calendar record, not the raw prop.

@@ -45,6 +45,10 @@ interface PublicField {
   subFields?: PublicSubField[];
   maxItems?: number;
   allowedServiceIds?: string[];
+  min?: number | string;
+  max?: number | string;
+  minLength?: number;
+  maxLength?: number;
 }
 
 // ─── Public Data Hooks (no auth required) ────────────────────────────────────
@@ -130,6 +134,46 @@ const loadFbPixel = (pixelId: string) => {
 const fbTrack = (event: string) => {
   if (window.fbq) window.fbq("track", event);
 };
+
+// ─── Field Validation ─────────────────────────────────────────────────────────
+
+type FormT = typeof widgetTranslations["es"]["form"];
+
+function validateFieldValue(field: PublicField, value: any, T: FormT): string | null {
+  const isEmpty =
+    value === undefined || value === null || value === "" ||
+    (Array.isArray(value) && value.length === 0);
+  if (isEmpty) return null; // vacío lo maneja el check de required
+
+  if (field.type === "email") {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value))) return T.invalidEmail;
+  }
+  if (field.type === "phone") {
+    const digits = String(value).replace(/\D/g, "");
+    if (digits.length < 7) return T.invalidPhone;
+  }
+  if (field.type === "url") {
+    if (!/^https?:\/\/.+/.test(String(value))) return T.invalidUrl;
+  }
+  if (field.type === "number") {
+    const num = Number(value);
+    if (isNaN(num)) return T.invalidNumber;
+    if (field.min !== undefined && num < Number(field.min)) return T.numberMin(Number(field.min));
+    if (field.max !== undefined && num > Number(field.max)) return T.numberMax(Number(field.max));
+  }
+  if (field.type === "date") {
+    const d = new Date(String(value));
+    if (isNaN(d.getTime())) return T.invalidDate;
+    if (field.min && new Date(String(value)) < new Date(String(field.min))) return T.dateMin(String(field.min));
+    if (field.max && new Date(String(value)) > new Date(String(field.max))) return T.dateMax(String(field.max));
+  }
+  if (field.type === "text" || field.type === "textarea" || field.type === "address") {
+    const str = String(value);
+    if (field.minLength !== undefined && str.length < field.minLength) return T.tooShort(field.minLength);
+    if (field.maxLength !== undefined && str.length > field.maxLength) return T.tooLong(field.maxLength);
+  }
+  return null;
+}
 
 // ─── Field Wrapper ────────────────────────────────────────────────────────────
 
@@ -502,6 +546,7 @@ const FieldRenderer = ({
   field,
   value,
   onChange,
+  onBlur,
   formUserId,
   error,
   lang = "es",
@@ -509,6 +554,7 @@ const FieldRenderer = ({
   field: PublicField;
   value: any;
   onChange: (v: any) => void;
+  onBlur?: () => void;
   formUserId: string | null;
   error?: string;
   lang?: WidgetLang;
@@ -659,6 +705,7 @@ const FieldRenderer = ({
         <textarea
           value={value ?? ""}
           onChange={e => onChange(e.target.value)}
+          onBlur={onBlur}
           placeholder={field.placeholder}
           rows={4}
           className="w-full rounded-xl border border-input bg-background text-sm px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50 mt-1"
@@ -670,7 +717,7 @@ const FieldRenderer = ({
   if (field.type === "phone") {
     return (
       <FieldWrapper label={field.label} required={field.required} error={error}>
-        <div className="mt-1">
+        <div className="mt-1" onBlur={onBlur}>
           <PhoneInput
             value={value ?? ""}
             onChange={onChange}
@@ -696,6 +743,7 @@ const FieldRenderer = ({
         type={inputType}
         value={value ?? ""}
         onChange={e => onChange(e.target.value)}
+        onBlur={onBlur}
         placeholder={field.placeholder}
         className="h-11 text-sm mt-1"
       />
@@ -769,9 +817,11 @@ const ConfirmationView = ({
 
 // ─── Main FormRenderer Component ──────────────────────────────────────────────
 
-const FormRenderer = ({ formId, lang = "es" }: { formId: string; lang?: WidgetLang }) => {
-  const T = widgetTranslations[lang].form;
+const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: WidgetLang }) => {
   const { data: form, isLoading, error: loadError } = usePublicForm(formId);
+  // URL param overrides stored language; stored language overrides default "es"
+  const lang: WidgetLang = langProp ?? (form?.language as WidgetLang | undefined) ?? "es";
+  const T = widgetTranslations[lang].form;
 
   const sections = useMemo<PublicSection[]>(() => {
     if (!form?.sections) return [];
@@ -843,17 +893,32 @@ const FormRenderer = ({ formId, lang = "es" }: { formId: string; lang?: WidgetLa
   const validate = (): boolean => {
     const newErrors: Record<string, string> = {};
     for (const field of currentFields) {
-      if (!field.required || field.type === "heading") continue;
+      if (field.type === "heading") continue;
       const val = formValues[field.id];
       const isEmpty =
         val === undefined ||
         val === null ||
         val === "" ||
         (Array.isArray(val) && val.length === 0);
-      if (isEmpty) newErrors[field.id] = T.requiredError(field.label);
+      if (field.required && isEmpty) {
+        newErrors[field.id] = T.requiredError(field.label);
+      } else if (!isEmpty) {
+        const typeErr = validateFieldValue(field, val, T);
+        if (typeErr) newErrors[field.id] = typeErr;
+      }
     }
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
+  };
+
+  const handleBlur = (fieldId: string) => {
+    const field = currentFields.find(f => f.id === fieldId);
+    if (!field) return;
+    const val = formValues[fieldId];
+    const typeErr = validateFieldValue(field, val, T);
+    if (typeErr) {
+      setErrors(e => ({ ...e, [fieldId]: typeErr }));
+    }
   };
 
   const next = () => {
@@ -1033,11 +1098,13 @@ const FormRenderer = ({ formId, lang = "es" }: { formId: string; lang?: WidgetLa
             ) : (
               /* Fields */
               <div className="space-y-6">
-                {Object.keys(errors).length > 0 && (
+                {Object.keys(errors).some(k => errors[k]) && (
                   <div className="flex items-start gap-3 bg-destructive/10 border border-destructive/30 rounded-2xl px-4 py-3">
                     <span className="text-destructive font-bold text-base leading-none mt-0.5">!</span>
                     <p className="text-sm text-destructive font-medium">
-                      {T.requiredBanner}
+                      {currentFields.some(f => errors[f.id] && errors[f.id] !== T.requiredError(f.label))
+                        ? T.validationBanner
+                        : T.requiredBanner}
                     </p>
                   </div>
                 )}
@@ -1049,6 +1116,7 @@ const FormRenderer = ({ formId, lang = "es" }: { formId: string; lang?: WidgetLa
                     error={errors[field.id]}
                     formUserId={formUserId}
                     lang={lang}
+                    onBlur={() => handleBlur(field.id)}
                     onChange={val => {
                       setFormValues(v => ({ ...v, [field.id]: val }));
                       if (errors[field.id]) setErrors(e => ({ ...e, [field.id]: "" }));

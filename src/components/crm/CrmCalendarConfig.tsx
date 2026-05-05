@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Link2, Loader2, Trash2 } from "lucide-react";
+import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Link2, Loader2, Trash2, CheckCircle2, Unlink } from "lucide-react";
 import { useCreateCalendarConfig, useUpdateCalendarConfig, useDeleteCalendarConfig, useForms, useCreateForm, useBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmCalendarConfig as CalendarData } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -67,9 +67,11 @@ interface Props {
   existingCalendar: CalendarData | null;
   /** Called with the id of the newly created calendar (only on create, not edit) */
   onCreated?: (id: string) => void;
+  /** Called when Google Calendar connection is updated */
+  onGoogleConnected?: () => void;
 }
 
-const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
+const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnected }: Props) => {
   const { can } = useStaffPermissions();
   const canEditReminders = can("recordatorios", "create");
   const { data: forms = [] } = useForms();
@@ -85,8 +87,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
   const [name, setName]                   = useState("");
   const [description, setDescription]     = useState("");
   const [duration, setDuration]           = useState<15 | 30 | 60>(30);
-  const [bufferTime, setBufferTime]       = useState(10);
-  const [slug, setSlug]                   = useState("");
+  const [bufferTime, setBufferTime]       = useState(0);
   const [linkedFormId, setLinkedFormId]   = useState<string | null>(null);
   const [availability, setAvailability]   = useState<WeeklySchedule>(DEFAULT_WEEKLY_SCHEDULE);
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
@@ -112,7 +113,6 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
         setDuration(raw === 15 || raw === 60 ? raw : 30);
       }
       setBufferTime(existingCalendar.buffer_min ?? 10);
-      setSlug(existingCalendar.slug ?? "");
       setLinkedFormId(existingCalendar.linked_form_id ?? null);
       setAvailability(normalizeAvail(existingCalendar.availability));
       setReminderRules((existingCalendar.reminder_rules as unknown as ReminderRule[] | null) ?? []);
@@ -123,20 +123,21 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
   }, [existingCalendar]);
 
   const calendarUid = existingCalendar?.id ?? "";
-  // Public URL: slug when available, UUID as fallback. Embed code always uses UUID (stable).
-  const publicUrl   = calendarUid
-    ? `${window.location.origin}/book/${slug.trim() || calendarUid}`
+  const makeIframe = (lang: "es" | "en") => calendarUid
+    ? `<iframe\n  src="${window.location.origin}/book/${calendarUid}?lang=${lang}"\n  width="100%"\n  height="700"\n  frameborder="0"\n  style="border:none;border-radius:12px;"\n></iframe>`
     : "";
-  const iframeCode  = calendarUid
-    ? `<iframe\n  src="${window.location.origin}/book/${calendarUid}"\n  width="100%"\n  height="700"\n  frameborder="0"\n  style="border:none;border-radius:12px;"\n></iframe>`
+  const makeJs = (lang: "es" | "en") => calendarUid
+    ? `<div id="acrosoft-cal-${calendarUid}-${lang}"></div>\n<script>\n  (function(){\n    var i=document.createElement('iframe');\n    i.src='${window.location.origin}/book/${calendarUid}?lang=${lang}';\n    i.width='100%';i.height='700';i.frameBorder='0';\n    i.style.borderRadius='12px';\n    document.getElementById('acrosoft-cal-${calendarUid}-${lang}').appendChild(i);\n  })();\n</script>`
     : "";
-  const jsCode = calendarUid
-    ? `<div id="acrosoft-cal-${calendarUid}"></div>\n<script>\n  (function(){\n    var i=document.createElement('iframe');\n    i.src='${window.location.origin}/book/${calendarUid}';\n    i.width='100%';i.height='700';i.frameBorder='0';\n    i.style.borderRadius='12px';\n    document.getElementById('acrosoft-cal-${calendarUid}').appendChild(i);\n  })();\n</script>`
-    : "";
-  const activeCode = embedTab === "iframe" ? iframeCode : jsCode;
+  const iframeCodeEs = makeIframe("es");
+  const iframeCodeEn = makeIframe("en");
+  const jsCodeEs = makeJs("es");
+  const jsCodeEn = makeJs("en");
+  const activeCodeEs = embedTab === "iframe" ? iframeCodeEs : jsCodeEs;
+  const activeCodeEn = embedTab === "iframe" ? iframeCodeEn : jsCodeEn;
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(activeCode);
+    navigator.clipboard.writeText(activeCodeEs + "\n\n" + activeCodeEn);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -185,7 +186,6 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
         timezone,
         min_advance_hours: minAdvanceHours,
         max_future_days: maxFutureDays,
-        slug: slug || null,
         linked_form_id: formId,
         availability,
         schedule_interval: duration,
@@ -304,21 +304,6 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
             </select>
           </Field>
 
-          <Field label="Slug personalizado (opcional)">
-            <div className="flex items-center gap-2">
-              <Globe size={14} className="text-muted-foreground shrink-0" />
-              <span className="text-xs text-muted-foreground truncate">{window.location.origin}/book/</span>
-              <Input
-                value={slug}
-                onChange={(e) => setSlug(e.target.value)}
-                className="h-9 text-sm flex-1"
-                placeholder="mi-negocio"
-              />
-            </div>
-            <p className="text-[10px] text-muted-foreground mt-1">
-              El calendario funciona sin slug — se usa el ID automáticamente.
-            </p>
-          </Field>
 
           <Field label="Zona horaria del negocio">
             <select
@@ -463,24 +448,100 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
             <h2 className="text-sm font-semibold">Integraciones Externas</h2>
           </div>
           <div className="grid gap-4">
-            <div className="flex items-center justify-between p-5 rounded-2xl border bg-secondary/10 group hover:border-primary/30 transition-all">
-              <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-xl bg-white border flex items-center justify-center p-2 shadow-sm shrink-0">
-                  <img
-                    src="https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_48dp.png"
-                    alt="Google Calendar"
-                    className="w-full h-full object-contain"
-                  />
+            {(() => {
+              const isConnected = !!(existingCalendar?.google_token);
+              const googleCalendarId = existingCalendar?.google_calendar_id as string | undefined;
+              const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+
+              const handleConnect = () => {
+                if (!calendarUid || !clientId) {
+                  toast.error("Configura VITE_GOOGLE_CLIENT_ID en las variables de entorno.");
+                  return;
+                }
+                const redirectUri = `${window.location.origin}/oauth/google-calendar`;
+                const scope = "https://www.googleapis.com/auth/calendar";
+                const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${encodeURIComponent(calendarUid)}`;
+                const popup = window.open(url, "google-oauth", "width=500,height=750,scrollbars=yes");
+                const timer = setInterval(() => {
+                  if (popup?.closed) {
+                    clearInterval(timer);
+                    onGoogleConnected?.();
+                  }
+                }, 800);
+              };
+
+              const handleDisconnect = async () => {
+                const { error } = await (await import("@/lib/supabase")).supabase
+                  .from("crm_calendar_config")
+                  .update({ google_token: null, google_calendar_id: null })
+                  .eq("id", calendarUid);
+                if (error) { toast.error("Error al desconectar"); return; }
+                toast.success("Google Calendar desconectado");
+                onGoogleConnected?.();
+              };
+
+              return (
+                <div className={`p-5 rounded-2xl border transition-all ${isConnected ? "bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-800" : "bg-secondary/10"}`}>
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex items-start gap-4 flex-1">
+                      <div className="w-12 h-12 rounded-xl bg-white border flex items-center justify-center p-2 shadow-sm shrink-0">
+                        <img
+                          src="https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_48dp.png"
+                          alt="Google Calendar"
+                          className="w-full h-full object-contain"
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-bold text-foreground">Google Calendar</p>
+                          {isConnected && (
+                            <span className="flex items-center gap-1 text-[10px] font-semibold text-green-600 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-full">
+                              <CheckCircle2 size={10} /> Conectado
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {isConnected
+                            ? googleCalendarId
+                              ? `Sincronizando a: ${googleCalendarId}`
+                              : "Conectado pero no hay calendario seleccionado. Reconecta para elegir uno."
+                            : "Sincroniza tus citas y evita duplicidad automáticamente en tiempo real."}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      {isConnected ? (
+                        <>
+                          <Button
+                            onClick={handleConnect}
+                            variant="outline"
+                            size="sm"
+                            className="text-xs"
+                          >
+                            Cambiar
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleDisconnect}
+                            className="text-xs text-muted-foreground gap-1.5"
+                          >
+                            <Unlink size={13} /> Desconectar
+                          </Button>
+                        </>
+                      ) : (
+                        <Button
+                          onClick={handleConnect}
+                          className="h-10 px-6 rounded-lg text-sm font-bold bg-primary hover:bg-primary/90 text-white shadow-md"
+                        >
+                          Conectar cuenta
+                        </Button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <p className="text-sm font-bold text-foreground">Google Calendar</p>
-                  <p className="text-xs text-muted-foreground mt-1">Sincroniza tus citas y evita duplicidad automáticamente en tiempo real.</p>
-                </div>
-              </div>
-              <Button className="h-11 px-6 rounded-xl text-sm font-bold bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
-                Conectar cuenta
-              </Button>
-            </div>
+              );
+            })()}
           </div>
         </div>
 
@@ -491,33 +552,34 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
             <h2 className="text-sm font-semibold">URL pública del calendario</h2>
           </div>
           <p className="text-xs text-muted-foreground">
-            Comparte este enlace para que tus clientes agenden directamente.
-            {slug.trim() && " Usando el slug personalizado configurado arriba."}
+            Comparte el enlace del idioma que necesites. Ambos apuntan al mismo calendario.
           </p>
-          <div className="flex items-center gap-2 bg-secondary/40 border rounded-xl px-4 py-3">
-            <a
-              href={publicUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm font-medium text-primary hover:underline truncate flex-1"
-            >
-              {publicUrl}
-            </a>
-            <button
-              onClick={() => { navigator.clipboard.writeText(publicUrl); toast.success("URL copiada"); }}
-              className="flex items-center gap-1.5 text-[11px] font-medium border rounded-lg px-3 py-1.5 bg-background hover:bg-secondary transition-all shrink-0"
-            >
-              <Copy size={12} /> Copiar
-            </button>
-          </div>
-          {slug.trim() && (
-            <p className="text-[10px] text-muted-foreground">
-              URL alternativa estable (ID):&nbsp;
-              <a href={`${window.location.origin}/book/${calendarUid}`} target="_blank" rel="noreferrer" className="text-primary hover:underline">
-                {window.location.origin}/book/{calendarUid}
-              </a>
-            </p>
-          )}
+          {(["es", "en"] as const).map((lang) => {
+            const url = calendarUid ? `${window.location.origin}/book/${calendarUid}?lang=${lang}` : "";
+            return (
+              <div key={lang} className="space-y-1">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                  {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
+                </p>
+                <div className="flex items-center gap-2 bg-secondary/40 border rounded-xl px-4 py-3">
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm font-medium text-primary hover:underline truncate flex-1"
+                  >
+                    {url}
+                  </a>
+                  <button
+                    onClick={() => { navigator.clipboard.writeText(url); toast.success("URL copiada"); }}
+                    className="flex items-center gap-1.5 text-[11px] font-medium border rounded-lg px-3 py-1.5 bg-background hover:bg-secondary transition-all shrink-0"
+                  >
+                    <Copy size={12} /> Copiar
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {/* Embed en sitio web */}
@@ -527,7 +589,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
             <h2 className="text-sm font-semibold">Incrustar en tu sitio web</h2>
           </div>
           <p className="text-[11px] text-muted-foreground -mt-1">
-            El código siempre usa el ID del calendario (estable aunque cambies el slug).
+            Elige el tipo de código e incorpóralo donde quieras en tu sitio.
           </p>
           <div className="flex gap-2">
             {(["iframe", "js"] as const).map((tab) => (
@@ -546,20 +608,32 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated }: Props) => {
           </div>
           <p className="text-xs text-muted-foreground">
             {embedTab === "iframe"
-              ? "Copia y pega este código HTML donde quieras mostrar el calendario en tu sitio."
+              ? "Copia y pega el código del idioma que necesites. Ambos apuntan al mismo calendario."
               : "Ideal si quieres mayor control sobre el estilo y comportamiento del calendario."}
           </p>
-          <div className="relative">
-            <pre className="bg-secondary/40 border rounded-xl p-5 text-xs font-mono text-foreground overflow-x-auto leading-relaxed whitespace-pre">
-              {activeCode}
-            </pre>
-            <button
-              onClick={handleCopy}
-              className="absolute top-3 right-3 flex items-center gap-1.5 text-[11px] font-medium border rounded-lg px-3 py-1.5 bg-background hover:bg-secondary transition-all"
-            >
-              {copied ? <Check size={12} className="text-primary" /> : <Copy size={12} />}
-              {copied ? "Copiado" : "Copiar"}
-            </button>
+          <div className="space-y-3">
+            {(["es", "en"] as const).map((lang) => {
+              const code = lang === "es" ? activeCodeEs : activeCodeEn;
+              return (
+                <div key={lang} className="space-y-1">
+                  <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">
+                    {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
+                  </p>
+                  <div className="relative">
+                    <pre className="bg-secondary/40 border rounded-xl p-4 pr-20 text-xs font-mono text-foreground overflow-x-auto leading-relaxed whitespace-pre">
+                      {code}
+                    </pre>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+                      className="absolute top-3 right-3 flex items-center gap-1.5 text-[11px] font-medium border rounded-lg px-3 py-1.5 bg-background hover:bg-secondary transition-all"
+                    >
+                      <Copy size={12} />
+                      Copiar
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
 

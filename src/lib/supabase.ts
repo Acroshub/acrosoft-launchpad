@@ -64,6 +64,8 @@ export type CrmAppointment = {
   service: string | null
   status: 'confirmed' | 'cancelled'
   notes: string | null
+  google_event_id: string | null
+  terms_accepted_at?: string | null
 }
 
 export type CrmBlockedSlot = {
@@ -116,6 +118,7 @@ export type CrmForm = {
   pipeline_ids?: string[]
   reminder_rules?: Json[]
   is_basic_form?: boolean
+  language: string
 }
 
 export type CrmFormSubmission = {
@@ -138,11 +141,13 @@ export type CrmCalendarConfig = {
   linked_form_id: string | null
   availability: Json
   google_token: Json | null
+  google_calendar_id: string | null
   reminder_rules?: Json[]
   min_advance_hours: number
   max_future_days: number
   schedule_interval: number
   timezone: string
+  language: string
 }
 
 export type CrmService = {
