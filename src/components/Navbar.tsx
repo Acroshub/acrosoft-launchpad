@@ -1,16 +1,14 @@
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X, Globe } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import AcrosoftLogo from "./shared/AcrosoftLogo";
-import { useLang } from "@/hooks/useLanguage";
 import { translations } from "@/i18n/landing";
 
 const Navbar = () => {
   const [open, setOpen] = useState(false);
   const location = useLocation();
-  const { lang, toggle } = useLang();
-  const T = translations[lang].nav;
+  const T = translations.es.nav;
 
   const isActive = (path: string) => location.pathname === path;
 
@@ -42,19 +40,6 @@ const Navbar = () => {
             {T.plans}
           </a>
 
-          <div className="h-6 w-[1px] bg-border/60 mx-2" />
-
-          <button
-            onClick={toggle}
-            className="flex items-center gap-2 text-[10px] font-black border border-border/40 rounded-full px-4 py-1.5 bg-secondary/30 uppercase tracking-[0.2em] shadow-inner hover:bg-secondary/60 transition-colors cursor-pointer"
-            aria-label="Toggle language"
-          >
-            <Globe size={12} className="text-primary/70" />
-            <span className={lang === "es" ? "text-foreground" : "text-muted-foreground/40"}>ES</span>
-            <span className="opacity-20">/</span>
-            <span className={lang === "en" ? "text-foreground" : "text-muted-foreground/40"}>EN</span>
-          </button>
-
           <Button asChild className="rounded-2xl font-black h-11 px-6 shadow-lg shadow-primary/20 hover:scale-105 transition-all">
             <a href="/#agendar">{T.cta}</a>
           </Button>
@@ -62,16 +47,6 @@ const Navbar = () => {
 
         {/* Mobile toggle */}
         <div className="lg:hidden flex items-center gap-3">
-          <button
-            onClick={toggle}
-            className="flex items-center gap-1.5 text-[10px] font-black border border-border/40 rounded-full px-3 py-1.5 bg-secondary/30 uppercase tracking-[0.15em] hover:bg-secondary/60 transition-colors"
-            aria-label="Toggle language"
-          >
-            <Globe size={11} className="text-primary/70" />
-            <span className={lang === "es" ? "text-foreground" : "text-muted-foreground/40"}>ES</span>
-            <span className="opacity-20">/</span>
-            <span className={lang === "en" ? "text-foreground" : "text-muted-foreground/40"}>EN</span>
-          </button>
           <button
             className="p-2 rounded-xl bg-secondary/50 text-foreground hover:bg-secondary transition-all"
             onClick={() => setOpen(!open)}

@@ -1,9 +1,8 @@
 import { useState, useMemo, useEffect } from "react";
 import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell, MessageSquare } from "lucide-react";
 import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient } from "@/hooks/useCrmData";
-import type { CrmLog } from "@/hooks/useCrmData";
 import { useCurrentUser } from "@/hooks/useAuth";
-import type { CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
+import type { CrmLog, CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";

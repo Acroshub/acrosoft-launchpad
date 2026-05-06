@@ -151,6 +151,7 @@ const minutesForInterval = (interval: number): number[] => {
   return [0, 15, 30, 45];
 };
 
+
 function startOfWeek(date: Date) {
   const d = new Date(date);
   const day = d.getDay() || 7; // Sunday = 7, not 0
@@ -421,9 +422,11 @@ const DayView = ({
   const OVERLAY_LEFT = 84;
   const OVERLAY_RIGHT = 20;
 
+  const dayBlockedSlot = isDayBlocked(blocked, key);
+
   return (
     <div className="bg-card border rounded-2xl overflow-hidden">
-      <div className="relative" style={{ height: totalHeight }}>
+      <div className={`relative ${dayBlockedSlot ? "bg-amber-50/60 dark:bg-amber-900/20" : ""}`} style={{ height: totalHeight }}>
 
         {/* Background grid rows — labels + click targets */}
         {slots.map(({ hour, minute }, idx) => {
@@ -434,7 +437,7 @@ const DayView = ({
           });
           const isBlockedHere = isSlotBlockedAt(blocked, key, hour, minute);
           const unavailable = !isOccupied && !isBlockedHere && !isSlotAvailable(availability, dow, hour, minute, interval);
-          const canClick = !isOccupied && !isBlockedHere && !unavailable;
+          const canClick = !isOccupied && !isBlockedHere && !unavailable && !dayBlockedSlot;
           const label = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 
           return (
@@ -457,6 +460,21 @@ const DayView = ({
             </div>
           );
         })}
+
+        {/* Fullday / range block banner — clickable to manage */}
+        {dayBlockedSlot && (
+          <button
+            type="button"
+            onClick={() => onBlockClick(dayBlockedSlot)}
+            className="absolute inset-x-0 top-0 z-10 flex items-center gap-2 px-5 py-1.5 bg-amber-200/70 dark:bg-amber-800/50 border-b border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-xs hover:bg-amber-300/70 dark:hover:bg-amber-700/50 transition-colors"
+          >
+            <Coffee size={12} className="shrink-0 text-amber-600 dark:text-amber-400" />
+            <span className="font-semibold">{dayBlockedSlot.reason || "Día bloqueado"}</span>
+            <span className="ml-auto text-amber-700/70 dark:text-amber-300/70">
+              {dayBlockedSlot.type === "fullday" ? "Día completo" : `${dayBlockedSlot.startDate} – ${dayBlockedSlot.endDate}`}
+            </span>
+          </button>
+        )}
 
         {/* Blocked "hours" overlays — span exact minutes */}
         {blocked
@@ -486,7 +504,7 @@ const DayView = ({
         {dayAppts.map((appt) => {
           const startMin    = appt.hour * 60 + (appt.minute ?? 0);
           const durationMin = appt.duration_min ?? interval;
-          const top    = (startMin - firstSlotMin) * pxPerMin;
+          const top    = Math.max(0, (startMin - firstSlotMin) * pxPerMin);
           const height = durationMin * pxPerMin;
           const isSelected = selected === appt.id;
           return (
@@ -643,7 +661,7 @@ const WeekView = ({
               {dayAppts.map((appt) => {
                 const startMin    = appt.hour * 60 + (appt.minute ?? 0);
                 const durationMin = appt.duration_min ?? interval;
-                const top    = (startMin - firstSlotMin) * pxPerMin;
+                const top    = Math.max(0, (startMin - firstSlotMin) * pxPerMin);
                 const height = durationMin * pxPerMin;
                 const isSelected = selected === appt.id;
                 return (
@@ -1931,7 +1949,7 @@ const CrmCalendar = () => {
                             onChange={e => setBlockModal(prev => prev && ({ ...prev, startMinute: Number(e.target.value) }))}
                             className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                           >
-                            {slotMinuteOptions.map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                            {[...new Set([...slotMinuteOptions, blockModal.startMinute])].sort((a, b) => a - b).map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                           </select>
                           <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                         </div>
@@ -1956,7 +1974,7 @@ const CrmCalendar = () => {
                             onChange={e => setBlockModal(prev => prev && ({ ...prev, endMinute: Number(e.target.value) }))}
                             className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                           >
-                            {slotMinuteOptions.map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                            {[...new Set([...slotMinuteOptions, blockModal.endMinute])].sort((a, b) => a - b).map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                           </select>
                           <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                         </div>

@@ -329,3 +329,21 @@ export type CrmStaff = {
   perm_formularios_items: Record<string, StaffItemPermission> | null
   perm_pipeline_items:    Record<string, StaffItemPermission> | null
 }
+
+export type CrmLog = {
+  id: string
+  created_at: string
+  user_id: string
+  action: 'create' | 'update' | 'delete'
+  entity: string
+  entity_id: string | null
+  description: string | null
+  performed_by_user_id: string | null
+}
+
+export type SupportNotificationRecipient = {
+  id: string
+  email: string
+  active: boolean
+  created_at: string
+}

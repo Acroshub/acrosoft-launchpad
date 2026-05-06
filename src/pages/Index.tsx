@@ -9,7 +9,6 @@ import Navbar from "@/components/Navbar";
 import Footer from "@/components/Footer";
 import CalendarRenderer from "@/components/crm/CalendarRenderer";
 import { useLandingProfile, useLandingServices } from "@/hooks/useCrmData";
-import { useLang } from "@/hooks/useLanguage";
 import { translations } from "@/i18n/landing";
 import { useCurrentUser } from "@/hooks/useAuth";
 
@@ -49,8 +48,7 @@ const Index = () => {
   const { data: adminProfile } = useLandingProfile();
   const { data: landingCalendarId } = useLandingCalendar(adminProfile);
   const { data: services = [] } = useLandingServices(adminProfile?.user_id);
-  const { lang } = useLang();
-  const T = translations[lang];
+  const T = translations.es;
 
   const steps = T.steps.items.map((item, i) => ({ icon: STEP_ICONS[i], ...item }));
   const benefits = T.benefits.map((item, i) => ({ icon: BENEFIT_ICONS[i], ...item }));
@@ -112,7 +110,7 @@ const Index = () => {
             {/* Clean calendar widget — minimal, embeddable design */}
             <div className="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden p-6">
               {landingCalendarId ? (
-                <CalendarRenderer calendarId={landingCalendarId} lang={lang} />
+                <CalendarRenderer calendarId={landingCalendarId} />
               ) : (
                 <div className="text-center py-8 space-y-2">
                   <CalendarDays size={28} className="mx-auto text-gray-200 mb-3" />

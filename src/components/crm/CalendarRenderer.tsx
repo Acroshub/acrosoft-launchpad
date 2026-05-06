@@ -717,15 +717,17 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
                       ? { backgroundColor: primaryColor }
                       : isToday && avbl
                       ? { boxShadow: `inset 0 0 0 1.5px ${primaryColor}`, color: primaryColor }
+                      : avbl
+                      ? { backgroundColor: `${primaryColor}18` }
                       : undefined
                   }
                   className={[
                     "w-9 h-9 flex items-center justify-center text-xs rounded-full transition-all",
-                    sel     ? "text-white font-bold shadow-sm"                          : "",
-                    !sel && avbl && !isToday ? "text-gray-700 hover:bg-gray-100 cursor-pointer font-medium" : "",
-                    !sel && avbl && isToday  ? "font-bold cursor-pointer hover:opacity-80"                  : "",
-                    isPast           ? "text-gray-200 cursor-not-allowed"               : "",
-                    !avbl && !isPast ? "text-gray-200 cursor-not-allowed"               : "",
+                    sel                      ? "text-white font-bold shadow-sm"         : "",
+                    !sel && avbl && !isToday ? "text-gray-800 hover:opacity-80 cursor-pointer font-medium" : "",
+                    !sel && avbl && isToday  ? "font-bold cursor-pointer hover:opacity-80"                 : "",
+                    isPast                   ? "text-gray-200 cursor-not-allowed"       : "",
+                    !avbl && !isPast         ? "text-gray-200 cursor-not-allowed"       : "",
                   ].join(" ")}
                 >
                   {day}

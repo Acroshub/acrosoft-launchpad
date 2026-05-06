@@ -1459,7 +1459,7 @@ Cambiar nomenclatura de "Recordatorios" a "Notificaciones" y permitir que cada n
 
 ## BLOQUE 7 — Mejoras visuales del Calendario Admin
 
-### UI-1 · Bloques de tiempo con precisión de minuto en la vista admin
+### UI-1 · Bloques de tiempo con precisión de minuto en la vista admin ✅ COMPLETADO
 **Problema:** En la vista de semana/día del CRM, un bloque de 9:30–11:30 sombrea filas enteras (9, 10, 11). La lógica de bloqueo es correcta — el calendario público filtra slots con precisión. Solo falla la representación visual del admin.
 **Fix:** Reemplazar el sistema de "sombrear celda de hora" por un overlay absolutamente posicionado que calcule `top` y `height` en función de los minutos (`startMinute / 60 * rowHeight` y `(endHour*60+endMinute - startHour*60-startMinute) / 60 * rowHeight`).
 **Archivos:** `src/components/crm/CrmCalendar.tsx` (vista semana y día)
@@ -1482,15 +1482,14 @@ Cambiar nomenclatura de "Recordatorios" a "Notificaciones" y permitir que cada n
 
 ---
 
-### UI-3 · CalendarRenderer — fechas circulares con estados visuales claros
-**Problema:** Las celdas de fecha del calendario público usan `rounded-md` (cuadrados redondeados) con `h-12 w-full`. Deberían ser celdas cuadradas perfectas con `rounded-full` para verse como círculos modernos (estilo Calendly/Cal.com/GHL). Además, los días disponibles no tienen ningún indicador visual — el visitante no puede distinguir fácilmente cuáles días puede seleccionar.
-**Fix:** Cambiar las celdas de fecha de `h-12 w-full rounded-md` a dimensiones cuadradas fijas (`w-10 h-10` o similar) con `rounded-full`. Centrar cada celda en su columna del grid. Mantener los colores configurables del CRM (`primaryColor`) — solo cambiar la forma. Ajustar estados:
-- **Disponible:** fondo circular tenue del color `primaryColor` con ~15% de opacidad, texto oscuro — indica que el día es seleccionable.
-- **Seleccionado:** fondo circular sólido `primaryColor`, texto blanco — acento fuerte igual que ahora.
-- **Hoy:** ring circular (borde) sin fondo, texto normal.
-- **No disponible / pasado:** sin círculo, texto gris tenue, cursor `not-allowed`.
+### UI-3 · CalendarRenderer — fechas circulares con estados visuales claros ✅ COMPLETADO
+**Implementado:**
+- Celdas `w-9 h-9 rounded-full` centradas con `justify-items-center` (ya estaban)
+- **Disponible:** `backgroundColor: ${primaryColor}26` (~15% opacidad) + `text-gray-800` + `hover:opacity-80`
+- **Seleccionado:** `backgroundColor: primaryColor` sólido + `text-white font-bold shadow-sm`
+- **Hoy (disponible):** ring `boxShadow: inset 0 0 0 1.5px ${primaryColor}` + `color: primaryColor` + `font-bold`
+- **No disponible / pasado:** sin fondo, `text-gray-200 cursor-not-allowed`
 **Archivos:** `src/components/crm/CalendarRenderer.tsx`
-**Complejidad:** Baja — solo CSS/Tailwind.
 
 ---
 
@@ -1510,23 +1509,23 @@ Cambiar nomenclatura de "Recordatorios" a "Notificaciones" y permitir que cada n
 ## BLOQUE 8 — Deuda técnica
 > Sin urgencia, pero mejoran la base del código.
 
-### DT-1 · Tipos TypeScript — eliminar duplicados
-- Reemplazar `ServiceConfig` local en `CrmServices.tsx` por `CrmService` de `supabase.ts`
-- Revisar otros tipos locales que dupliquen tipos del schema
+### DT-1 · Tipos TypeScript — eliminar duplicados ✅ COMPLETADO
+- `ServiceConfig` local en `CrmServices.tsx` → reemplazado por `CrmService` de `supabase.ts`
+- `CrmLog` local en `useCrmData.ts` → movido a `supabase.ts`, import actualizado en `CrmSettings.tsx`
+- `SupportNotificationRecipient` local en `useCrmData.ts` → movido a `supabase.ts`
+- TypeScript sin errores confirmado
 
-### DT-2 · Admin.tsx (legacy)
-- Verificar si `src/pages/Admin.tsx` sigue en uso o puede eliminarse
+### DT-2 · Admin.tsx (legacy) ✅ COMPLETADO
+- Era un login placeholder sin autenticación real, no registrado en App.tsx ni importado en ningún componente. Eliminado.
 
-### DT-3 · Var.tsx (legacy)
-- Verificar si `src/components/Var.tsx` sigue en uso o puede eliminarse
+### DT-3 · Var.tsx (legacy) ✅ COMPLETADO
+- Solo era importado por `Dashboard.tsx`, que tampoco estaba en el router. Eliminados ambos: `src/components/Var.tsx` y `src/pages/Dashboard.tsx`.
 
-### DT-4 · Actualizar documento maestro
-- Mantener `acrosoft-master-v3.md` actualizado con cada decisión arquitectónica nueva
+### DT-4 · Actualizar documento maestro ✅ COMPLETADO
+- `acrosoft-master-v3.md` actualizado a v3.3 con schema real de Supabase, nuevas tablas, rutas correctas, reglas de calendario y WhatsApp.
 
-### DT-5 · useUpsertCalendarConfig — exportación muerta
-- `useUpsertCalendarConfig` en `useCrmData.ts` está marcado como `@deprecated` y nunca es importado en ningún componente (grep confirmado). La nota "kept for CrmCalendar missing-form recovery" es incorrecta — ese código usa `useUpdateCalendarConfig`.
-- Eliminar la función completa.
-- **Archivo:** `src/hooks/useCrmData.ts`
+### DT-5 · useUpsertCalendarConfig — exportación muerta ✅ COMPLETADO
+- Eliminado de `src/hooks/useCrmData.ts`. No había ningún importador. TypeScript sin errores confirmado.
 
 ---
 
@@ -1609,3 +1608,171 @@ Cada cliente SaaS conecta su propio número de WhatsApp escaneando un QR desde C
 - `src/lib/supabase.ts` — agregar tipo `CrmWhatsappConfig`
 
 **Plan técnico completo:** Ver `/Users/danielacero/.claude/plans/magical-gathering-prism.md`
+
+---
+
+## BLOQUE 10 — Seguridad
+
+> Auditoría de seguridad completa antes de escalar a más clientes SaaS. Algunos puntos ya están parcialmente cubiertos; este bloque documenta el estado actual y lo que falta.
+
+---
+
+### SEC-1 · Revisión de Autorización — RLS por tenant
+**Problema a resolver:** Verificar que cada usuario autenticado solo puede leer y escribir su propia información. Sin RLS bien configurado, un usuario podría acceder a datos de otro tenant con queries directas a Supabase.
+**Estado actual:** RLS habilitado en todas las tablas. Staff usa `owner_user_id` para acceder al CRM del dueño. Pendiente auditoría formal de cada policy.
+**Acción:**
+- Revisar todas las policies de RLS en Supabase con `SELECT * FROM pg_policies`
+- Verificar que ninguna tabla tenga `FOR ALL USING (true)` sin restricción de `user_id`
+- Probar acceso cruzado entre dos cuentas de prueba
+- Documentar cada policy y su lógica
+
+---
+
+### SEC-2 · Validación y sanitización de inputs
+**Problema a resolver:** Inputs sin validar pueden introducir datos malformados, XSS, o inyección de código en campos de texto libre (notas, mensajes, formularios públicos).
+**Estado actual:** FormRenderer valida campos requeridos en frontend. Los endpoints públicos (`crm-form-public`, `crm-calendar-book`) no tienen sanitización robusta del lado del servidor.
+**Acción:**
+- En Edge Functions públicas: validar tipos, longitudes máximas y formatos (email, teléfono) antes de hacer INSERT
+- Sanitizar campos de texto libre: strip HTML/scripts antes de guardar
+- En frontend: nunca usar `dangerouslySetInnerHTML` con datos del usuario
+- Revisar campos `custom_fields`, `notes`, `message` en reminders
+
+---
+
+### SEC-3 · Configuración de CORS Policy
+**Problema a resolver:** Sin CORS configurado correctamente, cualquier dominio puede hacer requests a las Edge Functions públicas.
+**Estado actual:** Supabase aplica CORS por defecto pero sin restricción de origen en las edge functions propias.
+**Acción:**
+- Revisar headers en cada Edge Function pública (`crm-form-public`, `crm-calendar-book`)
+- Añadir header `Access-Control-Allow-Origin` con los dominios permitidos (producción + localhost en dev)
+- Rechazar requests OPTIONS sin origen válido
+- Verificar que funciones privadas (con `Authorization: Bearer`) no tengan CORS permisivo
+
+---
+
+### SEC-4 · Rate Limiting
+**Problema a resolver:** Sin rate limiting, un atacante puede hacer miles de requests a formularios públicos, endpoints de booking o login — generando spam de contactos, consumiendo límites de Resend, o haciendo fuerza bruta.
+**Estado actual:** No hay rate limiting implementado.
+**Acción:**
+- En Edge Functions públicas: implementar rate limiting por IP usando un contador en Redis o en la misma Supabase (`rate_limit` table con TTL)
+- Limitar: máximo 10 submissions por IP por hora en `crm-form-public`; máximo 20 requests por IP por hora en `crm-calendar-book`
+- En Supabase Auth: habilitar la protección de brute force nativa (ya disponible en config)
+- Considerar Cloudflare como capa adicional si se escala
+
+---
+
+### SEC-5 · Links de restablecimiento de contraseña con expiración
+**Problema a resolver:** Verificar que los links de invitación (Staff, clientes SaaS) y reset de contraseña expiran correctamente y no pueden reutilizarse.
+**Estado actual:** `crm_saas_invitations` tiene `expires_at = now() + 7 days`. Los links de reset de Supabase Auth tienen expiración nativa configurable.
+**Acción:**
+- Confirmar en Supabase Dashboard → Auth → Settings que `OTP expiry` y `Magic link expiry` están en ≤ 24h
+- En `crm-setup`: verificar `used_at IS NULL AND expires_at > now()` antes de procesar la invitación
+- En `generate-magic-link` (impersonación): verificar que el token expira rápido (≤ 5 min)
+- Marcar `used_at` al usar el token de invitación para evitar reutilización
+
+---
+
+### SEC-6 · Error Handling — fallbacks limpios para el usuario
+**Problema a resolver:** Los errores técnicos (stack traces, mensajes de Supabase, IDs internos) no deben llegar al usuario final. Exponen información del sistema y generan mala UX.
+**Estado actual:** Algunos errores se muestran directamente con `error.message` en toasts. Edge Functions retornan errores sin sanitizar en algunos casos.
+**Acción:**
+- En Edge Functions: siempre retornar `{ error: "Mensaje amigable" }` sin exponer detalles internos. Loguear el detalle real con `console.error`
+- En frontend: mapear códigos de error conocidos a mensajes en español. Fallback genérico para errores inesperados
+- Nunca mostrar UUIDs, nombres de tablas, o stack traces al usuario
+- Agregar ErrorBoundary en React para capturar errores de renderizado
+
+---
+
+### SEC-7 · Índices de base de datos en los campos más consultados
+**Problema a resolver:** Sin índices, las queries sobre tablas grandes hacen full table scan — lento y costoso a medida que crece la base de datos.
+**Estado actual:** Solo existe el índice `crm_logs_user_created`. La mayoría de tablas no tienen índices explícitos más allá del PK.
+**Acción:** Crear índices en:
+```sql
+-- Los más críticos
+CREATE INDEX ON crm_contacts (user_id, created_at DESC);
+CREATE INDEX ON crm_appointments (user_id, date, status);
+CREATE INDEX ON crm_appointments (calendar_id, date);
+CREATE INDEX ON crm_reminders (user_id, status, scheduled_at);
+CREATE INDEX ON crm_reminder_queue (status, scheduled_at);
+CREATE INDEX ON crm_sales (user_id, created_at DESC);
+CREATE INDEX ON crm_contact_pipeline_memberships (pipeline_id, stage);
+CREATE INDEX ON crm_tasks (pipeline_id, stage, position);
+CREATE INDEX ON support_tickets (user_id, status);
+```
+
+---
+
+### SEC-8 · Validación de redirects para evitar phishing
+**Problema a resolver:** Si la app acepta una URL de redirect arbitraria como parámetro, un atacante puede redirigir usuarios a sitios maliciosos después del login.
+**Estado actual:** `CrmForm` tiene `redirect_url` configurable. El campo `success_action: 'redirect'` en formularios usa esta URL sin validación.
+**Acción:**
+- En `crm-form-public`: validar que `redirect_url` pertenece a un dominio en una whitelist (dominio del negocio o dominios de Acrosoft)
+- En frontend: nunca hacer `window.location.href = anyUrl` con valores del usuario sin validar el dominio
+- En `generate-magic-link`: verificar que el return URL sea relativo o pertenezca al dominio propio
+- Rechazar redirect_urls con protocolos distintos a `https://`
+
+---
+
+### SEC-9 · RLS en Supabase Storage
+**Problema a resolver:** Los archivos subidos (logos, imágenes) en Supabase Storage podrían ser accesibles públicamente o entre tenants si los buckets no tienen policies de acceso correctas.
+**Estado actual:** No se ha auditado si los buckets tienen RLS configurado.
+**Acción:**
+- Revisar cada bucket en Supabase Storage (logos, documentos maestros, attachments)
+- Logos y assets públicos: bucket público con nombres no adivinables (UUID en path)
+- Documentos privados: bucket privado con policy `user_id = auth.uid()` en el path
+- Generar URLs firmadas con expiración para descargas de documentos privados
+- No almacenar datos sensibles en buckets públicos
+
+---
+
+### SEC-10 · Logging en backend, no en frontend
+**Problema a resolver:** La tabla `crm_logs` se escribe desde el frontend (hooks de TanStack Query). Esto permite que cualquier usuario autenticado inserte logs falsos o manipule el historial de actividad.
+**Estado actual:** `logAction()` en `useCrmData.ts` hace INSERT directo a `crm_logs` desde el cliente.
+**Acción:**
+- Mover toda la lógica de logging a Edge Functions o a triggers de PostgreSQL
+- Opción recomendada: triggers `AFTER INSERT/UPDATE/DELETE` en las tablas principales que escriban automáticamente en `crm_logs`
+- Eliminar `logAction()` del frontend y remover la policy de INSERT en `crm_logs` para el rol anon/authenticated
+- Solo `service_role` (Edge Functions) debe poder escribir logs
+
+---
+
+### SEC-11 · Validación de Webhooks
+**Problema a resolver:** Los endpoints que reciben eventos externos (Google Calendar OAuth callback, futuras integraciones) deben verificar la autenticidad del request. Sin verificación, cualquiera puede simular un evento exitoso.
+**Estado actual:** `google-calendar-oauth` recibe el callback con `code` de Google sin verificación de state CSRF.
+**Acción:**
+- En el OAuth de Google Calendar: generar un `state` token aleatorio al iniciar el flow, guardarlo en sesión, y verificarlo al recibir el callback
+- Para futuros webhooks (Stripe, Evolution API, etc.): verificar firma HMAC con el secret del proveedor antes de procesar el payload
+- Rechazar requests sin firma válida con HTTP 401 — nunca procesar el payload primero
+
+---
+
+### SEC-12 · Validación de roles en el servidor
+**Problema a resolver:** La lógica de permisos de Staff (qué puede ver/editar) se aplica principalmente en el frontend. Un Staff con acceso técnico podría hacer requests directos a Supabase saltándose la UI.
+**Estado actual:** RLS distingue owner vs cliente. Los permisos granulares de Staff (`perm_contactos`, `perm_ventas`, etc.) solo se verifican en `useStaffPermissions()` en el frontend.
+**Acción:**
+- Revisar si las policies de RLS de Staff cubren los permisos granulares, o si solo distinguen owner vs otros
+- Para operaciones sensibles (crear staff, cambiar límites, impersonación): verificar permisos en Edge Function con `service_role`, no solo en el cliente
+- Agregar RLS policies específicas para Staff: ej. staff con `perm_ventas.read: false` no puede SELECT en `crm_sales` aunque lo intente directamente
+
+---
+
+### SEC-13 · Auditoría de dependencias npm
+**Problema a resolver:** Las dependencias desactualizadas pueden tener vulnerabilidades conocidas (CVEs) que un atacante puede explotar.
+**Estado actual:** No se ha ejecutado una auditoría formal.
+**Acción:**
+- Ejecutar `npm audit` y revisar las vulnerabilidades de severidad alta y crítica
+- Ejecutar `npm audit fix` para las correcciones automáticas seguras
+- Para cambios breaking: evaluar caso por caso antes de actualizar
+- Programar una revisión trimestral de dependencias
+- Verificar especialmente: `@supabase/supabase-js`, `react-router-dom`, `vite`
+
+---
+
+### SEC-14 · API Keys — nunca expuestas en el frontend
+**Problema a resolver:** Claves secretas en variables de entorno del frontend (`VITE_*`) son visibles en el bundle JS del cliente. Solo deben existir allí las claves públicas de Supabase.
+**Estado actual:** Solo `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` están en el frontend — correcto. Las claves sensibles (Resend, Anthropic, Google OAuth, Evolution API) están como secrets en Edge Functions.
+**Acción:**
+- Confirmar que ninguna variable `VITE_*` contiene claves secretas (Resend, Anthropic, Google secret, Evolution API key)
+- Revisar el bundle de producción con `npm run build` y buscar strings que parezcan API keys
+- Si alguna key sensible aparece: rotar inmediatamente y moverla a Edge Function secrets
+- Regla permanente: cualquier key que no sea la anon key de Supabase va en Edge Function, nunca en frontend

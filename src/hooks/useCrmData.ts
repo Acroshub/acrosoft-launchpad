@@ -19,21 +19,12 @@ import type {
   CrmReminderConfig,
   CrmReminder,
   CrmContactPipelineMembership,
+  CrmLog,
+  SupportNotificationRecipient,
 } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "./useAuth";
 
 // ─── LOGS ──────────────────────────────────────────────────────
-
-export type CrmLog = {
-  id: string;
-  created_at: string;
-  user_id: string;
-  action: "create" | "update" | "delete";
-  entity: string;
-  entity_id: string | null;
-  description: string | null;
-  performed_by_user_id: string | null;
-};
 
 const logAction = async (
   action: "create" | "update" | "delete",
@@ -672,38 +663,6 @@ export const useUpdateCalendarConfig = () => {
         .from("crm_calendar_config")
         .update(config)
         .eq("id", id)
-        .select()
-        .single();
-      if (error) throw error;
-      return data as CrmCalendarConfig;
-    },
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["crm_calendar_config"] });
-      logAction("update", "Calendario", `Calendario actualizado: ${data.name ?? "sin nombre"}`, data.id);
-    },
-  });
-};
-
-/** @deprecated kept for CrmCalendar missing-form recovery; prefer useUpdateCalendarConfig */
-export const useUpsertCalendarConfig = () => {
-  const qc = useQueryClient();
-  const { ownerUserId } = useStaffPermissions();
-  return useMutation({
-    mutationFn: async (config: Partial<CrmCalendarConfig>) => {
-      if (config.id) {
-        const { id, ...rest } = config;
-        const { data, error } = await supabase
-          .from("crm_calendar_config")
-          .update(rest)
-          .eq("id", id)
-          .select()
-          .single();
-        if (error) throw error;
-        return data as CrmCalendarConfig;
-      }
-      const { data, error } = await supabase
-        .from("crm_calendar_config")
-        .insert({ ...config, user_id: ownerUserId! })
         .select()
         .single();
       if (error) throw error;
@@ -1955,13 +1914,6 @@ export const useAdminUnreadCount = () => {
 };
 
 // ─── SOPORTE — Notification Recipients (SP-5) ─────────────────────────────────
-
-export type SupportNotificationRecipient = {
-  id: string;
-  email: string;
-  active: boolean;
-  created_at: string;
-};
 
 export const useNotificationRecipients = () => {
   const { user } = useCurrentUser();
