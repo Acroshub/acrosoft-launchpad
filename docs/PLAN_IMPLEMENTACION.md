@@ -1331,276 +1331,6 @@ CREATE TABLE support_notification_recipients (
 
 ---
 
-### AV-2 · WhatsApp Notificaciones 100% Funcional
-**Prioridad:** ALTA
-**Complejidad:** Alta
-**Estimación:** 8-10 horas de desarrollo
-**Estado:** Planificado. UI mínima "Próximamente" por ahora. Implementación completa cuando llegue primer cliente SaaS.
-
-**Descripción:**
-Implementar canal WhatsApp para notificaciones y recordatorios de citas. Cada cliente SaaS conecta su propio número de WhatsApp escaneando un QR desde el CRM. Usa Evolution API hosteada en Railway (~$5/mes compartido por todos los clientes).
-
----
-
-## Arquitectura completa
-
-**Infraestructura:**
-- Evolution API en Railway (imagen oficial `atendai/evolution-api:latest`)
-- Cada tenant/cliente tiene una "instancia" nombrada por su `user_id`
-- Variables de entorno: `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`
-
-**Flujo de conexión:**
-1. Admin va a CRM → Recordatorios → WhatsApp → "Conectar"
-2. Edge function `whatsapp-session` crea instancia en Evolution API
-3. Retorna QR en base64
-4. Admin escanea con WhatsApp → "Dispositivos vinculados"
-5. Evolution API sincroniza sesión
-6. Estado en BD cambia a "connected" + guarda phone_number
-
-**Flujo de envío de notificaciones:**
-1. Cita se crea → entra en `crm_reminder_queue` si hay rule de WhatsApp
-2. CRON `cron-queue-reminders` encola recordatorios
-3. Edge function `send-reminders` procesa:
-   - Lee `crm_reminders` con `type: "whatsapp"`
-   - Busca instancia en `crm_whatsapp_config` por `user_id`
-   - POST a Evolution API: `message/sendText/{instanceName}` con número y mensaje
-   - Actualiza estado a "sent" o "failed"
-
----
-
-## Cambios en BD
-
-**Nueva tabla: `crm_whatsapp_config`**
-```sql
-CREATE TABLE crm_whatsapp_config (
-  id uuid PRIMARY KEY,
-  user_id uuid UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-  instance_name text NOT NULL,  -- = user_id
-  status text NOT NULL DEFAULT 'disconnected',  -- disconnected | connecting | connected
-  phone_number text,
-  created_at timestamptz,
-  updated_at timestamptz
-);
-```
-
-**Tabla existente: `crm_reminders`**
-- Ya soporta `type: "whatsapp"` 
-- Ya tiene `recipient_phone` para guardar número
-
-**Tabla existente: `crm_reminder_queue`**
-- Ya existe, no cambios necesarios
-
----
-
-## Edge Functions a crear/modificar
-
-### 1. Nueva: `supabase/functions/whatsapp-session/index.ts`
-Maneja 3 acciones vía POST body `{ action, user_id }`:
-
-**Action: "create"**
-- POST a `{EVOLUTION_API_URL}/instance/create`
-- Body: `{ instanceName: user_id }`
-- Recibe instancia + qrcode en base64
-- Upsert en `crm_whatsapp_config` con status=connecting
-- Retorna: `{ status: "connecting", qr: "data:image/png;base64,..." }`
-
-**Action: "status"**
-- GET a `{EVOLUTION_API_URL}/instance/connectionState/{user_id}`
-- Si state === "open": 
-  - GET `me` endpoint para obtener phone_number
-  - Update `crm_whatsapp_config` status=connected + phone_number
-  - Retorna: `{ status: "connected", phone_number: "+521234567890" }`
-- Si state !== "open":
-  - Retorna: `{ status: "connecting" }`
-
-**Action: "disconnect"**
-- DELETE a `{EVOLUTION_API_URL}/instance/delete/{user_id}`
-- Update `crm_whatsapp_config` status=disconnected, phone_number=null
-- Retorna: `{ status: "disconnected" }`
-
-### 2. Modificar: `supabase/functions/send-reminders/index.ts` (línea ~120)
-Reemplazar:
-```ts
-if (reminder.type === "whatsapp") {
-  throw new Error("WhatsApp channel not yet configured")
-}
-```
-
-Con:
-```ts
-if (reminder.type === "whatsapp") {
-  const config = await getWhatsappConfig(reminder.user_id)
-  if (!config || config.status !== "connected") {
-    return markFailed("WhatsApp not connected for this user")
-  }
-  
-  const phone = formatWhatsappNumber(reminder.recipient_phone)  // normalizar
-  const evoUrl = Deno.env.get("EVOLUTION_API_URL")
-  const evoKey = Deno.env.get("EVOLUTION_API_KEY")
-  
-  const res = await fetch(
-    `${evoUrl}/message/sendText/${config.instance_name}`,
-    {
-      method: "POST",
-      headers: { 
-        "Content-Type": "application/json",
-        "apikey": evoKey
-      },
-      body: JSON.stringify({ 
-        number: phone, 
-        text: reminder.message 
-      })
-    }
-  )
-  
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`Evolution API error: ${res.status} - ${err}`)
-  }
-}
-```
-
-Helper function:
-```ts
-function formatWhatsappNumber(phone: string | null): string {
-  if (!phone) return ""
-  // Elimina todo excepto dígitos y +
-  const cleaned = phone.replace(/\D/g, "")
-  // Si no tiene + al inicio, agrega basado en longitud/región (heurística)
-  if (!phone.includes("+")) {
-    return "+" + cleaned
-  }
-  return phone
-}
-```
-
----
-
-## UI a implementar
-
-### Ubicación: `src/components/crm/CrmReminders.tsx`
-
-**Agregar nuevo tab: "WhatsApp"**
-
-**Estados visuales:**
-
-**Estado: Desconectado**
-```
-┌─────────────────────────────────────────┐
-│ ⚠️ Uso responsable de WhatsApp          │
-│ Este canal es solo para recordatorios   │
-│ importantes. El envío masivo o spam     │
-│ puede resultar en el ban del número.    │
-└─────────────────────────────────────────┘
-
-┌─────────────────────────────────────────┐
-│ Estado: Desconectado                    │
-│                                         │
-│ [Conectar WhatsApp]                     │
-└─────────────────────────────────────────┘
-```
-
-**Estado: Conectando**
-```
-┌─────────────────────────────────────────┐
-│ ⚠️ Uso responsable de WhatsApp          │
-│ ...                                     │
-└─────────────────────────────────────────┘
-
-┌─────────────────────────────────────────┐
-│ Estado: Conectando...                   │
-│                                         │
-│       [QR CODE IMAGE HERE]              │
-│       200x200px base64                  │
-│                                         │
-│ Abre WhatsApp en tu teléfono            │
-│ → Dispositivos vinculados               │
-│ → Vincular dispositivo                  │
-│                                         │
-│ [Cancelar]                              │
-└─────────────────────────────────────────┘
-```
-
-**Estado: Conectado**
-```
-┌─────────────────────────────────────────┐
-│ ⚠️ Uso responsable de WhatsApp          │
-│ ...                                     │
-└─────────────────────────────────────────┘
-
-┌─────────────────────────────────────────┐
-│ Estado: ✅ Conectado                    │
-│                                         │
-│ Número: +52 1234567890                  │
-│                                         │
-│ [Desconectar]                           │
-└─────────────────────────────────────────┘
-```
-
-**Lógica de polling:**
-- Cuando estado = "Conectando", polling cada 3s a `whatsapp-session` con `action: "status"`
-- Timeout máximo: 60 segundos
-- Si timeout → mostrar "Error: timeout al conectar"
-- Si success → mostrar estado "Conectado" + número
-
----
-
-## Tipos TypeScript a actualizar
-
-**En `src/lib/supabase.ts`:**
-```ts
-export type CrmWhatsappConfig = {
-  id: string
-  user_id: string
-  instance_name: string
-  status: 'disconnected' | 'connecting' | 'connected'
-  phone_number: string | null
-  created_at: string
-  updated_at: string
-}
-```
-
----
-
-## Pasos de implementación (orden exacto)
-
-1. **Migración SQL** → crear tabla `crm_whatsapp_config`
-2. **Actualizar `supabase.ts`** → agregar tipo `CrmWhatsappConfig`
-3. **Edge Function `whatsapp-session`** → crear completa
-4. **Edge Function `send-reminders`** → reemplazar el `throw Error` por lógica real
-5. **UI en CrmReminders.tsx** → panel WhatsApp con 3 estados + polling
-6. **Test end-to-end:**
-   - Deployar Evolution API en Railway (usuario lo hace)
-   - Conectar sesión desde UI (debe mostrar QR)
-   - Escanear QR con WhatsApp
-   - Crear notificación de prueba con canal WhatsApp
-   - Verificar que llega mensaje al teléfono
-
----
-
-## Prerequisitos antes de implementar
-
-- Evolution API deployada en Railway (usuario configura)
-- `EVOLUTION_API_URL` y `EVOLUTION_API_KEY` en Supabase secrets
-- Teléfono con WhatsApp instalado para testear
-
-**Nota:** Sin estos prerequisitos el código está listo pero no funciona. Con primer cliente SaaS, se activa la infraestructura y funciona inmediatamente.
-
----
-
-## Integración con AV-6 (Notificaciones Personalizables)
-
-AV-6 agrega campos `subject` y `content` editables a cada notificación.
-AV-2 usa esos campos para el contenido del mensaje WhatsApp.
-El `subject` de email se ignora en WhatsApp (solo se usa el `content`).
-
----
-
-### AV-3 · Google Calendar Sync bidireccional
-**Dependencias:** AV-1 completado.
-**Descripción:** Eventos de Google → `crm_appointments`. CRON cada 15 min con `syncToken`. Acrosoft es source of truth en conflictos.
-
----
 
 ### AV-4 · Detalle Completo de Cita en Calendario ✅ COMPLETADO
 **Estado:** Panel lateral expandido con información completa de cita y contacto
@@ -1831,7 +1561,51 @@ LARGO PLAZO:
   SP-7  Revisión end-to-end de recordatorios (send-reminders) ✅
   F-4   /onboarding → FormRenderer
   AV-1  Google Calendar sync
-  AV-2  WhatsApp UI beta
   AV-3  Google Calendar bidireccional
   DT-1/2/3  Limpieza de código
+
+CON CLIENTES REALES:
+  AV-2  WhatsApp Notificaciones completo
 ```
+
+---
+
+## BLOQUE 9 — Features para cuando tengamos clientes reales
+
+> Estas features están diseñadas y documentadas pero **no se desarrollarán hasta tener el primer cliente SaaS activo**. El plan técnico está completo y listo para implementar.
+
+---
+
+### AV-2 · WhatsApp Notificaciones 100% Funcional
+**Estado:** UI "Próximamente" activa. Implementación pendiente hasta primer cliente SaaS.
+**Estimación:** 8-10 horas de desarrollo
+**Prerequisito:** Deployar Evolution API en Railway + agregar secrets en Supabase.
+
+**Descripción:**
+Cada cliente SaaS conecta su propio número de WhatsApp escaneando un QR desde CRM → Configuración → WhatsApp. Los recordatorios de citas se envían via Evolution API self-hosted en Railway (~$5/mes compartido entre todos los clientes).
+
+**Arquitectura:**
+- Evolution API en Railway (`atendai/evolution-api:latest`) con volumen persistente
+- Cada tenant tiene una instancia nombrada por su `user_id`
+- `EVOLUTION_API_URL` y `EVOLUTION_API_KEY` como secrets en Supabase
+
+**Flujo de conexión:**
+1. Admin: CRM → Configuración → WhatsApp → "Conectar"
+2. Edge function `whatsapp-session` crea instancia + retorna QR base64
+3. Admin escanea QR con WhatsApp → "Dispositivos vinculados"
+4. Polling cada 3s hasta detectar `status: "connected"` (máx 60s)
+5. BD actualiza `crm_whatsapp_config` con status=connected + phone_number
+
+**Flujo de envío:**
+- `send-reminders` detecta `type: "whatsapp"` → POST a Evolution API `message/sendText/{instanceName}`
+- Header: `apikey: EVOLUTION_API_KEY` (no Bearer)
+- Número normalizado sin `+` (solo dígitos)
+
+**Archivos a crear/modificar:**
+- `supabase/migrations/YYYYMMDD_whatsapp_config.sql` — tabla `crm_whatsapp_config`
+- `supabase/functions/whatsapp-session/index.ts` — actions: create, qr, status, disconnect
+- `supabase/functions/send-reminders/index.ts` — reemplazar `throw Error` línea ~120
+- `src/components/crm/CrmSettings.tsx` — reemplazar `WhatsAppTab` "Próximamente" con UI real
+- `src/lib/supabase.ts` — agregar tipo `CrmWhatsappConfig`
+
+**Plan técnico completo:** Ver `/Users/danielacero/.claude/plans/magical-gathering-prism.md`
