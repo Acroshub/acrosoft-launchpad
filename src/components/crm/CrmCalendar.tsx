@@ -1345,18 +1345,78 @@ const CrmCalendar = () => {
                     </div>
                   )}
                 </div>
-                <div className="space-y-3 text-sm">
-                  {([
-                    ["Email",    detail.email],
-                    ["Teléfono", detail.phone],
-                    ["Fecha",    detail.date],
-                    ["Hora",     detail.time],
-                  ] as [string, string][]).filter(([, v]) => !!v).map(([label, value]) => (
-                    <div key={label}>
-                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">{label}</p>
-                      <p className="font-medium mt-0.5 text-sm">{value}</p>
+                <div className="space-y-4 text-sm">
+                  {/* Cita Details */}
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Información de la Cita</p>
+                    <div className="space-y-2.5">
+                      {([
+                        ["Fecha",    detail.date],
+                        ["Hora",     detail.time],
+                        ["Duración", `${detail.duration_min} min`],
+                        detail.service ? ["Servicio", detail.service] : null,
+                      ] as (readonly [string, string] | null)[]).filter((v): v is readonly [string, string] => !!v && !!v[1]).map(([label, value]) => (
+                        <div key={label}>
+                          <p className="text-[10px] text-muted-foreground/70">{label}</p>
+                          <p className="font-medium text-xs">{value}</p>
+                        </div>
+                      ))}
+                      {detail.google_event_id && (
+                        <div className="pt-1">
+                          <p className="text-[10px] text-green-600 flex items-center gap-1">
+                            <span>✓ Sincronizada con Google</span>
+                          </p>
+                        </div>
+                      )}
+                      {detail.notes && (
+                        <div className="pt-1 border-t">
+                          <p className="text-[10px] text-muted-foreground/70">Notas</p>
+                          <p className="text-xs mt-1">{detail.notes}</p>
+                        </div>
+                      )}
                     </div>
-                  ))}
+                  </div>
+
+                  {/* Contact Details */}
+                  {detail.contact_id && (() => {
+                    const contact = contacts.find(c => c.id === detail.contact_id);
+                    if (!contact) return null;
+                    return (
+                      <div className="border-t pt-4">
+                        <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Información del Contacto</p>
+                        <div className="space-y-2.5">
+                          {([
+                            ["Email",    contact.email],
+                            ["Teléfono", contact.phone],
+                            ["Empresa",  contact.company],
+                          ] as readonly (readonly [string, string | undefined])[]).filter((pair): pair is readonly [string, string] => !!pair[1]).map(([label, value]) => (
+                            <div key={label}>
+                              <p className="text-[10px] text-muted-foreground/70">{label}</p>
+                              <p className="font-medium text-xs">{value}</p>
+                            </div>
+                          ))}
+                          {contact.tags && Array.isArray(contact.tags) && contact.tags.length > 0 && (
+                            <div>
+                              <p className="text-[10px] text-muted-foreground/70 mb-1">Tags</p>
+                              <div className="flex flex-wrap gap-1">
+                                {contact.tags.map(tag => (
+                                  <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/50 text-secondary-foreground">
+                                    {tag}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                          {contact.notes && (
+                            <div className="pt-1 border-t">
+                              <p className="text-[10px] text-muted-foreground/70">Notas del Contacto</p>
+                              <p className="text-xs mt-1">{contact.notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             ) : (
@@ -1382,8 +1442,8 @@ const CrmCalendar = () => {
 
         {/* Detail panel — month view (below) */}
         {view === "month" && detail && (
-          <div className="bg-card border rounded-2xl p-5 mt-4">
-            <div className="flex justify-between items-start mb-4">
+          <div className="bg-card border rounded-2xl p-5 mt-4 space-y-4">
+            <div className="flex justify-between items-start">
               <div className="flex items-center gap-3 overflow-hidden">
                 <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
                   {detail.name.substring(0, 2).toUpperCase()}
@@ -1395,11 +1455,11 @@ const CrmCalendar = () => {
                   </p>
                 </div>
               </div>
-              
+
               <div className="flex items-center gap-3 shrink-0 ml-4 max-sm:gap-1.5">
                 <div className="relative inline-block max-sm:hidden">
-                  <select 
-                    value={detail.status} 
+                  <select
+                    value={detail.status}
                     onChange={async (e) => {
                       const newStatus = e.target.value === "Cancelada" ? "cancelled" : "confirmed";
                       try {
@@ -1431,6 +1491,79 @@ const CrmCalendar = () => {
                   </div>
                 )}
               </div>
+            </div>
+
+            {/* Expanded details */}
+            <div className="space-y-4 text-sm pt-3 border-t">
+              {/* Cita Details */}
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Información de la Cita</p>
+                <div className="space-y-2.5">
+                  {([
+                    ["Duración", `${detail.duration_min} min`],
+                    detail.service ? ["Servicio", detail.service] : null,
+                  ] as (readonly [string, string] | null)[]).filter((v): v is readonly [string, string] => !!v && !!v[1]).map(([label, value]) => (
+                    <div key={label}>
+                      <p className="text-[10px] text-muted-foreground/70">{label}</p>
+                      <p className="font-medium text-xs">{value}</p>
+                    </div>
+                  ))}
+                  {detail.google_event_id && (
+                    <div className="pt-1">
+                      <p className="text-[10px] text-green-600 flex items-center gap-1">
+                        <span>✓ Sincronizada con Google</span>
+                      </p>
+                    </div>
+                  )}
+                  {detail.notes && (
+                    <div className="pt-1 border-t">
+                      <p className="text-[10px] text-muted-foreground/70">Notas</p>
+                      <p className="text-xs mt-1">{detail.notes}</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Contact Details */}
+              {detail.contact_id && (() => {
+                const contact = contacts.find(c => c.id === detail.contact_id);
+                if (!contact) return null;
+                return (
+                  <div className="border-t pt-4">
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Información del Contacto</p>
+                    <div className="space-y-2.5">
+                      {([
+                        ["Email",    contact.email],
+                        ["Teléfono", contact.phone],
+                        ["Empresa",  contact.company],
+                      ] as readonly (readonly [string, string | undefined])[]).filter((pair): pair is readonly [string, string] => !!pair[1]).map(([label, value]) => (
+                        <div key={label}>
+                          <p className="text-[10px] text-muted-foreground/70">{label}</p>
+                          <p className="font-medium text-xs">{value}</p>
+                        </div>
+                      ))}
+                      {contact.tags && Array.isArray(contact.tags) && contact.tags.length > 0 && (
+                        <div>
+                          <p className="text-[10px] text-muted-foreground/70 mb-1">Tags</p>
+                          <div className="flex flex-wrap gap-1">
+                            {contact.tags.map((tag: string) => (
+                              <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary/50 text-secondary-foreground">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                      {contact.notes && (
+                        <div className="pt-1 border-t">
+                          <p className="text-[10px] text-muted-foreground/70">Notas del Contacto</p>
+                          <p className="text-xs mt-1">{contact.notes}</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
           </div>
         )}

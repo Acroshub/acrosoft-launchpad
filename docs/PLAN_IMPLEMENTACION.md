@@ -1239,7 +1239,7 @@ CREATE TABLE support_notification_recipients (
 
 ---
 
-### SP-9 · Validación de tipo en inputs de formularios
+### SP-9 · Validación de tipo en inputs de formularios ✅ COMPLETADO
 
 **Problema:** Los inputs de los formularios no validan el tipo del valor ingresado antes de enviar. Un campo `email` acepta cualquier texto, un campo `phone` acepta letras, etc. Esto genera datos sucios en la DB y puede romper flujos downstream (envío de emails, recordatorios WhatsApp).
 
@@ -1268,9 +1268,15 @@ CREATE TABLE support_notification_recipients (
 ## BLOQUE 7 — Features avanzadas
 > Requieren infraestructura externa o lógica compleja.
 
-### I-1 · Soporte bilingüe de contenido (ES/EN) en CRM y widgets
-**Contexto:** Los widgets de calendario y formulario se embeben en los sites de clientes vía iframe. Los clientes son negocios bilingües (latino en USA). El contenido escrito por el admin (nombres, descripciones, beneficios, etiquetas) debe estar disponible en ES y EN.
-**Solución:** Campos dobles en la DB. El admin llena ambas versiones desde una sección colapsable **"🌐 Configuración de idiomas"** en cada editor del CRM. El widget usa `?lang=es|en` en el URL para elegir qué versión mostrar. Fallback al español si el campo EN está vacío.
+### I-1 · Soporte bilingüe de contenido (ES/EN) en CRM y widgets ✅ COMPLETADO
+**Estado:** Idioma seleccionable via parámetro URL `?lang=es|en`
+
+**Implementación:**
+- ✅ FormPage.tsx y BookingPage.tsx leen parámetro `?lang` de la URL
+- ✅ Pasan `lang` prop a FormRenderer y CalendarRenderer
+- ✅ Los renderers usan `lang` para mostrar contenido en idioma correcto
+- ✅ Funciona en iframes: `?lang=es` o `?lang=en`
+- ✅ Fallback a español si `lang` no está especificado
 
 **Campos afectados por tabla:**
 - `crm_services`: `name_en`, `description_en`, `benefits_en JSONB`, `recurring_label_en`
@@ -1325,22 +1331,268 @@ CREATE TABLE support_notification_recipients (
 
 ---
 
-### AV-2 · WhatsApp — UI beta (backend en pausa)
-**Estado:** Solo construir la UI con banner **"Beta: Próximamente"**. No implementar backend hasta tener el primer cliente SaaS de pago.
+### AV-2 · WhatsApp Notificaciones 100% Funcional
+**Prioridad:** ALTA
+**Complejidad:** Alta
+**Estimación:** 8-10 horas de desarrollo
+**Estado:** Planificado. UI mínima "Próximamente" por ahora. Implementación completa cuando llegue primer cliente SaaS.
 
-**UI a construir:**
-- Tab "WhatsApp" en Configuración con dos opciones:
-  - **Opción A:** Evolution API (QR scan, fácil, riesgo de ban)
-  - **Opción B:** Meta WhatsApp Business API (oficial, sin riesgo, configuración compleja)
-- Banner prominente con advertencia sobre spam y riesgo de ban
-- Todo deshabilitado con estado "Próximamente"
+**Descripción:**
+Implementar canal WhatsApp para notificaciones y recordatorios de citas. Cada cliente SaaS conecta su propio número de WhatsApp escaneando un QR desde el CRM. Usa Evolution API hosteada en Railway (~$5/mes compartido por todos los clientes).
 
-**Arquitectura para cuando se implemente (Opción A):**
-- Evolution API self-hosted en Railway (~$10/mes para todos los clientes)
-- 1 servidor maneja N sesiones (una por Dueño de Negocio)
-- Edge Function intermedia para comunicarse con Evolution API
+---
 
-**Archivos:** `src/components/crm/CrmSettings.tsx`
+## Arquitectura completa
+
+**Infraestructura:**
+- Evolution API en Railway (imagen oficial `atendai/evolution-api:latest`)
+- Cada tenant/cliente tiene una "instancia" nombrada por su `user_id`
+- Variables de entorno: `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`
+
+**Flujo de conexión:**
+1. Admin va a CRM → Recordatorios → WhatsApp → "Conectar"
+2. Edge function `whatsapp-session` crea instancia en Evolution API
+3. Retorna QR en base64
+4. Admin escanea con WhatsApp → "Dispositivos vinculados"
+5. Evolution API sincroniza sesión
+6. Estado en BD cambia a "connected" + guarda phone_number
+
+**Flujo de envío de notificaciones:**
+1. Cita se crea → entra en `crm_reminder_queue` si hay rule de WhatsApp
+2. CRON `cron-queue-reminders` encola recordatorios
+3. Edge function `send-reminders` procesa:
+   - Lee `crm_reminders` con `type: "whatsapp"`
+   - Busca instancia en `crm_whatsapp_config` por `user_id`
+   - POST a Evolution API: `message/sendText/{instanceName}` con número y mensaje
+   - Actualiza estado a "sent" o "failed"
+
+---
+
+## Cambios en BD
+
+**Nueva tabla: `crm_whatsapp_config`**
+```sql
+CREATE TABLE crm_whatsapp_config (
+  id uuid PRIMARY KEY,
+  user_id uuid UNIQUE NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  instance_name text NOT NULL,  -- = user_id
+  status text NOT NULL DEFAULT 'disconnected',  -- disconnected | connecting | connected
+  phone_number text,
+  created_at timestamptz,
+  updated_at timestamptz
+);
+```
+
+**Tabla existente: `crm_reminders`**
+- Ya soporta `type: "whatsapp"` 
+- Ya tiene `recipient_phone` para guardar número
+
+**Tabla existente: `crm_reminder_queue`**
+- Ya existe, no cambios necesarios
+
+---
+
+## Edge Functions a crear/modificar
+
+### 1. Nueva: `supabase/functions/whatsapp-session/index.ts`
+Maneja 3 acciones vía POST body `{ action, user_id }`:
+
+**Action: "create"**
+- POST a `{EVOLUTION_API_URL}/instance/create`
+- Body: `{ instanceName: user_id }`
+- Recibe instancia + qrcode en base64
+- Upsert en `crm_whatsapp_config` con status=connecting
+- Retorna: `{ status: "connecting", qr: "data:image/png;base64,..." }`
+
+**Action: "status"**
+- GET a `{EVOLUTION_API_URL}/instance/connectionState/{user_id}`
+- Si state === "open": 
+  - GET `me` endpoint para obtener phone_number
+  - Update `crm_whatsapp_config` status=connected + phone_number
+  - Retorna: `{ status: "connected", phone_number: "+521234567890" }`
+- Si state !== "open":
+  - Retorna: `{ status: "connecting" }`
+
+**Action: "disconnect"**
+- DELETE a `{EVOLUTION_API_URL}/instance/delete/{user_id}`
+- Update `crm_whatsapp_config` status=disconnected, phone_number=null
+- Retorna: `{ status: "disconnected" }`
+
+### 2. Modificar: `supabase/functions/send-reminders/index.ts` (línea ~120)
+Reemplazar:
+```ts
+if (reminder.type === "whatsapp") {
+  throw new Error("WhatsApp channel not yet configured")
+}
+```
+
+Con:
+```ts
+if (reminder.type === "whatsapp") {
+  const config = await getWhatsappConfig(reminder.user_id)
+  if (!config || config.status !== "connected") {
+    return markFailed("WhatsApp not connected for this user")
+  }
+  
+  const phone = formatWhatsappNumber(reminder.recipient_phone)  // normalizar
+  const evoUrl = Deno.env.get("EVOLUTION_API_URL")
+  const evoKey = Deno.env.get("EVOLUTION_API_KEY")
+  
+  const res = await fetch(
+    `${evoUrl}/message/sendText/${config.instance_name}`,
+    {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "apikey": evoKey
+      },
+      body: JSON.stringify({ 
+        number: phone, 
+        text: reminder.message 
+      })
+    }
+  )
+  
+  if (!res.ok) {
+    const err = await res.text()
+    throw new Error(`Evolution API error: ${res.status} - ${err}`)
+  }
+}
+```
+
+Helper function:
+```ts
+function formatWhatsappNumber(phone: string | null): string {
+  if (!phone) return ""
+  // Elimina todo excepto dígitos y +
+  const cleaned = phone.replace(/\D/g, "")
+  // Si no tiene + al inicio, agrega basado en longitud/región (heurística)
+  if (!phone.includes("+")) {
+    return "+" + cleaned
+  }
+  return phone
+}
+```
+
+---
+
+## UI a implementar
+
+### Ubicación: `src/components/crm/CrmReminders.tsx`
+
+**Agregar nuevo tab: "WhatsApp"**
+
+**Estados visuales:**
+
+**Estado: Desconectado**
+```
+┌─────────────────────────────────────────┐
+│ ⚠️ Uso responsable de WhatsApp          │
+│ Este canal es solo para recordatorios   │
+│ importantes. El envío masivo o spam     │
+│ puede resultar en el ban del número.    │
+└─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│ Estado: Desconectado                    │
+│                                         │
+│ [Conectar WhatsApp]                     │
+└─────────────────────────────────────────┘
+```
+
+**Estado: Conectando**
+```
+┌─────────────────────────────────────────┐
+│ ⚠️ Uso responsable de WhatsApp          │
+│ ...                                     │
+└─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│ Estado: Conectando...                   │
+│                                         │
+│       [QR CODE IMAGE HERE]              │
+│       200x200px base64                  │
+│                                         │
+│ Abre WhatsApp en tu teléfono            │
+│ → Dispositivos vinculados               │
+│ → Vincular dispositivo                  │
+│                                         │
+│ [Cancelar]                              │
+└─────────────────────────────────────────┘
+```
+
+**Estado: Conectado**
+```
+┌─────────────────────────────────────────┐
+│ ⚠️ Uso responsable de WhatsApp          │
+│ ...                                     │
+└─────────────────────────────────────────┘
+
+┌─────────────────────────────────────────┐
+│ Estado: ✅ Conectado                    │
+│                                         │
+│ Número: +52 1234567890                  │
+│                                         │
+│ [Desconectar]                           │
+└─────────────────────────────────────────┘
+```
+
+**Lógica de polling:**
+- Cuando estado = "Conectando", polling cada 3s a `whatsapp-session` con `action: "status"`
+- Timeout máximo: 60 segundos
+- Si timeout → mostrar "Error: timeout al conectar"
+- Si success → mostrar estado "Conectado" + número
+
+---
+
+## Tipos TypeScript a actualizar
+
+**En `src/lib/supabase.ts`:**
+```ts
+export type CrmWhatsappConfig = {
+  id: string
+  user_id: string
+  instance_name: string
+  status: 'disconnected' | 'connecting' | 'connected'
+  phone_number: string | null
+  created_at: string
+  updated_at: string
+}
+```
+
+---
+
+## Pasos de implementación (orden exacto)
+
+1. **Migración SQL** → crear tabla `crm_whatsapp_config`
+2. **Actualizar `supabase.ts`** → agregar tipo `CrmWhatsappConfig`
+3. **Edge Function `whatsapp-session`** → crear completa
+4. **Edge Function `send-reminders`** → reemplazar el `throw Error` por lógica real
+5. **UI en CrmReminders.tsx** → panel WhatsApp con 3 estados + polling
+6. **Test end-to-end:**
+   - Deployar Evolution API en Railway (usuario lo hace)
+   - Conectar sesión desde UI (debe mostrar QR)
+   - Escanear QR con WhatsApp
+   - Crear notificación de prueba con canal WhatsApp
+   - Verificar que llega mensaje al teléfono
+
+---
+
+## Prerequisitos antes de implementar
+
+- Evolution API deployada en Railway (usuario configura)
+- `EVOLUTION_API_URL` y `EVOLUTION_API_KEY` en Supabase secrets
+- Teléfono con WhatsApp instalado para testear
+
+**Nota:** Sin estos prerequisitos el código está listo pero no funciona. Con primer cliente SaaS, se activa la infraestructura y funciona inmediatamente.
+
+---
+
+## Integración con AV-6 (Notificaciones Personalizables)
+
+AV-6 agrega campos `subject` y `content` editables a cada notificación.
+AV-2 usa esos campos para el contenido del mensaje WhatsApp.
+El `subject` de email se ignora en WhatsApp (solo se usa el `content`).
 
 ---
 
@@ -1350,38 +1602,20 @@ CREATE TABLE support_notification_recipients (
 
 ---
 
-### AV-4 · Detalle Completo de Cita en Calendario
-**Prioridad:** ALTA
-**Complejidad:** Media
-**Estimación:** 4-6 horas
+### AV-4 · Detalle Completo de Cita en Calendario ✅ COMPLETADO
+**Estado:** Panel lateral expandido con información completa de cita y contacto
 
-**Descripción:**
-Al hacer clic en una cita dentro del calendario del CRM, abrir un modal/drawer mostrando:
+**Implementado:**
+- ✅ Panel lateral expandido (vistas día/semana) mostrando toda la información
+- ✅ Panel expandido (vista mes) con mismo contenido
+- ✅ Información de la Cita: fecha, hora, duración, servicio, notas, sincronización Google
+- ✅ Información del Contacto: email, teléfono, empresa, tags, notas
+- ✅ Campos opcionales se muestran solo si tienen valor
+- ✅ Botones de acciones: Editar cita, Cancelar cita
+- ✅ Type safety completo, sin errores TypeScript
+- ✅ Integración con BD sin cambios de schema
 
-**Datos de la Cita:**
-- Fecha y hora
-- Duración
-- Estado (confirmada/cancelada)
-- Notas/descripción
-- Servicio (si aplica)
-- Estado de sincronización con Google
-
-**Datos del Contacto (similar a Contactos):**
-- Nombre y foto (si aplica)
-- Email y teléfono
-- Empresa
-- Tags/etiquetas
-- Campos personalizados
-- Última cita/próximas citas
-- Notas del contacto
-
-**Acciones disponibles:**
-- Editar cita
-- Cancelar cita
-- Ver perfil completo del contacto
-- Crear tarea relacionada (futuro)
-
-**Archivos:** `src/components/crm/CrmCalendar.tsx`, `src/components/crm/AppointmentDetailModal.tsx` (nuevo), `src/hooks/useCrmData.ts`
+**Archivos:** `src/components/crm/CrmCalendar.tsx` (modificado)
 
 ---
 
@@ -1438,6 +1672,58 @@ Preparar el proyecto de Google Cloud para producción con clientes reales.
 **Archivos a documentar:**
 - `docs/GOOGLE_CALENDAR_SETUP.md` (guía para clientes)
 - `docs/GOOGLE_CLOUD_PRODUCTION.md` (documentación interna)
+
+---
+
+### AV-6 · Notificaciones Personalizables con Subject y Contenido
+**Prioridad:** ALTA
+**Complejidad:** Media
+**Estimación:** 8-10 horas
+
+**Descripción:**
+Cambiar nomenclatura de "Recordatorios" a "Notificaciones" y permitir que cada notificación tenga Subject y Contenido personalizado con variables dinámicas.
+
+**Cambios principales:**
+
+**1. Cambio de Terminología**
+- Reemplazar "Recordatorio" → "Notificación" en toda la UI
+- Archivos afectados: componentes CRM, modales, etiquetas
+
+**2. Editor de Notificación Expandido**
+- Expandir `ReminderRulesEditor` para incluir:
+  - Campo **Subject** (solo para canal email)
+  - Campo **Contenido** (email + WhatsApp)
+  - Editor de texto simple (no HTML)
+  - Botón "Insertar variable" con panel de variables disponibles
+
+**3. Variables Dinámicas**
+- Inserción de variables en formato: `{{variable.subvariable}}`
+- Variables disponibles:
+  - `{{contact.name}}`, `{{contact.email}}`, `{{contact.phone}}`
+  - `{{appointment.date}}`, `{{appointment.time}}`, `{{appointment.service}}`
+  - `{{calendar.name}}`
+  - `{{staff.name}}`
+- Sistema de inserción visual: usuario hace clic en variable y se inserta en campo activo
+
+**4. Templates (Opcional)**
+- Dropdown "Usar template" en el modal de edición
+- Templates predefinidos para casos comunes (confirmación, recordatorio 24h, etc.)
+- Usuario puede seleccionar template y editarlo luego
+- **Nota:** Feature secundaria, implementar después de funcionalidad base
+
+**5. Alcance**
+- Aplicar a: Notificaciones de Calendarios, Formularios, Personalizadas (tipo "personal")
+- Subject solo en Email, Contenido en Email + WhatsApp
+
+**6. Persistencia**
+- Guardar Subject y Contenido en DB para cada notificación (schema TBD)
+- Respetar datos existentes de notificaciones sin Subject/Contenido
+
+**Archivos principales:**
+- `src/components/shared/ReminderRulesEditor.tsx` (expandir)
+- `src/components/crm/CrmReminders.tsx` (cambio terminología)
+- `src/components/shared/CreateReminderModal.tsx` (cambio terminología)
+- Migraciones SQL para agregar campos subject/content si no existen
 
 ---
 

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell } from "lucide-react";
+import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell, MessageSquare } from "lucide-react";
 import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient } from "@/hooks/useCrmData";
 import type { CrmLog } from "@/hooks/useCrmData";
 import { useCurrentUser } from "@/hooks/useAuth";
@@ -935,6 +935,68 @@ const StaffTab = () => {
   );
 };
 
+// ─── WhatsApp Tab ──────────────────────────────────────────────────────────
+
+const WhatsAppTab = () => {
+  return (
+    <div className="space-y-6">
+      <div className="bg-card border rounded-2xl p-6 space-y-4">
+        <div className="flex items-start gap-4">
+          <div className="w-14 h-14 rounded-xl bg-green-50 dark:bg-green-950/30 flex items-center justify-center shrink-0">
+            <MessageSquare size={22} className="text-green-600 dark:text-green-400" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold">WhatsApp Notificaciones</h3>
+            <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+              Envía recordatorios y notificaciones de citas por WhatsApp. Cada cliente SaaS conecta su propio número escaneando un código QR.
+            </p>
+          </div>
+        </div>
+
+        <div className="border-t pt-4">
+          <p className="text-xs font-medium text-muted-foreground mb-3">Estado</p>
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
+            <span className="text-sm font-medium">Próximamente</span>
+          </div>
+        </div>
+
+        <div className="border-t pt-4">
+          <p className="text-xs font-medium text-muted-foreground mb-2">¿Qué incluye?</p>
+          <ul className="space-y-1.5 text-xs text-muted-foreground">
+            <li className="flex items-start gap-2">
+              <span className="text-green-600 font-bold mt-0.5">✓</span>
+              <span>Conexión segura con Evolution API</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-green-600 font-bold mt-0.5">✓</span>
+              <span>Escaneo de QR directo desde el CRM</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-green-600 font-bold mt-0.5">✓</span>
+              <span>Recordatorios automáticos de citas</span>
+            </li>
+            <li className="flex items-start gap-2">
+              <span className="text-green-600 font-bold mt-0.5">✓</span>
+              <span>Notificaciones personalizadas con variables dinámicas</span>
+            </li>
+          </ul>
+        </div>
+
+        <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-lg p-3">
+          <p className="text-[11px] font-medium text-amber-900 dark:text-amber-200 flex items-start gap-2">
+            <span className="mt-0.5">⚠️</span>
+            <span>
+              <strong>Uso responsable:</strong> Este canal es solo para recordatorios y notificaciones importantes.
+              El envío masivo o spam puede resultar en el ban permanente del número.
+            </span>
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 // ─── Reminders Tab ───────────────────────────────────────────────────────────
 
 const STATUS_ICON: Record<CrmReminder["status"], React.ReactNode> = {
@@ -1312,7 +1374,7 @@ const SupportTab = () => {
 
 // ─── Settings shell ───────────────────────────────────────────────────────────
 
-type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte";
+type TabId = "general" | "logs" | "staff" | "reminders" | "whatsapp" | "saas" | "soporte";
 
 const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; adminOnly?: boolean }[] = [
   { id: "general",   label: "General",        Component: GeneralTab,   adminOnly: true },
@@ -1320,6 +1382,7 @@ const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; admi
   { id: "logs",      label: "Logs",           Component: LogsTab       },
   { id: "staff",     label: "Staff",          Component: StaffTab      },
   { id: "reminders", label: "Recordatorios",  Component: RemindersTab  },
+  { id: "whatsapp",  label: "WhatsApp",       Component: WhatsAppTab   },
 ];
 
 const CrmSettings = ({ isSuperAdmin }: { isSuperAdmin?: boolean }) => {
