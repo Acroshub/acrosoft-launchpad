@@ -107,6 +107,51 @@ const TerminosPoliticas = () => (
         </p>
       </Section>
 
+      <Section title="9. Integración con Google Calendar">
+        <p>
+          Acrosoft ofrece una integración opcional con Google Calendar. Al activar esta integración,
+          el Cliente autoriza a Acrosoft a acceder a su cuenta de Google Calendar mediante OAuth 2.0.
+        </p>
+        <p><strong>Datos de Google que se acceden:</strong></p>
+        <ul className="list-disc list-inside space-y-1 text-muted-foreground text-sm pl-2">
+          <li>Lista de calendarios disponibles en la cuenta de Google del Cliente</li>
+          <li>Capacidad para crear, editar y eliminar eventos en el calendario seleccionado por el Cliente</li>
+        </ul>
+        <p><strong>Cómo se usan los datos de Google:</strong></p>
+        <ul className="list-disc list-inside space-y-1 text-muted-foreground text-sm pl-2">
+          <li>Los eventos de citas agendadas a través de Acrosoft se sincronizan automáticamente al calendario de Google seleccionado por el Cliente</li>
+          <li>Cuando una cita es modificada o cancelada en Acrosoft, el evento en Google Calendar se actualiza o elimina en consecuencia</li>
+          <li>Acrosoft no lee, analiza ni almacena el contenido de eventos preexistentes en el calendario de Google del Cliente</li>
+        </ul>
+        <p><strong>Limitaciones de uso:</strong></p>
+        <ul className="list-disc list-inside space-y-1 text-muted-foreground text-sm pl-2">
+          <li>Los datos de Google Calendar no se utilizan para publicidad ni son compartidos con terceros</li>
+          <li>Los datos de Google Calendar no se usan para entrenar modelos de inteligencia artificial</li>
+          <li>El acceso a Google Calendar solo se ejerce con el consentimiento explícito del Cliente</li>
+          <li>El uso de los datos de Google APIs cumple con la{" "}
+            <a href="https://developers.google.com/terms/api-services-user-data-policy" className="text-primary underline underline-offset-2" target="_blank" rel="noopener noreferrer">
+              Política de Datos de Usuario de Google API Services
+            </a>
+            , incluyendo los requisitos de Uso Limitado.
+          </li>
+        </ul>
+        <p><strong>Cómo revocar el acceso a Google Calendar:</strong></p>
+        <p>
+          El Cliente puede desconectar su cuenta de Google Calendar en cualquier momento desde la sección
+          <em> Configuración → Google Calendar</em> dentro de la plataforma Acrosoft. Adicionalmente,
+          puede revocar el acceso directamente desde su cuenta de Google en{" "}
+          <a href="https://myaccount.google.com/permissions" className="text-primary underline underline-offset-2" target="_blank" rel="noopener noreferrer">
+            myaccount.google.com/permissions
+          </a>
+          .
+        </p>
+        <p>
+          Al revocar el acceso, Acrosoft eliminará el token de autorización almacenado. Las citas
+          previamente sincronizadas permanecerán en Google Calendar y deberán eliminarse manualmente
+          si el Cliente así lo desea.
+        </p>
+      </Section>
+
       <div className="pt-6 border-t border-border text-xs text-muted-foreground">
         Acrosoft Labs · Todos los derechos reservados · 2025
       </div>
