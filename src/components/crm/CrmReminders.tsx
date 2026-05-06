@@ -48,8 +48,8 @@ const CalendarReminderPanel = ({ onBack }: { onBack: () => void }) => {
         <button onClick={onBack} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-4 transition-colors">
           <ArrowLeft size={12} /> Volver
         </button>
-        <h2 className="text-lg font-semibold">Recordatorios de Calendarios</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">Selecciona un calendario para configurar sus recordatorios.</p>
+        <h2 className="text-lg font-semibold">Notificaciones de Calendarios</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">Selecciona un calendario para configurar sus notificaciones.</p>
       </div>
       {isLoading ? (
         <div className="py-12 text-center text-sm text-muted-foreground">Cargando…</div>
@@ -70,7 +70,7 @@ const CalendarReminderPanel = ({ onBack }: { onBack: () => void }) => {
                   <div>
                     <p className="text-sm font-medium">{cal.name ?? "Sin nombre"}</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      {count ? `${count} recordatorio${count !== 1 ? "s" : ""} configurado${count !== 1 ? "s" : ""}` : "Sin recordatorios"}
+                      {count ? `${count} notificación${count !== 1 ? "es" : ""} configurada${count !== 1 ? "s" : ""}` : "Sin notificaciones"}
                     </p>
                   </div>
                 </div>
@@ -99,7 +99,7 @@ const FormReminderDetail = ({
   const handleSave = async () => {
     try {
       await updateForm.mutateAsync({ id: formId, reminder_rules: rules as any });
-      toast.success("Recordatorios guardados");
+      toast.success("Notificaciones guardadas");
     } catch { toast.error("Error al guardar"); }
   };
 
@@ -110,7 +110,7 @@ const FormReminderDetail = ({
           <ArrowLeft size={12} /> Volver a formularios
         </button>
         <h2 className="text-lg font-semibold">{formName}</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">Recordatorios automáticos al completar este formulario.</p>
+        <p className="text-sm text-muted-foreground mt-0.5">Notificaciones automáticas al completar este formulario.</p>
       </div>
       <div className="bg-card border rounded-2xl p-6 space-y-4">
         {canEdit ? (
@@ -118,11 +118,11 @@ const FormReminderDetail = ({
             <ReminderRulesEditor rules={rules} onChange={setRules} />
             <Button onClick={handleSave} disabled={updateForm.isPending} className="rounded-xl h-9 font-medium text-sm">
               {updateForm.isPending ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
-              Guardar recordatorios
+              Guardar notificaciones
             </Button>
           </>
         ) : (
-          <p className="text-xs text-muted-foreground">No tienes permiso para editar recordatorios.</p>
+          <p className="text-xs text-muted-foreground">No tienes permiso para editar notificaciones.</p>
         )}
       </div>
     </div>
@@ -151,8 +151,8 @@ const FormReminderPanel = ({ onBack }: { onBack: () => void }) => {
         <button onClick={onBack} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-4 transition-colors">
           <ArrowLeft size={12} /> Volver
         </button>
-        <h2 className="text-lg font-semibold">Recordatorios de Formularios</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">Selecciona un formulario para configurar sus recordatorios.</p>
+        <h2 className="text-lg font-semibold">Notificaciones de Formularios</h2>
+        <p className="text-sm text-muted-foreground mt-0.5">Selecciona un formulario para configurar sus notificaciones.</p>
       </div>
       {isLoading ? (
         <div className="py-12 text-center text-sm text-muted-foreground">Cargando…</div>
@@ -173,7 +173,7 @@ const FormReminderPanel = ({ onBack }: { onBack: () => void }) => {
                   <div>
                     <p className="text-sm font-medium">{form.name}</p>
                     <p className="text-[11px] text-muted-foreground mt-0.5">
-                      {count ? `${count} recordatorio${count !== 1 ? "s" : ""} configurado${count !== 1 ? "s" : ""}` : "Sin recordatorios"}
+                      {count ? `${count} notificación${count !== 1 ? "es" : ""} configurada${count !== 1 ? "s" : ""}` : "Sin notificaciones"}
                     </p>
                   </div>
                 </div>
@@ -266,11 +266,11 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
       );
       toast.success(
         targets.length > 1
-          ? `${targets.length} recordatorios programados`
-          : "Recordatorio personal programado"
+          ? `${targets.length} notificaciones programadas`
+          : "Notificación personal programada"
       );
       onSaved();
-    } catch { toast.error("Error al programar recordatorio"); }
+    } catch { toast.error("Error al programar notificación"); }
   };
 
   return (
@@ -279,7 +279,7 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
         <button onClick={onBack} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-4 transition-colors">
           <ArrowLeft size={12} /> Volver
         </button>
-        <h2 className="text-lg font-semibold">Nuevo recordatorio personal</h2>
+        <h2 className="text-lg font-semibold">Nueva notificación personal</h2>
         <p className="text-sm text-muted-foreground mt-0.5">Para ti o tu equipo en una fecha específica.</p>
       </div>
 
@@ -337,7 +337,7 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
           </div>
           {targets.length > 1 && (
             <p className="text-[10px] text-muted-foreground">
-              {targets.length} destinatarios — se creará un recordatorio por cada uno
+              {targets.length} destinatarios — se creará una notificación por cada uno
             </p>
           )}
         </div>
@@ -378,7 +378,7 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
           className="w-full rounded-xl h-10 font-medium text-sm"
         >
           {createReminder.isPending ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
-          Programar recordatorio
+          Programar notificación
         </Button>
       </div>
     </div>
@@ -401,7 +401,7 @@ const PersonalReminderPanel = ({ onBack }: { onBack: () => void }) => {
         <button onClick={onBack} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-4 transition-colors">
           <ArrowLeft size={12} /> Volver
         </button>
-        <h2 className="text-lg font-semibold">Recordatorios Personales</h2>
+        <h2 className="text-lg font-semibold">Notificaciones Personales</h2>
         <p className="text-sm text-muted-foreground mt-0.5">Notas programadas para ti o tu equipo.</p>
       </div>
 
@@ -416,7 +416,7 @@ const PersonalReminderPanel = ({ onBack }: { onBack: () => void }) => {
               className="flex flex-col items-center justify-center gap-2 p-5 border-2 border-dashed border-primary/30 rounded-2xl text-primary hover:bg-primary/5 hover:border-primary/60 transition-all min-h-[120px]"
             >
               <Plus size={20} />
-              <span className="text-xs font-semibold">Nuevo recordatorio</span>
+              <span className="text-xs font-semibold">Nueva notificación</span>
             </button>
           )}
 
@@ -470,10 +470,10 @@ const CrmReminders = () => {
     <div className="space-y-8">
       <div>
         <h1 className="text-xl font-semibold flex items-center gap-2">
-          <Bell size={18} className="text-primary" /> Recordatorios
+          <Bell size={18} className="text-primary" /> Notificaciones
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Gestiona recordatorios de calendarios, formularios y personales.
+          Gestiona notificaciones de calendarios, formularios y personales.
         </p>
       </div>
 
@@ -485,7 +485,7 @@ const CrmReminders = () => {
           </div>
           <div>
             <p className="text-sm font-semibold">Calendario</p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Recordatorios antes o después de citas agendadas.</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Notificaciones antes o después de citas agendadas.</p>
           </div>
           <ChevronRight size={13} className="text-muted-foreground mt-auto self-end" />
         </button>
@@ -497,7 +497,7 @@ const CrmReminders = () => {
           </div>
           <div>
             <p className="text-sm font-semibold">Formulario</p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Recordatorios tras completar un formulario.</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Notificaciones tras completar un formulario.</p>
           </div>
           <ChevronRight size={13} className="text-muted-foreground mt-auto self-end" />
         </button>

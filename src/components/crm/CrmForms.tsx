@@ -1265,7 +1265,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
             </p>
           </div>
 
-          {/* ── Recordatorios ──────────────────────────────────── */}
+          {/* ── Notificaciones ──────────────────────────────────── */}
           {canEditReminders && (
             <div className="bg-card border rounded-2xl p-6 space-y-4 mt-4">
               <div>

@@ -10,12 +10,10 @@ import { toast } from "sonner";
 interface Props {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  /** Pre-fill contact info */
   contactId?: string | null;
   contactEmail?: string | null;
   contactPhone?: string | null;
   contactName?: string | null;
-  /** Pre-fill appointment */
   appointmentId?: string | null;
 }
 
@@ -35,12 +33,13 @@ const CreateReminderModal = ({
     : "Este es un recordatorio para ti.";
 
   const [type,     setType]     = useState<"email" | "whatsapp">("email");
+  const [subject,  setSubject]  = useState("");
   const [message,  setMessage]  = useState(defaultMessage);
   const [sendMode, setSendMode] = useState<"now" | "schedule">("now");
   const [schedAt,  setSchedAt]  = useState("");
 
-  const recipientEmail = type === "email"     ? contactEmail : null;
-  const recipientPhone = type === "whatsapp"  ? contactPhone : null;
+  const recipientEmail = type === "email"    ? contactEmail : null;
+  const recipientPhone = type === "whatsapp" ? contactPhone : null;
 
   const canSend =
     message.trim().length > 0 &&
@@ -62,14 +61,15 @@ const CreateReminderModal = ({
         recipient_email: recipientEmail ?? null,
         recipient_phone: recipientPhone ?? null,
         scheduled_at,
+        subject:         type === "email" && subject.trim() ? subject.trim() : null,
         message:         message.trim(),
         is_auto:         false,
       });
 
-      toast.success(sendMode === "now" ? "Recordatorio enviado" : "Recordatorio programado");
+      toast.success(sendMode === "now" ? "Notificación enviada" : "Notificación programada");
       onOpenChange(false);
     } catch {
-      toast.error("Error al crear el recordatorio");
+      toast.error("Error al crear la notificación");
     }
   };
 
@@ -78,13 +78,13 @@ const CreateReminderModal = ({
       <DialogContent className="max-w-sm rounded-2xl">
         <DialogHeader>
           <DialogTitle className="text-base font-semibold flex items-center gap-2">
-            <Bell size={16} /> Recordatorio
+            <Bell size={16} /> Notificación
             {contactName && <span className="text-muted-foreground font-normal">— {contactName}</span>}
           </DialogTitle>
         </DialogHeader>
 
         <div className="space-y-4 py-1">
-          {/* Channel selector */}
+          {/* Canal */}
           <div>
             <p className="text-xs font-medium text-muted-foreground mb-1.5">Canal</p>
             <div className="flex gap-2">
@@ -118,19 +118,34 @@ const CreateReminderModal = ({
             )}
           </div>
 
-          {/* Message */}
+          {/* Asunto — solo email */}
+          {type === "email" && (
+            <div>
+              <p className="text-xs font-medium text-muted-foreground mb-1.5">Asunto</p>
+              <Input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Ej: Recordatorio de tu cita"
+                className="h-9 text-sm"
+              />
+            </div>
+          )}
+
+          {/* Mensaje */}
           <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1.5">Mensaje</p>
+            <p className="text-xs font-medium text-muted-foreground mb-1.5">
+              {type === "email" ? "Contenido" : "Mensaje"}
+            </p>
             <Textarea
               value={message}
               onChange={(e) => setMessage(e.target.value)}
               rows={3}
-              placeholder="Escribe el mensaje del recordatorio..."
+              placeholder="Escribe el mensaje de la notificación..."
               className="text-sm resize-none"
             />
           </div>
 
-          {/* Send mode */}
+          {/* Modo de envío */}
           <div>
             <p className="text-xs font-medium text-muted-foreground mb-1.5">Envío</p>
             <div className="flex gap-2 mb-2">

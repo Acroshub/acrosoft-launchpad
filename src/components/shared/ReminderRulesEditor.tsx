@@ -1,10 +1,12 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
-  Plus, Trash2, Mail, MessageSquare, Clock, User, Building2, Bell, Pencil,
+  Plus, Trash2, Mail, MessageSquare, Clock, User, Building2, Bell, Pencil, ChevronDown,
 } from "lucide-react";
 import { useStaff, useBusinessProfile, useWhatsappEnabled } from "@/hooks/useCrmData";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
@@ -24,10 +26,12 @@ export interface ReminderRule {
   /** @deprecated kept for backward-compat with rules saved before multi-select */
   businessTarget?:  string;
   channel:          ReminderChannel;
-  channelValue:     string;   // comma-joined when multiple targets (kept for compat, ignored at send time)
+  channelValue:     string;
   timing:           ReminderTiming;
   amount:           number;
   unit:             ReminderUnit;
+  subject?:         string;
+  content?:         string;
 }
 
 /** Normalize old single businessTarget to the new array */
@@ -36,6 +40,19 @@ const getTargets = (rule: ReminderRule): string[] => {
   if (rule.businessTarget)          return [rule.businessTarget];
   return ["admin"];
 };
+
+// ─── Variables disponibles ────────────────────────────────────────────────────
+
+const VARIABLES = [
+  { label: "Nombre del contacto",   value: "{{contact.name}}" },
+  { label: "Email del contacto",    value: "{{contact.email}}" },
+  { label: "Teléfono del contacto", value: "{{contact.phone}}" },
+  { label: "Fecha de la cita",      value: "{{appointment.date}}" },
+  { label: "Hora de la cita",       value: "{{appointment.time}}" },
+  { label: "Servicio",              value: "{{appointment.service}}" },
+  { label: "Nombre del calendario", value: "{{calendar.name}}" },
+  { label: "Nombre del negocio",    value: "{{business.name}}" },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -49,6 +66,8 @@ const DEFAULT_RULE: Omit<ReminderRule, "id"> = {
   timing:           "before",
   amount:           24,
   unit:             "hours",
+  subject:          "Recordatorio de tu cita — {{appointment.date}}",
+  content:          "Hola {{contact.name}}, te recordamos tu cita el {{appointment.date}} a las {{appointment.time}}.",
 };
 
 const UNITS: { value: ReminderUnit; label: string }[] = [
@@ -63,6 +82,40 @@ const pill = (active: boolean) =>
       ? "bg-primary text-primary-foreground border-primary"
       : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
   }`;
+
+// ─── Selector de variables ────────────────────────────────────────────────────
+
+const VariablePicker = ({ onSelect }: { onSelect: (v: string) => void }) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="space-y-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex items-center gap-1 text-[10px] text-primary font-medium hover:underline"
+      >
+        Insertar variable
+        <ChevronDown size={10} className={`transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="flex flex-wrap gap-1">
+          {VARIABLES.map((v) => (
+            <button
+              key={v.value}
+              type="button"
+              onClick={() => onSelect(v.value)}
+              title={v.label}
+              className="px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[10px] font-mono hover:bg-primary/20 transition-colors"
+            >
+              {v.value}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
 
 // ─── Read-only Summary Card ───────────────────────────────────────────────────
 
@@ -92,16 +145,19 @@ const RuleSummaryCard = ({
     <div className="border border-border/60 rounded-xl px-3.5 py-3 bg-card flex items-center gap-3">
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Channel badge */}
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[11px] font-medium">
             {rule.channel === "email" ? <Mail size={10} /> : <MessageSquare size={10} />}
             {rule.channel === "email" ? "Email" : "WhatsApp"}
           </span>
-          {/* Recipient */}
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             {rule.recipient === "contact" ? <User size={10} /> : <Building2 size={10} />}
             {recipientLabel}
           </span>
+          {rule.subject && (
+            <span className="text-[10px] text-muted-foreground/60 italic truncate max-w-[120px]">
+              "{rule.subject}"
+            </span>
+          )}
         </div>
         <p className="text-[11px] text-muted-foreground flex items-center gap-1">
           {rule.timing === "on_booking" ? <Bell size={10} /> : <Clock size={10} />}
@@ -129,13 +185,13 @@ const RuleSummaryCard = ({
         open={deleteOpen}
         onOpenChange={setDeleteOpen}
         onConfirm={onDelete}
-        description="Esta acción eliminará el recordatorio permanentemente."
+        description="Esta acción eliminará la notificación permanentemente."
       />
     </div>
   );
 };
 
-// ─── Rule Edit Form (used inside dialog) ─────────────────────────────────────
+// ─── Rule Edit Form ───────────────────────────────────────────────────────────
 
 const RuleForm = ({
   rule,
@@ -153,6 +209,10 @@ const RuleForm = ({
   const { data: staffList = [] } = useStaff();
   const { data: profile }        = useBusinessProfile();
   const whatsappEnabled          = useWhatsappEnabled();
+
+  const subjectRef = useRef<HTMLInputElement>(null);
+  const contentRef = useRef<HTMLTextAreaElement>(null);
+  const [activeField, setActiveField] = useState<"subject" | "content">("content");
 
   const adminLabel = (() => {
     const name = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ");
@@ -172,6 +232,30 @@ const RuleForm = ({
     }
     const next = Array.from(current);
     onChange({ businessTargets: next, businessTarget: next[0] });
+  };
+
+  const insertVariable = (variable: string) => {
+    if (activeField === "subject" && subjectRef.current) {
+      const el = subjectRef.current;
+      const start = el.selectionStart ?? (rule.subject ?? "").length;
+      const end   = el.selectionEnd   ?? start;
+      const current = rule.subject ?? "";
+      onChange({ subject: current.slice(0, start) + variable + current.slice(end) });
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start + variable.length, start + variable.length);
+      }, 0);
+    } else if (contentRef.current) {
+      const el = contentRef.current;
+      const start = el.selectionStart ?? (rule.content ?? "").length;
+      const end   = el.selectionEnd   ?? start;
+      const current = rule.content ?? "";
+      onChange({ content: current.slice(0, start) + variable + current.slice(end) });
+      setTimeout(() => {
+        el.focus();
+        el.setSelectionRange(start + variable.length, start + variable.length);
+      }, 0);
+    }
   };
 
   return (
@@ -248,7 +332,7 @@ const RuleForm = ({
           </div>
           {targets.length > 1 && (
             <p className="text-[10px] text-muted-foreground mt-1.5">
-              {targets.length} destinatarios — cada uno recibirá su propio recordatorio
+              {targets.length} destinatarios — cada uno recibirá su propia notificación
             </p>
           )}
         </div>
@@ -269,7 +353,7 @@ const RuleForm = ({
             type="button"
             onClick={() => whatsappEnabled && onChange({ channel: "whatsapp" })}
             disabled={!whatsappEnabled}
-            title={whatsappEnabled ? undefined : "WhatsApp no está configurado. Ve a Configuración → Integraciones."}
+            title={whatsappEnabled ? undefined : "WhatsApp no está configurado. Ve a Configuración → WhatsApp."}
             className={
               whatsappEnabled
                 ? pill(rule.channel === "whatsapp")
@@ -323,6 +407,50 @@ const RuleForm = ({
           )}
         </div>
       </div>
+
+      {/* ── Subject + Content ─────────────────────────────────────────────── */}
+      <div className="space-y-3">
+        <div className="space-y-1.5">
+          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Mensaje</p>
+          <VariablePicker onSelect={insertVariable} />
+        </div>
+
+        {rule.channel === "email" && (
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1">Asunto</p>
+            <Input
+              ref={subjectRef}
+              value={rule.subject ?? ""}
+              onChange={(e) => onChange({ subject: e.target.value })}
+              onFocus={() => setActiveField("subject")}
+              placeholder="Ej: Recordatorio de tu cita — {{appointment.date}}"
+              className="h-8 text-xs"
+            />
+          </div>
+        )}
+
+        <div>
+          <p className="text-[10px] text-muted-foreground mb-1">
+            {rule.channel === "email" ? "Contenido" : "Mensaje"}
+          </p>
+          <Textarea
+            ref={contentRef}
+            value={rule.content ?? ""}
+            onChange={(e) => onChange({ content: e.target.value })}
+            onFocus={() => setActiveField("content")}
+            placeholder={
+              rule.channel === "email"
+                ? "Hola {{contact.name}}, te recordamos tu cita el {{appointment.date}} a las {{appointment.time}}."
+                : "Hola {{contact.name}}, tu cita es el {{appointment.date}} a las {{appointment.time}}."
+            }
+            rows={3}
+            className="text-xs resize-none"
+          />
+          <p className="text-[10px] text-muted-foreground/50 mt-1">
+            Si lo dejas vacío se usará el mensaje por defecto del sistema.
+          </p>
+        </div>
+      </div>
     </div>
   );
 };
@@ -371,7 +499,7 @@ const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
     <div className="space-y-3">
       {rules.length === 0 && (
         <p className="text-xs text-muted-foreground/60 italic py-2">
-          Sin recordatorios configurados. Agrega uno para que se envíe automáticamente.
+          Sin notificaciones configuradas. Agrega una para que se envíe automáticamente.
         </p>
       )}
 
@@ -392,15 +520,15 @@ const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
         onClick={openNew}
         className="w-full rounded-xl border-dashed h-9 text-xs gap-1.5"
       >
-        <Plus size={13} /> Agregar recordatorio
+        <Plus size={13} /> Agregar notificación
       </Button>
 
       {/* ── Edit / New dialog ─────────────────────────────────────────────── */}
       <Dialog open={!!editing} onOpenChange={(open) => { if (!open) closeDialog(); }}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-sm font-semibold">
-              {editing?.isNew ? "Nuevo recordatorio" : "Editar recordatorio"}
+              {editing?.isNew ? "Nueva notificación" : "Editar notificación"}
             </DialogTitle>
           </DialogHeader>
 
@@ -419,7 +547,7 @@ const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
               Cancelar
             </Button>
             <Button type="button" size="sm" onClick={saveDialog}>
-              Guardar recordatorio
+              Guardar notificación
             </Button>
           </DialogFooter>
         </DialogContent>

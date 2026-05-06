@@ -507,13 +507,14 @@ Deno.serve(async (req) => {
                 .eq("contact_id", contactId).eq("business_target", marker);
               if ((existing ?? 0) > 0) continue;
 
-              const msg = `Hola ${name || "Cliente"}, gracias por completar nuestro formulario. Nos pondremos en contacto contigo pronto.`;
+              const msg = rule.content?.trim()
+                || `Hola ${name || "Cliente"}, gracias por completar nuestro formulario. Nos pondremos en contacto contigo pronto.`;
               const { data: rem } = await supabase.from("crm_reminders").insert({
                 user_id: form.user_id, contact_id: contactId,
                 type: rule.channel,
                 recipient_email: rule.channel === "email" ? channelValue : null,
                 recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
-                scheduled_at: nowIso, message: msg, status: "pending", is_auto: true,
+                scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
                 business_target: marker,
               }).select("id").single();
               if (rem?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: rem.id }); queued++; }
@@ -552,13 +553,14 @@ Deno.serve(async (req) => {
                 }
                 if (!channelValue) continue;
 
-                const msg = `Nuevo formulario completado: ${name || email || "Contacto"}.`;
+                const msg = rule.content?.trim()
+                  || `Nuevo formulario completado: ${name || email || "Contacto"}.`;
                 const { data: rem } = await supabase.from("crm_reminders").insert({
                   user_id: form.user_id, contact_id: contactId,
                   type: rule.channel,
                   recipient_email: rule.channel === "email" ? channelValue : null,
                   recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
-                  scheduled_at: nowIso, message: msg, status: "pending", is_auto: true,
+                  scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
                   business_target: marker,
                 }).select("id").single();
                 if (rem?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: rem.id }); queued++; }

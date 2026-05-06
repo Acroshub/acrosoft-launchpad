@@ -637,11 +637,11 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
           </div>
         </div>
 
-        {/* Recordatorios */}
+        {/* Notificaciones */}
         <div className="bg-card border rounded-2xl p-6 space-y-4">
           <div className="flex items-center gap-2">
             <Clock size={15} className="text-muted-foreground" />
-            <h2 className="text-sm font-semibold">Recordatorios automáticos</h2>
+            <h2 className="text-sm font-semibold">Notificaciones automáticas</h2>
           </div>
           <p className="text-xs text-muted-foreground -mt-2">
             Se enviarán automáticamente antes o después de cada cita agendada en este calendario.
@@ -656,11 +656,11 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                 className="rounded-xl h-9 font-medium text-sm"
               >
                 {saving ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
-                Guardar recordatorios
+                Guardar notificaciones
               </Button>
             </>
           ) : (
-            <p className="text-xs text-muted-foreground">No tienes permiso para editar recordatorios.</p>
+            <p className="text-xs text-muted-foreground">No tienes permiso para editar notificaciones.</p>
           )}
         </div>
         </>

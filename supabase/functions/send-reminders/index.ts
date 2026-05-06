@@ -17,18 +17,87 @@ function respond(body: unknown, status = 200) {
   });
 }
 
-/**
- * POST /functions/v1/send-reminders
- *
- * Processes pending items from crm_reminder_queue whose scheduled_at <= now().
- * Called by a pg_cron job every 5 minutes.
- *
- * For each queued reminder:
- *   - type "email"    → Resend API
- *   - type "whatsapp" → reserved for future WhatsApp integration
- *
- * Marks each reminder as sent/failed and updates crm_reminder_queue accordingly.
- */
+// ── Variable resolution ────────────────────────────────────────────────────────
+
+interface TemplateVars {
+  contact_name?:       string;
+  contact_email?:      string;
+  contact_phone?:      string;
+  appointment_date?:   string;
+  appointment_time?:   string;
+  appointment_service?: string;
+  calendar_name?:      string;
+  business_name?:      string;
+}
+
+function resolveVariables(text: string, vars: TemplateVars): string {
+  return text
+    .replace(/\{\{contact\.name\}\}/g,           vars.contact_name        ?? "")
+    .replace(/\{\{contact\.email\}\}/g,          vars.contact_email       ?? "")
+    .replace(/\{\{contact\.phone\}\}/g,          vars.contact_phone       ?? "")
+    .replace(/\{\{appointment\.date\}\}/g,       vars.appointment_date    ?? "")
+    .replace(/\{\{appointment\.time\}\}/g,       vars.appointment_time    ?? "")
+    .replace(/\{\{appointment\.service\}\}/g,    vars.appointment_service ?? "")
+    .replace(/\{\{calendar\.name\}\}/g,          vars.calendar_name       ?? "")
+    .replace(/\{\{business\.name\}\}/g,          vars.business_name       ?? "");
+}
+
+async function buildTemplateVars(reminder: Record<string, any>): Promise<TemplateVars> {
+  const vars: TemplateVars = {};
+
+  if (reminder.contact_id) {
+    const { data: contact } = await supabase
+      .from("crm_contacts")
+      .select("name, email, phone")
+      .eq("id", reminder.contact_id)
+      .single();
+    if (contact) {
+      vars.contact_name  = contact.name  ?? undefined;
+      vars.contact_email = contact.email ?? undefined;
+      vars.contact_phone = contact.phone ?? undefined;
+    }
+  }
+
+  if (reminder.appointment_id) {
+    const { data: appt } = await supabase
+      .from("crm_appointments")
+      .select("date, hour, minute, service_name, calendar_id")
+      .eq("id", reminder.appointment_id)
+      .single();
+    if (appt) {
+      vars.appointment_date = appt.date ?? undefined;
+      const h = String(appt.hour ?? 0).padStart(2, "0");
+      const m = String(appt.minute ?? 0).padStart(2, "0");
+      vars.appointment_time    = `${h}:${m}`;
+      vars.appointment_service = appt.service_name ?? undefined;
+
+      if (appt.calendar_id) {
+        const { data: cal } = await supabase
+          .from("crm_calendar_config")
+          .select("name")
+          .eq("id", appt.calendar_id)
+          .single();
+        if (cal) vars.calendar_name = cal.name ?? undefined;
+      }
+    }
+  }
+
+  if (reminder.user_id) {
+    const { data: profile } = await supabase
+      .from("crm_business_profile")
+      .select("business_name, first_name, last_name")
+      .eq("user_id", reminder.user_id)
+      .single();
+    if (profile) {
+      vars.business_name = profile.business_name
+        ?? [profile.first_name, profile.last_name].filter(Boolean).join(" ")
+        ?? undefined;
+    }
+  }
+
+  return vars;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
@@ -36,9 +105,7 @@ Deno.serve(async (req) => {
   const RESEND_FROM    = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
   const now            = new Date();
 
-  // ── 1. Fetch pending queue items (max 50 per run) ───────────────────────────
-  // Reset items stuck in "processing" for more than 10 min (crash recovery)
-  // Edge functions time out in <60s, so anything still "processing" after 10 min is a crashed run
+  // ── 1. Fetch pending queue items ─────────────────────────────────────────────
   const staleThreshold = new Date(now.getTime() - 10 * 60_000).toISOString();
   await supabase
     .from("crm_reminder_queue")
@@ -61,7 +128,6 @@ Deno.serve(async (req) => {
   let sent = 0, failed = 0, skipped = 0;
 
   for (const item of queueItems) {
-    // Load reminder details
     const { data: reminder } = await supabase
       .from("crm_reminders")
       .select("*")
@@ -78,25 +144,30 @@ Deno.serve(async (req) => {
     }
 
     // ── 2. Skip if not yet due ────────────────────────────────────────────────
-    const scheduledAt = new Date(reminder.scheduled_at);
-    if (scheduledAt > now) {
+    if (new Date(reminder.scheduled_at) > now) {
       skipped++;
-      continue; // leave as pending, will be picked up in a future run
+      continue;
     }
 
-    // Mark as processing
     await supabase
       .from("crm_reminder_queue")
       .update({ status: "processing", attempts: item.attempts + 1 })
       .eq("id", item.id);
 
     try {
+      // ── Resolve template variables ──────────────────────────────────────────
+      const vars = await buildTemplateVars(reminder);
+
+      const resolvedMessage = resolveVariables(reminder.message ?? "", vars);
+      const resolvedSubject = reminder.subject
+        ? resolveVariables(reminder.subject, vars)
+        : "Recordatorio de tu cita";
+
       if (reminder.type === "email") {
-        // ── Email via Resend ────────────────────────────────────────────────────
         if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY not configured");
         if (!reminder.recipient_email) throw new Error("No recipient email on reminder");
 
-        const emailHtml = buildEmailHtml(reminder.message);
+        const emailHtml = buildEmailHtml(resolvedMessage);
 
         const res = await fetch("https://api.resend.com/emails", {
           method: "POST",
@@ -105,10 +176,10 @@ Deno.serve(async (req) => {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: RESEND_FROM,
-            to:   [reminder.recipient_email],
-            subject: "Recordatorio de tu cita",
-            html: emailHtml,
+            from:    RESEND_FROM,
+            to:      [reminder.recipient_email],
+            subject: resolvedSubject,
+            html:    emailHtml,
           }),
         });
 
@@ -118,7 +189,6 @@ Deno.serve(async (req) => {
         }
 
       } else if (reminder.type === "whatsapp") {
-        // ── WhatsApp — not yet implemented ─────────────────────────────────────
         throw new Error("WhatsApp channel not yet configured");
       } else {
         throw new Error(`Unknown channel type: ${reminder.type}`);
@@ -178,7 +248,7 @@ function buildEmailHtml(message: string): string {
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Recordatorio de cita</title>
+  <title>Notificación</title>
 </head>
 <body style="margin:0;padding:0;background:#f4f4f5;font-family:system-ui,-apple-system,sans-serif;">
   <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 20px;">

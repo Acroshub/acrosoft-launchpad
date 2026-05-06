@@ -28,7 +28,7 @@ const navItems: { id: View; label: string; icon: React.ElementType; group: strin
   { id: "contacts",   label: "Contactos",      icon: Users,           group: "CRM"            },
   { id: "pipeline",   label: "Pipeline",       icon: Kanban,          group: "CRM"            },
   { id: "ventas",     label: "Ventas",         icon: DollarSign,      group: "CRM"            },
-  { id: "reminders",  label: "Recordatorios",  icon: Bell,            group: "CRM"            },
+  { id: "reminders",  label: "Notificaciones", icon: Bell,            group: "CRM"            },
   { id: "settings",   label: "Configuración",  icon: Settings,        group: "Configuración"  },
   { id: "soporte",    label: "Soporte",        icon: MessageCircle,   group: "Configuración"  },
 ];

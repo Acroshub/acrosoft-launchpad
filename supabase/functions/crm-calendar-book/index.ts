@@ -339,13 +339,14 @@ Deno.serve(async (req) => {
           if (rule.recipient === "contact") {
             const channelValue = rule.channel === "email" ? (email || null) : (phone || null);
             if (!channelValue) continue;
-            const msg = `Hola ${name || "Cliente"}, confirmamos tu cita el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs con ${calendar.name ?? "nosotros"}.`;
+            const msg = rule.content?.trim()
+              || `Hola ${name || "Cliente"}, confirmamos tu cita el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs con ${calendar.name ?? "nosotros"}.`;
             const { data: rem } = await supabase.from("crm_reminders").insert({
               user_id: calendar.user_id, appointment_id: appointment.id, contact_id: contactId,
               type: rule.channel,
               recipient_email: rule.channel === "email" ? channelValue : null,
               recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
-              scheduled_at: nowIso, message: msg, status: "pending", is_auto: true,
+              scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
               business_target: `rule:${calendar_id}:${rule.id}:contact`,
             }).select("id").single();
             if (rem?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: rem.id }); queued++; }
@@ -375,13 +376,14 @@ Deno.serve(async (req) => {
                 channelValue = rule.channel === "email" ? (staff?.email ?? "") : (staff?.phone ?? "");
               }
               if (!channelValue) continue;
-              const msg = `Cita confirmada: ${name || email || "Cliente"} el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs.`;
+              const msg = rule.content?.trim()
+                || `Cita confirmada: ${name || email || "Cliente"} el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs.`;
               const { data: rem } = await supabase.from("crm_reminders").insert({
                 user_id: calendar.user_id, appointment_id: appointment.id, contact_id: contactId,
                 type: rule.channel,
                 recipient_email: rule.channel === "email" ? channelValue : null,
                 recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
-                scheduled_at: nowIso, message: msg, status: "pending", is_auto: true,
+                scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
                 business_target: `rule:${calendar_id}:${rule.id}:${targetId}`,
               }).select("id").single();
               if (rem?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: rem.id }); queued++; }

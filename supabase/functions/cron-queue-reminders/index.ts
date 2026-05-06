@@ -22,6 +22,8 @@ interface ReminderRule {
   timing:           "before" | "after";
   amount:           number;
   unit:             "minutes" | "hours" | "days";
+  subject?:         string;
+  content?:         string;
 }
 
 function getTargets(rule: ReminderRule): string[] {
@@ -136,7 +138,8 @@ async function processRules(
 
         if ((existingCount ?? 0) > 0) continue;
 
-        const message = `Hola ${contactName}, te recordamos tu cita el ${appt.date} a las ${String(appt.hour).padStart(2, "0")}:00 hs.`;
+        const message = (rule as any).content?.trim()
+          || `Hola ${contactName}, te recordamos tu cita el ${appt.date} a las ${String(appt.hour).padStart(2, "0")}:00 hs.`;
 
         const { data: newReminder } = await supabase
           .from("crm_reminders")
@@ -148,6 +151,7 @@ async function processRules(
             recipient_email: rule.channel === "email"    ? channelValue : null,
             recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
             scheduled_at:    scheduledAt.toISOString(),
+            subject:         (rule as any).subject?.trim() || null,
             message,
             status:          "pending",
             is_auto:         true,
@@ -202,7 +206,8 @@ async function processRules(
 
           if (!channelValue) continue;
 
-          const message = `Cita confirmada: ${contactName} el ${appt.date} a las ${String(appt.hour).padStart(2, "0")}:00 hs.`;
+          const message = (rule as any).content?.trim()
+            || `Cita confirmada: ${contactName} el ${appt.date} a las ${String(appt.hour).padStart(2, "0")}:00 hs.`;
 
           const { data: newReminder } = await supabase
             .from("crm_reminders")
@@ -214,6 +219,7 @@ async function processRules(
               recipient_email: rule.channel === "email"    ? channelValue : null,
               recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
               scheduled_at:    scheduledAt.toISOString(),
+              subject:         (rule as any).subject?.trim() || null,
               message,
               status:          "pending",
               is_auto:         true,

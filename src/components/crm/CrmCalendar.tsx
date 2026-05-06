@@ -404,6 +404,8 @@ const EmptySlot = () => (
 );
 
 // DAY VIEW
+const ROW_HEIGHT_DAY = 56;
+
 const DayView = ({
   current, onSelect, selected, onSlotClick, onBlockClick, blocked, appointments, availability, interval,
 }: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; onBlockClick: (blk: BlockedSlot) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
@@ -411,63 +413,101 @@ const DayView = ({
   const dayAppts = appointments.filter((a) => a.date === key);
   const dow = current.getDay();
   const slots = buildSlots(interval, availability);
+  const firstSlotMin = slots.length ? slots[0].hour * 60 + slots[0].minute : 0;
+  const pxPerMin = ROW_HEIGHT_DAY / interval;
+  const totalHeight = slots.length * ROW_HEIGHT_DAY;
+
+  // Left offset for overlays: px-5 (20px) + w-12 (48px) + gap-4 (16px) = 84px
+  const OVERLAY_LEFT = 84;
+  const OVERLAY_RIGHT = 20;
 
   return (
     <div className="bg-card border rounded-2xl overflow-hidden">
-      <div className="divide-y">
-        {slots.map(({ hour, minute }) => {
-          const slotAppts = dayAppts.filter((a) => a.hour === hour && (a.minute ?? 0) === minute);
-          const blk = isSlotBlockedAt(blocked, key, hour, minute);
-          const unavailable = slotAppts.length === 0 && !blk && !isSlotAvailable(availability, dow, hour, minute, interval);
+      <div className="relative" style={{ height: totalHeight }}>
+
+        {/* Background grid rows — labels + click targets */}
+        {slots.map(({ hour, minute }, idx) => {
+          const slotMin = hour * 60 + minute;
+          const isOccupied = dayAppts.some((a) => {
+            const aStart = a.hour * 60 + (a.minute ?? 0);
+            return slotMin >= aStart && slotMin < aStart + (a.duration_min ?? interval);
+          });
+          const isBlockedHere = isSlotBlockedAt(blocked, key, hour, minute);
+          const unavailable = !isOccupied && !isBlockedHere && !isSlotAvailable(availability, dow, hour, minute, interval);
+          const canClick = !isOccupied && !isBlockedHere && !unavailable;
           const label = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+
           return (
-            <div key={`${hour}-${minute}`} className={`flex gap-4 px-5 py-3 min-h-[56px] ${unavailable ? "bg-slate-100 dark:bg-slate-800/70" : ""}`}>
-              <span className={`text-xs w-12 shrink-0 pt-0.5 font-mono ${unavailable ? "text-muted-foreground/40" : "text-muted-foreground/60"}`}>
+            <div
+              key={`${hour}-${minute}`}
+              style={{ top: idx * ROW_HEIGHT_DAY, height: ROW_HEIGHT_DAY }}
+              className={`absolute left-0 right-0 flex items-start gap-4 px-5 pt-2 border-b ${
+                unavailable ? "bg-slate-100 dark:bg-slate-800/70" : ""
+              } ${canClick ? "cursor-pointer hover:bg-primary/5 group" : ""}`}
+              onClick={canClick ? () => onSlotClick(key, hour, minute) : undefined}
+            >
+              <span className={`text-xs w-12 shrink-0 font-mono ${unavailable ? "text-muted-foreground/40" : "text-muted-foreground/60"}`}>
                 {label}
               </span>
-              {slotAppts.length > 0 ? (
-                <div className="flex-1 flex flex-col gap-1.5">
-                  {slotAppts.map((appt) => (
-                    <button
-                      key={appt.id}
-                      onClick={() => onSelect(appt.id === selected ? "" : appt.id)}
-                      className={`text-left rounded-xl px-3 py-2 border transition-all text-xs ${
-                        selected === appt.id
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-primary/20 border-primary/30 hover:bg-primary/30"
-                      }`}
-                    >
-                      <p className="font-medium">
-                        <span className="font-mono opacity-70 mr-1.5">{appt.time}</span>
-                        {appt.name}
-                      </p>
-                      {appt.service && <p className="opacity-80 mt-0.5">{appt.service}</p>}
-                    </button>
-                  ))}
+              {canClick && (
+                <div className="flex-1 flex items-center h-full">
+                  <Plus size={12} className="text-primary/0 group-hover:text-primary/40 transition-colors" />
                 </div>
-              ) : blk ? (
-                <button
-                  type="button"
-                  onClick={() => onBlockClick(blk)}
-                  className="flex-1 rounded-xl px-3 py-2 bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 flex items-center gap-2 text-xs hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors text-left"
-                >
-                  <Coffee size={14} className="shrink-0 text-amber-600 dark:text-amber-400" />
-                  <span className="font-semibold">{blk.reason || "Reservado"}</span>
-                  {blk.type === "hours" && (
-                    <span className="ml-auto font-mono text-[11px] text-amber-700/80 dark:text-amber-300/80">{formatBlockRange(blk)}</span>
-                  )}
-                </button>
-              ) : unavailable ? (
-                <div className="flex-1" />
-              ) : (
-                <button
-                  onClick={() => onSlotClick(key, hour, minute)}
-                  className="flex-1 border-b border-dashed border-border/30 hover:bg-primary/5 hover:border-primary/30 rounded transition-all group"
-                >
-                  <Plus size={12} className="text-primary/0 group-hover:text-primary/40 transition-all mx-auto" />
-                </button>
               )}
             </div>
+          );
+        })}
+
+        {/* Blocked "hours" overlays — span exact minutes */}
+        {blocked
+          .filter((b) => b.type === "hours" && b.date === key && b.startHour != null && b.endHour != null)
+          .map((blk) => {
+            const startMin = blk.startHour! * 60 + (blk.startMinute ?? 0);
+            const endMin   = blk.endHour!   * 60 + (blk.endMinute   ?? 0);
+            const top    = (startMin - firstSlotMin) * pxPerMin;
+            const height = (endMin - startMin) * pxPerMin;
+            if (height <= 0) return null;
+            return (
+              <button
+                key={blk.id}
+                type="button"
+                onClick={() => onBlockClick(blk)}
+                style={{ top: Math.max(0, top), height: Math.max(height, 32), left: OVERLAY_LEFT, right: OVERLAY_RIGHT }}
+                className="absolute rounded-xl px-3 py-1.5 bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 flex items-center gap-2 text-xs hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors text-left z-10 overflow-hidden"
+              >
+                <Coffee size={13} className="shrink-0 text-amber-600 dark:text-amber-400" />
+                <span className="font-semibold truncate">{blk.reason || "Reservado"}</span>
+                <span className="ml-auto font-mono text-[10px] text-amber-700/80 dark:text-amber-300/80 shrink-0">{formatBlockRange(blk)}</span>
+              </button>
+            );
+          })}
+
+        {/* Appointment overlays — span exact duration */}
+        {dayAppts.map((appt) => {
+          const startMin    = appt.hour * 60 + (appt.minute ?? 0);
+          const durationMin = appt.duration_min ?? interval;
+          const top    = (startMin - firstSlotMin) * pxPerMin;
+          const height = durationMin * pxPerMin;
+          const isSelected = selected === appt.id;
+          return (
+            <button
+              key={appt.id}
+              onClick={() => onSelect(isSelected ? "" : appt.id)}
+              style={{ top, height: Math.max(height, 36), left: OVERLAY_LEFT, right: OVERLAY_RIGHT }}
+              className={`absolute rounded-xl px-3 py-1.5 border transition-all text-xs text-left z-20 overflow-hidden ${
+                isSelected
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-primary/20 border-primary/30 hover:bg-primary/30"
+              }`}
+            >
+              <p className="font-medium leading-tight">
+                <span className="font-mono opacity-70 mr-1.5">{appt.time}</span>
+                {appt.name}
+              </p>
+              {height > 44 && appt.service && (
+                <p className="opacity-75 mt-0.5 truncate text-[11px]">{appt.service}</p>
+              )}
+            </button>
           );
         })}
       </div>
@@ -476,6 +516,8 @@ const DayView = ({
 };
 
 // WEEK VIEW
+const ROW_HEIGHT_WEEK = 52;
+
 const WeekView = ({
   current, onSelect, selected, onSlotClick, onBlockClick, blocked, appointments, availability, interval,
 }: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; onBlockClick: (blk: BlockedSlot) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
@@ -486,12 +528,14 @@ const WeekView = ({
     return d;
   });
   const slots = buildSlots(interval, availability);
+  const firstSlotMin = slots.length ? slots[0].hour * 60 + slots[0].minute : 0;
+  const pxPerMin = ROW_HEIGHT_WEEK / interval;
+  const totalHeight = slots.length * ROW_HEIGHT_WEEK;
 
   return (
     <div className="bg-card border rounded-2xl overflow-hidden overflow-x-auto">
       {/* Header row */}
       <div className="flex border-b">
-        {/* Hour gutter header */}
         <div className="w-14 shrink-0 border-r" />
         {weekDays.map((day) => {
           const isToday = sameDay(day, new Date());
@@ -508,71 +552,119 @@ const WeekView = ({
         })}
       </div>
 
-      {/* Hour rows */}
-      <div>
-        {slots.map(({ hour, minute }) => (
-          <div key={`${hour}-${minute}`} className="flex border-b last:border-b-0 min-h-[52px]">
-            {/* Hour label */}
-            <div className="w-14 shrink-0 border-r px-2 pt-1.5 text-right">
+      {/* Body */}
+      <div className="flex" style={{ height: totalHeight }}>
+        {/* Time gutter */}
+        <div className="w-14 shrink-0 border-r relative" style={{ height: totalHeight }}>
+          {slots.map(({ hour, minute }, idx) => (
+            <div
+              key={`label-${hour}-${minute}`}
+              style={{ top: idx * ROW_HEIGHT_WEEK, height: ROW_HEIGHT_WEEK }}
+              className="absolute left-0 right-0 border-b px-2 pt-1.5 text-right"
+            >
               <span className="text-[10px] text-muted-foreground/60 font-mono">
                 {String(hour).padStart(2, "0")}:{String(minute).padStart(2, "0")}
               </span>
             </div>
-            {/* Day cells */}
-            {weekDays.map((day) => {
-              const key = dateKey(day);
-              const cellAppts = appointments
-                .filter((a) => a.date === key && a.hour === hour && (a.minute ?? 0) === minute);
-              const blk = isSlotBlockedAt(blocked, key, hour, minute);
-              const isToday = sameDay(day, new Date());
-              const unavailable = cellAppts.length === 0 && !blk && !isSlotAvailable(availability, day.getDay(), hour, minute, interval);
-              const empty = cellAppts.length === 0 && !blk && !unavailable;
-              return (
-                <div
-                  key={key}
-                  onClick={() => { if (empty) onSlotClick(key, hour, minute); }}
-                  className={`flex-1 min-w-[90px] border-r last:border-r-0 px-1.5 py-1 group ${
-                    blk ? "bg-amber-100 dark:bg-amber-900/40"
-                    : unavailable ? "bg-slate-100 dark:bg-slate-800/70"
-                    : isToday ? "bg-primary/10" : ""
-                  } ${empty ? "hover:bg-primary/5 cursor-pointer" : ""}`}
-                >
-                  {cellAppts.length > 0 ? (
-                    <div className="flex flex-col gap-1">
-                      {cellAppts.map((appt) => (
-                        <button
-                          key={appt.id}
-                          onClick={(e) => { e.stopPropagation(); onSelect(appt.id === selected ? "" : appt.id); }}
-                          className={`w-full text-left rounded-lg px-2 py-1.5 text-[10px] border transition-all ${
-                            selected === appt.id
-                              ? "bg-primary text-primary-foreground border-primary"
-                              : "bg-primary/20 border-primary/30 text-primary hover:bg-primary/30"
-                          }`}
-                        >
-                          <p className="font-semibold truncate">{appt.time}</p>
-                          <p className="truncate opacity-80">{appt.name}</p>
-                        </button>
-                      ))}
-                    </div>
-                  ) : blk ? (
+          ))}
+        </div>
+
+        {/* Day columns */}
+        {weekDays.map((day) => {
+          const key = dateKey(day);
+          const dayAppts = appointments.filter((a) => a.date === key);
+          const dayBlk = isDayBlocked(blocked, key);
+          const isToday = sameDay(day, new Date());
+
+          return (
+            <div
+              key={key}
+              className={`flex-1 min-w-[90px] border-r last:border-r-0 relative ${
+                dayBlk ? "bg-amber-50/60 dark:bg-amber-900/20" : isToday ? "bg-primary/5" : ""
+              }`}
+              style={{ height: totalHeight }}
+            >
+              {/* Background grid rows — click targets */}
+              {slots.map(({ hour, minute }, idx) => {
+                const slotMin = hour * 60 + minute;
+                const isOccupied = dayAppts.some((a) => {
+                  const aStart = a.hour * 60 + (a.minute ?? 0);
+                  return slotMin >= aStart && slotMin < aStart + (a.duration_min ?? interval);
+                });
+                const isBlockedHere = isSlotBlockedAt(blocked, key, hour, minute);
+                const unavailable = !isOccupied && !isBlockedHere && !isSlotAvailable(availability, day.getDay(), hour, minute, interval);
+                const canClick = !isOccupied && !isBlockedHere && !unavailable && !dayBlk;
+
+                return (
+                  <div
+                    key={`${hour}-${minute}`}
+                    style={{ top: idx * ROW_HEIGHT_WEEK, height: ROW_HEIGHT_WEEK }}
+                    className={`absolute left-0 right-0 border-b ${
+                      unavailable ? "bg-slate-100 dark:bg-slate-800/70" : ""
+                    } ${canClick ? "hover:bg-primary/5 cursor-pointer group" : ""}`}
+                    onClick={canClick ? () => onSlotClick(key, hour, minute) : undefined}
+                  >
+                    {canClick && (
+                      <div className="h-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Plus size={11} className="text-primary/50" />
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Blocked "hours" overlays */}
+              {blocked
+                .filter((b) => b.type === "hours" && b.date === key && b.startHour != null && b.endHour != null)
+                .map((blk) => {
+                  const startMin = blk.startHour! * 60 + (blk.startMinute ?? 0);
+                  const endMin   = blk.endHour!   * 60 + (blk.endMinute   ?? 0);
+                  const top    = (startMin - firstSlotMin) * pxPerMin;
+                  const height = (endMin - startMin) * pxPerMin;
+                  if (height <= 0) return null;
+                  return (
                     <button
+                      key={blk.id}
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onBlockClick(blk); }}
-                      className="w-full h-full flex items-center justify-center text-amber-600 dark:text-amber-400 hover:bg-amber-200/60 dark:hover:bg-amber-700/40 rounded transition-colors"
+                      style={{ top: Math.max(0, top), height: Math.max(height, 20), left: 2, right: 2 }}
+                      className="absolute rounded-lg flex items-start gap-1 px-1.5 py-1 bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors z-10 overflow-hidden"
                       title={blk.reason || "Bloqueo"}
                     >
-                      <Coffee size={12} />
+                      <Coffee size={10} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                      {height > 28 && (
+                        <span className="text-[10px] font-semibold leading-tight truncate">{blk.reason || "Reservado"}</span>
+                      )}
                     </button>
-                  ) : unavailable ? null : (
-                    <div className="h-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Plus size={12} className="text-primary/50" />
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
+                  );
+                })}
+
+              {/* Appointment overlays — span exact duration */}
+              {dayAppts.map((appt) => {
+                const startMin    = appt.hour * 60 + (appt.minute ?? 0);
+                const durationMin = appt.duration_min ?? interval;
+                const top    = (startMin - firstSlotMin) * pxPerMin;
+                const height = durationMin * pxPerMin;
+                const isSelected = selected === appt.id;
+                return (
+                  <button
+                    key={appt.id}
+                    onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? "" : appt.id); }}
+                    style={{ top, height: Math.max(height, 24), left: 2, right: 2 }}
+                    className={`absolute rounded-lg px-1.5 py-1 text-[10px] border transition-all text-left z-20 overflow-hidden ${
+                      isSelected
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-primary/20 border-primary/30 text-primary hover:bg-primary/30"
+                    }`}
+                  >
+                    <p className="font-semibold truncate leading-tight">{appt.time}</p>
+                    {height > 36 && <p className="truncate opacity-80 leading-tight">{appt.name}</p>}
+                  </button>
+                );
+              })}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

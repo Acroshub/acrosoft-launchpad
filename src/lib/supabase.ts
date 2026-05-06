@@ -243,6 +243,7 @@ export type CrmReminder = {
   recipient_email: string | null
   recipient_phone: string | null
   scheduled_at: string
+  subject: string | null
   message: string
   status: 'pending' | 'sent' | 'failed' | 'skipped'
   sent_at: string | null
