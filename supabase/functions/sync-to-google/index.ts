@@ -17,9 +17,9 @@ function respond(body: unknown, status = 200) {
   });
 }
 
-async function getValidToken(token: any): Promise<string | null> {
+async function getValidToken(token: any): Promise<{ accessToken: string; expiresIn?: number } | null> {
   if (!token) return null;
-  if (token.expires_at && Date.now() < token.expires_at - 60_000) return token.access_token;
+  if (token.expires_at && Date.now() < token.expires_at - 60_000) return { accessToken: token.access_token };
   if (!token.refresh_token) return null;
 
   const res = await fetch("https://oauth2.googleapis.com/token", {
@@ -35,7 +35,7 @@ async function getValidToken(token: any): Promise<string | null> {
 
   const data = await res.json();
   if (data.error) { console.error("Token refresh failed:", data.error); return null; }
-  return data.access_token;
+  return { accessToken: data.access_token, expiresIn: data.expires_in as number };
 }
 
 function toGoogleDateTime(date: string, hour: number, minute: number, timezone: string) {
@@ -65,12 +65,16 @@ Deno.serve(async (req) => {
     if (!calendar.google_token || !calendar.google_calendar_id)
       return respond({ skipped: true, reason: "Google Calendar not connected or not selected" });
 
-    const accessToken = await getValidToken(calendar.google_token);
-    if (!accessToken) return respond({ skipped: true, reason: "Could not obtain valid access token" });
+    const tokenResult = await getValidToken(calendar.google_token);
+    if (!tokenResult) return respond({ skipped: true, reason: "Could not obtain valid access token" });
 
+    const accessToken = tokenResult.accessToken;
     if (accessToken !== (calendar.google_token as any).access_token) {
+      const expiresAt = tokenResult.expiresIn
+        ? Date.now() + tokenResult.expiresIn * 1000
+        : Date.now() + 3600_000;
       await supabase.from("crm_calendar_config").update({
-        google_token: { ...(calendar.google_token as any), access_token: accessToken, expires_at: Date.now() + 3500_000 },
+        google_token: { ...(calendar.google_token as any), access_token: accessToken, expires_at: expiresAt },
       }).eq("id", calendar.id);
     }
 
@@ -103,14 +107,22 @@ Deno.serve(async (req) => {
     const startHour   = appt.hour as number;
     const startMinute = (appt.minute as number) ?? 0;
     const endTotalMin = startHour * 60 + startMinute + durationMin;
-    const endHour     = Math.floor(endTotalMin / 60) % 24;
+    const endHour     = Math.floor(endTotalMin / 60);
     const endMinute   = endTotalMin % 60;
+
+    // Si la cita cruza medianoche, el evento termina al día siguiente
+    let endDate = appt.date as string;
+    if (endHour >= 24) {
+      const next = new Date(`${appt.date}T00:00:00`);
+      next.setDate(next.getDate() + 1);
+      endDate = next.toISOString().slice(0, 10);
+    }
 
     const eventBody: any = {
       summary:     `${calendar.name ?? "Cita"} — ${contactName}`,
       description: appt.notes ?? "",
       start: toGoogleDateTime(appt.date, startHour, startMinute, timezone),
-      end:   toGoogleDateTime(appt.date, endHour,   endMinute,   timezone),
+      end:   toGoogleDateTime(endDate, endHour % 24, endMinute,  timezone),
     };
 
     if (action === "create") {

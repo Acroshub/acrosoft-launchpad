@@ -57,6 +57,11 @@ Deno.serve(async (req) => {
       headers: { Authorization: `Bearer ${tokenData.access_token}` },
     });
 
+    if (!calendarsRes.ok) {
+      const errData = await calendarsRes.json().catch(() => ({}));
+      console.error("Failed to fetch calendars:", calendarsRes.status, errData);
+      return respond({ error: "Failed to fetch Google Calendar list" }, 400);
+    }
     const calendarsData = await calendarsRes.json();
     const calendars = (calendarsData.items ?? []).map((cal: any) => ({
       id: cal.id,
