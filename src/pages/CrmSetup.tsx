@@ -71,7 +71,8 @@ const CrmSetup = () => {
       setDone(true);
       setTimeout(() => navigate("/crm"), 2500);
     } catch (err) {
-      setError((err as Error).message ?? "Error al establecer la contraseña");
+      console.error("crm-setup error:", err);
+      setError("Error al establecer la contraseña. Intenta de nuevo.");
     } finally {
       setLoading(false);
     }

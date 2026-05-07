@@ -509,12 +509,13 @@ Deno.serve(async (req) => {
 
     if (!aiRes.ok) {
       const errBody = await aiRes.text();
-      throw new Error(`Anthropic API error ${aiRes.status}: ${errBody}`);
+      console.error(`generate-master-doc Anthropic error ${aiRes.status}:`, errBody);
+      throw new Error("Error al generar el documento con IA");
     }
 
     const aiData = await aiRes.json();
     const mdContent: string = aiData.content?.[0]?.text ?? "";
-    if (!mdContent) throw new Error("Empty response from Anthropic API");
+    if (!mdContent) throw new Error("Error al generar el documento con IA");
 
     // ── 6. Upload .md to Storage ───────────────────────────────────────────────
     const filePath = `${user_id}/${contact_id}.md`;
@@ -525,7 +526,10 @@ Deno.serve(async (req) => {
         contentType: "text/markdown; charset=utf-8",
       });
 
-    if (uploadError) throw new Error(`Storage upload failed: ${uploadError.message}`);
+    if (uploadError) {
+      console.error("generate-master-doc storage upload error:", uploadError);
+      throw new Error("Error al guardar el documento generado");
+    }
 
     // ── 7. Update contact + log ────────────────────────────────────────────────
     await supabase.from("crm_contacts").update({ master_doc_url: filePath }).eq("id", contact_id);
@@ -542,8 +546,8 @@ Deno.serve(async (req) => {
 
     return respond({ master_doc_url: filePath, contact_id });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error("generate-master-doc error:", msg);
+    console.error("generate-master-doc error:", err);
+    const msg = err instanceof Error ? err.message : "Error inesperado al generar el documento";
     return respond({ error: msg }, 500);
   }
 });

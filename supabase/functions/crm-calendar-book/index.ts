@@ -1,9 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { sanitizeText, isValidUUID, isValidEmail, isValidPhone, isValidDate, isValidHour, isValidMinute } from "../_shared/validate.ts";
+import { PUBLIC_CORS_HEADERS } from "../_shared/cors.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -13,7 +10,7 @@ const supabase = createClient(
 function respond(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...PUBLIC_CORS_HEADERS, "Content-Type": "application/json" },
   });
 }
 
@@ -140,13 +137,35 @@ async function addContactToPipelines(
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: PUBLIC_CORS_HEADERS });
+
+  // ── Rate limiting: 20 bookings per IP per hour ────────────────────────────────
+  const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    ?? req.headers.get("x-real-ip")
+    ?? "unknown";
+  const { data: allowed, error: rlErr } = await supabase.rpc("check_rate_limit", {
+    p_key: `crm-calendar-book:${clientIp}`,
+    p_window_seconds: 3600,
+    p_max_count: 20,
+  });
+  if (rlErr) console.error("rate_limit check error (non-blocking):", rlErr);
+  if (allowed === false) {
+    return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intenta más tarde." }), {
+      status: 429,
+      headers: { ...PUBLIC_CORS_HEADERS, "Content-Type": "application/json", "Retry-After": "3600" },
+    });
+  }
 
   try {
     const { calendar_id, date, hour, minute: rawMinute, form_data, terms_accepted_at } = await req.json();
-    const minute: number = typeof rawMinute === "number" ? rawMinute : 0;
-    if (!calendar_id || !date || hour == null) {
-      return respond({ error: "calendar_id, date and hour are required" }, 400);
+    const minute: number = typeof rawMinute === "number" ? Math.floor(rawMinute) : 0;
+
+    if (!isValidUUID(calendar_id))   return respond({ error: "calendar_id inválido" }, 400);
+    if (!isValidDate(date))          return respond({ error: "Fecha inválida. Formato requerido: YYYY-MM-DD" }, 400);
+    if (!isValidHour(hour))          return respond({ error: "Hora inválida. Debe ser un entero entre 0 y 23" }, 400);
+    if (!isValidMinute(minute))      return respond({ error: "Minuto inválido. Debe ser un entero entre 0 y 59" }, 400);
+    if (form_data !== undefined && (typeof form_data !== "object" || Array.isArray(form_data))) {
+      return respond({ error: "form_data debe ser un objeto" }, 400);
     }
 
     const { data: calendar, error: calError } = await supabase
@@ -252,7 +271,10 @@ Deno.serve(async (req) => {
       }
     }
 
-    const { name, email, phone } = extractContact(fields, form_data ?? {});
+    const rawContact = extractContact(fields, form_data ?? {});
+    const name  = sanitizeText(rawContact.name, 200);
+    const email = isValidEmail(rawContact.email) ? rawContact.email.toLowerCase().slice(0, 254) : "";
+    const phone = isValidPhone(rawContact.phone) ? sanitizeText(rawContact.phone, 30) : "";
 
     const formKey = calendar.linked_form_id ?? "booking";
     const formDataToStore = form_data && Object.keys(form_data).length > 0

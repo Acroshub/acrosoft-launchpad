@@ -122,7 +122,10 @@ Deno.serve(async (req) => {
     .order("created_at", { ascending: true })
     .limit(50);
 
-  if (qErr) return respond({ error: qErr.message }, 500);
+  if (qErr) {
+    console.error("send-reminders queue fetch error:", qErr);
+    return respond({ error: "Error al cargar la cola de recordatorios" }, 500);
+  }
   if (!queueItems?.length) return respond({ processed: 0, sent: 0, failed: 0, skipped: 0 });
 
   let sent = 0, failed = 0, skipped = 0;

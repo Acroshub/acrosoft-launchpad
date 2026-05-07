@@ -1,20 +1,16 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { sanitizeText, isValidUUID, isValidEmail, isValidPhone } from "../_shared/validate.ts";
+import { PUBLIC_CORS_HEADERS } from "../_shared/cors.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-
 function respond(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
+    headers: { ...PUBLIC_CORS_HEADERS, "Content-Type": "application/json" },
   });
 }
 
@@ -334,7 +330,7 @@ async function handleLogoField(
     for (const f of fileFields) {
       const val = data[f.id];
       const urls: string[] = Array.isArray(val) ? val : typeof val === "string" ? [val] : [];
-      const firstUrl = urls.find((u) => u.startsWith("http"));
+      const firstUrl = urls.find((u) => u.startsWith("https://"));
       if (firstUrl) { logoUrl = firstUrl; break; }
     }
 
@@ -358,11 +354,33 @@ async function handleLogoField(
 }
 
 Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: PUBLIC_CORS_HEADERS });
+
+  // ── Rate limiting: 10 submissions per IP per hour ────────────────────────────
+  const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    ?? req.headers.get("x-real-ip")
+    ?? "unknown";
+  const { data: allowed, error: rlErr } = await supabase.rpc("check_rate_limit", {
+    p_key: `crm-form-public:${clientIp}`,
+    p_window_seconds: 3600,
+    p_max_count: 10,
+  });
+  if (rlErr) console.error("rate_limit check error (non-blocking):", rlErr);
+  if (allowed === false) {
+    return new Response(JSON.stringify({ error: "Demasiadas solicitudes. Intenta más tarde." }), {
+      status: 429,
+      headers: { ...PUBLIC_CORS_HEADERS, "Content-Type": "application/json", "Retry-After": "3600" },
+    });
+  }
 
   try {
-    const { form_id, data, terms_accepted_at } = await req.json();
-    if (!form_id) return respond({ error: "form_id required" }, 400);
+    const body = await req.json();
+    const { form_id, data, terms_accepted_at } = body;
+
+    if (!isValidUUID(form_id)) return respond({ error: "form_id inválido" }, 400);
+    if (data !== undefined && (typeof data !== "object" || Array.isArray(data))) {
+      return respond({ error: "data debe ser un objeto" }, 400);
+    }
 
     const { data: form, error: formError } = await supabase
       .from("crm_forms")
@@ -370,8 +388,7 @@ Deno.serve(async (req) => {
       .eq("id", form_id)
       .single();
 
-    if (formError) return respond({ error: `Form load failed: ${formError.message}` }, 404);
-    if (!form) return respond({ error: "Form not found" }, 404);
+    if (formError || !form) return respond({ error: "Formulario no encontrado" }, 404);
 
     const termsAt: string | null = typeof terms_accepted_at === "string" ? terms_accepted_at : null;
     const { data: submission, error: submissionError } = await supabase
@@ -385,10 +402,13 @@ Deno.serve(async (req) => {
       .select("id")
       .single();
 
-    if (submissionError) return respond({ error: `Submission insert failed: ${submissionError.message}` }, 500);
+    if (submissionError) return respond({ error: "Error al guardar el formulario" }, 500);
 
     const allFields = getAllFields(form);
-    const { name, email, phone } = extractContact(allFields, data ?? {});
+    const raw = extractContact(allFields, data ?? {});
+    const name  = sanitizeText(raw.name, 200);
+    const email = isValidEmail(raw.email) ? raw.email.toLowerCase().slice(0, 254) : "";
+    const phone = isValidPhone(raw.phone) ? sanitizeText(raw.phone, 30) : "";
     const formDataToStore = data && Object.keys(data).length > 0 ? { [form_id]: data } : {};
     const autoTags: string[] = Array.isArray(form.auto_tags) ? form.auto_tags : [];
 
@@ -452,9 +472,8 @@ Deno.serve(async (req) => {
       const servicesField = allFields.find((f: any) => f.type === "services");
       if (servicesField) {
         const selectedServiceId = data?.[servicesField.id];
-        if (selectedServiceId && typeof selectedServiceId === "string") {
-          // deno-lint-ignore no-explicit-any
-          const siteUrl = (globalThis as any).Deno?.env?.get("SITE_URL") ?? "http://localhost:5173";
+        if (selectedServiceId && isValidUUID(selectedServiceId)) {
+          const siteUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
           const docKeyMap = buildDocKeyMap(allFields, data ?? {});
           await handleServicesField(form.user_id, contactId, contactName || name || "Sin nombre", selectedServiceId, siteUrl, docKeyMap);
         }
@@ -464,10 +483,8 @@ Deno.serve(async (req) => {
     // ── Trigger master doc generation for onboarding forms ────────────────────
     const formSlug: string = (form as any).slug ?? "";
     if (contactId && formSlug.toLowerCase().includes("onboarding")) {
-      // Use globalThis pattern (consistent with rest of file — no Deno types in workspace)
-      const supabaseUrl = (globalThis as any).Deno?.env?.get("SUPABASE_URL") ?? "";
-      const serviceKey  = (globalThis as any).Deno?.env?.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-      // Fire-and-forget — does not block the form submission response
+      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
       fetch(`${supabaseUrl}/functions/v1/generate-master-doc`, {
         method: "POST",
         headers: {
@@ -569,8 +586,8 @@ Deno.serve(async (req) => {
           }
 
           if (queued > 0) {
-            const supabaseUrl = (globalThis as any).Deno?.env?.get("SUPABASE_URL") ?? "";
-            const serviceKey  = (globalThis as any).Deno?.env?.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+            const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+            const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
             fetch(`${supabaseUrl}/functions/v1/send-reminders`, {
               method: "POST",
               headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
@@ -585,6 +602,6 @@ Deno.serve(async (req) => {
     return respond({ submission_id: submission.id });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return respond({ error: `Unexpected error: ${msg}` }, 500);
+    return respond({ error: "Error inesperado" }, 500);
   }
 });

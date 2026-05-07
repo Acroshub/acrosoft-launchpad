@@ -99,7 +99,7 @@ Deno.serve(async (req) => {
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         console.error("Google Calendar API delete error:", res.status, data);
-        return respond({ error: `Google Calendar delete error: ${data.error?.message || res.statusText}` }, 400);
+        return respond({ error: "Error al eliminar el evento en Google Calendar" }, 400);
       }
       return respond({ success: true });
     }
@@ -130,7 +130,7 @@ Deno.serve(async (req) => {
       const data = await res.json();
       if (!res.ok) {
         console.error("Google Calendar API create error:", res.status, data);
-        return respond({ error: `Google Calendar error: ${data.error?.message || res.statusText}` }, 400);
+        return respond({ error: "Error al sincronizar con Google Calendar" }, 400);
       }
       if (data.id) await supabase.from("crm_appointments").update({ google_event_id: data.id }).eq("id", appointment_id);
       return respond({ success: true, google_event_id: data.id });
@@ -143,7 +143,7 @@ Deno.serve(async (req) => {
         const data = await res.json();
         if (!res.ok) {
           console.error("Google Calendar API create-on-update error:", res.status, data);
-          return respond({ error: `Google Calendar error: ${data.error?.message || res.statusText}` }, 400);
+          return respond({ error: "Error al sincronizar con Google Calendar" }, 400);
         }
         if (data.id) await supabase.from("crm_appointments").update({ google_event_id: data.id }).eq("id", appointment_id);
         return respond({ success: true, google_event_id: data.id });
@@ -152,7 +152,7 @@ Deno.serve(async (req) => {
       const data = await res.json();
       if (!res.ok) {
         console.error("Google Calendar API update error:", res.status, data);
-        return respond({ error: `Google Calendar error: ${data.error?.message || res.statusText}` }, 400);
+        return respond({ error: "Error al sincronizar con Google Calendar" }, 400);
       }
       return respond({ success: true });
     }

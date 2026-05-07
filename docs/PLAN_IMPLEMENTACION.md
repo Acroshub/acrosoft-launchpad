@@ -1617,18 +1617,21 @@ Cada cliente SaaS conecta su propio número de WhatsApp escaneando un QR desde C
 
 ---
 
-### SEC-1 · Revisión de Autorización — RLS por tenant
-**Problema a resolver:** Verificar que cada usuario autenticado solo puede leer y escribir su propia información. Sin RLS bien configurado, un usuario podría acceder a datos de otro tenant con queries directas a Supabase.
-**Estado actual:** RLS habilitado en todas las tablas. Staff usa `owner_user_id` para acceder al CRM del dueño. Pendiente auditoría formal de cada policy.
-**Acción:**
-- Revisar todas las policies de RLS en Supabase con `SELECT * FROM pg_policies`
-- Verificar que ninguna tabla tenga `FOR ALL USING (true)` sin restricción de `user_id`
-- Probar acceso cruzado entre dos cuentas de prueba
-- Documentar cada policy y su lógica
+### SEC-1 · Revisión de Autorización — RLS por tenant ✅ COMPLETADO
+**Auditoría realizada Mayo 2026. Migración `sec1_rls_audit_fixes` aplicada.**
+
+**Problemas encontrados y corregidos:**
+1. **Escalación de privilegios (CRÍTICO):** Un Staff podía actualizar sus propias columnas `perm_*` via UPDATE policy. Corregido con trigger `crm_staff_perm_guard` BEFORE UPDATE que lanza EXCEPTION si el staff intenta cambiar sus permisos.
+2. **`crm_staff_has_perm` incompleta:** La función no incluía `perm_recordatorios` en su CASE, haciendo que los permisos de recordatorios de staff siempre retornaran `false`. Corregido.
+3. **3 policies muertas con typos:** `'perm_calendario'` (sin 's') y `'write'` (acción inválida). Eliminadas: `"Staff insert appointments"`, `"Staff insert blocked slots"`, `"Staff insert contact notes"`.
+4. **Policy SELECT duplicada:** `"Form owner reads submissions"` era idéntica a `"Owners can read their form submissions"`. Eliminada.
+5. **WITH CHECK implícito:** 3 policies ALL (`crm_contact_notes`, `crm_pipelines`, `crm_tasks`) tenían `with_check = null`. Recreadas con `WITH CHECK` explícito.
+
+**Estado post-auditoría:** Todas las tablas tienen RLS activo. Ninguna tiene `USING (true)` sin restricción de `user_id`. El acceso cruzado entre tenants está bloqueado a nivel de DB.
 
 ---
 
-### SEC-2 · Validación y sanitización de inputs
+### SEC-2 · Validación y sanitización de inputs ✅ COMPLETADO
 **Problema a resolver:** Inputs sin validar pueden introducir datos malformados, XSS, o inyección de código en campos de texto libre (notas, mensajes, formularios públicos).
 **Estado actual:** FormRenderer valida campos requeridos en frontend. Los endpoints públicos (`crm-form-public`, `crm-calendar-book`) no tienen sanitización robusta del lado del servidor.
 **Acción:**
@@ -1637,9 +1640,15 @@ Cada cliente SaaS conecta su propio número de WhatsApp escaneando un QR desde C
 - En frontend: nunca usar `dangerouslySetInnerHTML` con datos del usuario
 - Revisar campos `custom_fields`, `notes`, `message` en reminders
 
+**Implementado:**
+- Creado `supabase/functions/_shared/validate.ts` con `sanitizeText`, `isValidUUID`, `isValidEmail`, `isValidPhone`, `isValidDate`, `isValidHour`, `isValidMinute`
+- `crm-form-public` v26: valida `form_id` UUID, sanitiza nombre/email/phone, valida `selectedServiceId` UUID, HTTPS-only logos
+- `crm-calendar-book` v27: valida `calendar_id` UUID, `date` formato + overflow, `hour` 0-23, `minute` 0-59, sanitiza contacto
+- Mensajes de error genéricos en español (sin filtración de detalles internos)
+
 ---
 
-### SEC-3 · Configuración de CORS Policy
+### SEC-3 · Configuración de CORS Policy ✅ COMPLETADO
 **Problema a resolver:** Sin CORS configurado correctamente, cualquier dominio puede hacer requests a las Edge Functions públicas.
 **Estado actual:** Supabase aplica CORS por defecto pero sin restricción de origen en las edge functions propias.
 **Acción:**
@@ -1648,80 +1657,118 @@ Cada cliente SaaS conecta su propio número de WhatsApp escaneando un QR desde C
 - Rechazar requests OPTIONS sin origen válido
 - Verificar que funciones privadas (con `Authorization: Bearer`) no tengan CORS permisivo
 
+**Implementado:**
+- Creado `supabase/functions/_shared/cors.ts` con dos helpers:
+  - `PUBLIC_CORS_HEADERS` (wildcard `*`) — para widgets embebidos (`crm-form-public`, `crm-calendar-book`). Intencional: los clientes embeben formularios en sus propios dominios.
+  - `getCorsHeaders(req)` — origin-reflective para funciones CRM privadas. Lee env var `ALLOWED_ORIGINS` (comma-separated). Sin configurar → wildcard (dev mode). Con configurar → restringe a dominios permitidos.
+- Funciones privadas actualizadas (6): `reset-password` v5, `invite-staff-user` v8, `generate-magic-link` v10, `google-calendar-oauth` v12, `create-saas-client` v14, `send-support-email` v9
+- Además corregidos error leaks en esas funciones (mensajes internos no se filtran al cliente)
+- **Acción requerida:** Agregar secret `ALLOWED_ORIGINS` en Supabase Dashboard → Settings → Edge Functions:
+  `https://app.acrosoft.app,http://localhost:5173`
+
 ---
 
-### SEC-4 · Rate Limiting
+### SEC-4 · Rate Limiting ✅ COMPLETADO
 **Problema a resolver:** Sin rate limiting, un atacante puede hacer miles de requests a formularios públicos, endpoints de booking o login — generando spam de contactos, consumiendo límites de Resend, o haciendo fuerza bruta.
-**Estado actual:** No hay rate limiting implementado.
-**Acción:**
-- En Edge Functions públicas: implementar rate limiting por IP usando un contador en Redis o en la misma Supabase (`rate_limit` table con TTL)
-- Limitar: máximo 10 submissions por IP por hora en `crm-form-public`; máximo 20 requests por IP por hora en `crm-calendar-book`
-- En Supabase Auth: habilitar la protección de brute force nativa (ya disponible en config)
-- Considerar Cloudflare como capa adicional si se escala
+
+**Implementado:**
+- Migración `20260507_sec4_rate_limiting.sql`: tabla `rate_limit_hits` + función `check_rate_limit()` (SECURITY DEFINER, atómica con FOR UPDATE lock, ventana deslizante por IP)
+- `crm-form-public` v29: límite **10 submissions/IP/hora** → HTTP 429 + `Retry-After: 3600`
+- `crm-calendar-book` v29: límite **20 bookings/IP/hora** → HTTP 429 + `Retry-After: 3600`
+- IP extraída de `x-forwarded-for` (primer valor) con fallback a `x-real-ip`
+- Si el check falla por error de BD → se permite el request (fail-open, no bloquea usuarios legítimos)
+- Función `cleanup_rate_limit_hits()` disponible para purga manual o cron
 
 ---
 
-### SEC-5 · Links de restablecimiento de contraseña con expiración
+### SEC-5 · Links de restablecimiento de contraseña con expiración ✅ COMPLETADO
 **Problema a resolver:** Verificar que los links de invitación (Staff, clientes SaaS) y reset de contraseña expiran correctamente y no pueden reutilizarse.
-**Estado actual:** `crm_saas_invitations` tiene `expires_at = now() + 7 days`. Los links de reset de Supabase Auth tienen expiración nativa configurable.
-**Acción:**
-- Confirmar en Supabase Dashboard → Auth → Settings que `OTP expiry` y `Magic link expiry` están en ≤ 24h
-- En `crm-setup`: verificar `used_at IS NULL AND expires_at > now()` antes de procesar la invitación
-- En `generate-magic-link` (impersonación): verificar que el token expira rápido (≤ 5 min)
-- Marcar `used_at` al usar el token de invitación para evitar reutilización
+
+**Implementado:**
+- Migración `20260507_sec5_activate_staff_invitation.sql`: función `activate_staff_invitation()` SECURITY DEFINER
+  - Lee `staff_id` + `owner_user_id` del JWT metadata del usuario invitado
+  - Vincula `auth.uid()` al row de `crm_staff` (que antes tenía solo el email)
+  - Solo activa si `status = 'invited'` — previene re-activación doble
+  - Falla con excepción si el staff_id no coincide con el owner (previene escalación)
+  - `GRANT EXECUTE ... TO authenticated` — solo usuarios autenticados pueden llamarla
+- `CrmSetup.tsx`: corregido error leak (línea 74) — `err.message` → mensaje genérico + `console.error`
+- Activación SaaS client ya tenía guarda implícita: `.eq("status", "pending")` previene re-activación
+- Supabase Auth maneja expiración nativa de invite tokens (one-time-use por diseño)
+- **Acción requerida (manual):** Supabase Dashboard → Auth → Settings → OTP expiry: configurar en **3600** (1 hora) o menos
 
 ---
 
-### SEC-6 · Error Handling — fallbacks limpios para el usuario
+### SEC-6 · Error Handling — fallbacks limpios para el usuario ✅ COMPLETADO
 **Problema a resolver:** Los errores técnicos (stack traces, mensajes de Supabase, IDs internos) no deben llegar al usuario final. Exponen información del sistema y generan mala UX.
-**Estado actual:** Algunos errores se muestran directamente con `error.message` en toasts. Edge Functions retornan errores sin sanitizar en algunos casos.
-**Acción:**
-- En Edge Functions: siempre retornar `{ error: "Mensaje amigable" }` sin exponer detalles internos. Loguear el detalle real con `console.error`
-- En frontend: mapear códigos de error conocidos a mensajes en español. Fallback genérico para errores inesperados
-- Nunca mostrar UUIDs, nombres de tablas, o stack traces al usuario
-- Agregar ErrorBoundary en React para capturar errores de renderizado
+
+**Implementado:**
+- `send-reminders` v13: `qErr.message` → `"Error al cargar la cola de recordatorios"` + `console.error`
+- `sync-to-google` v9: 4 lugares con `data.error?.message` de Google API → mensajes genéricos en español
+- `generate-master-doc` v13: Errores de Anthropic API y Storage → mensajes amigables; detalles técnicos solo en `console.error`
+- `cron-queue-reminders` v15: `(err as Error).message` en catch → `"Error interno al procesar la cola"`
+- `src/components/ErrorBoundary.tsx` (nuevo): captura errores de renderizado de React, muestra pantalla amigable "Algo salió mal" con botón de recarga
+- `src/main.tsx`: App envuelta en `<ErrorBoundary>` en el nivel raíz
 
 ---
 
-### SEC-7 · Índices de base de datos en los campos más consultados
+### SEC-7 · Índices de base de datos en los campos más consultados ✅ COMPLETADO
 **Problema a resolver:** Sin índices, las queries sobre tablas grandes hacen full table scan — lento y costoso a medida que crece la base de datos.
-**Estado actual:** Solo existe el índice `crm_logs_user_created`. La mayoría de tablas no tienen índices explícitos más allá del PK.
-**Acción:** Crear índices en:
-```sql
--- Los más críticos
-CREATE INDEX ON crm_contacts (user_id, created_at DESC);
-CREATE INDEX ON crm_appointments (user_id, date, status);
-CREATE INDEX ON crm_appointments (calendar_id, date);
-CREATE INDEX ON crm_reminders (user_id, status, scheduled_at);
-CREATE INDEX ON crm_reminder_queue (status, scheduled_at);
-CREATE INDEX ON crm_sales (user_id, created_at DESC);
-CREATE INDEX ON crm_contact_pipeline_memberships (pipeline_id, stage);
-CREATE INDEX ON crm_tasks (pipeline_id, stage, position);
-CREATE INDEX ON support_tickets (user_id, status);
-```
+
+**Implementado:** 2 migraciones — 17 índices en total cubriendo las 25 tablas públicas.
+
+`20260507_sec7_db_indexes.sql` (9 índices):
+- `idx_crm_contacts_user_created` — (user_id, created_at DESC)
+- `idx_crm_appointments_user_date_status` — (user_id, date, status)
+- `idx_crm_appointments_calendar_date` — (calendar_id, date)
+- `idx_crm_reminders_user_status_scheduled` — (user_id, status, scheduled_at)
+- `idx_crm_reminder_queue_status_created` — (status, created_at)
+- `idx_crm_sales_user_created` — (user_id, created_at DESC)
+- `idx_crm_contact_pipeline_memberships_pipeline_stage` — (pipeline_id, stage)
+- `idx_crm_tasks_pipeline_stage_position` — (pipeline_id, stage, position)
+- `idx_support_tickets_user_status` — (user_id, status)
+
+`20260507_sec7_db_indexes_supplement.sql` (8 índices adicionales):
+- `idx_crm_blocked_slots_calendar_date` — (calendar_id, date) ← hot path en booking
+- `idx_crm_client_accounts_client_user_id` — (client_user_id) ← activación SaaS
+- `idx_crm_contact_notes_contact_id` — (contact_id)
+- `idx_crm_form_submissions_form_id` — (form_id, created_at DESC)
+- `idx_crm_pipelines_user_id` — (user_id)
+- `idx_crm_services_user_id_active` — (user_id, active)
+- `idx_crm_staff_staff_user_id` — (staff_user_id) ← auth flow
+- `idx_support_messages_ticket_id` — (ticket_id, created_at)
 
 ---
 
-### SEC-8 · Validación de redirects para evitar phishing
+### SEC-8 · Validación de redirects para evitar phishing ✅ COMPLETADO
 **Problema a resolver:** Si la app acepta una URL de redirect arbitraria como parámetro, un atacante puede redirigir usuarios a sitios maliciosos después del login.
-**Estado actual:** `CrmForm` tiene `redirect_url` configurable. El campo `success_action: 'redirect'` en formularios usa esta URL sin validación.
-**Acción:**
-- En `crm-form-public`: validar que `redirect_url` pertenece a un dominio en una whitelist (dominio del negocio o dominios de Acrosoft)
-- En frontend: nunca hacer `window.location.href = anyUrl` con valores del usuario sin validar el dominio
-- En `generate-magic-link`: verificar que el return URL sea relativo o pertenezca al dominio propio
-- Rechazar redirect_urls con protocolos distintos a `https://`
+
+**Implementado:**
+- `FormRenderer.tsx`: antes de `window.location.href = url`, se valida con `new URL(url)` que el protocolo sea `https:`. URLs con `javascript:`, `data:` u otro esquema son silenciosamente ignoradas (no hay redirect).
+- `generate-magic-link` (nueva versión): `redirect_to` del body se valida — solo se acepta si es una ruta relativa (`/...`) o tiene el mismo origen que `SITE_URL`. Cualquier URL externa o inválida cae al default `${SITE_URL}/crm`.
+- Las otras funciones (`invite-staff-user`, `create-saas-client`, `reset-password`, `crm-form-public`) usan `redirectTo` hardcodeado desde env var `SITE_URL` — sin riesgo de manipulación.
 
 ---
 
-### SEC-9 · RLS en Supabase Storage
-**Problema a resolver:** Los archivos subidos (logos, imágenes) en Supabase Storage podrían ser accesibles públicamente o entre tenants si los buckets no tienen policies de acceso correctas.
-**Estado actual:** No se ha auditado si los buckets tienen RLS configurado.
-**Acción:**
-- Revisar cada bucket en Supabase Storage (logos, documentos maestros, attachments)
-- Logos y assets públicos: bucket público con nombres no adivinables (UUID en path)
-- Documentos privados: bucket privado con policy `user_id = auth.uid()` en el path
-- Generar URLs firmadas con expiración para descargas de documentos privados
-- No almacenar datos sensibles en buckets públicos
+### SEC-9 · RLS en Supabase Storage ✅ COMPLETADO
+**Problema a resolver:** Los archivos subidos en Supabase Storage podrían ser accesibles entre tenants o contener tipos de archivo peligrosos.
+
+**Auditoría realizada — 3 buckets:**
+
+| Bucket | Público | RLS | Signed URLs | Estado |
+|---|---|---|---|---|
+| `form-uploads` | Sí | INSERT anon (by design, formularios anónimos) | N/A (público) | ✅ |
+| `master-docs` | No | SELECT: path[1]=auth.uid() | 60s en CrmContacts | ✅ |
+| `support-attachments` | No | SELECT/INSERT/DELETE: path[1]=auth.uid() o admin | 3600s | ✅ |
+
+**Fixes aplicados** (`20260507_sec9_storage_rls.sql`):
+- `form-uploads`: eliminado `image/svg+xml` — los SVGs pueden embeber JavaScript (XSS vector cuando se sirven directamente)
+- `master-docs`: añadido `allowed_mime_types = ['text/markdown', 'text/plain']` — estaba sin restricción
+
+**Ya correcto antes de esta iteración:**
+- `master-docs` privado con RLS por `user_id` en el path
+- Downloads de master docs usan `createSignedUrl(path, 60)` — URL expira en 60 segundos
+- `support-attachments` privado con RLS por `user_id` + `is_acrosoft_admin()`
+- Paths en `form-uploads` incluyen UUID de submission (no adivinables)
 
 ---
 

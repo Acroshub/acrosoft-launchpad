@@ -1,21 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders } from "../_shared/cors.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
-
-function respond(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
 
 /**
  * POST /functions/v1/generate-magic-link
@@ -31,6 +20,12 @@ function respond(body: unknown, status = 200) {
  *   { magic_link: string }  — redirect the admin's browser to this URL
  */
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+  const respond = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   // Verify caller is authenticated
@@ -60,7 +55,21 @@ Deno.serve(async (req) => {
 
     // ── 2. Generate OTP link for the client user ─────────────────────────────
     const fallbackUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
-    const redirectTo = redirect_to ?? `${fallbackUrl}/crm`;
+
+    // Validate redirect_to: only allow relative paths or same origin as SITE_URL
+    let redirectTo = `${fallbackUrl}/crm`;
+    if (redirect_to) {
+      try {
+        if (redirect_to.startsWith("/")) {
+          redirectTo = `${fallbackUrl}${redirect_to}`;
+        } else {
+          const parsed = new URL(redirect_to);
+          const site   = new URL(fallbackUrl);
+          if (parsed.origin === site.origin) redirectTo = redirect_to;
+        }
+      } catch { /* invalid URL — use default */ }
+    }
+
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
       type: "magiclink",
       email: account.client_email,
@@ -73,6 +82,6 @@ Deno.serve(async (req) => {
 
   } catch (err) {
     console.error("generate-magic-link error:", err);
-    return respond({ error: (err as Error).message ?? "Internal error" }, 500);
+    return respond({ error: "Error interno" }, 500);
   }
 });

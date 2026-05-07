@@ -1,24 +1,36 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders } from "../_shared/cors.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-function respond(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
-
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+  const respond = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // ── Rate limiting: 5 reset attempts per IP per hour ──────────────────────────
+  const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
+    ?? req.headers.get("x-real-ip")
+    ?? "unknown";
+  const { data: allowed, error: rlErr } = await supabase.rpc("check_rate_limit", {
+    p_key: `reset-password:${clientIp}`,
+    p_window_seconds: 3600,
+    p_max_count: 5,
+  });
+  if (rlErr) console.error("rate_limit check error (non-blocking):", rlErr);
+  if (allowed === false) {
+    return new Response(JSON.stringify({ error: "Demasiados intentos. Intenta más tarde." }), {
+      status: 429,
+      headers: { ...corsHeaders, "Content-Type": "application/json", "Retry-After": "3600" },
+    });
+  }
 
   try {
     const { email } = await req.json();
@@ -76,6 +88,6 @@ Deno.serve(async (req) => {
 
   } catch (err) {
     console.error("reset-password error:", err);
-    return respond({ error: (err as Error).message ?? "Internal error" }, 500);
+    return respond({ error: "Error interno" }, 500);
   }
 });

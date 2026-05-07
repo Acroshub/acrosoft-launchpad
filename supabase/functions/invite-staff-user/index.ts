@@ -1,21 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders } from "../_shared/cors.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
-
-function respond(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
 
 /**
  * POST /functions/v1/invite-staff-user
@@ -33,6 +22,12 @@ function respond(body: unknown, status = 200) {
  *   5. If email already registered, link existing auth user directly
  */
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+  const respond = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const authHeader = req.headers.get("Authorization");
@@ -107,7 +102,7 @@ Deno.serve(async (req) => {
                 data: { full_name: staff.name, account_type: "staff", staff_id: staff.id, owner_user_id: owner.id },
               },
             );
-            if (newErr) return respond({ error: newErr.message }, 500);
+            if (newErr) return respond({ error: "Error al enviar invitación" }, 500);
             await supabase.from("crm_staff").update({ status: "invited" }).eq("id", staff_id);
             return respond({ success: true, user_id: newInvite.user.id });
           }
@@ -120,7 +115,7 @@ Deno.serve(async (req) => {
           return respond({ linked: true, staff_user_id: existingId });
         }
       }
-      return respond({ error: inviteErr.message }, 500);
+      return respond({ error: "Error al enviar invitación" }, 500);
     }
 
     // ── 3. Mark staff as invited ─────────────────────────────────────────────
@@ -133,6 +128,6 @@ Deno.serve(async (req) => {
 
   } catch (err) {
     console.error("invite-staff-user error:", err);
-    return respond({ error: (err as Error).message ?? "Internal error" }, 500);
+    return respond({ error: "Error interno" }, 500);
   }
 });

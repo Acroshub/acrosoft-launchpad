@@ -412,7 +412,7 @@ Deno.serve(async (req) => {
 
   } catch (err) {
     console.error("cron-queue-reminders error:", err);
-    return new Response(JSON.stringify({ error: (err as Error).message }), {
+    return new Response(JSON.stringify({ error: "Error interno al procesar la cola" }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

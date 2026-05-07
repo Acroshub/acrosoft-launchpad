@@ -1,21 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
+import { getCorsHeaders } from "../_shared/cors.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
-
-function respond(body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { ...corsHeaders, "Content-Type": "application/json" },
-  });
-}
 
 /**
  * POST /functions/v1/create-saas-client
@@ -33,6 +22,12 @@ function respond(body: unknown, status = 200) {
  *   6. Send invitation email via Supabase invite
  */
 Deno.serve(async (req) => {
+  const corsHeaders = getCorsHeaders(req);
+  const respond = (body: unknown, status = 200) =>
+    new Response(JSON.stringify(body), {
+      status,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
@@ -210,6 +205,6 @@ Deno.serve(async (req) => {
 
   } catch (err) {
     console.error("create-saas-client error:", err);
-    return respond({ error: (err as Error).message ?? "Internal error" }, 500);
+    return respond({ error: "Error interno" }, 500);
   }
 });

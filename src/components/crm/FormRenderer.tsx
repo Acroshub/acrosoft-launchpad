@@ -954,9 +954,16 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
       setSubmissionId(result.submission_id ?? "");
       fbTrack("Lead");
       if (form?.success_action === "redirect" && form.redirect_url) {
-        redirecting = true;
         const url = form.redirect_url;
-        setTimeout(() => { window.location.href = url; }, 350);
+        let isSafe = false;
+        try {
+          const parsed = new URL(url);
+          isSafe = parsed.protocol === "https:";
+        } catch { /* invalid URL — skip redirect */ }
+        if (isSafe) {
+          redirecting = true;
+          setTimeout(() => { window.location.href = url; }, 350);
+        }
       } else {
         setSubmitted(true);
       }
