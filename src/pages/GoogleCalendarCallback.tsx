@@ -19,15 +19,27 @@ const GoogleCalendarCallback = () => {
   const [calendarId, setCalendarId] = useState("");
 
   useEffect(() => {
-    const code       = searchParams.get("code");
-    const calId      = searchParams.get("state");
-    const error      = searchParams.get("error");
+    const code     = searchParams.get("code");
+    const rawState = searchParams.get("state") ?? "";
+    const error    = searchParams.get("error");
 
-    if (error || !code || !calId) {
+    const colonIdx = rawState.indexOf(":");
+    const csrf  = rawState.slice(0, colonIdx);
+    const calId = rawState.slice(colonIdx + 1);
+
+    if (error || !code || !csrf || !calId) {
       setErrorMsg(error === "access_denied" ? "Acceso denegado por el usuario." : "Parámetros inválidos.");
       setStatus("error");
       return;
     }
+
+    const storedCsrf = localStorage.getItem("google_oauth_csrf");
+    if (!storedCsrf || csrf !== storedCsrf) {
+      setErrorMsg("Solicitud inválida o expirada. Por favor intenta de nuevo.");
+      setStatus("error");
+      return;
+    }
+    localStorage.removeItem("google_oauth_csrf");
 
     setCalendarId(calId);
 

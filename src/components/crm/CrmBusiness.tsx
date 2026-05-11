@@ -251,8 +251,8 @@ const LogoTab = ({ profile, update }: { profile: CrmBusinessProfile | null, upda
   const handleFile = async (file: File) => {
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) { toast.error("El archivo supera el límite de 2 MB"); return; }
-    if (!["image/png", "image/jpeg", "image/svg+xml", "image/webp"].includes(file.type)) {
-      toast.error("Formato no soportado. Usa PNG, JPG, SVG o WEBP"); return;
+    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
+      toast.error("Formato no soportado. Usa PNG, JPG o WEBP"); return;
     }
     setUploading(true);
     try {
@@ -263,8 +263,8 @@ const LogoTab = ({ profile, update }: { profile: CrmBusinessProfile | null, upda
       const { data: urlData } = supabase.storage.from(LOGO_BUCKET).getPublicUrl(path);
       await update({ logo_url: urlData.publicUrl });
       toast.success("Logo actualizado");
-    } catch (e: any) {
-      toast.error(e?.message ?? "Error al subir el logo");
+    } catch {
+      toast.error("Error al subir el logo. Intenta de nuevo.");
     } finally {
       setUploading(false);
     }
@@ -278,7 +278,7 @@ const LogoTab = ({ profile, update }: { profile: CrmBusinessProfile | null, upda
   return (
     <div className="bg-card border rounded-2xl p-6 space-y-5 max-w-md">
       <h2 className="text-sm font-semibold">Logo del negocio</h2>
-      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/svg+xml,image/webp" className="hidden"
+      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
         onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
 
       {/* Preview or drop zone */}

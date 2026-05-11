@@ -101,7 +101,7 @@ const Login = () => {
                 <Button
                   onClick={handleResetPassword}
                   disabled={loading || !email}
-                  className="w-full h-10 rounded-xl font-medium"
+                  className="w-full h-11 rounded-xl font-medium"
                 >
                   {loading ? "Enviando..." : "Enviar enlace"}
                 </Button>
@@ -193,7 +193,7 @@ const Login = () => {
           <Button
             onClick={handleLogin}
             disabled={loading || !email || !password}
-            className="w-full h-10 rounded-xl font-medium"
+            className="w-full h-11 rounded-xl font-medium"
           >
             {loading ? "Verificando..." : "Ingresar"}
           </Button>

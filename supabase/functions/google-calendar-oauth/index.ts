@@ -15,13 +15,42 @@ Deno.serve(async (req) => {
     });
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // ── Verify caller is authenticated ───────────────────────────────────────────
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return respond({ error: "Unauthorized" }, 401);
+
+  const { data: { user: caller }, error: authErr } = await supabase.auth.getUser(
+    authHeader.replace("Bearer ", "")
+  );
+  if (authErr || !caller) return respond({ error: "Unauthorized" }, 401);
+
   try {
     const { code, calendar_id, redirect_uri } = await req.json();
     if (!code || !calendar_id) return respond({ error: "Missing code or calendar_id" }, 400);
 
+    // ── Verify the calendar belongs to the authenticated user ─────────────────
+    const { data: calRow, error: calErr } = await supabase
+      .from("crm_calendar_config")
+      .select("id")
+      .eq("id", calendar_id)
+      .eq("user_id", caller.id)
+      .maybeSingle();
+
+    if (calErr || !calRow) return respond({ error: "Calendar not found" }, 404);
+
     const clientId     = Deno.env.get("GOOGLE_CLIENT_ID")!;
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
-    const redirectUri  = redirect_uri ?? `${Deno.env.get("SITE_URL")}/oauth/google-calendar`;
+    const siteUrl      = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
+
+    // Only allow redirect_uri from our own origin
+    let redirectUri = `${siteUrl}/oauth/google-calendar`;
+    if (redirect_uri) {
+      try {
+        const parsed = new URL(redirect_uri);
+        const site   = new URL(siteUrl);
+        if (parsed.origin === site.origin) redirectUri = redirect_uri;
+      } catch { /* invalid URL — use default */ }
+    }
 
     // Exchange authorization code for tokens
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -37,7 +66,10 @@ Deno.serve(async (req) => {
     });
 
     const tokenData = await tokenRes.json();
-    if (tokenData.error) return respond({ error: tokenData.error_description ?? tokenData.error }, 400);
+    if (tokenData.error) {
+      console.error("google-calendar-oauth token exchange error:", tokenData.error, tokenData.error_description);
+      return respond({ error: "Error al conectar con Google Calendar" }, 400);
+    }
 
     const googleToken = {
       access_token:  tokenData.access_token,
@@ -53,18 +85,17 @@ Deno.serve(async (req) => {
     });
 
     if (!calendarsRes.ok) {
-      const errData = await calendarsRes.json().catch(() => ({}));
-      console.error("Failed to fetch calendars:", calendarsRes.status, errData);
-      return respond({ error: "Failed to fetch Google Calendar list" }, 400);
+      console.error("Failed to fetch calendars:", calendarsRes.status);
+      return respond({ error: "Error al obtener los calendarios de Google" }, 400);
     }
     const calendarsData = await calendarsRes.json();
-    const calendars = (calendarsData.items ?? []).map((cal: any) => ({
+    const calendars = (calendarsData.items ?? []).map((cal: { id: string; summary: string; primary?: boolean }) => ({
       id: cal.id,
       summary: cal.summary,
       primary: cal.primary ?? false,
     }));
 
-    // Save token to DB (without calendar_id yet - user will choose)
+    // Save token to DB
     const { error } = await supabase
       .from("crm_calendar_config")
       .update({ google_token: googleToken })
@@ -74,7 +105,7 @@ Deno.serve(async (req) => {
 
     return respond({ success: true, calendars });
   } catch (err) {
-    console.error(err);
-    return respond({ error: "Internal server error" }, 500);
+    console.error("google-calendar-oauth error:", err);
+    return respond({ error: "Error interno al conectar con Google Calendar" }, 500);
   }
 });

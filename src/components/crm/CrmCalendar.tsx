@@ -254,7 +254,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
             </div>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Fecha <span className="text-destructive">*</span></label>
               <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
@@ -1567,7 +1567,7 @@ const CrmCalendar = () => {
               </div>
 
               <div className="flex items-center gap-3 shrink-0 ml-4 max-sm:gap-1.5">
-                <div className="relative inline-block max-sm:hidden">
+                <div className="relative inline-block">
                   <select
                     value={detail.status}
                     onChange={async (e) => {
@@ -1577,7 +1577,7 @@ const CrmCalendar = () => {
                         toast.success("Estado actualizado");
                       } catch { toast.error("Error al actualizar"); }
                     }}
-                    className={`text-[10px] appearance-none bg-background border px-2 py-0.5 rounded-full pr-5 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${statusStyles[detail.status] || ""}`}
+                    className={`text-[10px] appearance-none bg-background border px-2 py-1 rounded-full pr-5 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${statusStyles[detail.status] || ""}`}
                   >
                     <option value="Confirmada">Confirmada</option>
                     <option value="Cancelada">Cancelada</option>

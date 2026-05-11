@@ -148,6 +148,7 @@ export type CrmCalendarConfig = {
   schedule_interval: number
   timezone: string
   language: string
+  facebook_pixel_id?: string | null
 }
 
 export type CrmService = {
@@ -252,6 +253,41 @@ export type CrmReminder = {
   is_personal?: boolean
   staff_id?: string | null
   business_target?: string | null
+}
+
+export type CrmVideoCourse = {
+  id: string
+  title: string
+  description: string | null
+  thumbnail_url: string | null
+  access_type: 'all' | 'specific'
+  access_emails: string[]
+  access_tags: string[]
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export type CrmVideoModule = {
+  id: string
+  course_id: string
+  title: string
+  description: string | null
+  sort_order: number
+  created_at: string
+}
+
+export type CrmVideo = {
+  id: string
+  course_id: string
+  module_id: string
+  title: string
+  description: string | null
+  bunny_video_id: string
+  thumbnail_url: string | null
+  duration_seconds: number | null
+  sort_order: number
+  created_at: string
 }
 
 export type CrmContactPipelineMembership = {

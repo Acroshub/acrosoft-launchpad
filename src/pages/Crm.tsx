@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle, PlayCircle } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
 import CrmOverview from "@/components/crm/CrmOverview";
@@ -14,11 +14,12 @@ import CrmReminders from "@/components/crm/CrmReminders";
 import CrmVentas from "@/components/crm/CrmVentas";
 import CrmSupport from "@/components/crm/CrmSupport";
 import CrmSupportAdmin from "@/components/crm/CrmSupportAdmin";
+import CrmVideos from "@/components/crm/CrmVideos";
 import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount } from "@/hooks/useCrmData";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte";
+type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte" | "videos";
 
 const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
   { id: "overview",   label: "Resumen",        icon: LayoutDashboard, group: "Principal"      },
@@ -29,6 +30,7 @@ const navItems: { id: View; label: string; icon: React.ElementType; group: strin
   { id: "pipeline",   label: "Pipeline",       icon: Kanban,          group: "CRM"            },
   { id: "ventas",     label: "Ventas",         icon: DollarSign,      group: "CRM"            },
   { id: "reminders",  label: "Notificaciones", icon: Bell,            group: "CRM"            },
+  { id: "videos",     label: "Videos",         icon: PlayCircle,      group: "Configuración"  },
   { id: "settings",   label: "Configuración",  icon: Settings,        group: "Configuración"  },
   { id: "soporte",    label: "Soporte",        icon: MessageCircle,   group: "Configuración"  },
 ];
@@ -106,6 +108,7 @@ const Crm = () => {
       case "reminders":  return can("recordatorios", "read") ? <CrmReminders /> : null;
       case "settings":   return !isStaff                   ? <CrmSettings isSuperAdmin={effectiveIsAdmin} />   : null;
       case "soporte":    return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;
+      case "videos":     return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
     }
   };
 
@@ -128,7 +131,7 @@ const Crm = () => {
             </p>
             <div className="space-y-0.5">
               {navItems
-                .filter((n) => n.group === group && allowedNavItems.has(n.id))
+                .filter((n) => n.group === group && allowedNavItems.has(n.id) && (n.id !== "videos" || effectiveIsAdmin || isSaasClient))
                 .map((item) => {
                   const Icon = item.icon;
                   const active = view === item.id;
@@ -200,7 +203,7 @@ const Crm = () => {
           </span>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-6 py-8 max-w-6xl w-full mx-auto">
+        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8 max-w-6xl w-full mx-auto">
           {renderView()}
         </div>
       </main>

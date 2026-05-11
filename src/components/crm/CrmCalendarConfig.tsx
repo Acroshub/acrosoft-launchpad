@@ -102,6 +102,8 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
   const [embedTab, setEmbedTab]           = useState<"iframe" | "js">("iframe");
   const [copied, setCopied]               = useState(false);
   const [saving, setSaving]               = useState(false);
+  const [pixelId, setPixelId]             = useState("");
+  const [useFormPixel, setUseFormPixel]   = useState(false);
 
   // Populate form when editing an existing calendar
   useEffect(() => {
@@ -119,6 +121,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
       setTimezone(existingCalendar.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
       setMinAdvanceHours(existingCalendar.min_advance_hours ?? 1);
       setMaxFutureDays(existingCalendar.max_future_days ?? 60);
+      setPixelId(existingCalendar.facebook_pixel_id ?? "");
     }
   }, [existingCalendar]);
 
@@ -190,6 +193,11 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
         availability,
         schedule_interval: duration,
         reminder_rules: reminderRules as unknown as any,
+        facebook_pixel_id: (() => {
+          const linkedForm = forms.find(f => f.id === formId);
+          if (useFormPixel && linkedForm?.facebook_pixel_id) return linkedForm.facebook_pixel_id;
+          return pixelId.replace(/\D/g, "") || null;
+        })(),
       };
 
       if (isNew) {
@@ -294,7 +302,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
           <Field label="Formulario vinculado">
             <select
               value={linkedFormId ?? ""}
-              onChange={(e) => setLinkedFormId(e.target.value || null)}
+              onChange={(e) => { setLinkedFormId(e.target.value || null); setUseFormPixel(false); }}
               className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
             >
               <option value="">Sin formulario (se creará uno básico)</option>
@@ -304,6 +312,40 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
             </select>
           </Field>
 
+          {/* ── Pixel de Facebook ── */}
+          {(() => {
+            const linkedForm = forms.find(f => f.id === linkedFormId);
+            const formPixel = linkedForm?.facebook_pixel_id ?? null;
+            return (
+              <Field label="Pixel de Facebook (opcional)">
+                {formPixel && (
+                  <label className="flex items-center gap-2 mb-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={useFormPixel}
+                      onChange={(e) => setUseFormPixel(e.target.checked)}
+                      className="rounded border-input"
+                    />
+                    <span className="text-xs text-muted-foreground">
+                      Usar pixel del formulario vinculado
+                      <span className="ml-1 font-mono text-[11px] text-foreground/60">({formPixel})</span>
+                    </span>
+                  </label>
+                )}
+                {!useFormPixel && (
+                  <Input
+                    value={pixelId}
+                    onChange={(e) => setPixelId(e.target.value)}
+                    placeholder="Ej: 1234567890123456"
+                    className="h-10 text-sm font-mono"
+                  />
+                )}
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Se activa ViewContent al cargar el calendario y Lead al confirmar una cita.
+                </p>
+              </Field>
+            );
+          })()}
 
           <Field label="Zona horaria del negocio">
             <select
@@ -320,7 +362,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
             </p>
           </Field>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Duración de cada cita">
               <select
                 value={duration}
@@ -349,7 +391,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
             </Field>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Anticipación mínima (hs)">
               <Input
                 type="number"
@@ -460,7 +502,10 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                 }
                 const redirectUri = `${window.location.origin}/oauth/google-calendar`;
                 const scope = "https://www.googleapis.com/auth/calendar";
-                const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${encodeURIComponent(calendarUid)}`;
+                const csrf = crypto.randomUUID();
+                localStorage.setItem("google_oauth_csrf", csrf);
+                const state = `${csrf}:${calendarUid}`;
+                const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`;
                 const popup = window.open(url, "google-oauth", "width=500,height=750,scrollbars=yes");
                 const timer = setInterval(() => {
                   if (popup?.closed) {

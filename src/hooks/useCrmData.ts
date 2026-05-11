@@ -21,46 +21,11 @@ import type {
   CrmContactPipelineMembership,
   CrmLog,
   SupportNotificationRecipient,
+  CrmVideoCourse,
+  CrmVideoModule,
+  CrmVideo,
 } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "./useAuth";
-
-// ─── LOGS ──────────────────────────────────────────────────────
-
-const logAction = async (
-  action: "create" | "update" | "delete",
-  entity: string,
-  description: string,
-  entityId?: string
-) => {
-  try {
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.user) return;
-
-    const actorId = session.user.id;
-    let ownerId = actorId;
-
-    // If the actor is a staff member, attribute the log to the business owner
-    const { data: staffRow } = await supabase
-      .from("crm_staff")
-      .select("owner_user_id")
-      .eq("staff_user_id", actorId)
-      .eq("status", "active")
-      .maybeSingle();
-
-    if (staffRow) ownerId = staffRow.owner_user_id;
-
-    await supabase.from("crm_logs").insert({
-      user_id: ownerId,
-      performed_by_user_id: actorId,
-      action,
-      entity,
-      description,
-      entity_id: entityId ?? null,
-    });
-  } catch {
-    // Logs are non-critical — fail silently
-  }
-};
 
 export const useLogs = () => {
   const { user } = useCurrentUser();
@@ -112,7 +77,6 @@ export const useCreateContact = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_contacts"] });
-      logAction("create", "Contacto", `Contacto creado: ${data.name}`, data.id);
     },
   });
 };
@@ -132,7 +96,6 @@ export const useUpdateContact = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_contacts"] });
-      logAction("update", "Contacto", `Contacto actualizado: ${data.name}`, data.id);
     },
   });
 };
@@ -148,7 +111,6 @@ export const useDeleteContact = () => {
       qc.invalidateQueries({ queryKey: ["crm_contacts"] });
       qc.invalidateQueries({ queryKey: ["crm_contact_memberships"] });
       qc.invalidateQueries({ queryKey: ["crm_all_contact_stages"] });
-      logAction("delete", "Contacto", `Contacto eliminado: ${name}`, id);
     },
   });
 };
@@ -193,7 +155,6 @@ export const useCreateAppointment = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_appointments"] });
-      logAction("create", "Cita", `Cita agendada: ${data.date} ${String(data.hour).padStart(2, "0")}:${String(data.minute ?? 0).padStart(2, "0")}`, data.id);
       syncToGoogle(data.id, "create");
     },
   });
@@ -214,7 +175,6 @@ export const useUpdateAppointment = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_appointments"] });
-      logAction("update", "Cita", `Cita actualizada: ${data.date}`, data.id);
       syncToGoogle(data.id, data.status === "cancelled" ? "delete" : "update");
     },
   });
@@ -232,7 +192,6 @@ export const useDeleteAppointment = () => {
     },
     onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_appointments"] });
-      logAction("delete", "Cita", `Cita eliminada: ${name}`, id);
     },
   });
 };
@@ -271,7 +230,6 @@ export const useCreateBlockedSlot = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_blocked_slots"] });
-      logAction("create", "Bloqueo", `Horario bloqueado: ${data.date ?? data.type}`, data.id);
     },
   });
 };
@@ -285,7 +243,6 @@ export const useDeleteBlockedSlot = () => {
     },
     onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_blocked_slots"] });
-      logAction("delete", "Bloqueo", `Bloqueo de horario eliminado: ${name}`, id);
     },
   });
 };
@@ -311,7 +268,6 @@ export const useUpdateBlockedSlot = () => {
     },
     onSuccess: (_, { id }) => {
       qc.invalidateQueries({ queryKey: ["crm_blocked_slots"] });
-      logAction("update", "Bloqueo", "Bloqueo de horario actualizado", id);
     },
   });
 };
@@ -349,7 +305,6 @@ export const useCreateDeal = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_pipeline_deals"] });
-      logAction("create", "Deal", `Deal creado: ${data.title}`, data.id);
     },
   });
 };
@@ -369,7 +324,6 @@ export const useUpdateDeal = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_pipeline_deals"] });
-      logAction("update", "Deal", `Deal actualizado: ${data.title}`, data.id);
     },
   });
 };
@@ -383,7 +337,6 @@ export const useDeleteDeal = () => {
     },
     onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_pipeline_deals"] });
-      logAction("delete", "Deal", `Deal eliminado: ${name}`, id);
     },
   });
 };
@@ -424,7 +377,6 @@ export const useCreateForm = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_forms"] });
-      logAction("create", "Formulario", `Formulario creado: ${data.name}`, data.id);
     },
   });
 };
@@ -444,7 +396,6 @@ export const useUpdateForm = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_forms"] });
-      logAction("update", "Formulario", `Formulario actualizado: ${data.name}`, data.id);
     },
   });
 };
@@ -458,7 +409,6 @@ export const useDeleteForm = () => {
     },
     onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_forms"] });
-      logAction("delete", "Formulario", `Formulario eliminado: ${name}`, id);
     },
   });
 };
@@ -500,7 +450,6 @@ export const useCreateService = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_services"] });
-      logAction("create", "Servicio", `Servicio creado: ${data.name}`, data.id);
     },
   });
 };
@@ -520,7 +469,6 @@ export const useUpdateService = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_services"] });
-      logAction("update", "Servicio", `Servicio actualizado: ${data.name}`, data.id);
     },
   });
 };
@@ -534,7 +482,6 @@ export const useDeleteService = () => {
     },
     onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_services"] });
-      logAction("delete", "Servicio", `Servicio eliminado: ${name}`, id);
     },
   });
 };
@@ -572,7 +519,6 @@ export const useCreateSale = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_sales"] });
-      logAction("create", "Venta", `Venta registrada: ${data.contact_name ?? "—"} — ${data.service_name ?? "—"} ($${data.amount})`, data.id);
     },
   });
 };
@@ -592,7 +538,6 @@ export const useUpdateSale = () => {
     },
     onSuccess: ({ sale, justification }) => {
       qc.invalidateQueries({ queryKey: ["crm_sales"] });
-      logAction("update", "Venta", `Venta editada: ${sale.contact_name ?? "—"} — $${sale.amount}. Justificación: ${justification}`, sale.id);
     },
   });
 };
@@ -606,7 +551,6 @@ export const useDeleteSale = () => {
     },
     onSuccess: (_, { id, contactName, serviceName, amount, justification }) => {
       qc.invalidateQueries({ queryKey: ["crm_sales"] });
-      logAction("delete", "Venta", `Venta eliminada: ${contactName} — ${serviceName} ($${amount}). Justificación: ${justification}`, id);
     },
   });
 };
@@ -650,7 +594,6 @@ export const useCreateCalendarConfig = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_calendar_config"] });
-      logAction("create", "Calendario", `Calendario creado: ${data.name ?? "sin nombre"}`, data.id);
     },
   });
 };
@@ -670,7 +613,6 @@ export const useUpdateCalendarConfig = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_calendar_config"] });
-      logAction("update", "Calendario", `Calendario actualizado: ${data.name ?? "sin nombre"}`, data.id);
     },
   });
 };
@@ -687,7 +629,6 @@ export const useDeleteCalendarConfig = () => {
     },
     onSuccess: (_, id) => {
       qc.invalidateQueries({ queryKey: ["crm_calendar_config"] });
-      logAction("delete", "Calendario", "Calendario eliminado", id);
     },
   });
 };
@@ -726,7 +667,6 @@ export const useUpsertBusinessProfile = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_business_profile"] });
-      logAction("update", "Perfil de Negocio", `Perfil actualizado: ${data.business_name ?? "sin nombre"}`, data.id);
     },
   });
 };
@@ -764,7 +704,6 @@ export const useCreatePipeline = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_pipelines"] });
-      logAction("create", "Pipeline", `Pipeline creado: ${data.name}`, data.id);
     },
   });
 };
@@ -800,7 +739,6 @@ export const useDeletePipeline = () => {
       qc.invalidateQueries({ queryKey: ["crm_tasks"] });
       qc.invalidateQueries({ queryKey: ["crm_contact_memberships"] });
       qc.invalidateQueries({ queryKey: ["crm_all_contact_stages"] });
-      logAction("delete", "Pipeline", `Pipeline eliminado: ${name}`, id);
     },
   });
 };
@@ -1041,7 +979,6 @@ export const useDeleteTask = () => {
     },
     onSuccess: (pipelineId, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_tasks", pipelineId] });
-      logAction("delete", "Tarea", `Tarea eliminada: ${name}`, id);
     },
   });
 };
@@ -1314,11 +1251,11 @@ export const usePublicBusinessProfile = (userId?: string | null) =>
       if (!userId) return null;
       const { data, error } = await supabase
         .from("crm_business_profile")
-        .select("color_primary, color_secondary, color_accent, logo_url, theme")
+        .select("color_primary, color_secondary, color_accent, logo_url, theme, timezone")
         .eq("user_id", userId)
         .maybeSingle();
       if (error) return null; // Non-critical — fall back to defaults
-      return data as { color_primary: string; color_secondary: string; color_accent: string; logo_url: string | null; theme: string } | null;
+      return data as { color_primary: string; color_secondary: string; color_accent: string; logo_url: string | null; theme: string; timezone: string | null } | null;
     },
     enabled: !!userId,
   });
@@ -1430,6 +1367,186 @@ export const useEnableSaasClient = () => {
   });
 };
 
+// ─── VIDEO COURSES ─────────────────────────────────────────────────────────────
+
+export const useVideoCourses = () =>
+  useQuery({
+    queryKey: ["video_courses"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_video_courses")
+        .select("*")
+        .order("sort_order", { ascending: true })
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as CrmVideoCourse[];
+    },
+  });
+
+export const useVideoModules = (courseId: string | null) =>
+  useQuery({
+    queryKey: ["video_modules", courseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_video_modules")
+        .select("*")
+        .eq("course_id", courseId!)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return data as CrmVideoModule[];
+    },
+    enabled: !!courseId,
+  });
+
+export const useVideosForCourse = (courseId: string | null) =>
+  useQuery({
+    queryKey: ["crm_videos", courseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_videos")
+        .select("*")
+        .eq("course_id", courseId!)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return data as CrmVideo[];
+    },
+    enabled: !!courseId,
+  });
+
+export const useCreateVideoCourse = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: Omit<CrmVideoCourse, "id" | "created_at" | "updated_at">) => {
+      const { data, error } = await supabase
+        .from("crm_video_courses")
+        .insert(payload)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmVideoCourse;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["video_courses"] }),
+  });
+};
+
+export const useUpdateVideoCourse = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...payload }: Partial<CrmVideoCourse> & { id: string }) => {
+      const { data, error } = await supabase
+        .from("crm_video_courses")
+        .update({ ...payload, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmVideoCourse;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["video_courses"] }),
+  });
+};
+
+export const useDeleteVideoCourse = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_video_courses").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["video_courses"] }),
+  });
+};
+
+export const useCreateVideoModule = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: Omit<CrmVideoModule, "id" | "created_at">) => {
+      const { data, error } = await supabase
+        .from("crm_video_modules")
+        .insert(payload)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmVideoModule;
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ["video_modules", vars.course_id] }),
+  });
+};
+
+export const useUpdateVideoModule = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, course_id, ...payload }: Partial<CrmVideoModule> & { id: string; course_id: string }) => {
+      const { data, error } = await supabase
+        .from("crm_video_modules")
+        .update(payload)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmVideoModule;
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ["video_modules", vars.course_id] }),
+  });
+};
+
+export const useDeleteVideoModule = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, course_id }: { id: string; course_id: string }) => {
+      const { error } = await supabase.from("crm_video_modules").delete().eq("id", id);
+      if (error) throw error;
+      return course_id;
+    },
+    onSuccess: (courseId) => qc.invalidateQueries({ queryKey: ["video_modules", courseId] }),
+  });
+};
+
+export const useCreateVideo = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: Omit<CrmVideo, "id" | "created_at">) => {
+      const { data, error } = await supabase
+        .from("crm_videos")
+        .insert(payload)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmVideo;
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ["crm_videos", vars.course_id] }),
+  });
+};
+
+export const useUpdateVideo = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, course_id, ...payload }: Partial<CrmVideo> & { id: string; course_id: string }) => {
+      const { data, error } = await supabase
+        .from("crm_videos")
+        .update(payload)
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmVideo;
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ["crm_videos", vars.course_id] }),
+  });
+};
+
+export const useDeleteVideo = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, course_id }: { id: string; course_id: string }) => {
+      const { error } = await supabase.from("crm_videos").delete().eq("id", id);
+      if (error) throw error;
+      return course_id;
+    },
+    onSuccess: (courseId) => qc.invalidateQueries({ queryKey: ["crm_videos", courseId] }),
+  });
+};
+
 // ─── STAFF ────────────────────────────────────────────────────────────────────
 
 export const useStaff = () => {
@@ -1463,7 +1580,6 @@ export const useCreateStaff = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_staff"] });
-      logAction("create", "Staff", `Staff creado: ${data.name}`, data.id);
     },
   });
 };
@@ -1483,7 +1599,6 @@ export const useUpdateStaff = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_staff"] });
-      logAction("update", "Staff", `Staff actualizado: ${data.name}`, data.id);
     },
   });
 };
@@ -1497,7 +1612,6 @@ export const useDeleteStaff = () => {
     },
     onSuccess: (_, { id, name }) => {
       qc.invalidateQueries({ queryKey: ["crm_staff"] });
-      logAction("delete", "Staff", `Staff eliminado: ${name}`, id);
     },
   });
 };
@@ -1618,7 +1732,6 @@ export const useCreateReminder = () => {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["crm_reminders"] });
       qc.invalidateQueries({ queryKey: ["crm_reminders_personal"] });
-      logAction("create", "Recordatorio", "Recordatorio programado");
     },
   });
 };

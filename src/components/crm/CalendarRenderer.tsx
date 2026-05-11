@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import PhoneInput from "@/components/shared/PhoneInput";
 import { ChevronLeft, ChevronRight, Loader2, Check, Clock, Calendar, Globe } from "lucide-react";
 import { widgetTranslations } from "@/i18n/widgets";
@@ -6,6 +6,29 @@ import type { WidgetLang } from "@/hooks/useLangWidget";
 import { usePublicCalendar, usePublicAppointments, usePublicBlockedSlots, usePublicForm, usePublicBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmBlockedSlot } from "@/lib/supabase";
 import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
+
+// ─── Facebook Pixel ───────────────────────────────────────────────────────────
+
+declare global {
+  interface Window { fbq?: (...args: unknown[]) => void; }
+}
+
+const FB_PIXEL_SCRIPT_ID = "acrosoft-fb-pixel";
+
+const loadFbPixel = (pixelId: string) => {
+  const sanitized = pixelId.replace(/\D/g, "");
+  if (!sanitized) return;
+  if (window.fbq) { window.fbq("init", sanitized); return; }
+  if (document.getElementById(FB_PIXEL_SCRIPT_ID)) return;
+  const script = document.createElement("script");
+  script.id = FB_PIXEL_SCRIPT_ID;
+  script.innerHTML = `!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${sanitized}');fbq('track','PageView');`;
+  document.head.appendChild(script);
+};
+
+const fbTrack = (event: string) => {
+  if (window.fbq) window.fbq("track", event);
+};
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -387,7 +410,7 @@ const BookingForm = ({
       <div className="flex gap-2.5">
         <button
           onClick={onBack}
-          className="flex-none border border-gray-200 rounded-lg px-4 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
+          className="flex-none border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
         >
           {T.back}
         </button>
@@ -395,7 +418,7 @@ const BookingForm = ({
           onClick={handleSubmit}
           disabled={isSubmitting}
           style={{ backgroundColor: primaryColor }}
-          className="flex-1 text-white rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-50 transition-all hover:opacity-90"
+          className="flex-1 text-white rounded-lg px-4 py-3 text-sm font-semibold disabled:opacity-50 transition-all hover:opacity-90"
         >
           {isSubmitting ? T.confirming : T.confirm}
         </button>
@@ -434,6 +457,21 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
   const brandLogo   = isBranded ? (branding?.logo_url ?? null) : null;
 
   const primaryColor = branding?.color_primary ?? "#3b82f6";
+
+  const pixelId = (calendar as any)?.facebook_pixel_id as string | null ?? null;
+
+  useEffect(() => {
+    if (calendar && pixelId) {
+      loadFbPixel(pixelId);
+      fbTrack("ViewContent");
+    }
+  }, [calendar?.id, pixelId]);
+
+  useEffect(() => {
+    if (step === "success") {
+      fbTrack("Lead");
+    }
+  }, [step]);
 
   const calendarTz = (calendar as any)?.timezone ?? "America/La_Paz";
 
@@ -635,7 +673,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
             <select
               value={visitorTz}
               onChange={(e) => setVisitorTz(e.target.value)}
-              className="bg-transparent text-xs text-gray-500 focus:outline-none cursor-pointer max-w-[160px] truncate"
+              className="bg-transparent text-xs text-gray-500 focus:outline-none cursor-pointer max-w-[110px] sm:max-w-[160px] truncate"
             >
               {((Intl as any).supportedValuesOf?.("timeZone") ?? [calendarTz]).map((tz: string) => (
                 <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
@@ -647,140 +685,180 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
 
       <div className="border-t border-gray-100" />
 
-      {/* ── Step 1 + Step 2 side by side ── */}
-      <div className="pt-4 md:pt-3 flex gap-0 items-stretch">
+      {/* ── Step 1: Calendar + Step 2 (desktop: side panel / mobile: below) ── */}
+      <div className="pt-4 md:pt-3">
 
-        {/* Left column: calendar */}
-        <div className="flex-1 min-w-0 pb-1">
-          <StepLabel number={1} label={T.step1} primaryColor={primaryColor} />
+        {/* Row layout for sm+ screens */}
+        <div className="flex gap-0 items-stretch">
 
-          {/* Month nav */}
-          <div className="flex items-center justify-between mb-3 md:mb-2">
-            <span className="text-sm font-semibold text-gray-800">
-              {T.months[viewMonth]} {viewYear}
-            </span>
-            <div className="flex items-center gap-0.5">
-              <button
-                onClick={prevMonth}
-                disabled={isCurrentMonth}
-                className={[
-                  "w-7 h-7 flex items-center justify-center rounded-md transition-colors",
-                  isCurrentMonth
-                    ? "text-gray-200 cursor-not-allowed"
-                    : "text-gray-400 hover:bg-gray-100 hover:text-gray-700",
-                ].join(" ")}
-              >
-                <ChevronLeft size={15} />
-              </button>
-              <button
-                onClick={nextMonth}
-                disabled={isLastAllowedMonth}
-                className={[
-                  "w-7 h-7 flex items-center justify-center rounded-md transition-colors",
-                  isLastAllowedMonth
-                    ? "text-gray-200 cursor-not-allowed"
-                    : "text-gray-400 hover:bg-gray-100 hover:text-gray-700",
-                ].join(" ")}
-              >
-                <ChevronRight size={15} />
-              </button>
-            </div>
-          </div>
+          {/* Calendar column */}
+          <div className="flex-1 min-w-0 pb-1">
+            <StepLabel number={1} label={T.step1} primaryColor={primaryColor} />
 
-          {/* Day headers */}
-          <div className="grid grid-cols-7 mb-1.5">
-            {T.days.map((d) => (
-              <div key={d} className="text-center text-[10px] text-gray-300 uppercase tracking-widest py-1 font-semibold">
-                {d}
-              </div>
-            ))}
-          </div>
-
-          {/* Days grid */}
-          <div className="grid grid-cols-7 gap-y-0.5 justify-items-center">
-            {Array.from({ length: firstDay }).map((_, i) => <div key={`e-${i}`} className="w-9 h-9" />)}
-            {Array.from({ length: daysInMonth }).map((_, i) => {
-              const day     = i + 1;
-              const key     = toDateKey(viewYear, viewMonth, day);
-              const avbl    = isDayAvailable(day);
-              const sel     = key === selectedDate;
-              const isToday = key === todayKey;
-              const isPast  = key < todayKey;
-
-              return (
+            {/* Month nav */}
+            <div className="flex items-center justify-between mb-3 md:mb-2">
+              <span className="text-sm font-semibold text-gray-800">
+                {T.months[viewMonth]} {viewYear}
+              </span>
+              <div className="flex items-center gap-0.5">
                 <button
-                  key={day}
-                  onClick={() => { if (avbl) { setSelectedDate(key); setSelectedSlot(null); } }}
-                  disabled={!avbl}
-                  style={
-                    sel
-                      ? { backgroundColor: primaryColor }
-                      : isToday && avbl
-                      ? { boxShadow: `inset 0 0 0 1.5px ${primaryColor}`, color: primaryColor }
-                      : avbl
-                      ? { backgroundColor: `${primaryColor}18` }
-                      : undefined
-                  }
+                  onClick={prevMonth}
+                  disabled={isCurrentMonth}
                   className={[
-                    "w-9 h-9 flex items-center justify-center text-xs rounded-full transition-all",
-                    sel                      ? "text-white font-bold shadow-sm"         : "",
-                    !sel && avbl && !isToday ? "text-gray-800 hover:opacity-80 cursor-pointer font-medium" : "",
-                    !sel && avbl && isToday  ? "font-bold cursor-pointer hover:opacity-80"                 : "",
-                    isPast                   ? "text-gray-200 cursor-not-allowed"       : "",
-                    !avbl && !isPast         ? "text-gray-200 cursor-not-allowed"       : "",
+                    "w-9 h-9 sm:w-7 sm:h-7 flex items-center justify-center rounded-md transition-colors",
+                    isCurrentMonth
+                      ? "text-gray-200 cursor-not-allowed"
+                      : "text-gray-400 hover:bg-gray-100 hover:text-gray-700",
                   ].join(" ")}
                 >
-                  {day}
+                  <ChevronLeft size={15} />
                 </button>
-              );
-            })}
-          </div>
-        </div>
+                <button
+                  onClick={nextMonth}
+                  disabled={isLastAllowedMonth}
+                  className={[
+                    "w-9 h-9 sm:w-7 sm:h-7 flex items-center justify-center rounded-md transition-colors",
+                    isLastAllowedMonth
+                      ? "text-gray-200 cursor-not-allowed"
+                      : "text-gray-400 hover:bg-gray-100 hover:text-gray-700",
+                  ].join(" ")}
+                >
+                  <ChevronRight size={15} />
+                </button>
+              </div>
+            </div>
 
-        {/* Right column: slides in from right when a date is selected */}
-        <div
-          className="shrink-0 flex flex-col overflow-hidden transition-all duration-300 ease-in-out"
-          style={{
-            width:       selectedDate ? 108 : 0,
-            paddingLeft: selectedDate ? 16  : 0,
-            marginLeft:  selectedDate ? 16  : 0,
-            opacity:     selectedDate ? 1   : 0,
-            borderLeftWidth: selectedDate ? 1 : 0,
-            borderLeftColor: '#f3f4f6',
-            borderLeftStyle: 'solid',
-          }}
-        >
-          <StepLabel number={2} label={T.step2} primaryColor={primaryColor} />
-          {availableSlots.length === 0 ? (
-            <p className="text-[11px] text-gray-400 leading-relaxed">
-              {T.noSlots}<br />{T.noSlotsHint}
-            </p>
-          ) : (
-            <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
-              {availableSlots.map(({ hour: h, minute: m }) => {
-                const isSelected = selectedSlot?.hour === h && selectedSlot?.minute === m;
-                const label = selectedDate
-                  ? formatSlotInTz(selectedDate, h, m, calendarTz, visitorTz)
-                  : formatSlot(h, m);
+            {/* Day headers */}
+            <div className="grid grid-cols-7 mb-1.5">
+              {T.days.map((d) => (
+                <div key={d} className="text-center text-[10px] text-gray-300 uppercase tracking-widest py-1 font-semibold">
+                  {d}
+                </div>
+              ))}
+            </div>
+
+            {/* Days grid */}
+            <div className="grid grid-cols-7 gap-y-0.5 justify-items-center">
+              {Array.from({ length: firstDay }).map((_, i) => <div key={`e-${i}`} className="w-10 h-10 sm:w-9 sm:h-9" />)}
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const day     = i + 1;
+                const key     = toDateKey(viewYear, viewMonth, day);
+                const avbl    = isDayAvailable(day);
+                const sel     = key === selectedDate;
+                const isToday = key === todayKey;
+                const isPast  = key < todayKey;
+
                 return (
                   <button
-                    key={`${h}:${m}`}
-                    onClick={() => setSelectedSlot({ hour: h, minute: m })}
-                    style={isSelected ? { backgroundColor: primaryColor, borderColor: primaryColor } : undefined}
+                    key={day}
+                    onClick={() => { if (avbl) { setSelectedDate(key); setSelectedSlot(null); } }}
+                    disabled={!avbl}
+                    style={
+                      sel
+                        ? { backgroundColor: primaryColor }
+                        : isToday && avbl
+                        ? { boxShadow: `inset 0 0 0 1.5px ${primaryColor}`, color: primaryColor }
+                        : avbl
+                        ? { backgroundColor: `${primaryColor}18` }
+                        : undefined
+                    }
                     className={[
-                      "w-full text-center py-2 rounded-lg text-xs font-medium transition-all border shrink-0",
-                      isSelected
-                        ? "text-white"
-                        : "border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 bg-white",
+                      "w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center text-xs rounded-full transition-all",
+                      sel                      ? "text-white font-bold shadow-sm"         : "",
+                      !sel && avbl && !isToday ? "text-gray-800 hover:opacity-80 cursor-pointer font-medium" : "",
+                      !sel && avbl && isToday  ? "font-bold cursor-pointer hover:opacity-80"                 : "",
+                      isPast                   ? "text-gray-200 cursor-not-allowed"       : "",
+                      !avbl && !isPast         ? "text-gray-200 cursor-not-allowed"       : "",
                     ].join(" ")}
                   >
-                    {label}
+                    {day}
                   </button>
                 );
               })}
             </div>
-          )}
+          </div>
+
+          {/* Right column (sm+): slides in from right when date selected */}
+          <div
+            className="hidden sm:flex shrink-0 flex-col overflow-hidden transition-all duration-300 ease-in-out"
+            style={{
+              width:       selectedDate ? 108 : 0,
+              paddingLeft: selectedDate ? 16  : 0,
+              marginLeft:  selectedDate ? 16  : 0,
+              opacity:     selectedDate ? 1   : 0,
+              borderLeftWidth: selectedDate ? 1 : 0,
+              borderLeftColor: '#f3f4f6',
+              borderLeftStyle: 'solid',
+            }}
+          >
+            <StepLabel number={2} label={T.step2} primaryColor={primaryColor} />
+            {availableSlots.length === 0 ? (
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                {T.noSlots}<br />{T.noSlotsHint}
+              </p>
+            ) : (
+              <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 pr-0.5">
+                {availableSlots.map(({ hour: h, minute: m }) => {
+                  const isSelected = selectedSlot?.hour === h && selectedSlot?.minute === m;
+                  const label = selectedDate
+                    ? formatSlotInTz(selectedDate, h, m, calendarTz, visitorTz)
+                    : formatSlot(h, m);
+                  return (
+                    <button
+                      key={`${h}:${m}`}
+                      onClick={() => setSelectedSlot({ hour: h, minute: m })}
+                      style={isSelected ? { backgroundColor: primaryColor, borderColor: primaryColor } : undefined}
+                      className={[
+                        "w-full text-center py-2 rounded-lg text-xs font-medium transition-all border shrink-0",
+                        isSelected
+                          ? "text-white"
+                          : "border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 bg-white",
+                      ].join(" ")}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Mobile slots: shown below calendar as a 3-column grid (hidden on sm+) */}
+        {selectedDate && (
+          <div className="sm:hidden mt-4 border-t border-gray-100 pt-3">
+            <StepLabel number={2} label={T.step2} primaryColor={primaryColor} />
+            {availableSlots.length === 0 ? (
+              <p className="text-[11px] text-gray-400 leading-relaxed">
+                {T.noSlots}<br />{T.noSlotsHint}
+              </p>
+            ) : (
+              <div className="grid grid-cols-3 gap-2 max-h-52 overflow-y-auto pb-1">
+                {availableSlots.map(({ hour: h, minute: m }) => {
+                  const isSelected = selectedSlot?.hour === h && selectedSlot?.minute === m;
+                  const label = selectedDate
+                    ? formatSlotInTz(selectedDate, h, m, calendarTz, visitorTz)
+                    : formatSlot(h, m);
+                  return (
+                    <button
+                      key={`${h}:${m}-mobile`}
+                      onClick={() => setSelectedSlot({ hour: h, minute: m })}
+                      style={isSelected ? { backgroundColor: primaryColor, borderColor: primaryColor } : undefined}
+                      className={[
+                        "w-full text-center py-3 rounded-lg text-xs font-medium transition-all border",
+                        isSelected
+                          ? "text-white"
+                          : "border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 bg-white",
+                      ].join(" ")}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── CTA ── */}
@@ -789,7 +867,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
           <button
             onClick={() => setStep("form")}
             style={{ backgroundColor: primaryColor }}
-            className="w-full text-white rounded-lg py-3 text-sm font-semibold transition-all hover:opacity-90 flex items-center justify-center gap-2"
+            className="w-full text-white rounded-lg py-3.5 sm:py-3 text-sm font-semibold transition-all hover:opacity-90 flex items-center justify-center gap-2"
           >
             {T.continueWith} {selectedDate ? formatSlotInTz(selectedDate, selectedSlot.hour, selectedSlot.minute, calendarTz, visitorTz) : formatSlot(selectedSlot.hour, selectedSlot.minute)}
             <ChevronRight size={15} strokeWidth={2.5} />

@@ -1772,54 +1772,55 @@ Cada cliente SaaS conecta su propio número de WhatsApp escaneando un QR desde C
 
 ---
 
-### SEC-10 · Logging en backend, no en frontend
+### SEC-10 · Logging en backend, no en frontend ✅ COMPLETADO
 **Problema a resolver:** La tabla `crm_logs` se escribe desde el frontend (hooks de TanStack Query). Esto permite que cualquier usuario autenticado inserte logs falsos o manipule el historial de actividad.
-**Estado actual:** `logAction()` en `useCrmData.ts` hace INSERT directo a `crm_logs` desde el cliente.
-**Acción:**
-- Mover toda la lógica de logging a Edge Functions o a triggers de PostgreSQL
-- Opción recomendada: triggers `AFTER INSERT/UPDATE/DELETE` en las tablas principales que escriban automáticamente en `crm_logs`
-- Eliminar `logAction()` del frontend y remover la policy de INSERT en `crm_logs` para el rol anon/authenticated
-- Solo `service_role` (Edge Functions) debe poder escribir logs
+**Implementación:**
+- Función SECURITY DEFINER `_log_crm_change()` que escribe en `crm_logs` automáticamente
+- Triggers AFTER INSERT/UPDATE/DELETE en 13 tablas: `crm_contacts`, `crm_appointments`, `crm_blocked_slots`, `crm_pipeline_deals`, `crm_forms`, `crm_services`, `crm_sales`, `crm_calendar_config`, `crm_business_profile`, `crm_pipelines`, `crm_tasks`, `crm_staff` + AFTER INSERT en `crm_reminders`
+- Eliminada policy "Users can insert own logs" de `crm_logs`
+- Eliminada función `logAction()` y sus 35 call sites de `src/hooks/useCrmData.ts`
+- Migración: `supabase/migrations/20260507_sec10_backend_logging.sql`
 
 ---
 
-### SEC-11 · Validación de Webhooks
+### SEC-11 · Validación de Webhooks ✅ COMPLETADO
 **Problema a resolver:** Los endpoints que reciben eventos externos (Google Calendar OAuth callback, futuras integraciones) deben verificar la autenticidad del request. Sin verificación, cualquiera puede simular un evento exitoso.
-**Estado actual:** `google-calendar-oauth` recibe el callback con `code` de Google sin verificación de state CSRF.
-**Acción:**
-- En el OAuth de Google Calendar: generar un `state` token aleatorio al iniciar el flow, guardarlo en sesión, y verificarlo al recibir el callback
-- Para futuros webhooks (Stripe, Evolution API, etc.): verificar firma HMAC con el secret del proveedor antes de procesar el payload
-- Rechazar requests sin firma válida con HTTP 401 — nunca procesar el payload primero
+**Implementación:**
+- `CrmCalendarConfig.tsx`: genera `crypto.randomUUID()` como CSRF token, lo guarda en `localStorage("google_oauth_csrf")`, y lo codifica en `state` como `${csrf}:${calendarUid}`
+- `GoogleCalendarCallback.tsx`: parsea `state`, compara el CSRF con `localStorage`, rechaza si no coincide, y lo borra tras validar
+- `google-calendar-oauth` Edge Function (v13): añade verificación de auth (`getUser`), verifica que el `calendar_id` pertenezca al usuario autenticado, valida `redirect_uri` contra SITE_URL origin, y sanitiza mensajes de error de Google
+- Futuros webhooks (Stripe, Evolution API): deberán verificar firma HMAC antes de procesar — patrón establecido
 
 ---
 
-### SEC-12 · Validación de roles en el servidor
+### SEC-12 · Validación de roles en el servidor ✅ COMPLETADO
 **Problema a resolver:** La lógica de permisos de Staff (qué puede ver/editar) se aplica principalmente en el frontend. Un Staff con acceso técnico podría hacer requests directos a Supabase saltándose la UI.
-**Estado actual:** RLS distingue owner vs cliente. Los permisos granulares de Staff (`perm_contactos`, `perm_ventas`, etc.) solo se verifican en `useStaffPermissions()` en el frontend.
-**Acción:**
-- Revisar si las policies de RLS de Staff cubren los permisos granulares, o si solo distinguen owner vs otros
-- Para operaciones sensibles (crear staff, cambiar límites, impersonación): verificar permisos en Edge Function con `service_role`, no solo en el cliente
-- Agregar RLS policies específicas para Staff: ej. staff con `perm_ventas.read: false` no puede SELECT en `crm_sales` aunque lo intente directamente
+**Implementación:**
+- Reemplazadas 11 políticas "FOR ALL" genéricas con 42 políticas granulares por operación (SELECT/INSERT/UPDATE/DELETE) que verifican el flag específico: `(perm_X->>'action')::boolean = true`
+- Mapping de permisos: `crm_contacts→perm_contactos`, `crm_sales→perm_ventas`, `crm_appointments/blocked_slots/calendar_config/reminders/reminder_config→perm_calendarios`, `crm_forms/form_submissions→perm_formularios`, `crm_services→perm_servicios`, `crm_pipelines/tasks→perm_pipeline`, `crm_business_profile→perm_mi_negocio_datos`
+- Fail-safe por diseño: si `perm_X` es NULL o la clave no existe, `->>'action'` devuelve NULL → acceso denegado
+- Operaciones sensibles (invite-staff-user, generate-magic-link): ya tenían verificación auth + ownership en Edge Functions — confirmado correcto
+- Migración: `supabase/migrations/20260509_sec12_staff_granular_rls.sql`
 
 ---
 
-### SEC-13 · Auditoría de dependencias npm
-**Problema a resolver:** Las dependencias desactualizadas pueden tener vulnerabilidades conocidas (CVEs) que un atacante puede explotar.
-**Estado actual:** No se ha ejecutado una auditoría formal.
-**Acción:**
-- Ejecutar `npm audit` y revisar las vulnerabilidades de severidad alta y crítica
-- Ejecutar `npm audit fix` para las correcciones automáticas seguras
-- Para cambios breaking: evaluar caso por caso antes de actualizar
-- Programar una revisión trimestral de dependencias
-- Verificar especialmente: `@supabase/supabase-js`, `react-router-dom`, `vite`
+### SEC-13 · Auditoría de dependencias npm ✅ COMPLETADO
+**Resultado:** `npm audit` encontró 19 vulnerabilidades (9 high, 7 moderate, 3 low).
+**`npm audit fix` resolvió 14 de 19** (22 paquetes actualizados). Build verificado exitoso.
+**Vulnerabilidades corregidas (high):** react-router-dom XSS, rollup path traversal, lodash prototype pollution, flatted DoS, glob command injection, minimatch ReDoS, picomatch ReDoS.
+**Restantes (5 — no corregidas, breaking changes):**
+- `esbuild/vite` (moderate): requiere Vite 8 major — solo afecta dev server, sin impacto en producción
+- `@tootallnate/once/jsdom` (3 low): requiere jsdom 29 breaking — devDependency de testing solamente
+**Revisión trimestral recomendada:** ejecutar `npm audit` cada 3 meses.
 
 ---
 
-### SEC-14 · API Keys — nunca expuestas en el frontend
-**Problema a resolver:** Claves secretas en variables de entorno del frontend (`VITE_*`) son visibles en el bundle JS del cliente. Solo deben existir allí las claves públicas de Supabase.
-**Estado actual:** Solo `VITE_SUPABASE_URL` y `VITE_SUPABASE_ANON_KEY` están en el frontend — correcto. Las claves sensibles (Resend, Anthropic, Google OAuth, Evolution API) están como secrets en Edge Functions.
-**Acción:**
-- Confirmar que ninguna variable `VITE_*` contiene claves secretas (Resend, Anthropic, Google secret, Evolution API key)
-- Revisar el bundle de producción con `npm run build` y buscar strings que parezcan API keys
-- Si alguna key sensible aparece: rotar inmediatamente y moverla a Edge Function secrets
-- Regla permanente: cualquier key que no sea la anon key de Supabase va en Edge Function, nunca en frontend
+### SEC-14 · API Keys — nunca expuestas en el frontend ✅ COMPLETADO
+**Resultado:** Auditoría completa — ninguna clave secreta encontrada en frontend ni en bundle.
+**Variables VITE_* confirmadas (3 total):**
+- `VITE_SUPABASE_URL` ✅ identificador público
+- `VITE_SUPABASE_ANON_KEY` ✅ clave anon pública por diseño (role: anon en JWT)
+- `VITE_GOOGLE_CLIENT_ID` ✅ los Client IDs de OAuth son públicos; el Client Secret está en Edge Function secrets
+**Bundle escaneado:** sin presencia de `ANTHROPIC_`, `RESEND_`, `EVOLUTION_`, `GOOGLE_CLIENT_SECRET`, `SERVICE_ROLE`, ni patrones `sk-ant-`, `re_`, `sk_`. Solo el payload JWT de la anon key (esperado).
+**Fix crítico aplicado:** `.env` estaba siendo trackeado por git (valores actuales son públicos, pero riesgo futuro). Se ejecutó `git rm --cached .env`, se agregó `.env` y `.env.production` a `.gitignore`, y se creó `.env.example` documentando qué va en frontend vs Edge Function secrets.
+**Regla permanente documentada:** cualquier key que no sea la anon key de Supabase va en Edge Function secrets, nunca en `VITE_*`.

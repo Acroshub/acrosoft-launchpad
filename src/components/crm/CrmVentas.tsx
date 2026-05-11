@@ -389,7 +389,7 @@ const CrmVentas = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
         {canCreateSale && (
           <div className="bg-card border rounded-2xl p-6">
             <h2 className="text-sm font-semibold mb-4">Registrar Venta</h2>
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Contacto</label>
                 <select
@@ -494,7 +494,7 @@ const CrmVentas = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
             </div>
 
             {/* Filtros */}
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
               <div className="space-y-1">
                 <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Desde</label>
                 <Input

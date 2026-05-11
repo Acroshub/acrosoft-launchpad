@@ -1281,7 +1281,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
         </div>
 
         {/* RIGHT COLUMN: Share Form */}
-        <div className="bg-card border rounded-2xl p-5 space-y-6 sticky top-6">
+        <div className="bg-card border rounded-2xl p-5 space-y-6 lg:sticky lg:top-6">
            <div>
              <h3 className="text-sm font-semibold mb-1">Compartir Formulario</h3>
              <p className="text-xs text-muted-foreground">Comparte este formulario o incrústalo en tu página web.</p>

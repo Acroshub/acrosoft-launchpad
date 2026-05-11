@@ -159,7 +159,7 @@ const CrmSetup = () => {
           <Button
             onClick={handleSubmit}
             disabled={!isValid || loading}
-            className="w-full h-10 rounded-xl font-medium"
+            className="w-full h-11 rounded-xl font-medium"
           >
             {loading ? (
               <><Loader2 size={14} className="animate-spin mr-2" /> Guardando...</>

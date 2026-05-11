@@ -441,7 +441,8 @@ const FileUploadField = ({
         .upload(path, file, { upsert: false, contentType: file.type });
 
       if (upErr) {
-        setUploadError(`Error al subir ${file.name}: ${upErr.message}`);
+        console.error("form-uploads error:", upErr);
+        setUploadError(`Error al subir ${file.name}. Verifica el formato y tamaño del archivo.`);
         setUploading(false);
         return;
       }
