@@ -14,7 +14,7 @@ import {
   useVideoCourses, useVideoModules, useVideosForCourse,
   useCreateVideoCourse, useUpdateVideoCourse, useDeleteVideoCourse,
   useCreateVideoModule, useUpdateVideoModule, useDeleteVideoModule,
-  useCreateVideo, useUpdateVideo, useDeleteVideo,
+  useCreateVideo, useUpdateVideo, useDeleteVideo, useAllContactTags,
 } from "@/hooks/useCrmData";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 
@@ -526,8 +526,7 @@ const AdminCourseEditor = ({
   const { data: videos = [], refetch: refetchVideos } = useVideosForCourse(activeCourse?.id ?? null);
   const createModule = useCreateVideoModule();
 
-  // Collect all tags from contacts (we'll just use the course's current tags as seed)
-  const [allTags] = useState<string[]>([]);
+  const { data: allTags = [] } = useAllContactTags();
 
   const selectThumb = (file: File) => {
     setThumb(file);

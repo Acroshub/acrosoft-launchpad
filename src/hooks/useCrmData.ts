@@ -1547,6 +1547,19 @@ export const useDeleteVideo = () => {
   });
 };
 
+export const useAllContactTags = () =>
+  useQuery({
+    queryKey: ["crm_contact_tags"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_contacts")
+        .select("tags");
+      if (error) throw error;
+      const unique = [...new Set((data ?? []).flatMap((c: { tags: string[] }) => c.tags ?? []))].sort();
+      return unique;
+    },
+  });
+
 // ─── STAFF ────────────────────────────────────────────────────────────────────
 
 export const useStaff = () => {
