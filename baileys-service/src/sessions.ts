@@ -1,4 +1,5 @@
 import makeWASocket, {
+  Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
   WASocket,
@@ -34,11 +35,12 @@ async function updateStatus(
 }
 
 export async function createSession(userId: string): Promise<void> {
-  // If a session already exists, destroy it first
+  // Destroy existing session first to prevent listener leaks
   const existing = sessions.get(userId);
   if (existing) {
     try { existing.end(undefined); } catch {}
     sessions.delete(userId);
+    await new Promise(r => setTimeout(r, 500));
   }
 
   const { version } = await fetchLatestBaileysVersion();
@@ -49,7 +51,9 @@ export async function createSession(userId: string): Promise<void> {
     logger,
     auth: state,
     printQRInTerminal: false,
-    browser: ["Acrosoft CRM", "Chrome", "1.0"],
+    browser: Browsers.macOS("Desktop"),
+    markOnlineOnConnect: false,
+    syncFullHistory: false,
   });
 
   sessions.set(userId, sock);
@@ -86,14 +90,18 @@ export async function createSession(userId: string): Promise<void> {
           .from("whatsapp_sessions")
           .update({ status: "disconnected", phone_number: null, qr_code: null, auth_state: null })
           .eq("user_id", userId);
-      } else if (reason === DisconnectReason.restartRequired) {
-        // WhatsApp requested restart — reconnect once
-        console.log(`[${userId}] Restart required, reconnecting...`);
+      } else if (reason === DisconnectReason.restartRequired || reason === 515) {
+        // WhatsApp requested restart (515 = pairing success signal) — reconnect
+        console.log(`[${userId}] Restart required (${reason}), reconnecting in 3s...`);
         await updateStatus(userId, "disconnected");
         setTimeout(() => createSession(userId), 3_000);
+      } else if (reason === 440) {
+        // connectionReplaced — WhatsApp opened definitive WS, wait longer before retry
+        console.log(`[${userId}] Connection replaced (440), reconnecting in 15s...`);
+        await updateStatus(userId, "disconnected");
+        setTimeout(() => createSession(userId), 15_000);
       } else {
-        // IP blocked, auth failure, or QR not scanned in time — do NOT reconnect automatically
-        // The user must click "Conectar" again from the UI
+        // IP blocked, auth failure, QR expired — manual reconnect required
         console.log(`[${userId}] Session ended (reason: ${reason}). Manual reconnect required.`);
         await supabase
           .from("whatsapp_sessions")
