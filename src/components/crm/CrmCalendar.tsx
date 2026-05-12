@@ -1269,7 +1269,7 @@ const CrmCalendar = () => {
     />
     <div className="space-y-6">
       {/* Top Toolbar */}
-      <div className="flex items-start justify-between gap-4 flex-wrap">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div>
           {/* Calendar dropdown selector */}
           <div className="relative">
@@ -1322,22 +1322,22 @@ const CrmCalendar = () => {
         </div>
 
         {/* View toggle & Settings */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           {canEditCalendar && (
             <Button
               variant="outline"
               onClick={openBlockModal}
-              className="h-[38px] rounded-xl text-xs font-semibold px-4 gap-2 text-amber-700 dark:text-amber-400 hover:text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-amber-300 dark:border-amber-700/40"
+              className="h-[38px] rounded-xl text-xs font-semibold px-3 gap-2 text-amber-700 dark:text-amber-400 hover:text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-amber-300 dark:border-amber-700/40"
             >
-              <Coffee size={14} /> Reservar tiempo
+              <Coffee size={14} /> <span className="hidden sm:inline">Reservar tiempo</span>
             </Button>
           )}
           {canEditCalendar && (
             <Button
               onClick={() => openNewAppt(dateKey(current), 10, 0)}
-              className="h-[38px] rounded-xl text-xs font-semibold px-4 gap-2"
+              className="h-[38px] rounded-xl text-xs font-semibold px-3 gap-2"
             >
-              <Plus size={14} /> Nueva cita
+              <Plus size={14} /> <span className="hidden sm:inline">Nueva cita</span>
             </Button>
           )}
           <div className="flex border rounded-xl overflow-hidden bg-card h-[38px] shadow-sm">
@@ -1349,7 +1349,8 @@ const CrmCalendar = () => {
                   view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary/20"
                 }`}
               >
-                {v === "day" ? "Diaria" : v === "week" ? "Semanal" : "Mensual"}
+                <span className="hidden sm:inline">{v === "day" ? "Diaria" : v === "week" ? "Semanal" : "Mensual"}</span>
+                <span className="sm:hidden">{v === "day" ? "D" : v === "week" ? "S" : "M"}</span>
               </button>
             ))}
           </div>
@@ -1387,7 +1388,7 @@ const CrmCalendar = () => {
             <ChevronRight size={16} />
           </button>
         </div>
-        <h2 className="text-xl font-bold text-foreground min-w-[200px] select-none capitalize">
+        <h2 className="text-xl font-bold text-foreground select-none capitalize">
           {headerLabel()}
         </h2>
       </div>

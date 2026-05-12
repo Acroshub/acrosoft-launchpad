@@ -1009,86 +1009,30 @@ const STATUS_LABEL_R: Record<CrmReminder["status"], string> = {
 };
 
 const RemindersTab = () => {
-  const { data: config, isLoading: loadingConfig } = useReminderConfig();
   const { data: reminders = [], isLoading: loadingReminders } = useReminders();
-  const upsert = useUpsertReminderConfig();
-
-  const [limit_, setLimit_] = useState<number | "">(config?.email_limit_per_month ?? 100);
-  const [dirty, setDirty] = useState(false);
-
-  useMemo(() => {
-    if (config) setLimit_(config.email_limit_per_month);
-  }, [config?.id]);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const thisMonth = new Date();
   thisMonth.setDate(1); thisMonth.setHours(0, 0, 0, 0);
   const sentThisMonth = reminders.filter(
     r => r.status === "sent" && new Date(r.sent_at ?? r.created_at) >= thisMonth
   ).length;
-  const limit = config?.email_limit_per_month ?? 100;
-  const usedPct = Math.min(100, Math.round((sentThisMonth / limit) * 100));
-
-  const handleSaveLimit = async () => {
-    if (limit_ === "" || Number(limit_) < 1) return;
-    try {
-      await upsert.mutateAsync({ email_limit_per_month: Number(limit_) });
-      toast.success("Límite guardado");
-      setDirty(false);
-    } catch { toast.error("Error al guardar"); }
-  };
-
-  if (loadingConfig) return (
-    <div className="flex justify-center py-16">
-      <Loader2 size={22} className="animate-spin text-muted-foreground" />
-    </div>
-  );
 
   return (
     <div className="space-y-6">
 
-      {/* ─── Monthly usage + limit ─── */}
-      <div className="bg-card border rounded-2xl p-5 space-y-4">
-        <p className="text-sm font-semibold">Límite mensual</p>
-        <div className="flex items-center gap-3">
-          <Input
-            type="number"
-            min={1}
-            value={limit_}
-            onChange={(e) => { setLimit_(e.target.value === "" ? "" : Number(e.target.value)); setDirty(true); }}
-            className="h-9 text-sm w-28"
-          />
-          <span className="text-xs text-muted-foreground">recordatorios / mes</span>
-          {dirty && (
-            <Button size="sm" onClick={handleSaveLimit} disabled={upsert.isPending} className="h-8 text-xs ml-auto">
-              {upsert.isPending && <Loader2 size={12} className="animate-spin mr-1.5" />}
-              Guardar
-            </Button>
-          )}
-        </div>
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-xs text-muted-foreground">Uso este mes</span>
-            <span className="text-xs text-muted-foreground tabular-nums">{sentThisMonth} / {limit}</span>
-          </div>
-          <div className="h-2 bg-secondary rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${
-                usedPct >= 90 ? "bg-destructive" : usedPct >= 70 ? "bg-yellow-500" : "bg-primary"
-              }`}
-              style={{ width: `${usedPct}%` }}
-            />
-          </div>
-          <p className="text-[11px] text-muted-foreground mt-1.5">
-            {limit - sentThisMonth} disponibles este mes
-          </p>
-        </div>
-      </div>
-
       {/* ─── History ─── */}
       <div>
-        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60 mb-3">
-          Historial ({reminders.length})
-        </p>
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground/60">
+            Historial ({reminders.length})
+          </p>
+          {sentThisMonth > 0 && (
+            <span className="text-[11px] text-muted-foreground bg-secondary border rounded-lg px-2.5 py-1 font-medium">
+              {sentThisMonth} enviados este mes
+            </span>
+          )}
+        </div>
 
         {loadingReminders ? (
           <div className="flex justify-center py-10">
@@ -1101,35 +1045,75 @@ const RemindersTab = () => {
           </div>
         ) : (
           <div className="bg-card border rounded-2xl overflow-hidden">
-            {reminders.slice(0, 50).map((r, i) => (
-              <div key={r.id} className={`px-5 py-3.5 flex items-center gap-3 ${i < reminders.length - 1 ? "border-b" : ""}`}>
-                <div className="shrink-0">{STATUS_ICON[r.status]}</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-medium truncate">{r.message}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {r.type === "email" ? "Email" : "WhatsApp"}
-                    {r.recipient_email && ` · ${r.recipient_email}`}
-                    {r.recipient_phone && ` · ${r.recipient_phone}`}
-                    {r.is_auto && " · Auto"}
-                  </p>
+            {reminders.slice(0, 50).map((r, i) => {
+              const isExpanded = expandedId === r.id;
+              return (
+                <div key={r.id} className={i < reminders.length - 1 ? "border-b" : ""}>
+                  {/* Row */}
+                  <button
+                    className="w-full px-5 py-3.5 flex items-center gap-3 text-left hover:bg-secondary/30 transition-colors"
+                    onClick={() => setExpandedId(isExpanded ? null : r.id)}
+                  >
+                    <div className="shrink-0">{STATUS_ICON[r.status]}</div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{r.subject ?? r.message}</p>
+                      <p className="text-[10px] text-muted-foreground mt-0.5">
+                        {r.type === "email" ? "Email" : "WhatsApp"}
+                        {r.recipient_email && ` · ${r.recipient_email}`}
+                        {r.recipient_phone && ` · ${r.recipient_phone}`}
+                        {r.is_auto && " · Auto"}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0 flex flex-col items-end gap-1">
+                      <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                        r.status === "sent"    ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                        r.status === "failed"  ? "bg-red-50 text-red-700 border-red-200" :
+                        r.status === "skipped" ? "bg-secondary text-muted-foreground border-border" :
+                                                "bg-yellow-50 text-yellow-700 border-yellow-200"
+                      }`}>
+                        {STATUS_LABEL_R[r.status]}
+                      </span>
+                      <p className="text-[10px] text-muted-foreground tabular-nums">
+                        {new Date(r.scheduled_at).toLocaleString("es-ES", {
+                          day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+                        })}
+                      </p>
+                    </div>
+                    <ChevronDown
+                      size={13}
+                      className={`text-muted-foreground shrink-0 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                    />
+                  </button>
+
+                  {/* Expanded content */}
+                  {isExpanded && (
+                    <div className="px-5 pb-4 pt-1 bg-secondary/10 border-t space-y-2">
+                      {r.subject && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Asunto</p>
+                          <p className="text-xs text-foreground">{r.subject}</p>
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Mensaje</p>
+                        <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{r.message}</p>
+                      </div>
+                      {r.error && (
+                        <div>
+                          <p className="text-[10px] font-semibold text-destructive uppercase tracking-wider mb-1">Error</p>
+                          <p className="text-xs text-destructive/80">{r.error}</p>
+                        </div>
+                      )}
+                      {r.sent_at && (
+                        <p className="text-[10px] text-muted-foreground">
+                          Enviado: {new Date(r.sent_at).toLocaleString("es-ES", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" })}
+                        </p>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div className="text-right shrink-0">
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                    r.status === "sent"    ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                    r.status === "failed"  ? "bg-red-50 text-red-700 border-red-200" :
-                    r.status === "skipped" ? "bg-secondary text-muted-foreground border-border" :
-                                            "bg-yellow-50 text-yellow-700 border-yellow-200"
-                  }`}>
-                    {STATUS_LABEL_R[r.status]}
-                  </span>
-                  <p className="text-[10px] text-muted-foreground mt-1 tabular-nums">
-                    {new Date(r.scheduled_at).toLocaleString("es-ES", {
-                      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
-                    })}
-                  </p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1400,20 +1384,22 @@ const CrmSettings = ({ isSuperAdmin }: { isSuperAdmin?: boolean }) => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-0 border-b overflow-x-auto">
-        {visibleTabs.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
-              activeTab.id === t.id
-                ? "border-primary text-primary"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+      <div className="overflow-x-auto overflow-y-hidden -mx-1 px-1">
+        <div className="flex gap-0 border-b min-w-max">
+          {visibleTabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
+                activeTab.id === t.id
+                  ? "border-primary text-primary"
+                  : "border-transparent text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <Component />

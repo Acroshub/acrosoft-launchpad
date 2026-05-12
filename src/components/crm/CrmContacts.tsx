@@ -1578,19 +1578,19 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
     />
 
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Contactos</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Todos los contactos registrados en el CRM</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <Button
             variant="outline"
             onClick={() => exportContactsCsv(filtered)}
             className="rounded-xl gap-1.5 h-9 text-xs font-medium"
             title={filtered.length < contacts.length ? `Exportar ${filtered.length} contactos (filtrados)` : "Exportar todos los contactos a CSV"}
           >
-            <Upload size={13} /> Exportar
+            <Upload size={13} /> <span className="hidden sm:inline">Exportar</span>
           </Button>
           {canCreate && (
             <Button
@@ -1598,7 +1598,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
               onClick={() => setShowImport(true)}
               className="rounded-xl gap-1.5 h-9 text-xs font-medium"
             >
-              <Download size={13} /> Importar
+              <Download size={13} /> <span className="hidden sm:inline">Importar</span>
             </Button>
           )}
           {canCreate && (
@@ -1734,7 +1734,7 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                   const hasSaasService = (contactServices.get(c.id) ?? []).some((s) => s.isSaas);
 
                   return (
-                  <div key={c.id} className="space-y-0">
+                  <div key={c.id}>
                     <div
                       className={`px-5 py-4 flex items-center gap-3 hover:bg-secondary/30 transition-colors ${
                         selected === c.id ? "bg-primary/5" : ""
@@ -1803,6 +1803,70 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                         </button>
                       )}
                     </div>
+
+                    {/* Mobile inline expand — hidden on desktop */}
+                    {selected === c.id && detail && (
+                      <div className="lg:hidden border-t bg-secondary/5 px-5 py-4 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Detalle</p>
+                          <button
+                            onClick={() => setSelected(null)}
+                            className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                        {/* Contact info */}
+                        <div className="space-y-1.5">
+                          {detail.email && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Mail size={12} className="shrink-0" />
+                              <span className="truncate">{detail.email}</span>
+                            </div>
+                          )}
+                          {detail.phone && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Phone size={12} className="shrink-0" />
+                              <span>{detail.phone}</span>
+                            </div>
+                          )}
+                          {detail.company && (
+                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                              <Briefcase size={12} className="shrink-0" />
+                              <span className="truncate">{detail.company}</span>
+                            </div>
+                          )}
+                        </div>
+                        {/* Tags */}
+                        {(detail.tags ?? []).length > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {detail.tags.map((tag) => (
+                              <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
+                                {tag}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {/* Notes preview */}
+                        {detail.notes && (
+                          <div className="bg-secondary/60 rounded-xl p-3">
+                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Notas</p>
+                            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{detail.notes}</p>
+                          </div>
+                        )}
+                        {/* Pipeline stages */}
+                        {(contactStagesMap[c.id]?.length ?? 0) > 0 && (
+                          <div className="flex flex-wrap gap-1">
+                            {contactStagesMap[c.id].map((s, i) => (
+                              <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium" title={s.pipelineName}>
+                                {s.stage}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        <p className="text-[10px] text-muted-foreground/60">Abre en escritorio para editar el perfil completo</p>
+                      </div>
+                    )}
                   </div>
                   );
                 })}
@@ -1810,8 +1874,8 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
             )}
           </div>
 
-          {/* Panel de detalle */}
-          <div className="bg-card border rounded-2xl flex flex-col max-h-[80vh]">
+          {/* Panel de detalle — solo visible en desktop */}
+          <div className="hidden lg:flex bg-card border rounded-2xl flex-col max-h-[80vh]">
             {detail ? (
               <>
                 {/* Fixed header */}
