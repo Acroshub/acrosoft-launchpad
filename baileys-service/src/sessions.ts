@@ -61,7 +61,7 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     logger,
     auth: state,
     printQRInTerminal: false,
-    browser: Browsers.macOS("Desktop"),
+    browser: Browsers.ubuntu("Chrome"),
     markOnlineOnConnect: false,
     syncFullHistory: false,
     keepAliveIntervalMs: 10_000,

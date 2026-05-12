@@ -220,6 +220,7 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
   // Inline phone override for admin when WA conflict
   const [adminPhoneOverride, setAdminPhoneOverride] = useState("");
   const [savingPhone, setSavingPhone]               = useState(false);
+  const [sending, setSending]                       = useState(false);
 
   // ── WhatsApp conflict detection for admin ──────────────────────────────────
   const waPhone   = waConfig?.phone_number?.replace(/\D/g, "") ?? "";
@@ -322,7 +323,8 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
 
   const handleSendNow = async () => {
     if (!note.trim() || targets.length === 0) return;
-    if (createReminder.isPending) return;
+    if (createReminder.isPending || sending) return;
+    setSending(true);
     try {
       const scheduledAt = new Date(Date.now() - 1000).toISOString();
       await Promise.all(buildReminderPayloads(scheduledAt, note.trim()));
@@ -333,7 +335,11 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
           : "Notificación enviada"
       );
       onSaved();
-    } catch { toast.error("Error al enviar notificación"); }
+    } catch {
+      toast.error("Error al enviar notificación");
+    } finally {
+      setSending(false);
+    }
   };
 
   const handleSchedule = async () => {
@@ -538,11 +544,11 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
             type="button"
             variant="outline"
             onClick={handleSendNow}
-            disabled={!canSendNow || createReminder.isPending || savingPhone}
+            disabled={!canSendNow || sending || createReminder.isPending || savingPhone}
             className="flex-1 rounded-xl h-10 font-medium text-sm gap-1.5"
           >
-            {(createReminder.isPending || savingPhone) ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
-            Enviar Ahora
+            {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+            {sending ? "Enviando..." : "Enviar Ahora"}
           </Button>
           <Button
             onClick={handleSchedule}
