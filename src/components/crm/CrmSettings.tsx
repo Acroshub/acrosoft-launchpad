@@ -1020,7 +1020,9 @@ const WhatsAppTab = () => {
           setPhone(phone_number ?? null);
           setQrCode(null);
           toast.success("WhatsApp conectado correctamente");
-        } else if (s === "connecting") {
+        } else if (s === "qr_pending" && status !== "qr_pending") {
+          setStatus("qr_pending");
+        } else if (s === "connecting" && status !== "connecting") {
           setStatus("connecting");
         } else if (s === "disconnected") {
           stopPolling();

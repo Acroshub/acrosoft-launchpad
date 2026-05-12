@@ -167,18 +167,22 @@ Deno.serve(async (req) => {
         await setStatus("connected", { phone_number: phoneNumber, qr_code: null });
         return respond({ qr: null, status: "connected" });
       }
-      if (state === "connecting") {
-        await setStatus("connecting");
-        return respond({ qr: null, status: "connecting" });
-      }
 
+      // Evolution's "connecting" state covers BOTH "waiting for QR scan" and "post-scan handshake".
+      // Always try to fetch the QR first — if one comes back, user still needs to scan.
       const qr = await getQrFromConnect();
       if (qr) {
         await setStatus("qr_pending", { qr_code: qr });
         return respond({ qr, status: "qr_pending" });
       }
 
-      // No QR and not connected → fall back to whatever DB has (still showing previous QR)
+      // No QR and state=connecting → we're in the brief post-scan handshake window
+      if (state === "connecting") {
+        await setStatus("connecting");
+        return respond({ qr: null, status: "connecting" });
+      }
+
+      // No QR, state=close/null → fall back to DB (might still hold last cached QR)
       const { data } = await adminDb
         .from("whatsapp_sessions")
         .select("qr_code, status")
