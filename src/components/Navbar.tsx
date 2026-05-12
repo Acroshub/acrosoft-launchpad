@@ -1,5 +1,5 @@
 import { Link, useLocation } from "react-router-dom";
-import { Menu, X } from "lucide-react";
+import { Menu, X, LogIn } from "lucide-react";
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import AcrosoftLogo from "./shared/AcrosoftLogo";
@@ -40,6 +40,9 @@ const Navbar = () => {
             {T.plans}
           </a>
 
+          <Button asChild variant="ghost" className="rounded-2xl font-bold h-11 px-5 text-muted-foreground hover:text-foreground gap-2">
+            <Link to="/login"><LogIn size={16} /> Iniciar sesión</Link>
+          </Button>
           <Button asChild className="rounded-2xl font-black h-11 px-6 shadow-lg shadow-primary/20 hover:scale-105 transition-all">
             <a href="/#agendar">{T.cta}</a>
           </Button>
@@ -71,6 +74,9 @@ const Navbar = () => {
               {T.plans}
             </a>
           </div>
+          <Button asChild variant="outline" className="w-full h-12 rounded-2xl font-bold gap-2">
+            <Link to="/login" onClick={() => setOpen(false)}><LogIn size={16} /> Iniciar sesión</Link>
+          </Button>
           <Button asChild className="w-full h-14 rounded-2xl font-black text-lg shadow-xl shadow-primary/20">
             <a href="/#agendar" onClick={() => setOpen(false)}>
               {T.cta} →

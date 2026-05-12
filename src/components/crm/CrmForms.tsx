@@ -8,7 +8,7 @@ import {
   Calendar, Clock, Link, ClipboardList, ArrowLeft, Settings, Briefcase,
   Hash, Upload, CheckSquare, Minus, Palette, Circle, Layers, ChevronUp,
   ExternalLink, Copy, Code, Braces, Link as LinkIcon, Eye, Loader2, List,
-  Key, AlertTriangle,
+  Key, AlertTriangle, Bell,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
@@ -634,6 +634,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [deletingSectionId, setDeletingSectionId] = useState<string | null>(null);
   const [deletingFieldId, setDeletingFieldId] = useState<string | null>(null);
+  const [formTab, setFormTab] = useState<"campos" | "configuracion" | "notificaciones" | "compartir">("campos");
 
   const [submitButtonText, setSubmitButtonText] = useState(form.submitButtonText || "Enviar mensaje");
   const [successAction, setSuccessAction] = useState<"popup" | "redirect">(form.successAction || "popup");
@@ -787,39 +788,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
             Define qué información se solicita al usar este formulario
           </p>
         </div>
-        <div className="flex items-center gap-4 flex-wrap">
-          {/* Multi-page toggle */}
-          <div className="flex border rounded-xl overflow-hidden bg-card">
-            <button
-              onClick={() => {
-                setMultiPage(false);
-                // Strip sectionId from all fields so they all appear in flat mode
-                setFields(fs => fs.map(f => ({ ...f, sectionId: undefined })));
-              }}
-              className={`px-4 py-2 text-xs font-semibold transition-all ${
-                !multiPage ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Todo en uno
-            </button>
-            <button
-              onClick={() => {
-                setMultiPage(true);
-                // Assign ALL fields without a sectionId to the first section
-                // (not just locked ones — otherwise non-locked fields stay "floating"
-                //  and can't be deleted when their page is removed)
-                const firstSec = sections[0];
-                if (firstSec) {
-                  setFields(fs => fs.map(f => !f.sectionId ? { ...f, sectionId: firstSec.id } : f));
-                }
-              }}
-              className={`px-4 py-2 text-xs font-semibold transition-all ${
-                multiPage ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              Por páginas
-            </button>
-          </div>
+        <div className="flex items-center gap-4">
           {!readOnly && (
             <Button onClick={handleSave} className="h-9 rounded-xl text-sm font-medium px-5">
               {saved ? "Guardado ✓" : "Guardar cambios"}
@@ -828,12 +797,65 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
         </div>
       </div>
 
-      {/* ─── Columns Layout ─── */}
-      <div className="grid lg:grid-cols-[1fr_320px] gap-8 items-start">
-        {/* LEFT COLUMN: Fields Editor */}
-        <div className="space-y-8">
-          {/* Fields (flat or by sections) */}
-          {!multiPage ? (
+      {/* ─── Sidebar + Content layout ─── */}
+      <div className="flex flex-col lg:flex-row gap-6 items-start">
+        {/* Sidebar */}
+        <nav className="lg:w-48 shrink-0 w-full">
+          <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0">
+            {([
+              { id: "campos",        label: "Campos",         icon: Layers },
+              { id: "configuracion", label: "Configuración",  icon: Settings },
+              { id: "notificaciones",label: "Notificaciones", icon: Bell },
+              { id: "compartir",     label: "Compartir",      icon: LinkIcon },
+            ] as const).map(item => {
+              const Icon = item.icon;
+              const active = formTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setFormTab(item.id)}
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap lg:w-full text-left shrink-0 ${
+                    active
+                      ? "bg-primary text-primary-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                  }`}
+                >
+                  <Icon size={15} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+        </nav>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0 space-y-5">
+
+          {/* ── Campos ── */}
+          {formTab === "campos" && (
+            <div className="space-y-5">
+              {/* Estructura: Todo en uno / Por páginas */}
+              <div className="bg-card border rounded-2xl p-5">
+                <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
+                  <Layers size={15} className="text-muted-foreground" /> Estructura del formulario
+                </h2>
+                <div className="flex border rounded-xl overflow-hidden w-fit">
+                  <button
+                    onClick={() => { setMultiPage(false); setFields(fs => fs.map(f => ({ ...f, sectionId: undefined }))); }}
+                    className={`px-4 py-2 text-xs font-semibold transition-all ${!multiPage ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    Todo en uno
+                  </button>
+                  <button
+                    onClick={() => { setMultiPage(true); const firstSec = sections[0]; if (firstSec) { setFields(fs => fs.map(f => !f.sectionId ? { ...f, sectionId: firstSec.id } : f)); } }}
+                    className={`px-4 py-2 text-xs font-semibold transition-all ${multiPage ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                  >
+                    Por páginas
+                  </button>
+                </div>
+              </div>
+              {/* Fields editor */}
+              {!multiPage ? (
             <>
               <div className="space-y-3">
                 {fields.map((field) => (
@@ -1068,10 +1090,12 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                 )}
               </div>
             </div>
+            )}
+            </div>
           )}
 
-          {/* Acciones del formulario (Botón y Éxito) */}
-          <div className="bg-card border rounded-2xl p-6 space-y-6 mt-8">
+          {/* ── Configuración ── */}
+          {formTab === "configuracion" && <div className="bg-card border rounded-2xl p-6 space-y-6">
             <h2 className="text-sm font-semibold flex items-center gap-2">
               <CheckSquare size={16} className="text-primary"/> Configuración de envío
             </h2>
@@ -1253,21 +1277,10 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                 Se dispara <strong>ViewContent</strong> al cargar el formulario y <strong>Lead</strong> al enviar el formulario.
               </p>
             </div>
-          </div>
+          </div>}
 
-
-          <div className="bg-secondary/40 border rounded-2xl px-5 py-4 text-xs text-muted-foreground leading-relaxed">
-            <p className="font-semibold text-foreground mb-1">¿Cómo funciona?</p>
-            <p>
-              Los campos que configures aquí aparecerán en el formulario público de reserva.
-              Cada respuesta quedará guardada en la ficha del contacto, visible en la sección <strong>Contactos</strong>.
-              Los campos <em>Nombre</em> y <em>Email</em> son fijos y siempre obligatorios.
-            </p>
-          </div>
-
-          {/* ── Notificaciones ──────────────────────────────────── */}
-          {canEditReminders && (
-            <div className="bg-card border rounded-2xl p-6 space-y-4 mt-4">
+          {formTab === "notificaciones" && canEditReminders && (
+            <div className="bg-card border rounded-2xl p-6 space-y-4">
               <div>
                 <h2 className="text-sm font-semibold flex items-center gap-2">
                   <span className="w-5 h-5 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600 text-xs">🔔</span>
@@ -1278,107 +1291,93 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
               <ReminderRulesEditor rules={reminderRules} onChange={setReminderRules} />
             </div>
           )}
-        </div>
+          {formTab === "notificaciones" && !canEditReminders && (
+            <div className="bg-card border rounded-2xl p-6">
+              <p className="text-sm text-muted-foreground">No tienes permiso para editar notificaciones.</p>
+            </div>
+          )}
+          {/* ── Compartir ── */}
+          {formTab === "compartir" && (
+            <div className="bg-card border rounded-2xl p-6 space-y-6">
+              <div className="flex items-center gap-2">
+                <LinkIcon size={15} className="text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Compartir formulario</h2>
+              </div>
+              <p className="text-xs text-muted-foreground -mt-3">
+                Comparte este formulario o incrústalo en tu página web.
+              </p>
 
-        {/* RIGHT COLUMN: Share Form */}
-        <div className="bg-card border rounded-2xl p-5 space-y-6 lg:sticky lg:top-6">
-           <div>
-             <h3 className="text-sm font-semibold mb-1">Compartir Formulario</h3>
-             <p className="text-xs text-muted-foreground">Comparte este formulario o incrústalo en tu página web.</p>
-           </div>
-           
-           {/* Enlace directo */}
-           <div className="space-y-2.5">
-             <div className="flex items-center gap-2 text-sm font-medium">
-               <LinkIcon size={14} className="text-primary"/> Link (directo)
-             </div>
-             {(["es", "en"] as const).map((lang) => (
-               <div key={lang} className="space-y-1">
-                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                   {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
-                 </p>
-                 <div className="flex gap-2">
-                   <Input
-                     readOnly
-                     value={`${window.location.origin}/f/${form.id}?lang=${lang}`}
-                     className="h-8 text-[11px] bg-secondary/30 font-mono"
-                   />
-                   <Button
-                     variant="secondary" size="icon" className="h-8 w-8 shrink-0"
-                     onClick={() => navigator.clipboard.writeText(`${window.location.origin}/f/${form.id}?lang=${lang}`)}
-                   >
-                     <Copy size={13}/>
-                   </Button>
-                   <Button
-                     variant="outline" size="icon" className="h-8 w-8 shrink-0"
-                     onClick={() => window.open(`/f/${form.id}?lang=${lang}`, "_blank")}
-                   >
-                     <ExternalLink size={13}/>
-                   </Button>
-                 </div>
-               </div>
-             ))}
-           </div>
+              {/* Enlace directo */}
+              <div className="space-y-3">
+                <p className="text-xs font-semibold text-foreground flex items-center gap-2">
+                  <Link size={13} className="text-primary" /> Link directo
+                </p>
+                {(["es", "en"] as const).map((lang) => (
+                  <div key={lang} className="space-y-1">
+                    <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                      {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
+                    </p>
+                    <div className="flex gap-2">
+                      <Input readOnly value={`${window.location.origin}/f/${form.id}?lang=${lang}`} className="h-9 text-[11px] bg-secondary/30 font-mono" />
+                      <Button variant="secondary" size="icon" className="h-9 w-9 shrink-0" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/f/${form.id}?lang=${lang}`)}>
+                        <Copy size={13}/>
+                      </Button>
+                      <Button variant="outline" size="icon" className="h-9 w-9 shrink-0" onClick={() => window.open(`/f/${form.id}?lang=${lang}`, "_blank")}>
+                        <ExternalLink size={13}/>
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
 
-           {/* Iframe */}
-           <div className="space-y-2.5">
-             <div className="flex items-center gap-2 text-sm font-medium">
-               <Code size={14} className="text-orange-500"/> Iframe (HTML)
-             </div>
-             {(["es", "en"] as const).map((lang) => {
-               const code = `<iframe src="${window.location.origin}/f/${form.id}?lang=${lang}" width="100%" height="600px" frameborder="0" style="border:none;border-radius:12px;"></iframe>`;
-               return (
-                 <div key={lang} className="space-y-1">
-                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                     {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
-                   </p>
-                   <div className="relative">
-                     <textarea
-                       readOnly
-                       value={code}
-                       className="w-full h-[76px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-                     />
-                     <Button
-                       variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"
-                       onClick={() => navigator.clipboard.writeText(code)}
-                     >
-                       <Copy size={11}/>
-                     </Button>
-                   </div>
-                 </div>
-               );
-             })}
-           </div>
+              {/* Iframe */}
+              <div className="space-y-3 pt-2 border-t">
+                <p className="text-xs font-semibold text-foreground flex items-center gap-2">
+                  <Code size={13} className="text-orange-500" /> iFrame (HTML)
+                </p>
+                {(["es", "en"] as const).map((lang) => {
+                  const code = `<iframe src="${window.location.origin}/f/${form.id}?lang=${lang}" width="100%" height="600px" frameborder="0" style="border:none;border-radius:12px;"></iframe>`;
+                  return (
+                    <div key={lang} className="space-y-1">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
+                      </p>
+                      <div className="relative">
+                        <textarea readOnly value={code} className="w-full h-[76px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary" />
+                        <Button variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6" onClick={() => navigator.clipboard.writeText(code)}>
+                          <Copy size={11}/>
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
 
-           {/* Javascript */}
-           <div className="space-y-2.5">
-             <div className="flex items-center gap-2 text-sm font-medium">
-               <Braces size={14} className="text-blue-500"/> Javascript Embed
-             </div>
-             {(["es", "en"] as const).map((lang) => {
-               const code = `<div id="acrosoft-form-${form.id}-${lang}"></div>\n<script>\n  (function(){\n    var i=document.createElement('iframe');\n    i.src='${window.location.origin}/f/${form.id}?lang=${lang}';\n    i.width='100%';i.height='600';i.frameBorder='0';\n    i.style.borderRadius='12px';\n    document.getElementById('acrosoft-form-${form.id}-${lang}').appendChild(i);\n  })();\n</script>`;
-               return (
-                 <div key={lang} className="space-y-1">
-                   <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-                     {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
-                   </p>
-                   <div className="relative">
-                     <textarea
-                       readOnly
-                       value={code}
-                       className="w-full h-[100px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
-                     />
-                     <Button
-                       variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6"
-                       onClick={() => navigator.clipboard.writeText(code)}
-                     >
-                       <Copy size={11}/>
-                     </Button>
-                   </div>
-                 </div>
-               );
-             })}
-           </div>
+              {/* Javascript */}
+              <div className="space-y-3 pt-2 border-t">
+                <p className="text-xs font-semibold text-foreground flex items-center gap-2">
+                  <Braces size={13} className="text-blue-500" /> JavaScript Embed
+                </p>
+                {(["es", "en"] as const).map((lang) => {
+                  const code = `<div id="acrosoft-form-${form.id}-${lang}"></div>\n<script>\n  (function(){\n    var i=document.createElement('iframe');\n    i.src='${window.location.origin}/f/${form.id}?lang=${lang}';\n    i.width='100%';i.height='600';i.frameBorder='0';\n    i.style.borderRadius='12px';\n    document.getElementById('acrosoft-form-${form.id}-${lang}').appendChild(i);\n  })();\n</script>`;
+                  return (
+                    <div key={lang} className="space-y-1">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+                        {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
+                      </p>
+                      <div className="relative">
+                        <textarea readOnly value={code} className="w-full h-[100px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary" />
+                        <Button variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6" onClick={() => navigator.clipboard.writeText(code)}>
+                          <Copy size={11}/>
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
         </div>
       </div>
     </div>
