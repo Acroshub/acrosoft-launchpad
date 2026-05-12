@@ -527,7 +527,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
 
               return (
                 <div className={`p-5 rounded-2xl border transition-all ${isConnected ? "bg-green-50 border-green-200 dark:bg-green-950/20 dark:border-green-800" : "bg-secondary/10"}`}>
-                  <div className="flex items-start justify-between gap-4">
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                     <div className="flex items-start gap-4 flex-1">
                       <div className="w-12 h-12 rounded-xl bg-white border flex items-center justify-center p-2 shadow-sm shrink-0">
                         <img
@@ -536,8 +536,8 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                           className="w-full h-full object-contain"
                         />
                       </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <p className="text-sm font-bold text-foreground">Google Calendar</p>
                           {isConnected && (
                             <span className="flex items-center gap-1 text-[10px] font-semibold text-green-600 bg-green-100 dark:bg-green-900/40 px-2 py-0.5 rounded-full">
@@ -554,14 +554,14 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                         </p>
                       </div>
                     </div>
-                    <div className="flex gap-2 shrink-0">
+                    <div className="flex gap-2 sm:shrink-0">
                       {isConnected ? (
                         <>
                           <Button
                             onClick={handleConnect}
                             variant="outline"
                             size="sm"
-                            className="text-xs"
+                            className="text-xs flex-1 sm:flex-none"
                           >
                             Cambiar
                           </Button>
@@ -569,7 +569,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                             variant="outline"
                             size="sm"
                             onClick={handleDisconnect}
-                            className="text-xs text-muted-foreground gap-1.5"
+                            className="text-xs text-muted-foreground gap-1.5 flex-1 sm:flex-none"
                           >
                             <Unlink size={13} /> Desconectar
                           </Button>
@@ -577,7 +577,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                       ) : (
                         <Button
                           onClick={handleConnect}
-                          className="h-10 px-6 rounded-lg text-sm font-bold bg-primary hover:bg-primary/90 text-white shadow-md"
+                          className="w-full sm:w-auto h-10 px-6 rounded-lg text-sm font-bold bg-primary hover:bg-primary/90 text-white shadow-md"
                         >
                           Conectar cuenta
                         </Button>

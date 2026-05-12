@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, CalendarDays, Clock, User, Plus, Settings, ChevronDown, Pencil, Trash2, Coffee, Loader2, ClipboardList } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, Clock, User, Plus, Settings, ChevronDown, Pencil, Trash2, Coffee, Loader2, ClipboardList, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -1393,17 +1393,17 @@ const CrmCalendar = () => {
         </h2>
       </div>
 
-      <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6" : ""}`}>
+      <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6 overflow-hidden" : ""}`}>
         {/* Calendar view */}
-        <div>
+        <div className="min-w-0 overflow-hidden">
           {view === "day"   && <DayView   current={current} onSelect={handleSelectAppt} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
           {view === "week"  && <WeekView  current={current} onSelect={handleSelectAppt} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
           {view === "month" && <MonthView current={current} onSelect={handleSelectAppt} selected={selected} onBlockClick={handleSelectBlock} selectedBlockId={selectedBlockId} blocked={blockedSlots} appointments={appointments} />}
         </div>
 
-        {/* Detail panel — day & week only */}
+        {/* Detail panel — day & week only (desktop) */}
         {view !== "month" && (
-          <div className="bg-card border rounded-2xl p-5 h-fit">
+          <div className="hidden lg:block bg-card border rounded-2xl p-5 h-fit">
             {blockDetail ? (
               <BlockDetailPanel
                 block={blockDetail}
@@ -1536,6 +1536,136 @@ const CrmCalendar = () => {
                 <p className="text-xs text-muted-foreground">Selecciona una cita o bloqueo para ver los detalles</p>
               </div>
             )}
+          </div>
+        )}
+
+        {/* Mobile bottom sheet — day & week detail */}
+        {view !== "month" && (detail || blockDetail) && (
+          <div className="lg:hidden">
+            {/* Backdrop */}
+            <div
+              className="fixed inset-0 bg-black/40 z-40"
+              onClick={() => { setSelected(null); setSelectedBlockId(null); }}
+            />
+            {/* Sheet */}
+            <div className="fixed bottom-0 inset-x-0 z-50 bg-card rounded-t-2xl shadow-xl max-h-[80dvh] flex flex-col">
+              {/* Drag handle */}
+              <div className="flex justify-center pt-3 pb-1 shrink-0">
+                <div className="w-10 h-1 rounded-full bg-muted-foreground/20" />
+              </div>
+              {/* Close button */}
+              <button
+                onClick={() => { setSelected(null); setSelectedBlockId(null); }}
+                className="absolute top-3 right-4 w-8 h-8 flex items-center justify-center rounded-full hover:bg-secondary transition-colors text-muted-foreground"
+              >
+                <X size={16} />
+              </button>
+              {/* Scrollable content */}
+              <div className="overflow-y-auto px-5 py-4">
+                {blockDetail ? (
+                  <BlockDetailPanel
+                    block={blockDetail}
+                    canEdit={canEditCalendar}
+                    onEdit={() => openEditBlockModal(blockDetail)}
+                    onDelete={() => setDeleteBlockTarget({ id: blockDetail.id, name: blockDetail.reason || "Bloqueo" })}
+                  />
+                ) : detail ? (
+                  <div className="space-y-5 pb-4">
+                    <div className="flex items-start gap-3">
+                      <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
+                        {detail.name.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm truncate">{detail.name}</p>
+                        <div className="relative mt-1 inline-block">
+                          <select
+                            value={detail.status}
+                            disabled={!canEditCalendar}
+                            onChange={async (e) => {
+                              const newStatus = e.target.value === "Cancelada" ? "cancelled" : "confirmed";
+                              try {
+                                await updateAppointment.mutateAsync({ id: detail.id, status: newStatus });
+                                toast.success("Estado actualizado");
+                              } catch { toast.error("Error al actualizar"); }
+                            }}
+                            className={`text-[10px] appearance-none bg-background border px-2.5 py-0.5 rounded-full pr-6 ${canEditCalendar ? "cursor-pointer hover:bg-secondary/20" : "cursor-default opacity-70"} transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${statusStyles[detail.status] || ""}`}
+                          >
+                            <option value="Confirmada">Confirmada</option>
+                            <option value="Cancelada">Cancelada</option>
+                          </select>
+                          <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
+                        </div>
+                      </div>
+                      {canEditCalendar && (
+                        <div className="flex items-center gap-0.5 mt-0.5 shrink-0">
+                          <button
+                            onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); }}
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                            title="Editar cita"
+                          >
+                            <Pencil size={14} />
+                          </button>
+                          <button
+                            onClick={() => setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` })}
+                            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    <div className="space-y-4 text-sm">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Información de la Cita</p>
+                        <div className="space-y-2.5">
+                          {([
+                            ["Fecha",    detail.date],
+                            ["Hora",     detail.time],
+                            ["Duración", `${detail.duration_min} min`],
+                            detail.service ? ["Servicio", detail.service] : null,
+                          ] as (readonly [string, string] | null)[]).filter((v): v is readonly [string, string] => !!v && !!v[1]).map(([label, value]) => (
+                            <div key={label}>
+                              <p className="text-[10px] text-muted-foreground/70">{label}</p>
+                              <p className="font-medium text-xs">{value}</p>
+                            </div>
+                          ))}
+                          {detail.google_event_id && (
+                            <p className="text-[10px] text-green-600">✓ Sincronizada con Google</p>
+                          )}
+                          {detail.notes && (
+                            <div className="pt-1 border-t">
+                              <p className="text-[10px] text-muted-foreground/70">Notas</p>
+                              <p className="text-xs mt-1">{detail.notes}</p>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      {detail.contact_id && (() => {
+                        const contact = contacts.find(c => c.id === detail.contact_id);
+                        if (!contact) return null;
+                        return (
+                          <div className="border-t pt-4">
+                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Información del Contacto</p>
+                            <div className="space-y-2.5">
+                              {([
+                                ["Email",    contact.email],
+                                ["Teléfono", contact.phone],
+                                ["Empresa",  contact.company],
+                              ] as readonly (readonly [string, string | undefined])[]).filter((pair): pair is readonly [string, string] => !!pair[1]).map(([label, value]) => (
+                                <div key={label}>
+                                  <p className="text-[10px] text-muted-foreground/70">{label}</p>
+                                  <p className="font-medium text-xs">{value}</p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
           </div>
         )}
 
