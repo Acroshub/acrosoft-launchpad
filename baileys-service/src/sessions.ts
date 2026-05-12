@@ -2,6 +2,7 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   fetchLatestBaileysVersion,
+  proto,
   WASocket,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
@@ -16,6 +17,8 @@ const logger = pino({ level: "warn" });
 const sessions = new Map<string, WASocket>();
 const retryCount = new Map<string, number>();
 const msgRetryCounterCache = new NodeCache();
+// Per-user store for getMessage (needed to answer recipient retry requests)
+const msgStores = new Map<string, Map<string, proto.IMessage>>();
 
 async function updateStatus(
   userId: string,
@@ -58,6 +61,9 @@ export async function createSession(userId: string, phoneNumber?: string | null)
   const { version } = await fetchLatestBaileysVersion();
   const { state, saveCreds } = await useSupabaseAuthState(userId);
 
+  if (!msgStores.has(userId)) msgStores.set(userId, new Map());
+  const msgStore = msgStores.get(userId)!;
+
   const sock = makeWASocket({
     version,
     logger,
@@ -70,6 +76,7 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     connectTimeoutMs: 90_000,
     defaultQueryTimeoutMs: 90_000,
     msgRetryCounterCache,
+    getMessage: async (key) => msgStore.get(key.id!) ?? undefined,
   });
 
   sessions.set(userId, sock);
@@ -150,6 +157,10 @@ export async function createSession(userId: string, phoneNumber?: string | null)
 
   sock.ev.on("messages.upsert", async ({ messages }) => {
     for (const msg of messages) {
+      // Store all messages so getMessage can fulfill retry requests
+      if (msg.message && msg.key.id) {
+        msgStore.set(msg.key.id, msg.message);
+      }
       if (!msg.key.fromMe && msg.message) {
         console.log(`[${userId}] Incoming message from ${msg.key.remoteJid}`);
       }

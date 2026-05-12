@@ -69,8 +69,8 @@ export async function useSupabaseAuthState(userId: string): Promise<{
   return {
     state: { creds, keys },
     saveCreds: async () => {
-      const updated = { ...stored, creds: JSON.parse(JSON.stringify(creds, BufferJSON.replacer)) };
-      await writeData(updated);
+      stored.creds = JSON.parse(JSON.stringify(creds, BufferJSON.replacer));
+      await writeData(stored);
     },
   };
 }
