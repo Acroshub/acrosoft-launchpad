@@ -938,7 +938,7 @@ const StaffTab = () => {
 
 // ─── WhatsApp Tab ──────────────────────────────────────────────────────────
 
-type WaStatus = "disconnected" | "qr_pending" | "connected" | "loading";
+type WaStatus = "disconnected" | "qr_pending" | "connected" | "connecting" | "loading";
 
 async function callWhatsappSession(action: string, extra: Record<string, string> = {}) {
   const { data: { session } } = await supabase.auth.getSession();
@@ -1000,16 +1000,17 @@ const WhatsAppTab = () => {
     return stopPolling;
   }, [stopPolling]);
 
-  // Polling after connecting (QR or pairing code)
+  // Polling after connecting (QR or pairing code) — also keeps running during "connecting" transition
   useEffect(() => {
-    if (status !== "qr_pending") { stopPolling(); return; }
+    if (status !== "qr_pending" && status !== "connecting") { stopPolling(); return; }
 
     let elapsed = 0;
     let consecutiveErrors = 0;
     pollRef.current = setInterval(async () => {
       elapsed += 3;
       try {
-        if (connectMode === "qr") {
+        // Only fetch QR when we're still in qr_pending QR mode (not mid-handshake)
+        if (status === "qr_pending" && connectMode === "qr") {
           const { qr, status: s } = await callWhatsappSession("qr");
           consecutiveErrors = 0;
           if (qr) setQrCode(qr);
@@ -1020,6 +1021,9 @@ const WhatsAppTab = () => {
             setPhone(phone_number ?? null);
             setQrCode(null);
             toast.success("WhatsApp conectado correctamente");
+          } else if (s === "connecting") {
+            setStatus("connecting");
+            setQrCode(null);
           } else if (s === "disconnected") {
             stopPolling();
             setStatus("disconnected");
@@ -1027,6 +1031,7 @@ const WhatsAppTab = () => {
             toast.error("La sesión fue desconectada. Intenta de nuevo.");
           }
         } else {
+          // phone_code mode o mid-handshake ("connecting") — solo verificar estado
           const { status: s, phone_number } = await callWhatsappSession("status");
           consecutiveErrors = 0;
           if (s === "connected") {
@@ -1034,7 +1039,11 @@ const WhatsAppTab = () => {
             setStatus(s);
             setPhone(phone_number ?? null);
             setPairingCode(null);
+            setQrCode(null);
             toast.success("WhatsApp conectado correctamente");
+          } else if (s === "connecting") {
+            // Sigue en transición — mantener polling, no mostrar error
+            if (status !== "connecting") setStatus("connecting");
           } else if (s === "disconnected") {
             stopPolling();
             setStatus("disconnected");
@@ -1156,13 +1165,11 @@ const WhatsAppTab = () => {
   const handleCancel = async () => {
     stopPolling();
     setCountdown(0);
-    setBusy(true);
-    try {
-      await callWhatsappSession("disconnect");
-    } catch {}
     setStatus("disconnected");
     setQrCode(null);
     setPairingCode(null);
+    setBusy(true);
+    try { await callWhatsappSession("disconnect"); } catch {}
     setBusy(false);
   };
 
@@ -1198,6 +1205,28 @@ const WhatsAppTab = () => {
           <div className="border-t pt-4 flex items-center gap-2 text-muted-foreground text-sm">
             <Loader2 size={16} className="animate-spin" />
             <span>Verificando estado...</span>
+          </div>
+        )}
+
+        {/* ── Estado: conectando (handshake en progreso) ── */}
+        {status === "connecting" && (
+          <div className="border-t pt-4 space-y-3">
+            <div className="flex items-center gap-2">
+              <Loader2 size={15} className="animate-spin text-green-600 dark:text-green-400" />
+              <span className="text-sm font-medium text-green-700 dark:text-green-400">Estableciendo conexión...</span>
+            </div>
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              WhatsApp está procesando la vinculación. Esto puede tardar hasta 15 segundos. No cierres esta ventana.
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={handleCancel}
+              disabled={actionBusy}
+            >
+              Cancelar
+            </Button>
           </div>
         )}
 

@@ -17,7 +17,7 @@ const retryCount = new Map<string, number>();
 
 async function updateStatus(
   userId: string,
-  status: "disconnected" | "qr_pending" | "connected",
+  status: "disconnected" | "qr_pending" | "connected" | "connecting",
   extra: { phone_number?: string | null; qr_code?: string | null } = {},
 ) {
   await supabase
@@ -107,11 +107,11 @@ export async function createSession(userId: string, phoneNumber?: string | null)
           .eq("user_id", userId);
       } else if (reason === DisconnectReason.restartRequired || reason === 515) {
         console.log(`[${userId}] Restart required (${reason}), reconnecting in 3s...`);
-        await updateStatus(userId, "disconnected");
+        await updateStatus(userId, "connecting");
         setTimeout(() => createSession(userId), 3_000);
       } else if (reason === 440) {
         console.log(`[${userId}] Connection replaced (440), reconnecting in 15s...`);
-        await updateStatus(userId, "disconnected");
+        await updateStatus(userId, "connecting");
         setTimeout(() => createSession(userId), 15_000);
       } else if (reason === undefined) {
         // "undefined" can mean two things:
@@ -125,6 +125,7 @@ export async function createSession(userId: string, phoneNumber?: string | null)
         retryCount.set(userId, retries);
         if (retries === 1) {
           console.log(`[${userId}] Socket closed (undefined) — reconnecting once for pairing handshake...`);
+          await updateStatus(userId, "connecting");
           setTimeout(() => createSession(userId), 2_000);
         } else {
           console.log(`[${userId}] Socket closed again (undefined, attempt ${retries}) — session expired, manual reconnect required.`);
