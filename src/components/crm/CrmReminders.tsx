@@ -16,6 +16,7 @@ import ReminderRulesEditor, { ReminderRule } from "@/components/shared/ReminderR
 import CrmCalendarConfig from "./CrmCalendarConfig";
 import CrmForms from "./CrmForms";
 import type { CrmCalendarConfig as CalendarData, CrmReminder } from "@/lib/supabase";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
 // ─── Shared helpers ───────────────────────────────────────────────────────────
@@ -212,7 +213,8 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
   })();
 
   const [note, setNote]             = useState("");
-  const [dateTime, setDateTime]     = useState("");
+  const [dateStr, setDateStr]       = useState("");
+  const [timeStr, setTimeStr]       = useState("");
   const [targets, setTargets]       = useState<string[]>(["admin"]);
   const [channel, setChannel]       = useState<"email" | "whatsapp">("email");
   // Inline phone override for admin when WA conflict
@@ -285,30 +287,30 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     await doSchedule();
   };
 
+  const buildReminderPayloads = (scheduledAt: string, msg: string) =>
+    targets.map((targetId) => {
+      const channelValue = resolveChannelValue(targetId, channel);
+      return createReminder.mutateAsync({
+        contact_id:      null,
+        appointment_id:  null,
+        type:            channel,
+        recipient_email: channel === "email"     ? channelValue : null,
+        recipient_phone: channel === "whatsapp"  ? channelValue.replace(/\D/g, "") : null,
+        scheduled_at:    scheduledAt,
+        message:         msg,
+        is_auto:         false,
+        is_personal:     true,
+        staff_id:        (targetId !== "admin" ? targetId : null) as any,
+        business_target: targetId,
+      } as any);
+    });
+
   const doSchedule = async () => {
-    if (!note.trim() || !dateTime || targets.length === 0) return;
+    if (!note.trim() || !dateStr || !timeStr || targets.length === 0) return;
     if (createReminder.isPending) return;
     try {
-      const scheduledAt = new Date(dateTime).toISOString();
-      const msg = note.trim();
-      await Promise.all(
-        targets.map((targetId) => {
-          const channelValue = resolveChannelValue(targetId, channel);
-          return createReminder.mutateAsync({
-            contact_id:      null,
-            appointment_id:  null,
-            type:            channel,
-            recipient_email: channel === "email"     ? channelValue : null,
-            recipient_phone: channel === "whatsapp"  ? channelValue : null,
-            scheduled_at:    scheduledAt,
-            message:         msg,
-            is_auto:         false,
-            is_personal:     true,
-            staff_id:        (targetId !== "admin" ? targetId : null) as any,
-            business_target: targetId,
-          } as any);
-        })
-      );
+      const scheduledAt = new Date(`${dateStr}T${timeStr}`).toISOString();
+      await Promise.all(buildReminderPayloads(scheduledAt, note.trim()));
       toast.success(
         targets.length > 1
           ? `${targets.length} notificaciones programadas`
@@ -318,8 +320,23 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     } catch { toast.error("Error al programar notificación"); }
   };
 
-  const handleSave = async () => {
-    // If admin+whatsapp needs override, save phone first
+  const handleSendNow = async () => {
+    if (!note.trim() || targets.length === 0) return;
+    if (createReminder.isPending) return;
+    try {
+      const scheduledAt = new Date(Date.now() - 1000).toISOString();
+      await Promise.all(buildReminderPayloads(scheduledAt, note.trim()));
+      await supabase.functions.invoke("send-reminders");
+      toast.success(
+        targets.length > 1
+          ? `${targets.length} notificaciones enviadas`
+          : "Notificación enviada"
+      );
+      onSaved();
+    } catch { toast.error("Error al enviar notificación"); }
+  };
+
+  const handleSchedule = async () => {
     if (showAdminPhoneInput && targets.includes("admin")) {
       await handleSavePhoneAndSchedule();
       return;
@@ -327,8 +344,16 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     await doSchedule();
   };
 
-  const canSave = (() => {
-    if (!note.trim() || !dateTime || targets.length === 0) return false;
+  const canSchedule = (() => {
+    if (!note.trim() || !dateStr || !timeStr || targets.length === 0) return false;
+    if (showAdminPhoneInput && targets.includes("admin")) {
+      return effectiveAdminPhone.length >= 10;
+    }
+    return true;
+  })();
+
+  const canSendNow = (() => {
+    if (!note.trim() || targets.length === 0) return false;
     if (showAdminPhoneInput && targets.includes("admin")) {
       return effectiveAdminPhone.length >= 10;
     }
@@ -477,25 +502,57 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
           </div>
         )}
 
-        {/* Date time */}
+        {/* Date + Time */}
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Fecha y hora *</label>
-          <Input
-            type="datetime-local"
-            value={dateTime}
-            onChange={(e) => setDateTime(e.target.value)}
-            className="h-10 text-sm"
-          />
+          <label className="text-xs font-medium text-muted-foreground">Programar para *</label>
+          <div className="grid grid-cols-2 gap-2">
+            <div className="space-y-1">
+              <p className="text-[10px] text-muted-foreground/70">Fecha</p>
+              <Input
+                type="date"
+                value={dateStr}
+                min={new Date().toISOString().slice(0, 10)}
+                onChange={(e) => setDateStr(e.target.value)}
+                className="h-10 text-sm"
+              />
+            </div>
+            <div className="space-y-1">
+              <p className="text-[10px] text-muted-foreground/70">Hora</p>
+              <Input
+                type="time"
+                value={timeStr}
+                min={(() => {
+                  if (dateStr !== new Date().toISOString().slice(0, 10)) return undefined;
+                  const d = new Date(Date.now() + 60_000);
+                  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+                })()}
+                onChange={(e) => setTimeStr(e.target.value)}
+                className="h-10 text-sm"
+              />
+            </div>
+          </div>
         </div>
 
-        <Button
-          onClick={handleSave}
-          disabled={!canSave || createReminder.isPending || savingPhone}
-          className="w-full rounded-xl h-10 font-medium text-sm"
-        >
-          {(createReminder.isPending || savingPhone) ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
-          Programar notificación
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleSendNow}
+            disabled={!canSendNow || createReminder.isPending || savingPhone}
+            className="flex-1 rounded-xl h-10 font-medium text-sm gap-1.5"
+          >
+            {(createReminder.isPending || savingPhone) ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+            Enviar Ahora
+          </Button>
+          <Button
+            onClick={handleSchedule}
+            disabled={!canSchedule || createReminder.isPending || savingPhone}
+            className="flex-1 rounded-xl h-10 font-medium text-sm gap-1.5"
+          >
+            {(createReminder.isPending || savingPhone) ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}
+            Programar
+          </Button>
+        </div>
       </div>
     </div>
   );
