@@ -1,14 +1,10 @@
-User-agent: Googlebot
-Allow: /
-
-User-agent: Bingbot
-Allow: /
-
-User-agent: Twitterbot
-Allow: /
-
-User-agent: facebookexternalhit
-Allow: /
-
 User-agent: *
 Allow: /
+
+# Bloquear rutas privadas del CRM
+Disallow: /crm
+Disallow: /crm-setup
+Disallow: /onboarding
+Disallow: /oauth/
+
+Sitemap: https://acrosoftlabs.com/sitemap.xml

@@ -1,3 +1,7 @@
 {
+  "redirects": [
+    { "source": "/privacy", "destination": "/terminos_y_politicas_de_privacidad", "permanent": true },
+    { "source": "/terms",   "destination": "/terminos_y_politicas_de_privacidad", "permanent": true }
+  ],
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

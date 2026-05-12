@@ -257,7 +257,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
       return;
     }
     const redirectUri = `${window.location.origin}/oauth/google-calendar`;
-    const scope = "https://www.googleapis.com/auth/calendar";
+    const scope = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly";
     const csrf = crypto.randomUUID();
     localStorage.setItem("google_oauth_csrf", csrf);
     const state = `${csrf}:${calendarUid}`;
