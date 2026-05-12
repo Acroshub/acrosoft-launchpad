@@ -2,8 +2,7 @@ import { useState } from "react";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import {
   Bell, CalendarDays, ClipboardList, User, ChevronRight, ArrowLeft,
-  Loader2, Plus, Clock, CheckCircle2, AlertCircle, BellOff, Mail, MessageSquare, Send,
-  History, Trash2, X,
+  Loader2, Plus, Clock, CheckCircle2, AlertCircle, BellOff, Mail, MessageSquare, Send, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -580,10 +579,8 @@ const PersonalReminderPanel = ({ onBack }: { onBack: () => void }) => {
   const { can } = useStaffPermissions();
   const canCreate = can("recordatorios", "create");
   const [creating, setCreating] = useState(false);
-  const [showHistory, setShowHistory] = useState(false);
 
   const pending = reminders.filter(r => r.status === "pending" || r.status === "failed");
-  const history = reminders.filter(r => r.status === "sent" || r.status === "skipped");
 
   if (creating) {
     return <NewPersonalReminderForm onBack={() => setCreating(false)} onSaved={() => setCreating(false)} />;
@@ -599,51 +596,6 @@ const PersonalReminderPanel = ({ onBack }: { onBack: () => void }) => {
         <p className="text-sm text-muted-foreground mt-0.5">Notas programadas para ti o tu equipo.</p>
       </div>
 
-      {/* ── History drawer ── */}
-      {showHistory && (
-        <div className="bg-card border rounded-2xl overflow-hidden">
-          <div className="flex items-center justify-between px-4 py-3 border-b">
-            <div className="flex items-center gap-2">
-              <History size={14} className="text-muted-foreground" />
-              <span className="text-sm font-semibold">Historial</span>
-              <span className="text-[10px] text-muted-foreground bg-secondary px-1.5 py-0.5 rounded-full">{history.length}</span>
-            </div>
-            <button onClick={() => setShowHistory(false)} className="p-1 rounded-md hover:bg-secondary transition-colors text-muted-foreground">
-              <X size={14} />
-            </button>
-          </div>
-          {history.length === 0 ? (
-            <p className="text-xs text-muted-foreground text-center py-8">Sin notificaciones enviadas aún.</p>
-          ) : (
-            <div className="divide-y">
-              {history.map(r => (
-                <div key={r.id} className="flex items-start gap-3 px-4 py-3 hover:bg-secondary/30 transition-colors">
-                  <div className="mt-0.5 shrink-0">{STATUS_ICON[r.status]}</div>
-                  <div className="flex-1 min-w-0 space-y-0.5">
-                    <p className="text-xs font-medium leading-snug line-clamp-2">{r.message}</p>
-                    <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                      {r.type === "email" ? <Mail size={9} /> : <MessageSquare size={9} />}
-                      <span className="truncate">{r.recipient_email ?? r.recipient_phone ?? "—"}</span>
-                      <span className="shrink-0">·</span>
-                      <span className="shrink-0 tabular-nums">
-                        {new Date(r.scheduled_at).toLocaleString("es-ES", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}
-                      </span>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => deleteReminder.mutate(r.id)}
-                    disabled={deleteReminder.isPending}
-                    className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors shrink-0"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
       {isLoading ? (
         <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
       ) : (
@@ -658,26 +610,6 @@ const PersonalReminderPanel = ({ onBack }: { onBack: () => void }) => {
               <span className="text-xs font-semibold">Nueva notificación</span>
             </button>
           )}
-
-          {/* Historial card */}
-          <button
-            onClick={() => setShowHistory(v => !v)}
-            className={`flex flex-col items-center justify-center gap-2 p-5 border-2 rounded-2xl transition-all min-h-[120px] ${
-              showHistory
-                ? "border-secondary bg-secondary/50 text-foreground"
-                : "border-dashed border-muted-foreground/20 text-muted-foreground hover:bg-secondary/30 hover:border-muted-foreground/40"
-            }`}
-          >
-            <div className="relative">
-              <History size={20} />
-              {history.length > 0 && (
-                <span className="absolute -top-1.5 -right-2 text-[9px] font-bold bg-primary text-primary-foreground rounded-full w-4 h-4 flex items-center justify-center">
-                  {history.length > 99 ? "99+" : history.length}
-                </span>
-              )}
-            </div>
-            <span className="text-xs font-semibold">Historial</span>
-          </button>
 
           {/* Pendientes */}
           {pending.map((r) => (
