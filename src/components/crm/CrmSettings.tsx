@@ -6,6 +6,7 @@ import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmLog, CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import PhoneInput from "@/components/shared/PhoneInput";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -1239,13 +1240,12 @@ const WhatsAppTab = () => {
               <div className="space-y-3">
                 <div className="space-y-1.5">
                   <p className="text-xs text-muted-foreground">
-                    Ingresa tu número con código de país (sin <code>+</code>).
+                    Selecciona tu país e ingresa tu número de teléfono.
                   </p>
-                  <Input
-                    placeholder="521XXXXXXXXXX"
+                  <PhoneInput
                     value={phoneInput}
-                    onChange={e => setPhoneInput(e.target.value)}
-                    className="text-sm"
+                    onChange={setPhoneInput}
+                    placeholder="71234567"
                   />
                 </div>
                 <Button

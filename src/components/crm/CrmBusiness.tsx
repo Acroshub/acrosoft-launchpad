@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Pencil, User, Building2, Image as ImageIcon, Palette, Briefcase, Check, Loader2, Trash2, Upload } from "lucide-react";
+import PhoneInput from "@/components/shared/PhoneInput";
 import CrmServices from "./CrmServices";
 import { useBusinessProfile, useUpsertBusinessProfile, useUpdateStaff } from "@/hooks/useCrmData";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
@@ -108,6 +109,74 @@ const EditableField = ({ label, value, onSave, readOnly, validate }: {
   );
 };
 
+// ─── Phone editable field (with country code selector) ───────────────────────
+const PhoneEditableField = ({ label, value, onSave, readOnly }: {
+  label: string;
+  value: string;
+  onSave: (val: string) => Promise<void>;
+  readOnly?: boolean;
+}) => {
+  if (readOnly) return (
+    <div>
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1">{label}</p>
+      <p className="text-sm font-medium">{value || "—"}</p>
+    </div>
+  );
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [editing, setEditing] = useState(false);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [val, setVal]         = useState(value);
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  const [saving, setSaving]   = useState(false);
+
+  // eslint-disable-next-line react-hooks/rules-of-hooks
+  useEffect(() => { setVal(value); }, [value]);
+
+  const handleSave = async () => {
+    if (val === value) { setEditing(false); return; }
+    setSaving(true);
+    try {
+      await onSave(val);
+      setEditing(false);
+    } catch {
+      toast.error("Error al guardar");
+      setVal(value);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1">{label}</p>
+      {editing ? (
+        <div className="flex items-center gap-2">
+          <div className="flex-1">
+            <PhoneInput value={val} onChange={setVal} disabled={saving} />
+          </div>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="p-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 shrink-0"
+          >
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+          </button>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 group">
+          <p className="text-sm font-medium">{val || "—"}</p>
+          <button
+            onClick={() => setEditing(true)}
+            className="p-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+          >
+            <Pencil size={12} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Color swatch ────────────────────────────────────────────────────────────
 const ColorField = ({ label, value, onSave }: { label: string; value: string; onSave: (val: string) => Promise<void> }) => {
   const [val, setVal] = useState(value);
@@ -159,7 +228,7 @@ const PersonalTab = ({ profile, update }: { profile: CrmBusinessProfile | null, 
       <EditableField label="Nombre"            value={profile?.first_name || ""}    onSave={val => update({ first_name: val })} />
       <EditableField label="Apellido"          value={profile?.last_name || ""}    onSave={val => update({ last_name: val })} />
       <EditableField label="Email de contacto" value={profile?.contact_email || ""} onSave={val => update({ contact_email: val })} validate={validateEmail} />
-      <EditableField label="Teléfono"          value={profile?.contact_phone || ""} onSave={val => update({ contact_phone: val })} validate={validatePhone} />
+      <PhoneEditableField label="Teléfono"      value={profile?.contact_phone || ""} onSave={val => update({ contact_phone: val })} />
       <EditableField label="Rol / Cargo"       value={profile?.role || ""}          onSave={val => update({ role: val })} />
     </div>
   </div>
@@ -195,7 +264,7 @@ const NegocioTab = ({ profile, update, readOnly = false }: { profile: CrmBusines
           <EditableField label="Ciudad"              value={profile?.city || ""}          readOnly={readOnly} onSave={val => update({ city: val })} />
           <EditableField label="País"                value={profile?.country || ""}       readOnly={readOnly} onSave={val => update({ country: val })} />
           <EditableField label="Sitio web"           value={profile?.website || ""}       readOnly={readOnly} onSave={val => update({ website: val })} validate={validateUrl} />
-          <EditableField label="WhatsApp"            value={profile?.whatsapp || ""}      readOnly={readOnly} onSave={val => update({ whatsapp: val })} validate={validatePhone} />
+          <PhoneEditableField label="WhatsApp"          value={profile?.whatsapp || ""}      readOnly={readOnly} onSave={val => update({ whatsapp: val })} />
           <EditableField label="Instagram"           value={profile?.instagram || ""}     readOnly={readOnly} onSave={val => update({ instagram: val })} />
           <EditableField label="Facebook"            value={profile?.facebook || ""}      readOnly={readOnly} onSave={val => update({ facebook: val })} />
         </div>

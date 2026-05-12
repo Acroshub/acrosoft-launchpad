@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import PhoneInput from "@/components/shared/PhoneInput";
 import {
   useCalendars, useForms, useUpdateForm, useStaff, useBusinessProfile,
   usePersonalReminders, useCreateReminder, useWhatsappEnabled, useWhatsappConfig,
@@ -428,6 +429,25 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
               <MessageSquare size={11} /> WhatsApp
             </button>
           </div>
+          {/* Show destination address(es) */}
+          {(() => {
+            const dests = targets.map(targetId => {
+              if (targetId === "admin") {
+                if (channel === "email") return profile?.contact_email || null;
+                if (showAdminPhoneInput) return adminPhoneOverride || null;
+                return profPhone || null;
+              }
+              const s = staffList.find(m => m.id === targetId);
+              return channel === "email" ? (s?.email || null) : null;
+            }).filter(Boolean) as string[];
+            if (!dests.length) return null;
+            return (
+              <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                <span className="text-muted-foreground/50">→</span>
+                <span className="truncate">{dests.join(", ")}</span>
+              </p>
+            );
+          })()}
         </div>
 
         {/* ── Inline phone input for admin WA conflict ────────────────────── */}
@@ -444,14 +464,11 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
                 Ingresa el número al que enviar la notificación (se guardará en tu perfil).
               </p>
             )}
-            <div className="flex gap-2">
-              <Input
-                placeholder="Ej: 521XXXXXXXXXX (sin +)"
-                value={adminPhoneOverride}
-                onChange={e => setAdminPhoneOverride(e.target.value)}
-                className="h-9 text-sm flex-1"
-              />
-            </div>
+            <PhoneInput
+              value={adminPhoneOverride}
+              onChange={setAdminPhoneOverride}
+              placeholder="71234567"
+            />
             {adminPhoneOverride.replace(/\D/g, "").length >= 10 && (
               <p className="text-[10px] text-muted-foreground">
                 Este número se guardará en tu perfil de negocio.
