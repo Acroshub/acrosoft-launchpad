@@ -114,15 +114,26 @@ export async function createSession(userId: string, phoneNumber?: string | null)
         await updateStatus(userId, "disconnected");
         setTimeout(() => createSession(userId), 15_000);
       } else if (reason === undefined) {
-        // Socket closed without a WhatsApp reason code — pairing code or QR session expired.
-        // Do NOT reconnect: pairing codes are only valid on the socket that requested them.
-        // Reconnecting would create a new socket and invalidate the code the user is trying to enter.
-        console.log(`[${userId}] Socket closed (undefined reason) — session expired, manual reconnect required.`);
-        retryCount.delete(userId);
-        await supabase
-          .from("whatsapp_sessions")
-          .update({ status: "disconnected", qr_code: null, pairing_code: null })
-          .eq("user_id", userId);
+        // "undefined" can mean two things:
+        //  (A) WhatsApp is processing the pairing code the user just entered — it closes the
+        //      pre-auth socket and expects us to reconnect; 515 follows on the new socket.
+        //  (B) The socket died prematurely before the user entered the code.
+        //
+        // Strategy: reconnect exactly ONCE. If undefined fires a second time without ever
+        // reaching "open", it is case (B) and we require a manual reconnect.
+        const retries = (retryCount.get(userId) ?? 0) + 1;
+        retryCount.set(userId, retries);
+        if (retries === 1) {
+          console.log(`[${userId}] Socket closed (undefined) — reconnecting once for pairing handshake...`);
+          setTimeout(() => createSession(userId), 2_000);
+        } else {
+          console.log(`[${userId}] Socket closed again (undefined, attempt ${retries}) — session expired, manual reconnect required.`);
+          retryCount.delete(userId);
+          await supabase
+            .from("whatsapp_sessions")
+            .update({ status: "disconnected", qr_code: null, pairing_code: null })
+            .eq("user_id", userId);
+        }
       } else {
         console.log(`[${userId}] Session ended (reason: ${reason}). Manual reconnect required.`);
         await supabase
