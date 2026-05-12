@@ -64,6 +64,9 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     browser: Browsers.macOS("Desktop"),
     markOnlineOnConnect: false,
     syncFullHistory: false,
+    keepAliveIntervalMs: 10_000,
+    connectTimeoutMs: 90_000,
+    defaultQueryTimeoutMs: 90_000,
   });
 
   sessions.set(userId, sock);
@@ -111,17 +114,15 @@ export async function createSession(userId: string, phoneNumber?: string | null)
         await updateStatus(userId, "disconnected");
         setTimeout(() => createSession(userId), 15_000);
       } else if (reason === undefined) {
-        // Transient disconnect during QR/pairing handshake — reconnect silently
-        const retries = (retryCount.get(userId) ?? 0) + 1;
-        retryCount.set(userId, retries);
-        if (retries > 5) {
-          console.log(`[${userId}] Too many transient disconnects, requiring manual reconnect.`);
-          retryCount.delete(userId);
-          await supabase.from("whatsapp_sessions").update({ status: "disconnected", qr_code: null, pairing_code: null }).eq("user_id", userId);
-        } else {
-          console.log(`[${userId}] Transient disconnect (attempt ${retries}/5), reconnecting in 3s...`);
-          setTimeout(() => createSession(userId), 3_000);
-        }
+        // Socket closed without a WhatsApp reason code — pairing code or QR session expired.
+        // Do NOT reconnect: pairing codes are only valid on the socket that requested them.
+        // Reconnecting would create a new socket and invalidate the code the user is trying to enter.
+        console.log(`[${userId}] Socket closed (undefined reason) — session expired, manual reconnect required.`);
+        retryCount.delete(userId);
+        await supabase
+          .from("whatsapp_sessions")
+          .update({ status: "disconnected", qr_code: null, pairing_code: null })
+          .eq("user_id", userId);
       } else {
         console.log(`[${userId}] Session ended (reason: ${reason}). Manual reconnect required.`);
         await supabase

@@ -973,12 +973,19 @@ const WhatsAppTab = () => {
   const [connectMode, setConnectMode] = useState<ConnectMode>("qr");
   const [phoneInput, setPhoneInput] = useState("");
   const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const [countdown, setCountdown]   = useState(0);
   const pollRef                     = useRef<ReturnType<typeof setInterval> | null>(null);
   const qrTimerRef                  = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const countdownRef                = useRef<ReturnType<typeof setInterval> | null>(null);
+  const phoneInputRef               = useRef(phoneInput);
+
+  // Keep ref in sync so callbacks can read latest phoneInput without stale closure
+  useEffect(() => { phoneInputRef.current = phoneInput; }, [phoneInput]);
 
   const stopPolling = useCallback(() => {
-    if (pollRef.current)   { clearInterval(pollRef.current);  pollRef.current  = null; }
-    if (qrTimerRef.current){ clearTimeout(qrTimerRef.current); qrTimerRef.current = null; }
+    if (pollRef.current)      { clearInterval(pollRef.current);      pollRef.current      = null; }
+    if (qrTimerRef.current)   { clearTimeout(qrTimerRef.current);    qrTimerRef.current   = null; }
+    if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
   }, []);
 
   // Check current status on mount
@@ -1076,6 +1083,39 @@ const WhatsAppTab = () => {
     }
   };
 
+  const PAIRING_TIMEOUT = 90;
+
+  const startCountdown = useCallback((onExpire: () => void) => {
+    if (countdownRef.current) clearInterval(countdownRef.current);
+    setCountdown(PAIRING_TIMEOUT);
+    let remaining = PAIRING_TIMEOUT;
+    countdownRef.current = setInterval(() => {
+      remaining -= 1;
+      setCountdown(remaining);
+      if (remaining <= 0) {
+        if (countdownRef.current) { clearInterval(countdownRef.current); countdownRef.current = null; }
+        onExpire();
+      }
+    }, 1000);
+  }, []);
+
+  const requestNewPairingCode = useCallback(async () => {
+    const digits = phoneInputRef.current.replace(/\D/g, "");
+    if (digits.length < 10) return;
+    setBusy(true);
+    try {
+      const { pairingCode: code } = await callWhatsappSession("start", { phoneNumber: digits });
+      if (code) {
+        setPairingCode(code);
+        startCountdown(() => requestNewPairingCode());
+      }
+    } catch {
+      // silently fail on auto-renewal; user can cancel and retry manually
+    } finally {
+      setBusy(false);
+    }
+  }, [startCountdown]);
+
   const handleConnectPhoneCode = async () => {
     const digits = phoneInput.replace(/\D/g, "");
     if (digits.length < 10) {
@@ -1085,8 +1125,10 @@ const WhatsAppTab = () => {
     setBusy(true);
     try {
       const { pairingCode: code } = await callWhatsappSession("start", { phoneNumber: digits });
-      setPairingCode(code ?? null);
+      if (!code) throw new Error("No se recibió código de vinculación");
+      setPairingCode(code);
       setStatus("qr_pending");
+      startCountdown(() => requestNewPairingCode());
     } catch (err) {
       toast.error(`Error al obtener código: ${(err as Error).message}`);
     } finally {
@@ -1112,6 +1154,7 @@ const WhatsAppTab = () => {
 
   const handleCancel = async () => {
     stopPolling();
+    setCountdown(0);
     setBusy(true);
     try {
       await callWhatsappSession("disconnect");
@@ -1232,9 +1275,25 @@ const WhatsAppTab = () => {
 
             {connectMode === "phone_code" && pairingCode ? (
               <div className="flex flex-col items-center gap-3">
-                <div className="bg-muted rounded-xl px-8 py-5 text-center">
+                <div className="bg-muted rounded-xl px-8 py-5 text-center space-y-2">
                   <p className="text-3xl font-mono font-bold tracking-[0.25em] text-foreground">
                     {pairingCode}
+                  </p>
+                  {/* Countdown bar */}
+                  <div className="w-full bg-background rounded-full h-1.5 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-1000 ${
+                        countdown > 30 ? "bg-green-500" : countdown > 10 ? "bg-amber-500" : "bg-red-500"
+                      }`}
+                      style={{ width: `${(countdown / PAIRING_TIMEOUT) * 100}%` }}
+                    />
+                  </div>
+                  <p className={`text-[11px] font-medium tabular-nums ${
+                    countdown > 30 ? "text-muted-foreground" : countdown > 10 ? "text-amber-600 dark:text-amber-400" : "text-red-600 dark:text-red-400"
+                  }`}>
+                    {countdown > 0
+                      ? `Expira en ${countdown}s${countdown <= 5 ? " — renovando automáticamente..." : ""}`
+                      : "Renovando código..."}
                   </p>
                 </div>
                 <div className="text-center space-y-1">
