@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import {
   Bell, CalendarDays, ClipboardList, User, ChevronRight, ArrowLeft,
-  Loader2, Plus, Clock, CheckCircle2, AlertCircle, BellOff, Mail, MessageSquare,
+  Loader2, Plus, Clock, CheckCircle2, AlertCircle, BellOff, Mail, MessageSquare, Send,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
