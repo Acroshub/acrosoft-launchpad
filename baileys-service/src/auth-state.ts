@@ -52,18 +52,17 @@ export async function useSupabaseAuthState(userId: string): Promise<{
       return data;
     },
     set: async (data) => {
-      const updates: Record<string, any> = { ...stored };
       for (const [type, items] of Object.entries(data)) {
         for (const [id, value] of Object.entries(items as Record<string, any>)) {
           const key = `${type}-${id}`;
           if (value != null) {
-            updates[key] = JSON.parse(JSON.stringify(value, BufferJSON.replacer));
+            stored[key] = JSON.parse(JSON.stringify(value, BufferJSON.replacer));
           } else {
-            delete updates[key];
+            delete stored[key];
           }
         }
       }
-      await writeData(updates);
+      await writeData(stored);
     },
   };
 
