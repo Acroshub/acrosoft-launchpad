@@ -44,6 +44,15 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     await new Promise(r => setTimeout(r, 500));
   }
 
+  // Phone pairing requires a clean slate — existing credentials (e.g. from a prior QR
+  // connection) cause requestPairingCode to be skipped because creds.registered is true.
+  if (phoneNumber) {
+    await supabase
+      .from("whatsapp_sessions")
+      .update({ auth_state: null, status: "qr_pending", qr_code: null, pairing_code: null })
+      .eq("user_id", userId);
+  }
+
   const { version } = await fetchLatestBaileysVersion();
   const { state, saveCreds } = await useSupabaseAuthState(userId);
 
