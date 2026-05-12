@@ -13,6 +13,7 @@ import { useSupabaseAuthState } from "./auth-state";
 const logger = pino({ level: "warn" });
 
 const sessions = new Map<string, WASocket>();
+const retryCount = new Map<string, number>();
 
 async function updateStatus(
   userId: string,
@@ -73,6 +74,7 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     }
 
     if (connection === "open") {
+      retryCount.delete(userId);
       const phone = sock.user?.id?.split(":")[0] ?? null;
       await updateStatus(userId, "connected", { phone_number: phone, qr_code: null });
       await supabase.from("whatsapp_sessions").update({ pairing_code: null }).eq("user_id", userId);
@@ -99,6 +101,18 @@ export async function createSession(userId: string, phoneNumber?: string | null)
         console.log(`[${userId}] Connection replaced (440), reconnecting in 15s...`);
         await updateStatus(userId, "disconnected");
         setTimeout(() => createSession(userId), 15_000);
+      } else if (reason === undefined) {
+        // Transient disconnect during QR/pairing handshake — reconnect silently
+        const retries = (retryCount.get(userId) ?? 0) + 1;
+        retryCount.set(userId, retries);
+        if (retries > 5) {
+          console.log(`[${userId}] Too many transient disconnects, requiring manual reconnect.`);
+          retryCount.delete(userId);
+          await supabase.from("whatsapp_sessions").update({ status: "disconnected", qr_code: null, pairing_code: null }).eq("user_id", userId);
+        } else {
+          console.log(`[${userId}] Transient disconnect (attempt ${retries}/5), reconnecting in 3s...`);
+          setTimeout(() => createSession(userId), 3_000);
+        }
       } else {
         console.log(`[${userId}] Session ended (reason: ${reason}). Manual reconnect required.`);
         await supabase
@@ -150,6 +164,29 @@ export async function deleteSession(userId: string): Promise<void> {
 
 export function getSession(userId: string): WASocket | undefined {
   return sessions.get(userId);
+}
+
+/**
+ * Returns an active session. If not in memory but DB shows status=connected,
+ * triggers reconnect and waits up to 20s for the socket to reach "open" state.
+ */
+export async function ensureSession(userId: string): Promise<WASocket | null> {
+  const existing = sessions.get(userId);
+  if (existing) return existing;
+
+  const { data } = await supabase
+    .from("whatsapp_sessions")
+    .select("status")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (data?.status !== "connected") return null;
+
+  console.log(`[${userId}] Session not in memory but DB says connected — reconnecting...`);
+  await createSession(userId);
+  // createSession() puts the socket in the map immediately.
+  // Baileys internally queues sendMessage until connection is open.
+  return sessions.get(userId) ?? null;
 }
 
 /** On service startup: reconnect all users with status=connected */

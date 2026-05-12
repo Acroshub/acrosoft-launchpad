@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   useCalendars, useForms, useUpdateForm, useStaff, useBusinessProfile,
-  usePersonalReminders, useCreateReminder, useWhatsappEnabled,
+  usePersonalReminders, useCreateReminder, useWhatsappEnabled, useWhatsappConfig,
+  useUpsertBusinessProfile,
 } from "@/hooks/useCrmData";
 import ReminderRulesEditor, { ReminderRule } from "@/components/shared/ReminderRulesEditor";
 import CrmCalendarConfig from "./CrmCalendarConfig";
@@ -196,10 +197,12 @@ const pill = (active: boolean) =>
   }`;
 
 const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSaved: () => void }) => {
-  const { data: staffList = [] } = useStaff();
-  const { data: profile }        = useBusinessProfile();
-  const createReminder           = useCreateReminder();
-  const whatsappEnabled          = useWhatsappEnabled();
+  const { data: staffList = [] }   = useStaff();
+  const { data: profile }          = useBusinessProfile();
+  const { data: waConfig }         = useWhatsappConfig();
+  const createReminder             = useCreateReminder();
+  const upsertProfile              = useUpsertBusinessProfile();
+  const whatsappEnabled            = useWhatsappEnabled();
 
   const adminLabel = (() => {
     const name = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ");
@@ -207,16 +210,35 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     return profile?.role ? `${name} (${profile.role})` : name;
   })();
 
-  const [note, setNote]           = useState("");
-  const [dateTime, setDateTime]   = useState("");
-  const [targets, setTargets]     = useState<string[]>(["admin"]);
-  const [channel, setChannel]     = useState<"email" | "whatsapp">("email");
+  const [note, setNote]             = useState("");
+  const [dateTime, setDateTime]     = useState("");
+  const [targets, setTargets]       = useState<string[]>(["admin"]);
+  const [channel, setChannel]       = useState<"email" | "whatsapp">("email");
+  // Inline phone override for admin when WA conflict
+  const [adminPhoneOverride, setAdminPhoneOverride] = useState("");
+  const [savingPhone, setSavingPhone]               = useState(false);
+
+  // ── WhatsApp conflict detection for admin ──────────────────────────────────
+  const waPhone   = waConfig?.phone_number?.replace(/\D/g, "") ?? "";
+  const profPhone = (profile?.contact_phone ?? profile?.whatsapp ?? "").replace(/\D/g, "");
+
+  // Shows inline phone input when: channel=whatsapp, admin selected, and either
+  // (a) no phone in profile, or (b) profile phone = linked WA number
+  const showAdminPhoneInput =
+    channel === "whatsapp" &&
+    targets.includes("admin") &&
+    (!profPhone || (waPhone && profPhone === waPhone));
+
+  const adminPhoneConflict = showAdminPhoneInput && !!profPhone && profPhone === waPhone;
+  // When override is empty and no conflict, use profile phone
+  const effectiveAdminPhone = showAdminPhoneInput
+    ? adminPhoneOverride.replace(/\D/g, "")
+    : profPhone;
 
   const resolveChannelValue = (targetId: string, ch: "email" | "whatsapp"): string => {
     if (targetId === "admin") {
-      return ch === "email"
-        ? (profile?.contact_email ?? "")
-        : (profile?.contact_phone ?? profile?.whatsapp ?? "");
+      if (ch === "email") return profile?.contact_email ?? "";
+      return showAdminPhoneInput ? adminPhoneOverride.replace(/\D/g, "") : profPhone;
     }
     const staff = staffList.find(s => s.id === targetId);
     return ch === "email" ? (staff?.email ?? "") : "";
@@ -226,25 +248,48 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     setTargets(prev => {
       if (prev.includes(id)) {
         const next = prev.filter(t => t !== id);
-        return next.length === 0 ? ["admin"] : next; // always keep at least one
+        const result = next.length === 0 ? ["admin"] : next;
+        // If admin is no longer in targets and channel is whatsapp, switch to email
+        if (!result.includes("admin") && channel === "whatsapp") {
+          setChannel("email");
+        }
+        return result;
       }
       return [...prev, id];
     });
   };
 
+  // WhatsApp only works for admin (staff have no phone field)
+  const allTargetsAreStaff = targets.length > 0 && targets.every(t => t !== "admin");
+
   const handleChannelChange = (ch: "email" | "whatsapp") => {
     if (!whatsappEnabled && ch === "whatsapp") return;
+    if (allTargetsAreStaff && ch === "whatsapp") return;
     setChannel(ch);
   };
 
-  const canSave = note.trim() && dateTime && targets.length > 0;
+  // Save new phone to profile inline then schedule
+  const handleSavePhoneAndSchedule = async () => {
+    const digits = adminPhoneOverride.replace(/\D/g, "");
+    if (!digits) { toast.error("Ingresa un número válido"); return; }
+    setSavingPhone(true);
+    try {
+      await upsertProfile.mutateAsync({ contact_phone: digits } as any);
+    } catch {
+      toast.error("No se pudo guardar el número");
+      setSavingPhone(false);
+      return;
+    }
+    setSavingPhone(false);
+    await doSchedule();
+  };
 
-  const handleSave = async () => {
-    if (!canSave || createReminder.isPending) return;
+  const doSchedule = async () => {
+    if (!note.trim() || !dateTime || targets.length === 0) return;
+    if (createReminder.isPending) return;
     try {
       const scheduledAt = new Date(dateTime).toISOString();
       const msg = note.trim();
-      // One reminder per selected target
       await Promise.all(
         targets.map((targetId) => {
           const channelValue = resolveChannelValue(targetId, channel);
@@ -272,6 +317,23 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     } catch { toast.error("Error al programar notificación"); }
   };
 
+  const handleSave = async () => {
+    // If admin+whatsapp needs override, save phone first
+    if (showAdminPhoneInput && targets.includes("admin")) {
+      await handleSavePhoneAndSchedule();
+      return;
+    }
+    await doSchedule();
+  };
+
+  const canSave = (() => {
+    if (!note.trim() || !dateTime || targets.length === 0) return false;
+    if (showAdminPhoneInput && targets.includes("admin")) {
+      return effectiveAdminPhone.length >= 10;
+    }
+    return true;
+  })();
+
   return (
     <div className="space-y-6">
       <div>
@@ -295,11 +357,10 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
           />
         </div>
 
-        {/* Destination — multi-select checkboxes */}
+        {/* Destination */}
         <div className="space-y-1.5">
           <p className="text-xs font-medium text-muted-foreground">Enviar a *</p>
           <div className="space-y-1 border border-border/60 rounded-xl p-2.5 max-h-44 overflow-y-auto">
-            {/* Admin */}
             <label className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors">
               <input
                 type="checkbox"
@@ -315,7 +376,6 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
                 }
               </div>
             </label>
-            {/* Staff */}
             {staffList.map((s) => (
               <label key={s.id} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors">
                 <input
@@ -351,14 +411,54 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
             <button
               type="button"
               onClick={() => handleChannelChange("whatsapp")}
-              disabled={!whatsappEnabled}
-              title={whatsappEnabled ? undefined : "WhatsApp no está configurado. Ve a Configuración → Integraciones."}
-              className={whatsappEnabled ? pill(channel === "whatsapp") : "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium border-border text-muted-foreground/40 cursor-not-allowed opacity-50"}
+              disabled={!whatsappEnabled || allTargetsAreStaff}
+              title={
+                !whatsappEnabled
+                  ? "WhatsApp no está configurado. Ve a Configuración → Integraciones."
+                  : allTargetsAreStaff
+                  ? "WhatsApp solo está disponible para el dueño del negocio (el staff no tiene número registrado)."
+                  : undefined
+              }
+              className={
+                whatsappEnabled && !allTargetsAreStaff
+                  ? pill(channel === "whatsapp")
+                  : "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium border-border text-muted-foreground/40 cursor-not-allowed opacity-50"
+              }
             >
               <MessageSquare size={11} /> WhatsApp
             </button>
           </div>
         </div>
+
+        {/* ── Inline phone input for admin WA conflict ────────────────────── */}
+        {showAdminPhoneInput && (
+          <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 p-3.5 space-y-3">
+            {adminPhoneConflict ? (
+              <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+                <strong>El número vinculado (+{waPhone}) es el mismo que el del negocio.</strong>{" "}
+                WhatsApp no puede enviarse mensajes a sí mismo. Ingresa un número diferente al que enviar esta notificación.
+              </p>
+            ) : (
+              <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+                <strong>No hay número de teléfono registrado en tu negocio.</strong>{" "}
+                Ingresa el número al que enviar la notificación (se guardará en tu perfil).
+              </p>
+            )}
+            <div className="flex gap-2">
+              <Input
+                placeholder="Ej: 521XXXXXXXXXX (sin +)"
+                value={adminPhoneOverride}
+                onChange={e => setAdminPhoneOverride(e.target.value)}
+                className="h-9 text-sm flex-1"
+              />
+            </div>
+            {adminPhoneOverride.replace(/\D/g, "").length >= 10 && (
+              <p className="text-[10px] text-muted-foreground">
+                Este número se guardará en tu perfil de negocio.
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Date time */}
         <div className="space-y-1.5">
@@ -373,10 +473,10 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
 
         <Button
           onClick={handleSave}
-          disabled={!canSave || createReminder.isPending}
+          disabled={!canSave || createReminder.isPending || savingPhone}
           className="w-full rounded-xl h-10 font-medium text-sm"
         >
-          {createReminder.isPending ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
+          {(createReminder.isPending || savingPhone) ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
           Programar notificación
         </Button>
       </div>

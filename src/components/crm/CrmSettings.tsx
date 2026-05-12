@@ -974,9 +974,11 @@ const WhatsAppTab = () => {
   const [phoneInput, setPhoneInput] = useState("");
   const [pairingCode, setPairingCode] = useState<string | null>(null);
   const pollRef                     = useRef<ReturnType<typeof setInterval> | null>(null);
+  const qrTimerRef                  = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const stopPolling = useCallback(() => {
-    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+    if (pollRef.current)   { clearInterval(pollRef.current);  pollRef.current  = null; }
+    if (qrTimerRef.current){ clearTimeout(qrTimerRef.current); qrTimerRef.current = null; }
   }, []);
 
   // Check current status on mount
@@ -995,11 +997,13 @@ const WhatsAppTab = () => {
     if (status !== "qr_pending") { stopPolling(); return; }
 
     let elapsed = 0;
+    let consecutiveErrors = 0;
     pollRef.current = setInterval(async () => {
       elapsed += 3;
       try {
         if (connectMode === "qr") {
           const { qr, status: s } = await callWhatsappSession("qr");
+          consecutiveErrors = 0;
           if (qr) setQrCode(qr);
           if (s === "connected") {
             stopPolling();
@@ -1008,18 +1012,38 @@ const WhatsAppTab = () => {
             setPhone(phone_number ?? null);
             setQrCode(null);
             toast.success("WhatsApp conectado correctamente");
+          } else if (s === "disconnected") {
+            stopPolling();
+            setStatus("disconnected");
+            setQrCode(null);
+            toast.error("La sesión fue desconectada. Intenta de nuevo.");
           }
         } else {
           const { status: s, phone_number } = await callWhatsappSession("status");
+          consecutiveErrors = 0;
           if (s === "connected") {
             stopPolling();
             setStatus(s);
             setPhone(phone_number ?? null);
             setPairingCode(null);
             toast.success("WhatsApp conectado correctamente");
+          } else if (s === "disconnected") {
+            stopPolling();
+            setStatus("disconnected");
+            setPairingCode(null);
+            toast.error("La sesión fue desconectada. Intenta de nuevo.");
           }
         }
-      } catch {}
+      } catch {
+        consecutiveErrors++;
+        if (consecutiveErrors >= 5) {
+          stopPolling();
+          setStatus("disconnected");
+          setQrCode(null);
+          setPairingCode(null);
+          toast.error("Error de conexión con el servicio. Intenta de nuevo.");
+        }
+      }
       if (elapsed >= 120) {
         stopPolling();
         setStatus("disconnected");
@@ -1038,7 +1062,8 @@ const WhatsAppTab = () => {
       await callWhatsappSession("start");
       setStatus("qr_pending");
       setQrCode(null);
-      setTimeout(async () => {
+      qrTimerRef.current = setTimeout(async () => {
+        qrTimerRef.current = null;
         try {
           const { qr } = await callWhatsappSession("qr");
           if (qr) setQrCode(qr);

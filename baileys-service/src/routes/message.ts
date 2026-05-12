@@ -1,10 +1,9 @@
 import { Router, Request, Response } from "express";
-import { getSession } from "../sessions";
+import { ensureSession } from "../sessions";
 
 const router = Router();
 
 function formatPhone(raw: string): string {
-  // Strip all non-digit characters, ensure no leading +
   return raw.replace(/\D/g, "");
 }
 
@@ -22,14 +21,20 @@ router.post("/send", async (req: Request, res: Response) => {
     return;
   }
 
-  const sock = getSession(userId);
+  const digits = formatPhone(phone);
+  if (digits.length < 10) {
+    res.status(400).json({ error: `Invalid phone number: ${phone}` });
+    return;
+  }
+
+  const sock = await ensureSession(userId);
   if (!sock) {
-    res.status(404).json({ error: `No active session for user ${userId}` });
+    res.status(404).json({ error: `No active WhatsApp session for user ${userId}` });
     return;
   }
 
   try {
-    const jid = `${formatPhone(phone)}@s.whatsapp.net`;
+    const jid = `${digits}@s.whatsapp.net`;
     await sock.sendMessage(jid, { text });
     res.json({ ok: true });
   } catch (err) {
