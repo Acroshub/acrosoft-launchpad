@@ -35,7 +35,17 @@ router.post("/send", async (req: Request, res: Response) => {
 
   try {
     const jid = `${digits}@s.whatsapp.net`;
-    await sock.sendMessage(jid, { text });
+
+    // Verify number on WhatsApp and pre-establish Signal session
+    const waResults = await sock.onWhatsApp(jid).catch(() => [] as { jid: string; exists: boolean }[]) ?? [];
+    const waResult = waResults[0] ?? null;
+    if (waResult && !waResult.exists) {
+      res.status(400).json({ error: `Phone ${phone} is not on WhatsApp` });
+      return;
+    }
+    const resolvedJid = waResult?.jid ?? jid;
+
+    await sock.sendMessage(resolvedJid, { text });
     res.json({ ok: true });
   } catch (err) {
     console.error(`[message/send] ${userId} → ${phone}:`, err);

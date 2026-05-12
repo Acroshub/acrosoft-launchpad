@@ -1760,6 +1760,21 @@ export const useCreateReminder = () => {
   });
 };
 
+export const useDeleteReminder = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await supabase.from("crm_reminder_queue").delete().eq("reminder_id", id);
+      const { error } = await supabase.from("crm_reminders").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_reminders"] });
+      qc.invalidateQueries({ queryKey: ["crm_reminders_personal"] });
+    },
+  });
+};
+
 // ─── WHATSAPP CONFIG ────────────────────────────────────────────
 
 export const useWhatsappConfig = () => {

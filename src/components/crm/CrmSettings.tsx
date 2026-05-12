@@ -6,7 +6,7 @@ import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmLog, CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import PhoneInput from "@/components/shared/PhoneInput";
+import PhoneInputField from "@/components/shared/PhoneInput";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -615,6 +615,7 @@ const StaffDialog = ({
   const [name, setName]        = useState(initial?.name ?? "");
   const [email, setEmail]      = useState(initial?.email ?? "");
   const [description, setDesc] = useState(initial?.description ?? "");
+  const [phone, setPhone]      = useState(initial?.phone ?? "");
   const [perms, setPerms]      = useState<ReturnType<typeof DEFAULT_PERMS>>(
     initial
       ? {
@@ -648,12 +649,17 @@ const StaffDialog = ({
     else setPipeItems(items);
   };
 
+  const phoneDigits = phone.replace(/\D/g, "");
+  const phoneValid  = phoneDigits.length >= 10;
+
   const handleSubmit = () => {
     if (!name.trim() || !email.trim()) return;
+    if (!initial && !phoneValid) return;
     onSave({
-      name: name.trim(),
-      email: email.trim(),
+      name:        name.trim(),
+      email:       email.trim(),
       description: description.trim() || null,
+      phone:       phone.trim() || null,
       ...perms,
       perm_calendarios_items: calItems,
       perm_formularios_items: formItems,
@@ -686,6 +692,15 @@ const StaffDialog = ({
               <label className="text-xs font-medium text-muted-foreground mb-1 block">Rol / Cargo</label>
               <Input value={description} onChange={(e) => setDesc(e.target.value)} placeholder="Ej: Asistente, Coordinador..." className="h-9" />
             </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">
+                WhatsApp / Teléfono {!initial && <span className="text-destructive">*</span>}
+              </label>
+              <PhoneInputField value={phone} onChange={setPhone} placeholder="71234567" />
+              {!initial && !phoneValid && phone && (
+                <p className="text-[10px] text-destructive mt-1">Ingresa un número válido con código de país.</p>
+              )}
+            </div>
           </div>
 
           {/* Permissions */}
@@ -706,7 +721,7 @@ const StaffDialog = ({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button
             onClick={handleSubmit}
-            disabled={!name.trim() || !email.trim() || isSaving}
+            disabled={!name.trim() || !email.trim() || (!initial && !phoneValid) || isSaving}
             className="rounded-xl"
           >
             {isSaving && <Loader2 size={14} className="animate-spin mr-2" />}
@@ -1271,7 +1286,7 @@ const WhatsAppTab = () => {
                   <p className="text-xs text-muted-foreground">
                     Selecciona tu país e ingresa tu número de teléfono.
                   </p>
-                  <PhoneInput
+                  <PhoneInputField
                     value={phoneInput}
                     onChange={setPhoneInput}
                     placeholder="71234567"

@@ -355,6 +355,7 @@ export type CrmStaff = {
   name: string
   email: string
   description: string | null
+  phone: string | null
   status: 'invited' | 'active' | 'inactive'
   perm_mi_negocio_datos: StaffPermission
   perm_mi_negocio_personal: StaffPermission
