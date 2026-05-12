@@ -12,7 +12,7 @@ import pino from "pino";
 import { supabase } from "./supabase";
 import { useSupabaseAuthState } from "./auth-state";
 
-const logger = pino({ level: "warn" });
+const logger = pino({ level: "silent" });
 
 const sessions = new Map<string, WASocket>();
 const retryCount = new Map<string, number>();
