@@ -107,7 +107,7 @@ export function canAccessItem(
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
     // Principal sees everything
-    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings", "soporte"]);
+    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings", "soporte", "videos"]);
   }
 
   const can = buildPermChecker(staffRecord);
@@ -124,7 +124,8 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (can("recordatorios","read")) visible.add("reminders");
   // Soporte es visible para todo el staff (sin permiso específico requerido)
   visible.add("soporte");
-  // Staff cannot access settings (can't create more staff)
+  // Videos: solo el principal lo ve (filtrado adicional en Crm.tsx por isSaasClient)
+  // Staff no accede a videos
 
   return visible;
 }

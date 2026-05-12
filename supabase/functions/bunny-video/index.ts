@@ -45,9 +45,37 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { action } = body;
 
+    if (!["create", "auth", "delete"].includes(action)) {
+      return new Response(JSON.stringify({ error: "Invalid action" }), {
+        status: 400, headers: { ...CORS, "Content-Type": "application/json" },
+      });
+    }
+
+    // ── Generate fresh TUS credentials for an existing video (resume) ──────────
+    if (action === "auth") {
+      const { bunnyVideoId } = body as { bunnyVideoId: string };
+      if (typeof bunnyVideoId !== "string" || !/^[a-f0-9-]{36}$/.test(bunnyVideoId)) {
+        return new Response(JSON.stringify({ error: "Invalid video ID" }), {
+          status: 400, headers: { ...CORS, "Content-Type": "application/json" },
+        });
+      }
+      const expiry    = Math.floor(Date.now() / 1000) + 3600;
+      const signature = await sha256Hex(`${BUNNY_LIBRARY}${BUNNY_API_KEY}${expiry}${bunnyVideoId}`);
+      return new Response(
+        JSON.stringify({ bunnyVideoId, tusExpire: expiry, tusSignature: signature, libraryId: BUNNY_LIBRARY }),
+        { headers: { ...CORS, "Content-Type": "application/json" } },
+      );
+    }
+
     // ── Create video in Bunny + return TUS credentials ────────────────────────
     if (action === "create") {
-      const { title } = body as { title: string };
+      const rawTitle = body.title;
+      if (typeof rawTitle !== "string" || !rawTitle.trim()) {
+        return new Response(JSON.stringify({ error: "Title is required" }), {
+          status: 400, headers: { ...CORS, "Content-Type": "application/json" },
+        });
+      }
+      const title = rawTitle.trim().slice(0, 200);
 
       const createRes = await fetch(`${BUNNY_BASE}/videos`, {
         method: "POST",
@@ -80,6 +108,11 @@ Deno.serve(async (req) => {
     // ── Delete video from Bunny ───────────────────────────────────────────────
     if (action === "delete") {
       const { bunnyVideoId } = body as { bunnyVideoId: string };
+      if (typeof bunnyVideoId !== "string" || !/^[a-f0-9-]{36}$/.test(bunnyVideoId)) {
+        return new Response(JSON.stringify({ error: "Invalid video ID" }), {
+          status: 400, headers: { ...CORS, "Content-Type": "application/json" },
+        });
+      }
 
       const delRes = await fetch(`${BUNNY_BASE}/videos/${bunnyVideoId}`, {
         method: "DELETE",

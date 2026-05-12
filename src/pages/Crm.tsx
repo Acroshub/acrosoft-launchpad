@@ -24,8 +24,8 @@ type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipel
 const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
   { id: "overview",   label: "Resumen",        icon: LayoutDashboard, group: "Principal"      },
   { id: "business",   label: "Mi Negocio",     icon: Store,           group: "Principal"      },
-  { id: "calendar",   label: "Calendarios",    icon: CalendarDays,    group: "Calendario"     },
   { id: "forms",      label: "Formularios",    icon: ClipboardList,   group: "Calendario"     },
+  { id: "calendar",   label: "Calendarios",    icon: CalendarDays,    group: "Calendario"     },
   { id: "contacts",   label: "Contactos",      icon: Users,           group: "CRM"            },
   { id: "pipeline",   label: "Pipeline",       icon: Kanban,          group: "CRM"            },
   { id: "ventas",     label: "Ventas",         icon: DollarSign,      group: "CRM"            },
