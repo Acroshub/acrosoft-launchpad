@@ -622,7 +622,7 @@ const FieldRow = ({
 };
 
 // ─── Form Builder ───────────────────────────────────────────────────────────
-const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = false }: { form: FormConfig, onBack: () => void, onUpdate: (f: FormConfig) => void, showDocKeys?: boolean, readOnly?: boolean }) => {
+const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = false, initialTab }: { form: FormConfig, onBack: () => void, onUpdate: (f: FormConfig) => void, showDocKeys?: boolean, readOnly?: boolean, initialTab?: "campos" | "configuracion" | "notificaciones" | "compartir" }) => {
   const [fields, setFields]       = useState<FormField[]>(form.fields);
   const [name, setName]           = useState(form.name);
   const [editingName, setEditingName] = useState(false);
@@ -634,7 +634,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [deletingSectionId, setDeletingSectionId] = useState<string | null>(null);
   const [deletingFieldId, setDeletingFieldId] = useState<string | null>(null);
-  const [formTab, setFormTab] = useState<"campos" | "configuracion" | "notificaciones" | "compartir">("campos");
+  const [formTab, setFormTab] = useState<"campos" | "configuracion" | "notificaciones" | "compartir">(initialTab ?? "campos");
 
   const [submitButtonText, setSubmitButtonText] = useState(form.submitButtonText || "Enviar mensaje");
   const [successAction, setSuccessAction] = useState<"popup" | "redirect">(form.successAction || "popup");
@@ -1386,7 +1386,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
 };
 
 // ─── Main Component: Forms Library ─────────────────────────────────────────
-const CrmForms = () => {
+const CrmForms = ({ preselectedFormId, initialFormTab }: { preselectedFormId?: string; initialFormTab?: "campos" | "configuracion" | "notificaciones" | "compartir" } = {}) => {
   const { allowedIds, can } = useStaffPermissions();
   const canCreateForm = can("formularios", "create");
   const canEditForm   = can("formularios", "edit");
@@ -1400,8 +1400,8 @@ const CrmForms = () => {
   const updateForm = useUpdateForm();
   const deleteForm = useDeleteForm();
 
-  const [view, setView] = useState<"list" | "builder">("list");
-  const [selectedFormId, setSelectedFormId] = useState<string | null>(null);
+  const [view, setView] = useState<"list" | "builder">(preselectedFormId ? "builder" : "list");
+  const [selectedFormId, setSelectedFormId] = useState<string | null>(preselectedFormId ?? null);
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
@@ -1481,6 +1481,7 @@ const CrmForms = () => {
       form={selectedForm}
       readOnly={!canEditForm}
       showDocKeys={isSuperAdmin && selectedForm.id === ONBOARDING_FORM_ID}
+      initialTab={initialFormTab}
       onBack={() => setView("list")}
       onUpdate={async (updated) => {
       try {

@@ -189,6 +189,7 @@ export type CrmSale = {
   currency: string
   type: 'initial' | 'recurring'
   notes: string | null
+  is_vip?: boolean
 }
 
 export type CrmContactNote = {
@@ -224,6 +225,7 @@ export type CrmBusinessProfile = {
   theme: string
   metrics_order?: Json
   landing_calendar_id?: string | null
+  vip_calendar_id?: string | null
   timezone: string
 }
 

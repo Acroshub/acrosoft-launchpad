@@ -170,7 +170,7 @@ Deno.serve(async (req) => {
 
     const { data: calendar, error: calError } = await supabase
       .from("crm_calendar_config")
-      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability, reminder_rules, timezone")
+      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability, reminder_rules, timezone, is_vip")
       .eq("id", calendar_id)
       .single();
 
@@ -322,6 +322,20 @@ Deno.serve(async (req) => {
       await addContactToPipelines(calendar.user_id, contactId, formPipelineIds);
     }
 
+    // Auto-tag VIP cuando el calendario es privado VIP
+    if ((calendar as any).is_vip && contactId) {
+      try {
+        const { data: ct } = await supabase
+          .from("crm_contacts").select("tags").eq("id", contactId).single();
+        const tags: string[] = Array.isArray(ct?.tags) ? ct.tags : [];
+        if (!tags.includes("VIP")) {
+          await supabase.from("crm_contacts").update({ tags: [...tags, "VIP"] }).eq("id", contactId);
+        }
+      } catch (e) {
+        console.error("VIP tag assignment (non-fatal):", e);
+      }
+    }
+
     const termsAt: string | null = typeof terms_accepted_at === "string" ? terms_accepted_at : null;
     const { data: appointment, error: apptError } = await supabase
       .from("crm_appointments")
@@ -343,6 +357,7 @@ Deno.serve(async (req) => {
         entity: "appointment",
         entity_id: appointment.id,
         description: `Cita agendada con ${name || email || "cliente"} el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs vía ${calendar.name ?? "calendario"}`,
+        is_vip: !!(calendar as any).is_vip,
       });
     } catch (e) {
       console.error("Log insert (non-fatal):", e);

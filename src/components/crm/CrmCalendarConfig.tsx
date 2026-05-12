@@ -69,9 +69,11 @@ interface Props {
   onCreated?: (id: string) => void;
   /** Called when Google Calendar connection is updated */
   onGoogleConnected?: () => void;
+  /** Jump directly to this sidebar section when opening an existing calendar */
+  initialSection?: "general" | "horarios" | "integraciones" | "enlace" | "notificaciones";
 }
 
-const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnected }: Props) => {
+const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnected, initialSection }: Props) => {
   const { can } = useStaffPermissions();
   const canEditReminders = can("recordatorios", "create");
   const { data: forms = [] } = useForms();
@@ -82,7 +84,9 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
   const createForm   = useCreateForm();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   type Section = "general" | "horarios" | "integraciones" | "enlace" | "notificaciones";
-  const [activeSection, setActiveSection] = useState<Section>("general");
+  const [activeSection, setActiveSection] = useState<Section>(
+    initialSection && existingCalendar ? initialSection : "general"
+  );
 
   const isNew = existingCalendar === null;
 

@@ -509,9 +509,20 @@ export const useCreateSale = () => {
   const { ownerUserId } = useStaffPermissions();
   return useMutation({
     mutationFn: async (sale: Partial<CrmSale>) => {
+      let isVip = sale.is_vip ?? false;
+      if (!isVip && sale.contact_id) {
+        const { data: contact } = await supabase
+          .from("crm_contacts")
+          .select("tags")
+          .eq("id", sale.contact_id)
+          .single();
+        if (contact?.tags && (contact.tags as string[]).includes("VIP")) {
+          isVip = true;
+        }
+      }
       const { data, error } = await supabase
         .from("crm_sales")
-        .insert({ ...sale, user_id: ownerUserId! })
+        .insert({ ...sale, user_id: ownerUserId!, is_vip: isVip })
         .select()
         .single();
       if (error) throw error;
@@ -1159,12 +1170,12 @@ export const useLandingProfile = () =>
     queryFn: async () => {
       const { data, error } = await supabase
         .from("crm_business_profile")
-        .select("user_id, landing_calendar_id")
+        .select("user_id, landing_calendar_id, vip_calendar_id")
         .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle();
       if (error) throw error;
-      return data as { user_id: string; landing_calendar_id: string | null } | null;
+      return data as { user_id: string; landing_calendar_id: string | null; vip_calendar_id: string | null } | null;
     },
   });
 

@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { DollarSign, Plus, Loader2, Pencil, Trash2, RefreshCcw, X, Filter } from "lucide-react";
+import { DollarSign, Plus, Loader2, Pencil, Trash2, RefreshCcw, X, Filter, Crown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -163,15 +163,23 @@ const CrmVentas = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
   const [filterDateTo,   setFilterDateTo]   = useState("");
   const [filterService,  setFilterService]  = useState("");
   const [filterContact,  setFilterContact]  = useState("");
+  const [filterVip,      setFilterVip]      = useState(false);
 
-  const hasFilters = !!(filterDateFrom || filterDateTo || filterService || filterContact);
+  const hasFilters = !!(filterDateFrom || filterDateTo || filterService || filterContact || filterVip);
 
   const clearFilters = () => {
     setFilterDateFrom("");
     setFilterDateTo("");
     setFilterService("");
     setFilterContact("");
+    setFilterVip(false);
     setCurrentPage(1);
+  };
+
+  const handleToggleVip = async (sale: CrmSale) => {
+    try {
+      await updateSale.mutateAsync({ id: sale.id, is_vip: !sale.is_vip, justification: "VIP toggle" } as any);
+    } catch { toast.error("Error al cambiar estado VIP"); }
   };
 
   // ─── KPIs (unfiltered — same as Overview) ───
@@ -243,8 +251,9 @@ const CrmVentas = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
     if (filterDateTo)   result = result.filter(s => s.dateKey <= filterDateTo);
     if (filterService)  result = result.filter(s => s.serviceId === filterService);
     if (filterContact)  result = result.filter(s => s.contactId === filterContact);
+    if (filterVip)      result = result.filter(s => s.raw.is_vip);
     return result;
-  }, [allSales, filterDateFrom, filterDateTo, filterService, filterContact]);
+  }, [allSales, filterDateFrom, filterDateTo, filterService, filterContact, filterVip]);
 
   const totalPages    = Math.ceil(filteredSales.length / salesPerPage);
   const pageSales     = filteredSales.slice((currentPage - 1) * salesPerPage, currentPage * salesPerPage);
@@ -483,14 +492,28 @@ const CrmVentas = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                   </span>
                 )}
               </div>
-              {hasFilters && (
-                <button
-                  onClick={clearFilters}
-                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  <X size={12} /> Limpiar filtros
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                {isSuperAdmin && (
+                  <button
+                    onClick={() => applyFilter(() => setFilterVip(v => !v))}
+                    className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${
+                      filterVip
+                        ? "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-400"
+                        : "border-border text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    <Crown size={11} /> Solo VIP
+                  </button>
+                )}
+                {hasFilters && (
+                  <button
+                    onClick={clearFilters}
+                    className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <X size={12} /> Limpiar
+                  </button>
+                )}
+              </div>
             </div>
 
             {/* Filtros */}
@@ -574,12 +597,34 @@ const CrmVentas = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
                     {pageSales.map((sale) => (
                       <tr key={sale.id} className="hover:bg-secondary/30 transition-colors group">
                         <td className="px-6 py-3 whitespace-nowrap text-muted-foreground text-xs">{sale.dateStr}</td>
-                        <td className="px-6 py-3 font-medium">{sale.contactName}</td>
+                        <td className="px-6 py-3 font-medium">
+                          <span className="flex items-center gap-2">
+                            {sale.contactName}
+                            {sale.raw.is_vip && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-700 shrink-0">
+                                <Crown size={9} /> VIP
+                              </span>
+                            )}
+                          </span>
+                        </td>
                         <td className="px-6 py-3">{sale.serviceName}</td>
                         <td className="px-6 py-3 font-semibold text-primary text-right">${sale.amount.toFixed(2)}</td>
                         <td className="px-6 py-3 text-muted-foreground text-xs truncate max-w-[180px]">{sale.notes || "—"}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {isSuperAdmin && (
+                              <button
+                                onClick={() => handleToggleVip(sale.raw)}
+                                className={`p-1.5 rounded-lg transition-colors ${
+                                  sale.raw.is_vip
+                                    ? "text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-900/30"
+                                    : "text-muted-foreground hover:text-amber-500 hover:bg-secondary"
+                                }`}
+                                title={sale.raw.is_vip ? "Quitar VIP" : "Marcar como VIP"}
+                              >
+                                <Crown size={13} />
+                              </button>
+                            )}
                             {canEditSale && (
                               <button
                                 onClick={() => openEditSale(sale.raw)}

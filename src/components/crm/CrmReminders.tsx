@@ -12,6 +12,7 @@ import {
 } from "@/hooks/useCrmData";
 import ReminderRulesEditor, { ReminderRule } from "@/components/shared/ReminderRulesEditor";
 import CrmCalendarConfig from "./CrmCalendarConfig";
+import CrmForms from "./CrmForms";
 import type { CrmCalendarConfig as CalendarData, CrmReminder } from "@/lib/supabase";
 import { toast } from "sonner";
 
@@ -37,6 +38,7 @@ const CalendarReminderPanel = ({ onBack }: { onBack: () => void }) => {
     return (
       <CrmCalendarConfig
         existingCalendar={selected}
+        initialSection="notificaciones"
         onBack={() => setSelected(null)}
       />
     );
@@ -132,15 +134,12 @@ const FormReminderDetail = ({
 const FormReminderPanel = ({ onBack }: { onBack: () => void }) => {
   const { data: forms = [], isLoading } = useForms();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selectedForm = forms.find((f) => f.id === selectedId);
 
-  if (selectedForm) {
+  if (selectedId) {
     return (
-      <FormReminderDetail
-        formId={selectedForm.id}
-        formName={selectedForm.name}
-        initialRules={(selectedForm.reminder_rules as unknown as ReminderRule[] | null) ?? []}
-        onBack={() => setSelectedId(null)}
+      <CrmForms
+        preselectedFormId={selectedId}
+        initialFormTab="notificaciones"
       />
     );
   }

@@ -194,6 +194,7 @@ async function handleServicesField(
   serviceId: string,
   siteUrl: string,
   docKeyMap: Record<string, any>,
+  isVipForm: boolean,
 ): Promise<void> {
   try {
     const { data: service, error } = await supabase
@@ -227,6 +228,14 @@ async function handleServicesField(
       : service.price;
     // recurring_discount_pct se aplica al registrar ventas recurrentes (type: "recurring")
 
+    // Determinar si la venta es VIP: por el formulario o por tags del contacto
+    let saleIsVip = isVipForm;
+    if (!saleIsVip) {
+      const { data: contactTags } = await supabase
+        .from("crm_contacts").select("tags").eq("id", contactId).single();
+      saleIsVip = Array.isArray(contactTags?.tags) && (contactTags.tags as string[]).includes("VIP");
+    }
+
     await supabase.from("crm_sales").insert({
       user_id: userId,
       contact_id: contactId,
@@ -237,6 +246,7 @@ async function handleServicesField(
       currency: service.currency ?? "USD",
       type: "initial",
       notes: "[Venta automática via formulario]",
+      is_vip: saleIsVip,
     });
 
     // ── If SaaS service, create calendar + client account ──────────────────
@@ -384,7 +394,7 @@ Deno.serve(async (req) => {
 
     const { data: form, error: formError } = await supabase
       .from("crm_forms")
-      .select("user_id, fields, sections, auto_tags, pipeline_ids, slug, reminder_rules")
+      .select("user_id, fields, sections, auto_tags, pipeline_ids, slug, reminder_rules, is_vip")
       .eq("id", form_id)
       .single();
 
@@ -475,7 +485,7 @@ Deno.serve(async (req) => {
         if (selectedServiceId && isValidUUID(selectedServiceId)) {
           const siteUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
           const docKeyMap = buildDocKeyMap(allFields, data ?? {});
-          await handleServicesField(form.user_id, contactId, contactName || name || "Sin nombre", selectedServiceId, siteUrl, docKeyMap);
+          await handleServicesField(form.user_id, contactId, contactName || name || "Sin nombre", selectedServiceId, siteUrl, docKeyMap, !!(form as any).is_vip);
         }
       }
     }

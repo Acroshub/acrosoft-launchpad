@@ -14,6 +14,7 @@ import NotFound from "./pages/NotFound.tsx";
 import TerminosPoliticas from "./pages/TerminosPoliticas.tsx";
 import ProtectedRoute from "./components/shared/ProtectedRoute.tsx";
 import GoogleCalendarCallback from "./pages/GoogleCalendarCallback.tsx";
+import VipLanding from "./pages/VipLanding.tsx";
 
 const queryClient = new QueryClient();
 
@@ -34,6 +35,7 @@ const App = () => (
           <Route path="/privacy" element={<TerminosPoliticas />} />
           <Route path="/terms"   element={<TerminosPoliticas />} />
           <Route path="/oauth/google-calendar" element={<GoogleCalendarCallback />} />
+          <Route path="/vip" element={<VipLanding />} />
 
           {/* Client invitation setup — public (session comes from invite link) */}
           <Route path="/crm-setup" element={<CrmSetup />} />
