@@ -82,15 +82,23 @@ export async function createSession(userId: string): Promise<void> {
       sessions.delete(userId);
 
       if (loggedOut) {
-        // Clear auth state and mark disconnected
         await supabase
           .from("whatsapp_sessions")
           .update({ status: "disconnected", phone_number: null, qr_code: null, auth_state: null })
           .eq("user_id", userId);
-      } else {
-        // Transient disconnect — reconnect automatically
+      } else if (reason === DisconnectReason.restartRequired) {
+        // WhatsApp requested restart — reconnect once
+        console.log(`[${userId}] Restart required, reconnecting...`);
         await updateStatus(userId, "disconnected");
-        setTimeout(() => createSession(userId), 5_000);
+        setTimeout(() => createSession(userId), 3_000);
+      } else {
+        // IP blocked, auth failure, or QR not scanned in time — do NOT reconnect automatically
+        // The user must click "Conectar" again from the UI
+        console.log(`[${userId}] Session ended (reason: ${reason}). Manual reconnect required.`);
+        await supabase
+          .from("whatsapp_sessions")
+          .update({ status: "disconnected", qr_code: null })
+          .eq("user_id", userId);
       }
     }
   });
