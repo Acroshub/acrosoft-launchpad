@@ -192,7 +192,24 @@ Deno.serve(async (req) => {
         }
 
       } else if (reminder.type === "whatsapp") {
-        throw new Error("WhatsApp channel not yet configured");
+        const BAILEYS_SERVICE_URL = Deno.env.get("BAILEYS_SERVICE_URL");
+        const BAILEYS_API_KEY     = Deno.env.get("BAILEYS_API_KEY");
+        if (!BAILEYS_SERVICE_URL || !BAILEYS_API_KEY) throw new Error("Baileys service not configured");
+        if (!reminder.recipient_phone) throw new Error("No recipient phone on reminder");
+
+        const phone = reminder.recipient_phone.replace(/\D/g, "");
+        const waRes = await fetch(`${BAILEYS_SERVICE_URL}/message/send`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": BAILEYS_API_KEY,
+          },
+          body: JSON.stringify({ userId: reminder.user_id, phone, text: resolvedMessage }),
+        });
+        if (!waRes.ok) {
+          const errText = await waRes.text();
+          throw new Error(`Baileys error ${waRes.status}: ${errText}`);
+        }
       } else {
         throw new Error(`Unknown channel type: ${reminder.type}`);
       }

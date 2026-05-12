@@ -1575,39 +1575,92 @@ CON CLIENTES REALES:
 
 ---
 
-### AV-2 · WhatsApp Notificaciones 100% Funcional
-**Estado:** UI "Próximamente" activa. Implementación pendiente hasta primer cliente SaaS.
-**Estimación:** 8-10 horas de desarrollo
-**Prerequisito:** Deployar Evolution API en Railway + agregar secrets en Supabase.
+### AV-2 · WhatsApp Notificaciones — Baileys Self-Hosted
+**Estado:** UI "Próximamente" activa. Implementación pendiente.
+**Estimación:** 1–2 semanas
+**Prerequisito:** Deployar `baileys-service` en Railway + agregar secrets en Supabase.
 
 **Descripción:**
-Cada cliente SaaS conecta su propio número de WhatsApp escaneando un QR desde CRM → Configuración → WhatsApp. Los recordatorios de citas se envían via Evolution API self-hosted en Railway (~$5/mes compartido entre todos los clientes).
+Agente WhatsApp propio basado en **Baileys** (Node.js, open source, no Meta API, no Twilio). Cada cliente SaaS conecta su número escaneando un QR desde CRM → Configuración → WhatsApp. Las sesiones persisten en Supabase. Multi-tenant desde el diseño. Fase 1: solo admin activo, otros clientes ven "Próximamente".
 
 **Arquitectura:**
-- Evolution API en Railway (`atendai/evolution-api:latest`) con volumen persistente
-- Cada tenant tiene una instancia nombrada por su `user_id`
-- `EVOLUTION_API_URL` y `EVOLUTION_API_KEY` como secrets en Supabase
+```
+Frontend CRM
+  └─ → Edge Function: whatsapp-session (valida JWT Supabase)
+        └─ → baileys-service en Railway (autenticado con BAILEYS_API_KEY)
+                └─ ↔ WhatsApp Web (WebSocket Baileys)
+                └─ → escribe status / QR / phone_number directamente a Supabase
+                      (usa service_role_key, no pasa por edge function)
+Frontend pollea tabla `whatsapp_sessions` (o Supabase Realtime)
+```
 
-**Flujo de conexión:**
+**Tabla `whatsapp_sessions`:**
+```sql
+user_id        uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE
+instance_name  text NOT NULL              -- = user_id, único por tenant
+status         text DEFAULT 'disconnected' -- disconnected | qr_pending | connected
+phone_number   text
+qr_code        text                       -- base64 PNG, short-lived, Baileys lo escribe
+auth_state     jsonb                      -- estado serializado de Baileys (sesión persistente)
+updated_at     timestamptz
+UNIQUE(user_id)
+```
+
+**Estructura `baileys-service/` (Node.js/Express + TypeScript, deploy en Railway):**
+```
+baileys-service/
+  src/
+    index.ts          ← Express server, health check en GET /
+    sessions.ts       ← Map<userId, WASocket> + reconexión automática al arrancar
+    auth-state.ts     ← Adapter: useMultiFileAuthState equivalente que lee/escribe Supabase jsonb
+    routes/
+      session.ts      ← POST /session/:userId/start   DELETE /session/:userId
+      message.ts      ← POST /message/send  { userId, phone, text }
+  package.json
+  tsconfig.json
+  railway.toml
+```
+
+**Edge Function `whatsapp-session` — 4 acciones (POST body `{ action }`):**
+| Acción       | Descripción                                                                 |
+|--------------|-----------------------------------------------------------------------------|
+| `start`      | Llama baileys-service `POST /session/:userId/start`; upsert status=qr_pending |
+| `qr`         | Lee `qr_code` de `whatsapp_sessions` (Baileys lo escribe solo)              |
+| `status`     | Lee `status` + `phone_number` de `whatsapp_sessions`                        |
+| `disconnect` | `DELETE /session/:userId` en baileys-service + update status=disconnected   |
+
+**Flujo de conexión UX:**
 1. Admin: CRM → Configuración → WhatsApp → "Conectar"
-2. Edge function `whatsapp-session` crea instancia + retorna QR base64
-3. Admin escanea QR con WhatsApp → "Dispositivos vinculados"
-4. Polling cada 3s hasta detectar `status: "connected"` (máx 60s)
-5. BD actualiza `crm_whatsapp_config` con status=connected + phone_number
+2. Edge function `whatsapp-session` acción `start` → baileys-service genera QR → escribe a Supabase
+3. Frontend pollea acción `qr` cada 3s → muestra imagen QR base64
+4. Admin escanea con WhatsApp → "Dispositivos vinculados"
+5. Baileys detecta conexión exitosa → actualiza `status=connected` + `phone_number` en Supabase
+6. Frontend pollea acción `status` → detecta `connected` → muestra badge verde con número
 
 **Flujo de envío:**
-- `send-reminders` detecta `type: "whatsapp"` → POST a Evolution API `message/sendText/{instanceName}`
-- Header: `apikey: EVOLUTION_API_KEY` (no Bearer)
-- Número normalizado sin `+` (solo dígitos)
+- `send-reminders` detecta `type: "whatsapp"` → llama edge function `whatsapp-session` acción `send`
+  (o directamente al edge function de envío: body `{ userId, phone, text }`)
+- Edge function → baileys-service `POST /message/send`
+- Número normalizado sin `+` (solo dígitos, formato internacional)
+
+**Variables de entorno:**
+- Railway (`baileys-service`): `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `BAILEYS_API_KEY`, `PORT=3000`
+- Supabase secrets: `BAILEYS_SERVICE_URL` (URL pública Railway), `BAILEYS_API_KEY`
 
 **Archivos a crear/modificar:**
-- `supabase/migrations/YYYYMMDD_whatsapp_config.sql` — tabla `crm_whatsapp_config`
-- `supabase/functions/whatsapp-session/index.ts` — actions: create, qr, status, disconnect
-- `supabase/functions/send-reminders/index.ts` — reemplazar `throw Error` línea ~120
-- `src/components/crm/CrmSettings.tsx` — reemplazar `WhatsAppTab` "Próximamente" con UI real
-- `src/lib/supabase.ts` — agregar tipo `CrmWhatsappConfig`
+- `baileys-service/` — nuevo servicio Node.js completo (ver estructura arriba)
+- `supabase/migrations/YYYYMMDD_whatsapp_sessions.sql` — tabla `whatsapp_sessions` con RLS
+- `supabase/functions/whatsapp-session/index.ts` — edge function con 4 acciones
+- `supabase/functions/send-reminders/index.ts` — reemplazar `throw Error` WhatsApp con llamada real
+- `src/components/crm/CrmSettings.tsx` — reemplazar `WhatsAppTab` "Próximamente" con UI QR real
+- `src/lib/supabase.ts` — agregar tipo `WhatsappSession`
 
-**Plan técnico completo:** Ver `/Users/danielacero/.claude/plans/magical-gathering-prism.md`
+**Multi-tenant:** Un solo `baileys-service` en Railway atiende a todos los tenants. Cada tenant tiene su `WASocket` en `Map<userId, WASocket>`. Al arrancar el servicio, reconecta automáticamente todos los `user_id` con `status=connected` en Supabase.
+
+**LLM-ready:** El handler de mensajes entrantes en `sessions.ts` queda vacío pero estructurado para conectar un agente LLM en la siguiente iteración (respuestas automáticas, calificación de leads, etc.).
+
+**Banner de advertencia en UI:**
+> ⚠️ **Uso responsable de WhatsApp** — Solo para recordatorios y notificaciones importantes. El envío masivo o spam puede resultar en ban permanente del número.
 
 ---
 

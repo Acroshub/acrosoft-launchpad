@@ -1,6 +1,7 @@
-import { useState, useMemo, useEffect } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell, MessageSquare } from "lucide-react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell, MessageSquare, Wifi, WifiOff, RefreshCw, PhoneCall } from "lucide-react";
 import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient } from "@/hooks/useCrmData";
+import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmLog, CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
 import { Input } from "@/components/ui/input";
@@ -936,9 +937,133 @@ const StaffTab = () => {
 
 // ─── WhatsApp Tab ──────────────────────────────────────────────────────────
 
+type WaStatus = "disconnected" | "qr_pending" | "connected" | "loading";
+
+async function callWhatsappSession(action: string, extra: Record<string, string> = {}) {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  if (!token) throw new Error("No auth token");
+
+  const res = await fetch(
+    `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-session`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${token}`,
+        "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+      },
+      body: JSON.stringify({ action, ...extra }),
+    },
+  );
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(err.error ?? res.statusText);
+  }
+  return res.json();
+}
+
 const WhatsAppTab = () => {
+  const [status, setStatus]     = useState<WaStatus>("loading");
+  const [qrCode, setQrCode]     = useState<string | null>(null);
+  const [phone, setPhone]       = useState<string | null>(null);
+  const [actionBusy, setBusy]   = useState(false);
+  const pollRef                 = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
+  }, []);
+
+  // Check current status on mount
+  useEffect(() => {
+    callWhatsappSession("status")
+      .then(({ status: s, phone_number }) => {
+        setStatus(s ?? "disconnected");
+        setPhone(phone_number ?? null);
+      })
+      .catch(() => setStatus("disconnected"));
+    return stopPolling;
+  }, [stopPolling]);
+
+  // Start QR polling when status is qr_pending
+  useEffect(() => {
+    if (status !== "qr_pending") { stopPolling(); return; }
+
+    let elapsed = 0;
+    pollRef.current = setInterval(async () => {
+      elapsed += 3;
+      try {
+        const { qr, status: s } = await callWhatsappSession("qr");
+        if (qr) setQrCode(qr);
+        if (s === "connected") {
+          stopPolling();
+          const { status: st, phone_number } = await callWhatsappSession("status");
+          setStatus(st);
+          setPhone(phone_number ?? null);
+          setQrCode(null);
+          toast.success("WhatsApp conectado correctamente");
+        }
+      } catch {}
+      if (elapsed >= 120) {
+        stopPolling();
+        setStatus("disconnected");
+        setQrCode(null);
+        toast.error("Tiempo de conexión agotado. Intenta de nuevo.");
+      }
+    }, 3000);
+
+    return stopPolling;
+  }, [status, stopPolling]);
+
+  const handleConnect = async () => {
+    setBusy(true);
+    try {
+      await callWhatsappSession("start");
+      setStatus("qr_pending");
+      setQrCode(null);
+      // Give Baileys 2s to generate the QR before first poll
+      setTimeout(async () => {
+        try {
+          const { qr } = await callWhatsappSession("qr");
+          if (qr) setQrCode(qr);
+        } catch {}
+      }, 2000);
+    } catch (err) {
+      toast.error(`Error al conectar: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDisconnect = async () => {
+    setBusy(true);
+    try {
+      await callWhatsappSession("disconnect");
+      setStatus("disconnected");
+      setPhone(null);
+      setQrCode(null);
+      toast.success("WhatsApp desconectado");
+    } catch (err) {
+      toast.error(`Error al desconectar: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    stopPolling();
+    setBusy(true);
+    try {
+      await callWhatsappSession("disconnect");
+    } catch {}
+    setStatus("disconnected");
+    setQrCode(null);
+    setBusy(false);
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-lg">
+      {/* Header */}
       <div className="bg-card border rounded-2xl p-6 space-y-4">
         <div className="flex items-start gap-4">
           <div className="w-14 h-14 rounded-xl bg-green-50 dark:bg-green-950/30 flex items-center justify-center shrink-0">
@@ -947,50 +1072,119 @@ const WhatsAppTab = () => {
           <div className="flex-1">
             <h3 className="text-sm font-semibold">WhatsApp Notificaciones</h3>
             <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
-              Envía recordatorios y notificaciones de citas por WhatsApp. Cada cliente SaaS conecta su propio número escaneando un código QR.
+              Conecta tu número de WhatsApp para enviar recordatorios automáticos de citas.
             </p>
           </div>
         </div>
 
-        <div className="border-t pt-4">
-          <p className="text-xs font-medium text-muted-foreground mb-3">Estado</p>
-          <div className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-yellow-500"></div>
-            <span className="text-sm font-medium">Próximamente</span>
-          </div>
-        </div>
-
-        <div className="border-t pt-4">
-          <p className="text-xs font-medium text-muted-foreground mb-2">¿Qué incluye?</p>
-          <ul className="space-y-1.5 text-xs text-muted-foreground">
-            <li className="flex items-start gap-2">
-              <span className="text-green-600 font-bold mt-0.5">✓</span>
-              <span>Conexión segura con Evolution API</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-green-600 font-bold mt-0.5">✓</span>
-              <span>Escaneo de QR directo desde el CRM</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-green-600 font-bold mt-0.5">✓</span>
-              <span>Recordatorios automáticos de citas</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <span className="text-green-600 font-bold mt-0.5">✓</span>
-              <span>Notificaciones personalizadas con variables dinámicas</span>
-            </li>
-          </ul>
-        </div>
-
+        {/* Warning banner */}
         <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-lg p-3">
           <p className="text-[11px] font-medium text-amber-900 dark:text-amber-200 flex items-start gap-2">
-            <span className="mt-0.5">⚠️</span>
+            <span className="mt-0.5 shrink-0">⚠️</span>
             <span>
-              <strong>Uso responsable:</strong> Este canal es solo para recordatorios y notificaciones importantes.
+              <strong>Uso responsable:</strong> Solo para recordatorios y notificaciones importantes.
               El envío masivo o spam puede resultar en el ban permanente del número.
             </span>
           </p>
         </div>
+
+        {/* ── Estado: cargando ── */}
+        {status === "loading" && (
+          <div className="border-t pt-4 flex items-center gap-2 text-muted-foreground text-sm">
+            <Loader2 size={16} className="animate-spin" />
+            <span>Verificando estado...</span>
+          </div>
+        )}
+
+        {/* ── Estado: desconectado ── */}
+        {status === "disconnected" && (
+          <div className="border-t pt-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <WifiOff size={16} className="text-muted-foreground" />
+              <span className="text-sm font-medium text-muted-foreground">No conectado</span>
+            </div>
+            <Button
+              onClick={handleConnect}
+              disabled={actionBusy}
+              className="w-full bg-green-600 hover:bg-green-700 text-white"
+            >
+              {actionBusy
+                ? <><Loader2 size={15} className="animate-spin mr-2" /> Iniciando...</>
+                : <><MessageSquare size={15} className="mr-2" /> Conectar WhatsApp</>
+              }
+            </Button>
+          </div>
+        )}
+
+        {/* ── Estado: esperando QR ── */}
+        {status === "qr_pending" && (
+          <div className="border-t pt-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <RefreshCw size={15} className="animate-spin text-amber-500" />
+              <span className="text-sm font-medium text-amber-600 dark:text-amber-400">Esperando escaneo...</span>
+            </div>
+
+            <div className="flex flex-col items-center gap-3">
+              {qrCode ? (
+                <img
+                  src={qrCode}
+                  alt="WhatsApp QR"
+                  className="w-52 h-52 rounded-xl border shadow-sm"
+                />
+              ) : (
+                <div className="w-52 h-52 rounded-xl border bg-muted flex items-center justify-center">
+                  <Loader2 size={28} className="animate-spin text-muted-foreground" />
+                </div>
+              )}
+              <div className="text-center space-y-1">
+                <p className="text-xs font-semibold">Escanea este código con WhatsApp</p>
+                <p className="text-[11px] text-muted-foreground">
+                  Abre WhatsApp → <strong>Dispositivos vinculados</strong> → <strong>Vincular dispositivo</strong>
+                </p>
+              </div>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full"
+              onClick={handleCancel}
+              disabled={actionBusy}
+            >
+              Cancelar
+            </Button>
+          </div>
+        )}
+
+        {/* ── Estado: conectado ── */}
+        {status === "connected" && (
+          <div className="border-t pt-4 space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Wifi size={16} className="text-green-600 dark:text-green-400" />
+                <span className="text-sm font-semibold text-green-700 dark:text-green-400">Conectado</span>
+              </div>
+              {phone && (
+                <div className="flex items-center gap-1.5 text-xs text-muted-foreground bg-muted px-2.5 py-1 rounded-full">
+                  <PhoneCall size={12} />
+                  +{phone}
+                </div>
+              )}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-full text-destructive border-destructive/30 hover:bg-destructive/5"
+              onClick={handleDisconnect}
+              disabled={actionBusy}
+            >
+              {actionBusy
+                ? <><Loader2 size={14} className="animate-spin mr-2" /> Desconectando...</>
+                : <><WifiOff size={14} className="mr-2" /> Desconectar</>
+              }
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
