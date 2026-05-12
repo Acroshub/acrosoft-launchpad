@@ -246,7 +246,7 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
       return showAdminPhoneInput ? adminPhoneOverride.replace(/\D/g, "") : profPhone;
     }
     const staff = staffList.find(s => s.id === targetId);
-    return ch === "email" ? (staff?.email ?? "") : "";
+    return ch === "email" ? (staff?.email ?? "") : (staff?.phone ?? "");
   };
 
   const toggleTarget = (id: string) => {
@@ -254,9 +254,14 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
       if (prev.includes(id)) {
         const next = prev.filter(t => t !== id);
         const result = next.length === 0 ? ["admin"] : next;
-        // If admin is no longer in targets and channel is whatsapp, switch to email
-        if (!result.includes("admin") && channel === "whatsapp") {
-          setChannel("email");
+        // Switch to email only if no remaining target has a WA-capable number
+        if (channel === "whatsapp") {
+          const anyHasWa = result.some(t => {
+            if (t === "admin") return !!profPhone;
+            const s = staffList.find(st => st.id === t);
+            return !!s?.phone;
+          });
+          if (!anyHasWa) setChannel("email");
         }
         return result;
       }
@@ -264,12 +269,16 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     });
   };
 
-  // WhatsApp only works for admin (staff have no phone field)
-  const allTargetsAreStaff = targets.length > 0 && targets.every(t => t !== "admin");
+  // Disable WA only if none of the selected targets have a phone
+  const noWaDestinations = targets.every(t => {
+    if (t === "admin") return showAdminPhoneInput ? !adminPhoneOverride.replace(/\D/g, "") : !profPhone;
+    const s = staffList.find(st => st.id === t);
+    return !s?.phone;
+  });
 
   const handleChannelChange = (ch: "email" | "whatsapp") => {
     if (!whatsappEnabled && ch === "whatsapp") return;
-    if (allTargetsAreStaff && ch === "whatsapp") return;
+    if (noWaDestinations && ch === "whatsapp") return;
     setChannel(ch);
   };
 
@@ -444,16 +453,16 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
             <button
               type="button"
               onClick={() => handleChannelChange("whatsapp")}
-              disabled={!whatsappEnabled || allTargetsAreStaff}
+              disabled={!whatsappEnabled || noWaDestinations}
               title={
                 !whatsappEnabled
                   ? "WhatsApp no está configurado. Ve a Configuración → Integraciones."
-                  : allTargetsAreStaff
-                  ? "WhatsApp solo está disponible para el dueño del negocio (el staff no tiene número registrado)."
+                  : noWaDestinations
+                  ? "Ningún destinatario seleccionado tiene número de teléfono registrado."
                   : undefined
               }
               className={
-                whatsappEnabled && !allTargetsAreStaff
+                whatsappEnabled && !noWaDestinations
                   ? pill(channel === "whatsapp")
                   : "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium border-border text-muted-foreground/40 cursor-not-allowed opacity-50"
               }
@@ -470,7 +479,7 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
                 return profPhone || null;
               }
               const s = staffList.find(m => m.id === targetId);
-              return channel === "email" ? (s?.email || null) : null;
+              return channel === "email" ? (s?.email || null) : (s?.phone || null);
             }).filter(Boolean) as string[];
             if (!dests.length) return null;
             return (

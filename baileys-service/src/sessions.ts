@@ -5,6 +5,7 @@ import makeWASocket, {
   WASocket,
 } from "@whiskeysockets/baileys";
 import { Boom } from "@hapi/boom";
+import NodeCache from "node-cache";
 import QRCode from "qrcode";
 import pino from "pino";
 import { supabase } from "./supabase";
@@ -14,6 +15,7 @@ const logger = pino({ level: "warn" });
 
 const sessions = new Map<string, WASocket>();
 const retryCount = new Map<string, number>();
+const msgRetryCounterCache = new NodeCache();
 
 async function updateStatus(
   userId: string,
@@ -67,6 +69,7 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     keepAliveIntervalMs: 10_000,
     connectTimeoutMs: 90_000,
     defaultQueryTimeoutMs: 90_000,
+    msgRetryCounterCache,
   });
 
   sessions.set(userId, sock);
