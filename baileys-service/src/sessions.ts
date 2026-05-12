@@ -34,7 +34,7 @@ async function updateStatus(
     );
 }
 
-export async function createSession(userId: string): Promise<void> {
+export async function createSession(userId: string, phoneNumber?: string | null): Promise<string | null> {
   // Destroy existing session first to prevent listener leaks
   const existing = sessions.get(userId);
   if (existing) {
@@ -75,6 +75,7 @@ export async function createSession(userId: string): Promise<void> {
     if (connection === "open") {
       const phone = sock.user?.id?.split(":")[0] ?? null;
       await updateStatus(userId, "connected", { phone_number: phone, qr_code: null });
+      await supabase.from("whatsapp_sessions").update({ pairing_code: null }).eq("user_id", userId);
       console.log(`[${userId}] Connected as ${phone}`);
     }
 
@@ -88,38 +89,51 @@ export async function createSession(userId: string): Promise<void> {
       if (loggedOut) {
         await supabase
           .from("whatsapp_sessions")
-          .update({ status: "disconnected", phone_number: null, qr_code: null, auth_state: null })
+          .update({ status: "disconnected", phone_number: null, qr_code: null, pairing_code: null, auth_state: null })
           .eq("user_id", userId);
       } else if (reason === DisconnectReason.restartRequired || reason === 515) {
-        // WhatsApp requested restart (515 = pairing success signal) — reconnect
         console.log(`[${userId}] Restart required (${reason}), reconnecting in 3s...`);
         await updateStatus(userId, "disconnected");
         setTimeout(() => createSession(userId), 3_000);
       } else if (reason === 440) {
-        // connectionReplaced — WhatsApp opened definitive WS, wait longer before retry
         console.log(`[${userId}] Connection replaced (440), reconnecting in 15s...`);
         await updateStatus(userId, "disconnected");
         setTimeout(() => createSession(userId), 15_000);
       } else {
-        // IP blocked, auth failure, QR expired — manual reconnect required
         console.log(`[${userId}] Session ended (reason: ${reason}). Manual reconnect required.`);
         await supabase
           .from("whatsapp_sessions")
-          .update({ status: "disconnected", qr_code: null })
+          .update({ status: "disconnected", qr_code: null, pairing_code: null })
           .eq("user_id", userId);
       }
     }
   });
 
-  // Ready for incoming messages (LLM agent hook — implement here in next iteration)
   sock.ev.on("messages.upsert", async ({ messages }) => {
     for (const msg of messages) {
       if (!msg.key.fromMe && msg.message) {
-        // TODO: route to LLM agent
         console.log(`[${userId}] Incoming message from ${msg.key.remoteJid}`);
       }
     }
   });
+
+  // Phone-number pairing: request code after socket initializes
+  if (phoneNumber && !state.creds.registered) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const digits = phoneNumber.replace(/\D/g, "");
+      const code = await sock.requestPairingCode(digits);
+      await supabase
+        .from("whatsapp_sessions")
+        .upsert({ user_id: userId, instance_name: userId, status: "qr_pending", pairing_code: code, updated_at: new Date().toISOString() }, { onConflict: "user_id" });
+      console.log(`[${userId}] Pairing code: ${code}`);
+      return code;
+    } catch (err) {
+      console.error(`[${userId}] requestPairingCode failed:`, err);
+    }
+  }
+
+  return null;
 }
 
 export async function deleteSession(userId: string): Promise<void> {

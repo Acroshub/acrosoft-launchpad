@@ -34,10 +34,11 @@ Deno.serve(async (req) => {
     return respond({ error: "Baileys service not configured" }, 503);
   }
 
-  const { action, phone, text } = await req.json().catch(() => ({})) as {
-    action?: string;
-    phone?:  string;
-    text?:   string;
+  const { action, phone, text, phoneNumber } = await req.json().catch(() => ({})) as {
+    action?:      string;
+    phone?:       string;
+    text?:        string;
+    phoneNumber?: string;
   };
 
   const baileysHeaders = {
@@ -53,17 +54,31 @@ Deno.serve(async (req) => {
 
   switch (action) {
 
-    // ── start: create/restart session → Baileys generates QR and writes to DB ──
+    // ── start: create/restart session → Baileys generates QR (or pairing code) ──
     case "start": {
       const res = await fetch(`${BAILEYS_SERVICE_URL}/session/${userId}/start`, {
         method: "POST",
         headers: baileysHeaders,
+        body: JSON.stringify({ phoneNumber: phoneNumber ?? null }),
       });
       if (!res.ok) {
         const err = await res.text();
         return respond({ error: `Baileys error: ${err}` }, 502);
       }
-      return respond({ ok: true });
+      const json = await res.json();
+      return respond({ ok: true, pairingCode: json.pairingCode ?? null });
+    }
+
+    // ── pairing_code: read pairing code written by Baileys to DB ────────────
+    case "pairing_code": {
+      const { data } = await adminDb
+        .from("whatsapp_sessions")
+        .select("pairing_code, status")
+        .eq("user_id", userId)
+        .maybeSingle();
+
+      if (!data) return respond({ pairing_code: null, status: "disconnected" });
+      return respond({ pairing_code: data.pairing_code ?? null, status: data.status });
     }
 
     // ── qr: read qr_code written by Baileys directly to Supabase ──────────────

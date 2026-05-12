@@ -6,9 +6,10 @@ const router = Router();
 // POST /session/:userId/start
 router.post("/:userId/start", async (req: Request, res: Response) => {
   const { userId } = req.params;
+  const { phoneNumber } = req.body as { phoneNumber?: string | null };
   try {
-    await createSession(userId);
-    res.json({ ok: true });
+    const pairingCode = await createSession(userId, phoneNumber);
+    res.json({ ok: true, pairingCode: pairingCode ?? null });
   } catch (err) {
     console.error(`[session/start] ${userId}:`, err);
     res.status(500).json({ error: (err as Error).message });

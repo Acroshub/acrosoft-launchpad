@@ -963,12 +963,17 @@ async function callWhatsappSession(action: string, extra: Record<string, string>
   return res.json();
 }
 
+type ConnectMode = "qr" | "phone_code";
+
 const WhatsAppTab = () => {
-  const [status, setStatus]     = useState<WaStatus>("loading");
-  const [qrCode, setQrCode]     = useState<string | null>(null);
-  const [phone, setPhone]       = useState<string | null>(null);
-  const [actionBusy, setBusy]   = useState(false);
-  const pollRef                 = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [status, setStatus]         = useState<WaStatus>("loading");
+  const [qrCode, setQrCode]         = useState<string | null>(null);
+  const [phone, setPhone]           = useState<string | null>(null);
+  const [actionBusy, setBusy]       = useState(false);
+  const [connectMode, setConnectMode] = useState<ConnectMode>("qr");
+  const [phoneInput, setPhoneInput] = useState("");
+  const [pairingCode, setPairingCode] = useState<string | null>(null);
+  const pollRef                     = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const stopPolling = useCallback(() => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
@@ -985,7 +990,7 @@ const WhatsAppTab = () => {
     return stopPolling;
   }, [stopPolling]);
 
-  // Start QR polling when status is qr_pending
+  // Polling after connecting (QR or pairing code)
   useEffect(() => {
     if (status !== "qr_pending") { stopPolling(); return; }
 
@@ -993,35 +998,46 @@ const WhatsAppTab = () => {
     pollRef.current = setInterval(async () => {
       elapsed += 3;
       try {
-        const { qr, status: s } = await callWhatsappSession("qr");
-        if (qr) setQrCode(qr);
-        if (s === "connected") {
-          stopPolling();
-          const { status: st, phone_number } = await callWhatsappSession("status");
-          setStatus(st);
-          setPhone(phone_number ?? null);
-          setQrCode(null);
-          toast.success("WhatsApp conectado correctamente");
+        if (connectMode === "qr") {
+          const { qr, status: s } = await callWhatsappSession("qr");
+          if (qr) setQrCode(qr);
+          if (s === "connected") {
+            stopPolling();
+            const { status: st, phone_number } = await callWhatsappSession("status");
+            setStatus(st);
+            setPhone(phone_number ?? null);
+            setQrCode(null);
+            toast.success("WhatsApp conectado correctamente");
+          }
+        } else {
+          const { status: s, phone_number } = await callWhatsappSession("status");
+          if (s === "connected") {
+            stopPolling();
+            setStatus(s);
+            setPhone(phone_number ?? null);
+            setPairingCode(null);
+            toast.success("WhatsApp conectado correctamente");
+          }
         }
       } catch {}
       if (elapsed >= 120) {
         stopPolling();
         setStatus("disconnected");
         setQrCode(null);
+        setPairingCode(null);
         toast.error("Tiempo de conexión agotado. Intenta de nuevo.");
       }
     }, 3000);
 
     return stopPolling;
-  }, [status, stopPolling]);
+  }, [status, connectMode, stopPolling]);
 
-  const handleConnect = async () => {
+  const handleConnectQr = async () => {
     setBusy(true);
     try {
       await callWhatsappSession("start");
       setStatus("qr_pending");
       setQrCode(null);
-      // Give Baileys 2s to generate the QR before first poll
       setTimeout(async () => {
         try {
           const { qr } = await callWhatsappSession("qr");
@@ -1035,6 +1051,24 @@ const WhatsAppTab = () => {
     }
   };
 
+  const handleConnectPhoneCode = async () => {
+    const digits = phoneInput.replace(/\D/g, "");
+    if (digits.length < 10) {
+      toast.error("Ingresa un número válido con código de país (ej: 521XXXXXXXXXX)");
+      return;
+    }
+    setBusy(true);
+    try {
+      const { pairingCode: code } = await callWhatsappSession("start", { phoneNumber: digits });
+      setPairingCode(code ?? null);
+      setStatus("qr_pending");
+    } catch (err) {
+      toast.error(`Error al obtener código: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleDisconnect = async () => {
     setBusy(true);
     try {
@@ -1042,6 +1076,7 @@ const WhatsAppTab = () => {
       setStatus("disconnected");
       setPhone(null);
       setQrCode(null);
+      setPairingCode(null);
       toast.success("WhatsApp desconectado");
     } catch (err) {
       toast.error(`Error al desconectar: ${(err as Error).message}`);
@@ -1058,6 +1093,7 @@ const WhatsAppTab = () => {
     } catch {}
     setStatus("disconnected");
     setQrCode(null);
+    setPairingCode(null);
     setBusy(false);
   };
 
@@ -1103,46 +1139,107 @@ const WhatsAppTab = () => {
               <WifiOff size={16} className="text-muted-foreground" />
               <span className="text-sm font-medium text-muted-foreground">No conectado</span>
             </div>
-            <Button
-              onClick={handleConnect}
-              disabled={actionBusy}
-              className="w-full bg-green-600 hover:bg-green-700 text-white"
-            >
-              {actionBusy
-                ? <><Loader2 size={15} className="animate-spin mr-2" /> Iniciando...</>
-                : <><MessageSquare size={15} className="mr-2" /> Conectar WhatsApp</>
-              }
-            </Button>
+
+            {/* Mode toggle */}
+            <div className="flex rounded-lg border overflow-hidden text-xs font-medium">
+              <button
+                onClick={() => setConnectMode("qr")}
+                className={`flex-1 py-2 transition-colors ${connectMode === "qr" ? "bg-green-600 text-white" : "bg-transparent text-muted-foreground hover:bg-muted"}`}
+              >
+                Escanear QR
+              </button>
+              <button
+                onClick={() => setConnectMode("phone_code")}
+                className={`flex-1 py-2 transition-colors ${connectMode === "phone_code" ? "bg-green-600 text-white" : "bg-transparent text-muted-foreground hover:bg-muted"}`}
+              >
+                Código de teléfono
+              </button>
+            </div>
+
+            {connectMode === "qr" ? (
+              <Button
+                onClick={handleConnectQr}
+                disabled={actionBusy}
+                className="w-full bg-green-600 hover:bg-green-700 text-white"
+              >
+                {actionBusy
+                  ? <><Loader2 size={15} className="animate-spin mr-2" /> Iniciando...</>
+                  : <><MessageSquare size={15} className="mr-2" /> Conectar WhatsApp</>
+                }
+              </Button>
+            ) : (
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <p className="text-xs text-muted-foreground">
+                    Ingresa tu número con código de país (sin <code>+</code>).
+                  </p>
+                  <Input
+                    placeholder="521XXXXXXXXXX"
+                    value={phoneInput}
+                    onChange={e => setPhoneInput(e.target.value)}
+                    className="text-sm"
+                  />
+                </div>
+                <Button
+                  onClick={handleConnectPhoneCode}
+                  disabled={actionBusy || phoneInput.replace(/\D/g, "").length < 10}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white"
+                >
+                  {actionBusy
+                    ? <><Loader2 size={15} className="animate-spin mr-2" /> Obteniendo código...</>
+                    : <><PhoneCall size={15} className="mr-2" /> Obtener código de vinculación</>
+                  }
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
-        {/* ── Estado: esperando QR ── */}
+        {/* ── Estado: esperando QR / código ── */}
         {status === "qr_pending" && (
           <div className="border-t pt-4 space-y-4">
             <div className="flex items-center gap-2">
               <RefreshCw size={15} className="animate-spin text-amber-500" />
-              <span className="text-sm font-medium text-amber-600 dark:text-amber-400">Esperando escaneo...</span>
+              <span className="text-sm font-medium text-amber-600 dark:text-amber-400">
+                {connectMode === "phone_code" && pairingCode ? "Ingresa el código en WhatsApp..." : "Esperando escaneo..."}
+              </span>
             </div>
 
-            <div className="flex flex-col items-center gap-3">
-              {qrCode ? (
-                <img
-                  src={qrCode}
-                  alt="WhatsApp QR"
-                  className="w-52 h-52 rounded-xl border shadow-sm"
-                />
-              ) : (
-                <div className="w-52 h-52 rounded-xl border bg-muted flex items-center justify-center">
-                  <Loader2 size={28} className="animate-spin text-muted-foreground" />
+            {connectMode === "phone_code" && pairingCode ? (
+              <div className="flex flex-col items-center gap-3">
+                <div className="bg-muted rounded-xl px-8 py-5 text-center">
+                  <p className="text-3xl font-mono font-bold tracking-[0.25em] text-foreground">
+                    {pairingCode}
+                  </p>
                 </div>
-              )}
-              <div className="text-center space-y-1">
-                <p className="text-xs font-semibold">Escanea este código con WhatsApp</p>
-                <p className="text-[11px] text-muted-foreground">
-                  Abre WhatsApp → <strong>Dispositivos vinculados</strong> → <strong>Vincular dispositivo</strong>
-                </p>
+                <div className="text-center space-y-1">
+                  <p className="text-xs font-semibold">Ingresa este código en WhatsApp</p>
+                  <p className="text-[11px] text-muted-foreground leading-relaxed">
+                    Abre WhatsApp → <strong>Dispositivos vinculados</strong> → <strong>Vincular con número de teléfono</strong> → ingresa el código
+                  </p>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex flex-col items-center gap-3">
+                {qrCode ? (
+                  <img
+                    src={qrCode}
+                    alt="WhatsApp QR"
+                    className="w-52 h-52 rounded-xl border shadow-sm"
+                  />
+                ) : (
+                  <div className="w-52 h-52 rounded-xl border bg-muted flex items-center justify-center">
+                    <Loader2 size={28} className="animate-spin text-muted-foreground" />
+                  </div>
+                )}
+                <div className="text-center space-y-1">
+                  <p className="text-xs font-semibold">Escanea este código con WhatsApp</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Abre WhatsApp → <strong>Dispositivos vinculados</strong> → <strong>Vincular dispositivo</strong>
+                  </p>
+                </div>
+              </div>
+            )}
 
             <Button
               variant="outline"

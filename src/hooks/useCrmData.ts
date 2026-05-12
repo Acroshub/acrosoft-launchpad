@@ -1765,16 +1765,17 @@ export const useCreateReminder = () => {
 export const useWhatsappConfig = () => {
   const { user } = useCurrentUser();
   return useQuery({
-    queryKey: ["crm_whatsapp_config", user?.id],
+    queryKey: ["whatsapp_sessions", user?.id],
     queryFn: async () => {
       const { data } = await supabase
-        .from("crm_whatsapp_config")
+        .from("whatsapp_sessions")
         .select("id, status, phone_number")
         .eq("user_id", user!.id)
         .maybeSingle();
       return data as { id: string; status: string; phone_number: string | null } | null;
     },
     enabled: !!user,
+    refetchInterval: 10_000,
   });
 };
 
