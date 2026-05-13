@@ -164,14 +164,20 @@ Deno.serve(async (req) => {
         createJson?.qrcode?.base64 ?? createJson?.qrcode?.code ?? null,
       );
       let connectDebug: Record<string, unknown> = {};
-      // Baileys generates the QR asynchronously via the `qr.updated` event.
-      // Poll /instance/connect up to 8 times (1s intervals) to wait for it to appear.
+      // Baileys needs uninterrupted time to complete the WhatsApp handshake before
+      // emitting the QR. Each call to /instance/connect resets the socket, so we
+      // wait 5s for the initial handshake, then poll at most twice spaced 3s apart.
       if (!qr) {
-        for (let attempt = 0; attempt < 8; attempt++) {
-          await new Promise((r) => setTimeout(r, 1000));
-          const connectResult = await getQrFromConnect();
-          connectDebug = { ...connectResult.debug, attempts: attempt + 1 };
-          if (connectResult.qr) { qr = connectResult.qr; break; }
+        await new Promise((r) => setTimeout(r, 5000));
+        const first = await getQrFromConnect();
+        connectDebug = { ...first.debug, attempts: 1 };
+        qr = first.qr;
+
+        if (!qr) {
+          await new Promise((r) => setTimeout(r, 3000));
+          const second = await getQrFromConnect();
+          connectDebug = { ...second.debug, attempts: 2 };
+          qr = second.qr;
         }
       }
 
