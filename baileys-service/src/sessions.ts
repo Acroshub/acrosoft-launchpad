@@ -10,20 +10,25 @@ import NodeCache from "node-cache";
 import QRCode from "qrcode";
 import pino from "pino";
 import { supabase } from "./supabase";
-import { useSupabaseAuthState } from "./auth-state";
+import { useUserAuthState, clearAuthState } from "./auth-state";
 
 const logger = pino({ level: "silent" });
 
 const sessions = new Map<string, WASocket>();
-const retryCount = new Map<string, number>();
+const reconnectTimers = new Map<string, NodeJS.Timeout>();
 const msgRetryCounterCache = new NodeCache();
 // Per-user store for getMessage (needed to answer recipient retry requests)
 const msgStores = new Map<string, Map<string, proto.IMessage>>();
+// Per-user "fully ready to send" flag — only true once pre-keys are confirmed
+// uploaded to WhatsApp servers. Without this, the first message to a
+// never-contacted number sticks at "Waiting for the message" because the
+// recipient cannot bootstrap the Signal session (no pre-keys to fetch).
+const sessionReady = new Map<string, boolean>();
 
 async function updateStatus(
   userId: string,
   status: "disconnected" | "qr_pending" | "connected" | "connecting",
-  extra: { phone_number?: string | null; qr_code?: string | null } = {},
+  extra: { phone_number?: string | null; qr_code?: string | null; pairing_code?: string | null } = {},
 ) {
   await supabase
     .from("whatsapp_sessions")
@@ -34,10 +39,31 @@ async function updateStatus(
         status,
         ...(extra.phone_number !== undefined && { phone_number: extra.phone_number }),
         ...(extra.qr_code      !== undefined && { qr_code:      extra.qr_code }),
+        ...(extra.pairing_code !== undefined && { pairing_code: extra.pairing_code }),
         updated_at: new Date().toISOString(),
       },
       { onConflict: "user_id" },
     );
+}
+
+function scheduleReconnect(userId: string, code: number | undefined): void {
+  if (reconnectTimers.has(userId)) return;
+  // Code 440 (connectionReplaced) needs 15s — happens right after pairing when WhatsApp
+  // opens a "definitive" socket and kicks the pairing one. Reconnecting too fast loops.
+  const delay = code === 440 ? 15_000 : 5_000;
+  console.log(`[${userId}] Scheduling reconnect in ${delay}ms (code: ${code})`);
+  const timer = setTimeout(() => {
+    reconnectTimers.delete(userId);
+    const existing = sessions.get(userId);
+    if (existing) {
+      try { existing.end(undefined); } catch {}
+      sessions.delete(userId);
+    }
+    createSession(userId).catch((err) =>
+      console.error(`[${userId}] Reconnect failed:`, err),
+    );
+  }, delay);
+  reconnectTimers.set(userId, timer);
 }
 
 export async function createSession(userId: string, phoneNumber?: string | null): Promise<string | null> {
@@ -49,17 +75,26 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     await new Promise(r => setTimeout(r, 500));
   }
 
-  // Phone pairing requires a clean slate — existing credentials (e.g. from a prior QR
-  // connection) cause requestPairingCode to be skipped because creds.registered is true.
+  // Phone pairing requires a clean slate — existing credentials cause
+  // requestPairingCode to be skipped because creds.registered is true.
   if (phoneNumber) {
+    await clearAuthState(userId);
     await supabase
       .from("whatsapp_sessions")
-      .update({ auth_state: null, status: "qr_pending", qr_code: null, pairing_code: null })
+      .update({ status: "qr_pending", qr_code: null, pairing_code: null })
       .eq("user_id", userId);
   }
 
-  const { version } = await fetchLatestBaileysVersion();
-  const { state, saveCreds } = await useSupabaseAuthState(userId);
+  // WhatsApp rejects outdated versions with code 405. Always fetch the latest.
+  let version: [number, number, number] | undefined;
+  try {
+    const fetched = await fetchLatestBaileysVersion();
+    version = fetched.version;
+  } catch (err) {
+    console.warn(`[${userId}] fetchLatestBaileysVersion failed, using bundled:`, err);
+  }
+
+  const { state, saveCreds } = await useUserAuthState(userId);
 
   if (!msgStores.has(userId)) msgStores.set(userId, new Map());
   const msgStore = msgStores.get(userId)!;
@@ -68,18 +103,12 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     version,
     logger,
     auth: state,
-    printQRInTerminal: false,
-    // Browser fingerprint validado por WhatsApp. Un fingerprint custom (e.g. Ubuntu/Chrome)
-    // hace que WhatsApp trate la sesión como dispositivo desconocido → code 440 y
-    // bug de "Waiting for the message" en el destinatario.
+    // Validated WhatsApp fingerprint. Custom fingerprints trigger code 440 in loop.
     browser: Browsers.macOS("Desktop"),
-    // Sin online, WhatsApp no procesa correctamente los retry receipts → el destinatario
-    // queda en "Waiting for the message" sin recibir el texto.
-    markOnlineOnConnect: true,
+    // false: appearing online floods WhatsApp with presence events and trips spam
+    // heuristics. The bot does not need to look "online" to send/receive.
+    markOnlineOnConnect: false,
     syncFullHistory: false,
-    keepAliveIntervalMs: 10_000,
-    connectTimeoutMs: 90_000,
-    defaultQueryTimeoutMs: 90_000,
     msgRetryCounterCache,
     getMessage: async (key) => msgStore.get(key.id!) ?? undefined,
   });
@@ -100,63 +129,58 @@ export async function createSession(userId: string, phoneNumber?: string | null)
       }
     }
 
+    if (connection === "connecting") {
+      // Only set 'connecting' from 'disconnected' (first boot). Never degrade
+      // from 'qr_pending' or 'connected' — would confuse the dashboard.
+      const { data } = await supabase
+        .from("whatsapp_sessions")
+        .select("status")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (!data || data.status === "disconnected") {
+        await updateStatus(userId, "connecting");
+      }
+    }
+
     if (connection === "open") {
-      retryCount.delete(userId);
-      const phone = sock.user?.id?.split(":")[0] ?? null;
-      await updateStatus(userId, "connected", { phone_number: phone, qr_code: null });
-      await supabase.from("whatsapp_sessions").update({ pairing_code: null }).eq("user_id", userId);
+      const phone = sock.user?.id?.split(":")[0]?.split("@")[0] ?? null;
+      await updateStatus(userId, "connected", { phone_number: phone, qr_code: null, pairing_code: null });
       console.log(`[${userId}] Connected as ${phone}`);
+
+      // Force pre-keys upload BEFORE marking session ready to send. WhatsApp
+      // recipients need our pre-keys to bootstrap the Signal session for the
+      // first incoming message from us; if they aren't on the server yet, the
+      // recipient sees "Waiting for the message" forever.
+      try {
+        await sock.uploadPreKeysToServerIfRequired();
+        console.log(`[${userId}] Pre-keys verified on server`);
+      } catch (err) {
+        console.warn(`[${userId}] uploadPreKeysToServerIfRequired failed:`, err);
+      }
+
+      sessionReady.set(userId, true);
     }
 
     if (connection === "close") {
-      const reason = (lastDisconnect?.error as Boom)?.output?.statusCode;
-      const loggedOut = reason === DisconnectReason.loggedOut;
-      console.log(`[${userId}] Connection closed. Reason: ${reason}. Logged out: ${loggedOut}`);
+      const code = (lastDisconnect?.error as Boom)?.output?.statusCode;
+      const loggedOut = code === DisconnectReason.loggedOut;
+      console.log(`[${userId}] Connection closed. Code: ${code}. Logged out: ${loggedOut}`);
 
+      sessionReady.set(userId, false);
       sessions.delete(userId);
 
       if (loggedOut) {
+        // Only loggedOut wipes the DB state. Other codes are transient; we keep
+        // status (e.g. 'connected') so the dashboard doesn't flicker while we reconnect.
+        await clearAuthState(userId);
         await supabase
           .from("whatsapp_sessions")
-          .update({ status: "disconnected", phone_number: null, qr_code: null, pairing_code: null, auth_state: null })
+          .update({ status: "disconnected", phone_number: null, qr_code: null, pairing_code: null })
           .eq("user_id", userId);
-      } else if (reason === DisconnectReason.restartRequired || reason === 515) {
-        console.log(`[${userId}] Restart required (${reason}), reconnecting in 3s...`);
-        await updateStatus(userId, "connecting");
-        setTimeout(() => createSession(userId), 3_000);
-      } else if (reason === 440) {
-        console.log(`[${userId}] Connection replaced (440), reconnecting in 15s...`);
-        await updateStatus(userId, "connecting");
-        setTimeout(() => createSession(userId), 15_000);
-      } else if (reason === undefined) {
-        // "undefined" can mean two things:
-        //  (A) WhatsApp is processing the pairing code the user just entered — it closes the
-        //      pre-auth socket and expects us to reconnect; 515 follows on the new socket.
-        //  (B) The socket died prematurely before the user entered the code.
-        //
-        // Strategy: reconnect exactly ONCE. If undefined fires a second time without ever
-        // reaching "open", it is case (B) and we require a manual reconnect.
-        const retries = (retryCount.get(userId) ?? 0) + 1;
-        retryCount.set(userId, retries);
-        if (retries === 1) {
-          console.log(`[${userId}] Socket closed (undefined) — reconnecting once for pairing handshake...`);
-          await updateStatus(userId, "connecting");
-          setTimeout(() => createSession(userId), 2_000);
-        } else {
-          console.log(`[${userId}] Socket closed again (undefined, attempt ${retries}) — session expired, manual reconnect required.`);
-          retryCount.delete(userId);
-          await supabase
-            .from("whatsapp_sessions")
-            .update({ status: "disconnected", qr_code: null, pairing_code: null })
-            .eq("user_id", userId);
-        }
-      } else {
-        console.log(`[${userId}] Session ended (reason: ${reason}). Manual reconnect required.`);
-        await supabase
-          .from("whatsapp_sessions")
-          .update({ status: "disconnected", qr_code: null, pairing_code: null })
-          .eq("user_id", userId);
+        return;
       }
+
+      scheduleReconnect(userId, code);
     }
   });
 
@@ -192,14 +216,26 @@ export async function createSession(userId: string, phoneNumber?: string | null)
 }
 
 export async function deleteSession(userId: string): Promise<void> {
+  const timer = reconnectTimers.get(userId);
+  if (timer) {
+    clearTimeout(timer);
+    reconnectTimers.delete(userId);
+  }
+
+  sessionReady.set(userId, false);
+
   const sock = sessions.get(userId);
   if (sock) {
+    try { await sock.logout(); } catch {}
     try { sock.end(undefined); } catch {}
     sessions.delete(userId);
   }
+
+  await clearAuthState(userId);
+
   await supabase
     .from("whatsapp_sessions")
-    .update({ status: "disconnected", phone_number: null, qr_code: null, auth_state: null })
+    .update({ status: "disconnected", phone_number: null, qr_code: null, pairing_code: null })
     .eq("user_id", userId);
 }
 
@@ -223,8 +259,22 @@ export function storeOutgoingMessage(userId: string, msgId: string, content: pro
 }
 
 /**
+ * Block until the session is fully ready to send (pre-keys uploaded).
+ * Prevents the "Waiting for the message" bug on first message to a
+ * never-contacted recipient. Returns false on timeout.
+ */
+export async function waitUntilReady(userId: string, timeoutMs = 60_000): Promise<boolean> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (sessionReady.get(userId)) return true;
+    await new Promise(r => setTimeout(r, 250));
+  }
+  return sessionReady.get(userId) === true;
+}
+
+/**
  * Returns an active session. If not in memory but DB shows status=connected,
- * triggers reconnect and waits up to 20s for the socket to reach "open" state.
+ * triggers reconnect.
  */
 export async function ensureSession(userId: string): Promise<WASocket | null> {
   const existing = sessions.get(userId);
@@ -240,8 +290,6 @@ export async function ensureSession(userId: string): Promise<WASocket | null> {
 
   console.log(`[${userId}] Session not in memory but DB says connected — reconnecting...`);
   await createSession(userId);
-  // createSession() puts the socket in the map immediately.
-  // Baileys internally queues sendMessage until connection is open.
   return sessions.get(userId) ?? null;
 }
 

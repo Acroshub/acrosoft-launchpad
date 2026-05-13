@@ -192,24 +192,26 @@ Deno.serve(async (req) => {
         }
 
       } else if (reminder.type === "whatsapp") {
-        const EVOLUTION_API_URL = Deno.env.get("EVOLUTION_API_URL");
-        const EVOLUTION_API_KEY = Deno.env.get("EVOLUTION_API_KEY");
-        if (!EVOLUTION_API_URL || !EVOLUTION_API_KEY) throw new Error("Evolution API not configured");
+        const BAILEYS_SERVICE_URL = Deno.env.get("BAILEYS_SERVICE_URL");
+        const BAILEYS_API_KEY     = Deno.env.get("BAILEYS_API_KEY");
+        if (!BAILEYS_SERVICE_URL || !BAILEYS_API_KEY) throw new Error("Baileys service not configured");
         if (!reminder.recipient_phone) throw new Error("No recipient phone on reminder");
 
-        const apiBase = EVOLUTION_API_URL.replace(/\/$/, "");
-        const phone = reminder.recipient_phone.replace(/\D/g, "");
-        const waRes = await fetch(`${apiBase}/message/sendText/${reminder.user_id}`, {
+        const waRes = await fetch(`${BAILEYS_SERVICE_URL.replace(/\/$/, "")}/message/send`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "apikey": EVOLUTION_API_KEY,
+            "x-api-key": BAILEYS_API_KEY,
           },
-          body: JSON.stringify({ number: phone, text: resolvedMessage }),
+          body: JSON.stringify({
+            userId: reminder.user_id,
+            phone:  reminder.recipient_phone,
+            text:   resolvedMessage,
+          }),
         });
         if (!waRes.ok) {
           const errText = await waRes.text();
-          throw new Error(`Evolution API error ${waRes.status}: ${errText}`);
+          throw new Error(`Baileys service error ${waRes.status}: ${errText}`);
         }
       } else {
         throw new Error(`Unknown channel type: ${reminder.type}`);

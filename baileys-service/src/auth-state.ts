@@ -1,76 +1,33 @@
-import { AuthenticationState, initAuthCreds, proto, BufferJSON } from "@whiskeysockets/baileys";
-import { supabase } from "./supabase";
+import { useMultiFileAuthState } from "@whiskeysockets/baileys";
+import path from "node:path";
+import fs from "node:fs/promises";
+import { existsSync } from "node:fs";
+
+const AUTH_DIR = process.env.AUTH_DIR ?? "/data/auth";
+
+function getAuthPath(userId: string): string {
+  return path.join(AUTH_DIR, userId);
+}
 
 /**
- * Custom Baileys auth state that persists to Supabase (whatsapp_sessions.auth_state jsonb).
- * Replaces the default file-system-based useMultiFileAuthState.
+ * Per-user Baileys auth state backed by Baileys' built-in useMultiFileAuthState.
+ * Each Signal Protocol key is written to its own file atomically, eliminating
+ * the race conditions that corrupted sessions when we used a single Supabase
+ * JSONB blob (root cause of the "Waiting for the message" delivery bug).
+ *
+ * Requires a persistent volume mounted at /data (configured in fly.toml).
  */
-export async function useSupabaseAuthState(userId: string): Promise<{
-  state: AuthenticationState;
-  saveCreds: () => Promise<void>;
-}> {
-  async function readData(): Promise<Record<string, any>> {
-    const { data } = await supabase
-      .from("whatsapp_sessions")
-      .select("auth_state")
-      .eq("user_id", userId)
-      .maybeSingle();
-    return (data?.auth_state as Record<string, any>) ?? {};
+export async function useUserAuthState(userId: string) {
+  const dir = getAuthPath(userId);
+  if (!existsSync(dir)) {
+    await fs.mkdir(dir, { recursive: true });
   }
+  return useMultiFileAuthState(dir);
+}
 
-  async function writeData(authState: Record<string, any>): Promise<void> {
-    await supabase
-      .from("whatsapp_sessions")
-      .upsert({
-        user_id:       userId,
-        instance_name: userId,
-        auth_state:    authState,
-        updated_at:    new Date().toISOString(),
-      }, { onConflict: "user_id" });
+export async function clearAuthState(userId: string): Promise<void> {
+  const dir = getAuthPath(userId);
+  if (existsSync(dir)) {
+    await fs.rm(dir, { recursive: true, force: true });
   }
-
-  const stored = await readData();
-
-  const creds: AuthenticationState["creds"] = stored.creds
-    ? JSON.parse(JSON.stringify(stored.creds), BufferJSON.reviver)
-    : initAuthCreds();
-
-  const keys: AuthenticationState["keys"] = {
-    get: async (type, ids) => {
-      const data: Record<string, any> = {};
-      for (const id of ids) {
-        const raw = stored[`${type}-${id}`];
-        if (raw != null) {
-          // proto keys need special handling
-          let value = JSON.parse(JSON.stringify(raw), BufferJSON.reviver);
-          if (type === "app-state-sync-key") {
-            value = proto.Message.AppStateSyncKeyData.fromObject(value);
-          }
-          data[id] = value;
-        }
-      }
-      return data;
-    },
-    set: async (data) => {
-      for (const [type, items] of Object.entries(data)) {
-        for (const [id, value] of Object.entries(items as Record<string, any>)) {
-          const key = `${type}-${id}`;
-          if (value != null) {
-            stored[key] = JSON.parse(JSON.stringify(value, BufferJSON.replacer));
-          } else {
-            delete stored[key];
-          }
-        }
-      }
-      await writeData(stored);
-    },
-  };
-
-  return {
-    state: { creds, keys },
-    saveCreds: async () => {
-      stored.creds = JSON.parse(JSON.stringify(creds, BufferJSON.replacer));
-      await writeData(stored);
-    },
-  };
 }

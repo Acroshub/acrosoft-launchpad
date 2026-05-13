@@ -2,7 +2,7 @@ app = 'acrosoft-evolution'
 primary_region = 'gru'
 
 [build]
-  image = 'atendai/evolution-api:latest'
+  dockerfile = 'Dockerfile'
 
 [env]
   SERVER_TYPE = 'http'
@@ -21,10 +21,12 @@ primary_region = 'gru'
   DEL_INSTANCE = 'false'
   CACHE_REDIS_ENABLED = 'false'
   CACHE_LOCAL_ENABLED = 'true'
-  LOG_LEVEL = 'ERROR,WARN,INFO'
+  LOG_LEVEL = 'ERROR,WARN,INFO,DEBUG,LOG'
   LOG_COLOR = 'false'
-  LOG_BAILEYS = 'error'
+  LOG_BAILEYS = 'debug'
   CONFIG_SESSION_PHONE_VERSION = '2.3000.1023223821'
+  CONFIG_SESSION_PHONE_CLIENT = 'Mac OS'
+  CONFIG_SESSION_PHONE_NAME = 'Desktop'
 
 [http_service]
   internal_port = 8080

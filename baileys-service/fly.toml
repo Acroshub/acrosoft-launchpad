@@ -4,9 +4,14 @@
 #
 
 app = 'acrosoft-baileys'
-primary_region = 'gru'
+primary_region = 'dfw'
 
 [build]
+
+[[mounts]]
+  source = 'baileys_auth'
+  destination = '/data'
+  initial_size = '1gb'
 
 [http_service]
   internal_port = 3000

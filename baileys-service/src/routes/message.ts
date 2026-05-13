@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { ensureSession, storeOutgoingMessage } from "../sessions";
+import { ensureSession, storeOutgoingMessage, waitUntilReady } from "../sessions";
 
 const router = Router();
 
@@ -30,6 +30,12 @@ router.post("/send", async (req: Request, res: Response) => {
   const sock = await ensureSession(userId);
   if (!sock) {
     res.status(404).json({ error: `No active WhatsApp session for user ${userId}` });
+    return;
+  }
+
+  const ready = await waitUntilReady(userId, 60_000);
+  if (!ready) {
+    res.status(503).json({ error: "WhatsApp session not fully ready (pre-keys upload pending). Retry in a moment." });
     return;
   }
 
