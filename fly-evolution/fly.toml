@@ -24,8 +24,7 @@ primary_region = 'gru'
   LOG_LEVEL = 'ERROR,WARN,INFO'
   LOG_COLOR = 'false'
   LOG_BAILEYS = 'error'
-  CONFIG_SESSION_PHONE_CLIENT = 'Acrosoft'
-  CONFIG_SESSION_PHONE_NAME = 'Chrome'
+  CONFIG_SESSION_PHONE_VERSION = '2.3000.1023223821'
 
 [http_service]
   internal_port = 8080
