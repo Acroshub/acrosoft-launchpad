@@ -1,5 +1,5 @@
 import { Router, Request, Response } from "express";
-import { ensureSession } from "../sessions";
+import { ensureSession, storeOutgoingMessage } from "../sessions";
 
 const router = Router();
 
@@ -38,6 +38,9 @@ router.post("/send", async (req: Request, res: Response) => {
     console.log(`[message/send] ${userId} → ${jid} | text length: ${text.length}`);
 
     const result = await sock.sendMessage(jid, { text });
+    if (result?.key?.id && result.message) {
+      storeOutgoingMessage(userId, result.key.id, result.message);
+    }
     console.log(`[message/send] sent ok | msgId: ${result?.key?.id} | status: ${result?.status}`);
     res.json({ ok: true, msgId: result?.key?.id });
   } catch (err) {

@@ -69,8 +69,13 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     logger,
     auth: state,
     printQRInTerminal: false,
-    browser: Browsers.ubuntu("Chrome"),
-    markOnlineOnConnect: false,
+    // Browser fingerprint validado por WhatsApp. Un fingerprint custom (e.g. Ubuntu/Chrome)
+    // hace que WhatsApp trate la sesión como dispositivo desconocido → code 440 y
+    // bug de "Waiting for the message" en el destinatario.
+    browser: Browsers.macOS("Desktop"),
+    // Sin online, WhatsApp no procesa correctamente los retry receipts → el destinatario
+    // queda en "Waiting for the message" sin recibir el texto.
+    markOnlineOnConnect: true,
     syncFullHistory: false,
     keepAliveIntervalMs: 10_000,
     connectTimeoutMs: 90_000,
@@ -200,6 +205,21 @@ export async function deleteSession(userId: string): Promise<void> {
 
 export function getSession(userId: string): WASocket | undefined {
   return sessions.get(userId);
+}
+
+/**
+ * Guarda un mensaje saliente en el store de retry. WhatsApp puede pedir un retry
+ * inmediato tras el send — si el mensaje no está en el store cuando llega el receipt,
+ * el destinatario queda en "Waiting for the message". Esta función cierra la ventana
+ * race entre sock.sendMessage() y el messages.upsert que Baileys dispara internamente.
+ */
+export function storeOutgoingMessage(userId: string, msgId: string, content: proto.IMessage): void {
+  let store = msgStores.get(userId);
+  if (!store) {
+    store = new Map();
+    msgStores.set(userId, store);
+  }
+  store.set(msgId, content);
 }
 
 /**

@@ -1,0 +1,46 @@
+app = 'acrosoft-evolution'
+primary_region = 'gru'
+
+[build]
+  image = 'atendai/evolution-api:latest'
+
+[env]
+  SERVER_TYPE = 'http'
+  SERVER_PORT = '8080'
+  SERVER_URL = 'https://acrosoft-evolution.fly.dev'
+  AUTHENTICATION_TYPE = 'apikey'
+  DATABASE_PROVIDER = 'postgresql'
+  DATABASE_CONNECTION_CLIENT_NAME = 'evolution_exchange'
+  DATABASE_SAVE_DATA_INSTANCE = 'true'
+  DATABASE_SAVE_DATA_NEW_MESSAGE = 'false'
+  DATABASE_SAVE_MESSAGE_UPDATE = 'false'
+  DATABASE_SAVE_DATA_CONTACTS = 'false'
+  DATABASE_SAVE_DATA_CHATS = 'false'
+  DATABASE_SAVE_DATA_LABELS = 'false'
+  DATABASE_SAVE_DATA_HISTORIC = 'false'
+  DEL_INSTANCE = 'false'
+  CACHE_REDIS_ENABLED = 'false'
+  CACHE_LOCAL_ENABLED = 'true'
+  LOG_LEVEL = 'ERROR,WARN,INFO'
+  LOG_COLOR = 'false'
+  LOG_BAILEYS = 'error'
+  CONFIG_SESSION_PHONE_CLIENT = 'Acrosoft'
+  CONFIG_SESSION_PHONE_NAME = 'Chrome'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+[[mounts]]
+  source = 'evolution_instances'
+  destination = '/evolution/instances'
+  initial_size = '1gb'
+
+[[vm]]
+  memory = '1gb'
+  cpu_kind = 'shared'
+  cpus = 1
