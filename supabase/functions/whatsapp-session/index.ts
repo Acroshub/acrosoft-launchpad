@@ -164,10 +164,15 @@ Deno.serve(async (req) => {
         createJson?.qrcode?.base64 ?? createJson?.qrcode?.code ?? null,
       );
       let connectDebug: Record<string, unknown> = {};
+      // Baileys generates the QR asynchronously via the `qr.updated` event.
+      // Poll /instance/connect up to 8 times (1s intervals) to wait for it to appear.
       if (!qr) {
-        const connectResult = await getQrFromConnect();
-        qr = connectResult.qr;
-        connectDebug = connectResult.debug;
+        for (let attempt = 0; attempt < 8; attempt++) {
+          await new Promise((r) => setTimeout(r, 1000));
+          const connectResult = await getQrFromConnect();
+          connectDebug = { ...connectResult.debug, attempts: attempt + 1 };
+          if (connectResult.qr) { qr = connectResult.qr; break; }
+        }
       }
 
       if (!qr) {
