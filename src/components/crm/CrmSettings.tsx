@@ -974,6 +974,7 @@ async function callWhatsappSession(action: string, extra: Record<string, string>
   );
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
+    if (err?.debug) console.error("[whatsapp-session] debug:\n" + JSON.stringify(err.debug, null, 2));
     throw new Error(err.error ?? res.statusText);
   }
   return res.json();

@@ -102,16 +102,26 @@ Deno.serve(async (req) => {
     await fetch(`${apiBase}/instance/delete/${userId}`,  { method: "DELETE", headers: apiHeaders }).catch(() => {});
   }
 
-  async function getQrFromConnect(): Promise<string | null> {
+  async function getQrFromConnect(): Promise<{ qr: string | null; debug: Record<string, unknown> }> {
     const res = await fetch(`${apiBase}/instance/connect/${userId}`, { headers: apiHeaders });
-    if (!res.ok) return null;
-    const json = await res.json().catch(() => null);
+    const text = await res.text();
+    let json: any = null;
+    try { json = JSON.parse(text); } catch { /* not JSON */ }
     const qr = json?.qrcode?.base64
       ?? json?.base64
       ?? json?.qrcode?.code
       ?? json?.code
       ?? null;
-    return normalizeBase64(qr);
+    return {
+      qr: normalizeBase64(qr),
+      debug: {
+        connect_status: res.status,
+        connect_ok: res.ok,
+        connect_topLevelKeys: json ? Object.keys(json) : null,
+        connect_qrcodeKeys: json?.qrcode ? Object.keys(json.qrcode) : null,
+        connect_rawBodyPreview: text?.slice(0, 500) ?? null,
+      },
+    };
   }
 
   switch (action) {
@@ -138,17 +148,43 @@ Deno.serve(async (req) => {
           qrcode:       true,
         }),
       });
+      const createText = await createRes.text();
+      let createJson: any = null;
+      try { createJson = JSON.parse(createText); } catch { /* not JSON */ }
+
       if (!createRes.ok) {
-        const err = await createRes.text();
-        return respond({ error: `Evolution create failed: ${err}` }, 502);
+        return respond({
+          error: `Evolution create failed: ${createText}`,
+          debug: { create_status: createRes.status, create_body: createText?.slice(0, 500) },
+        }, 502);
       }
-      const createJson = await createRes.json().catch(() => ({} as any));
 
       // QR usually comes back in /instance/create; fall back to /instance/connect if missing.
       let qr: string | null = normalizeBase64(
         createJson?.qrcode?.base64 ?? createJson?.qrcode?.code ?? null,
       );
-      if (!qr) qr = await getQrFromConnect();
+      let connectDebug: Record<string, unknown> = {};
+      if (!qr) {
+        const connectResult = await getQrFromConnect();
+        qr = connectResult.qr;
+        connectDebug = connectResult.debug;
+      }
+
+      if (!qr) {
+        // No QR generated → don't lie in BD. Teardown and return error so UI shows actionable state.
+        await teardownInstance();
+        await setStatus("disconnected", { phone_number: null, qr_code: null, pairing_code: null });
+        return respond({
+          error: "Evolution no generó QR. Reintenta.",
+          debug: {
+            create_status: createRes.status,
+            create_topLevelKeys: createJson ? Object.keys(createJson) : null,
+            create_qrcodeKeys: createJson?.qrcode ? Object.keys(createJson.qrcode) : null,
+            create_rawBodyPreview: createText?.slice(0, 500),
+            ...connectDebug,
+          },
+        }, 502);
+      }
 
       await setStatus("qr_pending", { qr_code: qr, phone_number: null, pairing_code: null });
       return respond({ ok: true });
@@ -170,16 +206,30 @@ Deno.serve(async (req) => {
 
       // Evolution's "connecting" state covers BOTH "waiting for QR scan" and "post-scan handshake".
       // Always try to fetch the QR first — if one comes back, user still needs to scan.
-      const qr = await getQrFromConnect();
+      const { qr } = await getQrFromConnect();
       if (qr) {
         await setStatus("qr_pending", { qr_code: qr });
         return respond({ qr, status: "qr_pending" });
       }
 
-      // No QR and state=connecting → we're in the brief post-scan handshake window
+      // No QR and state=connecting → either post-scan handshake OR zombie instance.
+      // Distinguish by current DB state: if we never saw qr_pending/connecting, Evolution is stale.
       if (state === "connecting") {
-        await setStatus("connecting");
-        return respond({ qr: null, status: "connecting" });
+        const { data: dbRow } = await adminDb
+          .from("whatsapp_sessions")
+          .select("status")
+          .eq("user_id", userId)
+          .maybeSingle();
+
+        if (dbRow?.status === "qr_pending" || dbRow?.status === "connecting") {
+          await setStatus("connecting");
+          return respond({ qr: null, status: "connecting" });
+        }
+
+        // Zombie: Evolution holds a stale instance with no active scan flow. Reset.
+        await teardownInstance();
+        await setStatus("disconnected", { phone_number: null, qr_code: null, pairing_code: null });
+        return respond({ qr: null, status: "disconnected" });
       }
 
       // No QR, state=close/null → fall back to DB (might still hold last cached QR)
