@@ -990,12 +990,18 @@ const WhatsAppTab = () => {
     if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null; }
   }, []);
 
-  // Check current status on mount
+  // Check current state on mount. We call `qr` (not `status`) so that if there's
+  // already a pending QR cached in Evolution, we display it immediately instead of
+  // showing the "connecting" spinner while waiting for the user to click Conectar.
   useEffect(() => {
-    callWhatsappSession("status")
-      .then(({ status: s, phone_number }) => {
+    callWhatsappSession("qr")
+      .then(async ({ qr, status: s }) => {
+        if (qr) setQrCode(qr);
         setStatus(s ?? "disconnected");
-        setPhone(phone_number ?? null);
+        if (s === "connected") {
+          const { phone_number } = await callWhatsappSession("status").catch(() => ({ phone_number: null }));
+          setPhone(phone_number ?? null);
+        }
       })
       .catch(() => setStatus("disconnected"));
     return stopPolling;
