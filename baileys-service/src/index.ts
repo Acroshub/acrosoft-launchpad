@@ -4,6 +4,10 @@ import sessionRouter  from "./routes/session";
 import messageRouter  from "./routes/message";
 import { reconnectActiveSessions } from "./sessions";
 
+// libsignal uses console.info to dump entire SessionEntry objects on every
+// ratchet step, which drowns Fly logs. Silence that channel.
+console.info = () => {};
+
 const app  = express();
 const PORT = parseInt(process.env.PORT ?? "3000", 10);
 const API_KEY = process.env.BAILEYS_API_KEY;

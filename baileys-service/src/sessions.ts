@@ -25,6 +25,37 @@ const msgStores = new Map<string, Map<string, proto.IMessage>>();
 // recipient cannot bootstrap the Signal session (no pre-keys to fetch).
 const sessionReady = new Map<string, boolean>();
 
+interface ForwardPayload {
+  userId:     string;
+  phone:      string;
+  remoteJid:  string;
+  pushName:   string | null;
+  text:       string;
+  waMsgId:    string | null;
+}
+
+async function forwardIncomingMessage(payload: ForwardPayload): Promise<void> {
+  const supaUrl = process.env.SUPABASE_URL;
+  const secret  = process.env.INCOMING_WEBHOOK_SECRET;
+  if (!supaUrl || !secret) {
+    console.warn(`[forward] SUPABASE_URL or INCOMING_WEBHOOK_SECRET missing — skipping`);
+    return;
+  }
+  const url = `${supaUrl.replace(/\/$/, "")}/functions/v1/ai-agent-incoming`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type":     "application/json",
+      "x-webhook-secret": secret,
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "");
+    console.warn(`[forward] edge fn returned ${res.status}: ${errText}`);
+  }
+}
+
 async function updateStatus(
   userId: string,
   status: "disconnected" | "qr_pending" | "connected" | "connecting",
@@ -110,12 +141,28 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     markOnlineOnConnect: false,
     syncFullHistory: false,
     msgRetryCounterCache,
-    getMessage: async (key) => msgStore.get(key.id!) ?? undefined,
+    getMessage: async (key) => {
+      const found = msgStore.get(key.id!);
+      console.log(`[${userId}] getMessage called for id=${key.id} | found=${!!found}`);
+      return found ?? undefined;
+    },
   });
 
   sessions.set(userId, sock);
 
   sock.ev.on("creds.update", saveCreds);
+
+  sock.ev.on("message-receipt.update", (updates) => {
+    for (const u of updates) {
+      console.log(`[${userId}] receipt | id=${u.key.id} | to=${u.key.remoteJid} | type=${u.receipt?.receiptTimestamp ? "delivered" : u.receipt?.readTimestamp ? "read" : JSON.stringify(u.receipt)}`);
+    }
+  });
+
+  sock.ev.on("messages.update", (updates) => {
+    for (const u of updates) {
+      console.log(`[${userId}] msg.update | id=${u.key.id} | status=${u.update?.status}`);
+    }
+  });
 
   sock.ev.on("connection.update", async (update) => {
     const { connection, lastDisconnect, qr } = update;
@@ -184,15 +231,61 @@ export async function createSession(userId: string, phoneNumber?: string | null)
     }
   });
 
-  sock.ev.on("messages.upsert", async ({ messages }) => {
+  sock.ev.on("messages.upsert", async ({ messages, type }) => {
+    console.log(`[${userId}] messages.upsert type=${type} count=${messages.length}`);
     for (const msg of messages) {
       // Store all messages so getMessage can fulfill retry requests
       if (msg.message && msg.key.id) {
         msgStore.set(msg.key.id, msg.message);
       }
-      if (!msg.key.fromMe && msg.message) {
-        console.log(`[${userId}] Incoming message from ${msg.key.remoteJid}`);
+
+      // Only forward inbound text messages from individual chats.
+      // Accept both "notify" (realtime) and "append" (catch-up after reconnect)
+      // but skip "append" messages older than 5 minutes to avoid replaying history.
+      const remoteJid = msg.key.remoteJid ?? "";
+      const isGroup     = remoteJid.endsWith("@g.us");
+      const isBroadcast = remoteJid.endsWith("@broadcast");
+      const isLid       = remoteJid.endsWith("@lid");
+      const isS         = remoteJid.endsWith("@s.whatsapp.net");
+
+      const _msgJson = msg.message != null ? (JSON.stringify(msg.message) ?? "circular").slice(0, 200) : "undefined";
+      console.log(`[${userId}] msg fromMe=${msg.key.fromMe} jid=${remoteJid} stubType=${(msg as any).messageStubType ?? "none"} conv=${msg.message?.conversation ?? "nil"} extText=${msg.message?.extendedTextMessage?.text ?? "nil"} msgJson=${_msgJson}`);
+
+      if (msg.key.fromMe) continue;
+      if (isGroup || isBroadcast) continue;         // skip groups and broadcasts
+      if (!isS && !isLid) continue;                  // skip status, newsletter, etc.
+
+      // For "append" (history sync), only process very recent messages
+      if (type === "append") {
+        const msgTs = Number(msg.messageTimestamp ?? 0) * 1000;
+        if (Date.now() - msgTs > 5 * 60_000) continue;
       }
+
+      const text =
+        msg.message?.conversation ??
+        msg.message?.extendedTextMessage?.text ??
+        null;
+      if (!text) {
+        console.log(`[${userId}] non-text/empty from ${remoteJid} type=${type} — skipped`);
+        continue;
+      }
+
+      // @s.whatsapp.net → número de teléfono; @lid → ID numérico (no es el teléfono real pero es único)
+      const phone = isS
+        ? (remoteJid.split("@")[0]?.split(":")[0] ?? "")
+        : (remoteJid.split("@")[0] ?? "");
+      const pushName = msg.pushName ?? null;
+      console.log(`[${userId}] Incoming text from ${phone} (type=${type} lid=${isLid}): ${text.slice(0, 60)}`);
+
+      // Fire-and-forget POST to the Supabase edge function.
+      forwardIncomingMessage({
+        userId,
+        phone,
+        remoteJid,
+        pushName,
+        text,
+        waMsgId: msg.key.id ?? null,
+      }).catch((err) => console.error(`[${userId}] forwardIncomingMessage failed:`, err));
     }
   });
 
