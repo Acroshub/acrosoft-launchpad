@@ -1324,9 +1324,13 @@ const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; admi
   { id: "reminders", label: "Recordatorios",  Component: RemindersTab  },
 ];
 
-const CrmSettings = ({ isSuperAdmin }: { isSuperAdmin?: boolean }) => {
-  const visibleTabs = ALL_TABS.filter((t) => !t.adminOnly || isSuperAdmin);
-  const defaultTab  = isSuperAdmin ? "general" : "logs";
+const CrmSettings = ({ isSuperAdmin, isVendor }: { isSuperAdmin?: boolean; isVendor?: boolean }) => {
+  const visibleTabs = ALL_TABS.filter((t) => {
+    if (t.adminOnly && !isSuperAdmin) return false;
+    if (isVendor && (t.id === "staff" || t.id === "logs" || t.id === "general" || t.id === "soporte")) return false;
+    return true;
+  });
+  const defaultTab  = isSuperAdmin ? "general" : isVendor ? "reminders" : "logs";
   const [tab, setTab] = useState<TabId>(defaultTab);
 
   const activeTab = visibleTabs.find((t) => t.id === tab) ?? visibleTabs[0];

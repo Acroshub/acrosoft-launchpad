@@ -1339,7 +1339,7 @@ const ImportWizard = ({ open, onOpenChange, existingContacts, defaultStage }: Im
 };
 
 // ─── Contacts list ────────────────────────────────────────────────────────────
-const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
+const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?: boolean; isVendor?: boolean }) => {
   const { can } = useStaffPermissions();
   const canCreate         = can("contactos", "create");
   const canEdit           = can("contactos", "edit");
@@ -1584,15 +1584,17 @@ const CrmContacts = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
           <p className="text-sm text-muted-foreground mt-0.5">Todos los contactos registrados en el CRM</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Button
-            variant="outline"
-            onClick={() => exportContactsCsv(filtered)}
-            className="rounded-xl gap-1.5 h-9 text-xs font-medium"
-            title={filtered.length < contacts.length ? `Exportar ${filtered.length} contactos (filtrados)` : "Exportar todos los contactos a CSV"}
-          >
-            <Upload size={13} /> <span className="hidden sm:inline">Exportar</span>
-          </Button>
-          {canCreate && (
+          {!isVendor && (
+            <Button
+              variant="outline"
+              onClick={() => exportContactsCsv(filtered)}
+              className="rounded-xl gap-1.5 h-9 text-xs font-medium"
+              title={filtered.length < contacts.length ? `Exportar ${filtered.length} contactos (filtrados)` : "Exportar todos los contactos a CSV"}
+            >
+              <Upload size={13} /> <span className="hidden sm:inline">Exportar</span>
+            </Button>
+          )}
+          {canCreate && !isVendor && (
             <Button
               variant="outline"
               onClick={() => setShowImport(true)}

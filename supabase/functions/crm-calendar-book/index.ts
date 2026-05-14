@@ -395,7 +395,11 @@ Deno.serve(async (req) => {
 
             for (const targetId of targets) {
               let channelValue = "";
-              if (targetId === "admin") {
+              if (targetId === "vendor") {
+                // Calendar belongs to a vendor — send to the vendor's auth email
+                const { data: { user: vendorUser } } = await supabase.auth.admin.getUserById(calendar.user_id);
+                channelValue = vendorUser?.email ?? "";
+              } else if (targetId === "admin") {
                 const { data: profile } = await supabase
                   .from("crm_business_profile").select("contact_email, contact_phone, whatsapp")
                   .eq("user_id", calendar.user_id).single();

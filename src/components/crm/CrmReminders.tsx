@@ -10,7 +10,7 @@ import PhoneInput from "@/components/shared/PhoneInput";
 import {
   useCalendars, useForms, useUpdateForm, useStaff, useBusinessProfile,
   usePersonalReminders, useCreateReminder, useWhatsappEnabled, useWhatsappConfig,
-  useUpsertBusinessProfile, useDeleteReminder,
+  useUpsertBusinessProfile, useDeleteReminder, useVendorProfile,
 } from "@/hooks/useCrmData";
 import ReminderRulesEditor, { ReminderRule } from "@/components/shared/ReminderRulesEditor";
 import CrmCalendarConfig from "./CrmCalendarConfig";
@@ -202,6 +202,8 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
   const { data: staffList = [] }   = useStaff();
   const { data: profile }          = useBusinessProfile();
   const { data: waConfig }         = useWhatsappConfig();
+  const { data: vendorProfile }    = useVendorProfile();
+  const isVendor                   = !!vendorProfile;
   const createReminder             = useCreateReminder();
   const upsertProfile              = useUpsertBusinessProfile();
   const whatsappEnabled            = useWhatsappEnabled();
@@ -240,6 +242,7 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     : profPhone;
 
   const resolveChannelValue = (targetId: string, ch: "email" | "whatsapp"): string => {
+    if (isVendor) return ch === "email" ? (vendorProfile?.email ?? "") : "";
     if (targetId === "admin") {
       if (ch === "email") return profile?.contact_email ?? "";
       return showAdminPhoneInput ? adminPhoneOverride.replace(/\D/g, "") : profPhone;
@@ -401,41 +404,52 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
         {/* Destination */}
         <div className="space-y-1.5">
           <p className="text-xs font-medium text-muted-foreground">Enviar a *</p>
-          <div className="space-y-1 border border-border/60 rounded-xl p-2.5 max-h-44 overflow-y-auto">
-            <label className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors">
-              <input
-                type="checkbox"
-                checked={targets.includes("admin")}
-                onChange={() => toggleTarget("admin")}
-                className="h-3.5 w-3.5 rounded border-input accent-primary"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold leading-none">{adminLabel}</p>
-                {profile?.contact_email
-                  ? <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{profile.contact_email}</p>
-                  : <p className="text-[10px] text-amber-600 mt-0.5">⚠ Sin email — configúralo en Mi Negocio</p>
-                }
+          {isVendor ? (
+            <div className="border border-border/60 rounded-xl p-2.5">
+              <div className="flex items-center gap-2.5 px-2 py-1.5">
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold leading-none">Tú (Vendedor)</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{vendorProfile?.email}</p>
+                </div>
               </div>
-            </label>
-            {staffList.map((s) => (
-              <label key={s.id} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors">
+            </div>
+          ) : (
+            <div className="space-y-1 border border-border/60 rounded-xl p-2.5 max-h-44 overflow-y-auto">
+              <label className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors">
                 <input
                   type="checkbox"
-                  checked={targets.includes(s.id)}
-                  onChange={() => toggleTarget(s.id)}
+                  checked={targets.includes("admin")}
+                  onChange={() => toggleTarget("admin")}
                   className="h-3.5 w-3.5 rounded border-input accent-primary"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold leading-none">{s.name} <span className="font-normal text-muted-foreground">(Staff)</span></p>
-                  {s.email && <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{s.email}</p>}
+                  <p className="text-xs font-semibold leading-none">{adminLabel}</p>
+                  {profile?.contact_email
+                    ? <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{profile.contact_email}</p>
+                    : <p className="text-[10px] text-amber-600 mt-0.5">⚠ Sin email — configúralo en Mi Negocio</p>
+                  }
                 </div>
               </label>
-            ))}
-            {staffList.length === 0 && (
-              <p className="text-[11px] text-muted-foreground/50 italic px-2 py-1">Sin staff registrado</p>
-            )}
-          </div>
-          {targets.length > 1 && (
+              {staffList.map((s) => (
+                <label key={s.id} className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={targets.includes(s.id)}
+                    onChange={() => toggleTarget(s.id)}
+                    className="h-3.5 w-3.5 rounded border-input accent-primary"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold leading-none">{s.name} <span className="font-normal text-muted-foreground">(Staff)</span></p>
+                    {s.email && <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{s.email}</p>}
+                  </div>
+                </label>
+              ))}
+              {staffList.length === 0 && (
+                <p className="text-[11px] text-muted-foreground/50 italic px-2 py-1">Sin staff registrado</p>
+              )}
+            </div>
+          )}
+          {!isVendor && targets.length > 1 && (
             <p className="text-[10px] text-muted-foreground">
               {targets.length} destinatarios — se creará una notificación por cada uno
             </p>

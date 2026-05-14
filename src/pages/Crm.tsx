@@ -124,7 +124,7 @@ const Crm = () => {
       case "business":  return (!isStaff || can("mi_negocio_personal", "read") || can("mi_negocio_datos", "read") || can("servicios", "read")) ? <CrmBusiness /> : null;
       case "calendar":  return can("calendarios", "read")  ? <CrmCalendar />  : null;
       case "forms":     return can("formularios", "read")  ? <CrmForms />     : null;
-      case "contacts":  return can("contactos", "read")    ? <CrmContacts isSuperAdmin={effectiveIsAdmin} /> : null;
+      case "contacts":  return can("contactos", "read")    ? <CrmContacts isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} /> : null;
       case "pipeline":   return can("pipeline", "read")     ? <CrmPipeline />   : null;
       case "ventas":     return can("ventas", "read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} /> : null;
       case "reminders":  return can("recordatorios", "read") ? <CrmReminders /> : null;

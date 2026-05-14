@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
 
     // ── 4. Create default resources under vendor's user_id ───────────────────
 
-    // 4a. Basic form
+    // 4a. Basic form — 3 fields
     const { data: form } = await supabase
       .from("crm_forms")
       .insert({
@@ -129,27 +129,82 @@ Deno.serve(async (req) => {
         fields: [
           { id: "field_name",  type: "text",  label: "Nombre",             required: true },
           { id: "field_email", type: "email", label: "Correo electrónico", required: true },
+          { id: "field_phone", type: "phone", label: "WhatsApp",           required: true },
         ],
-        submit_label:     "Enviar",
+        submit_label:     "Agendar reunión",
         success_action:   "popup",
-        success_message:  "¡Gracias por contactarnos!",
+        success_message:  "¡Tu reunión ha sido agendada!",
         success_image:    "icon",
         is_basic_form:    true,
       })
       .select("id")
       .single();
 
-    // 4b. Calendar linked to that form
+    // 4b. Calendar with full config + 4 reminder rules
+    const reminderRules = [
+      {
+        id: "r1",
+        recipient: "contact",
+        channel: "email",
+        channelValue: "",
+        timing: "on_booking",
+        amount: 0,
+        unit: "minutes",
+        subject: "Cita Confirmada - Acrosoft",
+        content: "Hola {{contact.name}}, tu reunión para hablar de tu sitio web está confirmada el {{appointment.date}} a las {{appointment.time}}.",
+      },
+      {
+        id: "r2",
+        recipient: "business",
+        businessTargets: ["vendor"],
+        businessTarget: "vendor",
+        channel: "email",
+        channelValue: "",
+        timing: "on_booking",
+        amount: 0,
+        unit: "minutes",
+        subject: "Cita Confirmada - Acrosoft",
+        content: "Hola {{vendedor.name}}, tienes una reunión confirmada con {{contact.name}}, su teléfono es {{contact.phone}}. La reunión es el {{appointment.date}} a las {{appointment.time}}.",
+      },
+      {
+        id: "r3",
+        recipient: "contact",
+        channel: "email",
+        channelValue: "",
+        timing: "before",
+        amount: 1,
+        unit: "hours",
+        subject: "Recordatorio: tu reunión es pronto — {{appointment.date}}",
+        content: "Hola {{contact.name}}, te recordamos que tienes una reunión el {{appointment.date}} a las {{appointment.time}}.",
+      },
+      {
+        id: "r4",
+        recipient: "business",
+        businessTargets: ["vendor"],
+        businessTarget: "vendor",
+        channel: "email",
+        channelValue: "",
+        timing: "before",
+        amount: 1,
+        unit: "hours",
+        subject: "Recordatorio: reunión en 1 hora — {{contact.name}}",
+        content: "Hola {{vendedor.name}}, en 1 hora tienes una reunión con {{contact.name}}. La reunión es a las {{appointment.time}}.",
+      },
+    ];
+
     await supabase
       .from("crm_calendar_config")
       .insert({
-        user_id:        vendorUserId,
-        name:           "Mi Calendario",
-        duration_min:   30,
-        buffer_min:     10,
-        availability:   DEFAULT_AVAILABILITY,
-        linked_form_id: form?.id ?? null,
-        timezone:       "America/La_Paz",
+        user_id:          vendorUserId,
+        name:             "Agenda tu Reunión",
+        duration_min:     60,
+        buffer_min:       0,
+        min_advance_hours: 1,
+        max_future_days:  5,
+        availability:     DEFAULT_AVAILABILITY,
+        linked_form_id:   form?.id ?? null,
+        timezone:         "America/La_Paz",
+        reminder_rules:   reminderRules,
       });
 
     // 4c. Pipeline "Seguimiento de Leads"
