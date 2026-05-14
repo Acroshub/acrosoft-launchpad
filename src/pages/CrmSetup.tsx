@@ -58,6 +58,9 @@ const CrmSetup = () => {
           // Link this auth user to the crm_staff row via SECURITY DEFINER RPC
           const { error: rpcErr } = await supabase.rpc("activate_staff_invitation");
           if (rpcErr) console.error("activate_staff_invitation (non-fatal):", rpcErr);
+        } else if (accountType === "vendor") {
+          // Trigger on auth.users already set status = 'active' on email confirm.
+          // Nothing extra needed here.
         } else {
           // Default: SaaS client activation
           await supabase

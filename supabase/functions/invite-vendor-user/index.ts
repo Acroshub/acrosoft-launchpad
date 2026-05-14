@@ -69,7 +69,7 @@ Deno.serve(async (req) => {
     const { data: inviteData, error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(
       email,
       {
-        redirectTo: `${siteUrl}/crm`,
+        redirectTo: `${siteUrl}/crm-setup`,
         data: {
           full_name:    name ?? vendor.name,
           account_type: "vendor",
