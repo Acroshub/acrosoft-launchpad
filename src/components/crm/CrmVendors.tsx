@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Plus, Trash2, Loader2, UserCheck, Edit2, Copy } from "lucide-react";
+import { Plus, Trash2, Loader2, UserCheck, Edit2, Copy, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -208,9 +208,26 @@ interface VendorRowProps {
 }
 
 const VendorRow = ({ vendor, onEdit, onDelete }: VendorRowProps) => {
+  const [resending, setResending] = useState(false);
+
   const copySlug = () => {
     navigator.clipboard.writeText(vendor.slug);
     toast.success("Slug copiado");
+  };
+
+  const handleResend = async () => {
+    setResending(true);
+    try {
+      const { error } = await supabase.functions.invoke("invite-vendor-user", {
+        body: { email: vendor.email, vendor_id: vendor.id, name: vendor.name, resend: true },
+      });
+      if (error) throw error;
+      toast.success("Invitación reenviada");
+    } catch {
+      toast.error("Error al reenviar la invitación");
+    } finally {
+      setResending(false);
+    }
   };
 
   return (
@@ -241,6 +258,18 @@ const VendorRow = ({ vendor, onEdit, onDelete }: VendorRowProps) => {
       </div>
 
       <div className="flex gap-1.5 shrink-0">
+        {vendor.status === "invited" && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground"
+            onClick={handleResend}
+            disabled={resending}
+            title="Reenviar invitación"
+          >
+            {resending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
+          </Button>
+        )}
         <Button variant="ghost" size="sm" className="h-8 w-8 p-0" onClick={() => onEdit(vendor)}>
           <Edit2 size={13} />
         </Button>

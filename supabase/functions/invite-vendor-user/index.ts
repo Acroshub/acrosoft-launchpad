@@ -48,22 +48,31 @@ Deno.serve(async (req) => {
   if (authErr || !owner) return respond({ error: "Unauthorized" }, 401);
 
   try {
-    const { email, vendor_id, name } = await req.json();
+    const { email, vendor_id, name, resend } = await req.json();
     if (!email || !vendor_id) return respond({ error: "email y vendor_id son requeridos" }, 400);
 
     // ── 1. Load vendor and verify ownership ─────────────────────────────────
     const { data: vendor, error: vendorErr } = await supabase
       .from("crm_vendors")
-      .select("id, name, email, slug, status")
+      .select("id, name, email, slug, status, vendor_user_id")
       .eq("id", vendor_id)
       .eq("owner_user_id", owner.id)
       .single();
 
     if (vendorErr || !vendor) return respond({ error: "Vendedor no encontrado" }, 404);
 
+    // ── 2. Si es reenvío, limpiar el auth user anterior ──────────────────────
+    if (resend && vendor.vendor_user_id) {
+      await supabase.auth.admin.deleteUser(vendor.vendor_user_id);
+      await supabase
+        .from("crm_vendors")
+        .update({ vendor_user_id: null, status: "invited" })
+        .eq("id", vendor_id);
+    }
+
     const siteUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
 
-    // ── 2. Send invitation ───────────────────────────────────────────────────
+    // ── 3. Send invitation ───────────────────────────────────────────────────
     let vendorUserId: string;
 
     const { data: inviteData, error: inviteErr } = await supabase.auth.admin.inviteUserByEmail(
