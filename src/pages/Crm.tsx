@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle, PlayCircle } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle, PlayCircle, Link, UserCheck } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
 import CrmOverview from "@/components/crm/CrmOverview";
@@ -15,24 +15,29 @@ import CrmVentas from "@/components/crm/CrmVentas";
 import CrmSupport from "@/components/crm/CrmSupport";
 import CrmSupportAdmin from "@/components/crm/CrmSupportAdmin";
 import CrmVideos from "@/components/crm/CrmVideos";
-import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount } from "@/hooks/useCrmData";
+import CrmVendorLinks from "@/components/crm/CrmVendorLinks";
+import CrmVendors from "@/components/crm/CrmVendors";
+import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount, useVendorProfile } from "@/hooks/useCrmData";
+import { vendorVisibleNavItems } from "@/lib/permissions";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte" | "videos";
+type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "vendor_links" | "vendors";
 
 const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
-  { id: "overview",   label: "Resumen",        icon: LayoutDashboard, group: "Principal"      },
-  { id: "business",   label: "Mi Negocio",     icon: Store,           group: "Principal"      },
-  { id: "forms",      label: "Formularios",    icon: ClipboardList,   group: "Calendario"     },
-  { id: "calendar",   label: "Calendarios",    icon: CalendarDays,    group: "Calendario"     },
-  { id: "contacts",   label: "Contactos",      icon: Users,           group: "CRM"            },
-  { id: "pipeline",   label: "Pipeline",       icon: Kanban,          group: "CRM"            },
-  { id: "ventas",     label: "Ventas",         icon: DollarSign,      group: "CRM"            },
-  { id: "reminders",  label: "Notificaciones", icon: Bell,            group: "CRM"            },
-  { id: "videos",     label: "Videos",         icon: PlayCircle,      group: "Configuración"  },
-  { id: "settings",   label: "Configuración",  icon: Settings,        group: "Configuración"  },
-  { id: "soporte",    label: "Soporte",        icon: MessageCircle,   group: "Configuración"  },
+  { id: "overview",      label: "Resumen",        icon: LayoutDashboard, group: "Principal"      },
+  { id: "business",      label: "Mi Negocio",     icon: Store,           group: "Principal"      },
+  { id: "forms",         label: "Formularios",    icon: ClipboardList,   group: "Calendario"     },
+  { id: "calendar",      label: "Calendarios",    icon: CalendarDays,    group: "Calendario"     },
+  { id: "contacts",      label: "Contactos",      icon: Users,           group: "CRM"            },
+  { id: "pipeline",      label: "Pipeline",       icon: Kanban,          group: "CRM"            },
+  { id: "ventas",        label: "Ventas",         icon: DollarSign,      group: "CRM"            },
+  { id: "reminders",     label: "Notificaciones", icon: Bell,            group: "CRM"            },
+  { id: "vendor_links",  label: "Links",          icon: Link,            group: "CRM"            },
+  { id: "vendors",       label: "Vendedores",     icon: UserCheck,       group: "Configuración"  },
+  { id: "videos",        label: "Videos",         icon: PlayCircle,      group: "Configuración"  },
+  { id: "settings",      label: "Configuración",  icon: Settings,        group: "Configuración"  },
+  { id: "soporte",       label: "Soporte",        icon: MessageCircle,   group: "Configuración"  },
 ];
 
 const groups = [...new Set(navItems.map((n) => n.group))];
@@ -49,13 +54,30 @@ const Crm = () => {
   const [view, setView]             = useState<View>("overview");
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  const { data: vendorProfile, isLoading: vendorLoading } = useVendorProfile();
+  const isVendor = !!vendorProfile && !isStaff;
+
   const isSuperAdmin = user?.email === SUPER_ADMIN_EMAIL;
-  const effectiveIsAdmin = isSuperAdmin && !isStaff;
+  const effectiveIsAdmin = isSuperAdmin && !isStaff && !isVendor;
 
   const isSaasClient = user?.user_metadata?.account_type === "saas_client";
   const { data: supportUnread = 0 } = useSupportUnreadCount();
   const { data: adminUnread = 0 } = useAdminUnreadCount();
   const soporteBadge = effectiveIsAdmin ? adminUnread : supportUnread;
+
+  // Nav items visible según rol
+  const effectiveAllowedNavItems = isVendor
+    ? vendorVisibleNavItems()
+    : allowedNavItems;
+
+  // While loading vendor status, show spinner to avoid flash
+  if (vendorLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 size={24} className="animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   // While loading account status, show spinner to avoid CRM flash for disabled clients
   if (isSaasClient && accountLoading) {
@@ -106,9 +128,11 @@ const Crm = () => {
       case "pipeline":   return can("pipeline", "read")     ? <CrmPipeline />   : null;
       case "ventas":     return can("ventas", "read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} /> : null;
       case "reminders":  return can("recordatorios", "read") ? <CrmReminders /> : null;
-      case "settings":   return !isStaff                   ? <CrmSettings isSuperAdmin={effectiveIsAdmin} />   : null;
+      case "settings":   return (!isStaff || isVendor)       ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} vendorProfile={vendorProfile ?? null} />   : null;
       case "soporte":    return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;
       case "videos":     return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
+      case "vendor_links": return isVendor ? <CrmVendorLinks vendorProfile={vendorProfile!} /> : null;
+      case "vendors":      return effectiveIsAdmin ? <CrmVendors /> : null;
     }
   };
 
@@ -131,8 +155,9 @@ const Crm = () => {
             </p>
             <div className="space-y-0.5">
               {navItems
-                .filter((n) => n.group === group && allowedNavItems.has(n.id)
-                  && (n.id !== "videos" || effectiveIsAdmin || isSaasClient)
+                .filter((n) => n.group === group && effectiveAllowedNavItems.has(n.id)
+                  && (n.id !== "videos"   || effectiveIsAdmin || isSaasClient)
+                  && (n.id !== "vendors"  || effectiveIsAdmin)
 )
                 .map((item) => {
                   const Icon = item.icon;

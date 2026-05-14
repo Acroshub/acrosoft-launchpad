@@ -182,7 +182,7 @@ export type CrmSale = {
   created_at: string
   user_id: string
   contact_id: string | null
-  contact_name: string | null   // snapshot del nombre al momento de la venta
+  contact_name: string | null
   service_id: string | null
   service_name: string | null
   amount: number
@@ -190,6 +190,11 @@ export type CrmSale = {
   type: 'initial' | 'recurring'
   notes: string | null
   is_vip?: boolean
+  vendor_id: string | null
+  is_paid: boolean
+  paid_at: string | null
+  payment_proof_url: string | null
+  commission_pct: number
 }
 
 export type CrmContactNote = {
@@ -389,5 +394,44 @@ export type SupportNotificationRecipient = {
   email: string
   active: boolean
   created_at: string
+}
+
+export type CrmVendor = {
+  id: string
+  created_at: string
+  owner_user_id: string
+  vendor_user_id: string | null
+  name: string
+  email: string
+  whatsapp: string | null
+  commission_pct: number
+  slug: string
+  status: 'invited' | 'active' | 'inactive'
+  notes: string | null
+}
+
+export type CrmVendorLinks = {
+  id: string
+  created_at: string
+  owner_user_id: string
+  payment_link_title: string
+  payment_link: string | null
+  onboarding_link_title: string
+  onboarding_link: string | null
+}
+
+export type CrmMaintenancePayment = {
+  id: string
+  created_at: string
+  owner_user_id: string
+  vendor_id: string
+  month: string
+  amount: number
+  commission_pct: number
+  commission_amount: number
+  is_paid: boolean
+  paid_at: string | null
+  proof_url: string | null
+  notes: string | null
 }
 

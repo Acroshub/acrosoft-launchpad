@@ -24,6 +24,9 @@ import type {
   CrmVideoCourse,
   CrmVideoModule,
   CrmVideo,
+  CrmVendor,
+  CrmVendorLinks,
+  CrmMaintenancePayment,
 } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "./useAuth";
 
@@ -2125,5 +2128,166 @@ export const useDeleteNotificationRecipient = () => {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["support_notification_recipients"] }),
+  });
+};
+
+// ─── VENDEDORES ───────────────────────────────────────────────────────────────
+
+/** Perfil del vendedor actual (si el usuario logueado es vendedor) */
+export const useVendorProfile = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["vendor_profile", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_vendors")
+        .select("*")
+        .eq("vendor_user_id", user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data as CrmVendor | null;
+    },
+    enabled: !!user,
+  });
+};
+
+/** Lista de vendedores del superadmin */
+export const useVendors = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["vendors", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_vendors")
+        .select("*")
+        .eq("owner_user_id", user!.id)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as CrmVendor[];
+    },
+    enabled: !!user,
+  });
+};
+
+export const useCreateVendor = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (vendor: { name: string; email: string; whatsapp?: string; commission_pct: number; slug: string }) => {
+      const { data, error } = await supabase
+        .from("crm_vendors")
+        .insert({ ...vendor, owner_user_id: user!.id })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmVendor;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["vendors"] }),
+  });
+};
+
+export const useUpdateVendor = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...updates }: Partial<CrmVendor> & { id: string }) => {
+      const { error } = await supabase
+        .from("crm_vendors")
+        .update(updates)
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["vendors"] }),
+  });
+};
+
+export const useDeleteVendor = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("crm_vendors")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["vendors"] }),
+  });
+};
+
+/** Links configurados por el superadmin (para vendedores) */
+export const useVendorLinks = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["vendor_links", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_vendor_links")
+        .select("*")
+        .maybeSingle();
+      if (error) throw error;
+      return data as CrmVendorLinks | null;
+    },
+    enabled: !!user,
+  });
+};
+
+export const useUpsertVendorLinks = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (links: Omit<CrmVendorLinks, "id" | "created_at" | "owner_user_id">) => {
+      const { error } = await supabase
+        .from("crm_vendor_links")
+        .upsert({ ...links, owner_user_id: user!.id }, { onConflict: "owner_user_id" });
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["vendor_links"] }),
+  });
+};
+
+/** Pagos de mantenimiento (superadmin) */
+export const useMaintenancePayments = (vendorId?: string) => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["maintenance_payments", user?.id, vendorId],
+    queryFn: async () => {
+      let q = supabase
+        .from("crm_maintenance_payments")
+        .select("*")
+        .order("month", { ascending: false });
+      if (vendorId) q = q.eq("vendor_id", vendorId);
+      const { data, error } = await q;
+      if (error) throw error;
+      return data as CrmMaintenancePayment[];
+    },
+    enabled: !!user,
+  });
+};
+
+export const useUpsertMaintenancePayment = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (payment: Omit<CrmMaintenancePayment, "id" | "created_at" | "owner_user_id">) => {
+      const { error } = await supabase
+        .from("crm_maintenance_payments")
+        .upsert({ ...payment, owner_user_id: user!.id }, { onConflict: "vendor_id,month" });
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["maintenance_payments"] }),
+  });
+};
+
+export const useMarkSalePaid = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, proof_url }: { id: string; proof_url?: string }) => {
+      const { error } = await supabase
+        .from("crm_sales")
+        .update({ is_paid: true, paid_at: new Date().toISOString(), payment_proof_url: proof_url ?? null })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["sales"] }),
   });
 };

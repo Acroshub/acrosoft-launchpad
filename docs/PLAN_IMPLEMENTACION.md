@@ -1877,3 +1877,139 @@ baileys-service/
 **Bundle escaneado:** sin presencia de `ANTHROPIC_`, `RESEND_`, `EVOLUTION_`, `GOOGLE_CLIENT_SECRET`, `SERVICE_ROLE`, ni patrones `sk-ant-`, `re_`, `sk_`. Solo el payload JWT de la anon key (esperado).
 **Fix crítico aplicado:** `.env` estaba siendo trackeado por git (valores actuales son públicos, pero riesgo futuro). Se ejecutó `git rm --cached .env`, se agregó `.env` y `.env.production` a `.gitignore`, y se creó `.env.example` documentando qué va en frontend vs Edge Function secrets.
 **Regla permanente documentada:** cualquier key que no sea la anon key de Supabase va en Edge Function secrets, nunca en `VITE_*`.
+
+---
+
+## BLOQUE 11 — Sistema de Vendedores
+
+> Multi-nivel: el Superadmin puede registrar Vendedores que operan su propio CRM aislado (calendarios, contactos, pipelines, formularios) pero bajo el paraguas del negocio del Superadmin. El Superadmin ve reportes consolidados de ventas y comisiones.
+
+---
+
+### AV-3 · Fase 1 — Base: Roles, DB y RLS 🔄 EN PROGRESO
+
+**Objetivo:** Crear la infraestructura de datos que soporta el rol `vendedor` con aislamiento total entre vendedores y visibilidad del superadmin sobre todos.
+
+**Tablas nuevas:**
+- `crm_vendors` — perfil del vendedor: `user_id`, `owner_user_id` (superadmin), `name`, `email`, `whatsapp`, `commission_pct`, `slug`, `status`
+- `crm_vendor_links` — links del superadmin para sus vendedores: `user_id` (owner), `payment_link`, `onboarding_link`
+- `crm_maintenance_payments` — pagos mensuales de mantenimiento: `vendor_id`, `month` (YYYY-MM), `amount`, `commission_amount`, `is_paid`, `proof_url`, `paid_at`
+
+**Columnas nuevas en tablas existentes:**
+- `crm_sales`: `vendor_id uuid REFERENCES crm_vendors`, `is_paid bool DEFAULT false`, `payment_proof_url text`, `paid_at timestamptz`
+- `crm_contacts`: `vendor_id uuid REFERENCES crm_vendors` (para que el superadmin identifique el origen)
+
+**RLS extendida:**
+- `crm_contacts`: superadmin puede SELECT donde `user_id IN (SELECT user_id FROM crm_vendors WHERE owner_user_id = auth.uid())`
+- `crm_sales`: misma lógica
+- `crm_vendors`: owner puede ver/gestionar sus propios vendedores
+
+**Invitación:** mismo flujo de `invite-staff-user` pero con rol `vendedor`. Al crear vendedor se generan automáticamente: 1 calendario, 1 formulario básico, 1 pipeline "Seguimiento de Leads".
+
+**Archivos:**
+- `supabase/migrations/YYYYMMDD_vendors_base.sql`
+- `supabase/functions/invite-staff-user/index.ts` — extender para rol vendedor
+- `src/lib/permissions.ts` — agregar rol `vendedor` con navItems restringidos
+- `src/pages/Crm.tsx` — filtrar sidebar según rol vendedor
+
+---
+
+### AV-4 · Fase 2 — Landing del Vendedor + Tracking de Onboarding
+
+**Objetivo:** Cada vendedor tiene una landing page en `/{vendor_slug}` que es réplica exacta del home del superadmin. El formulario de onboarding captura `?ref={vendor_slug}` y registra la venta al vendedor correspondiente.
+
+**Landing del vendedor:**
+- Ruta: `/{vendor_slug}` — renderiza el mismo componente `Index.tsx` con datos públicos del negocio
+- Siempre replica al home original (servicios, precios, textos, diseño del superadmin)
+- Si el superadmin cambia algo en su landing, cambia para todos los vendedores automáticamente
+
+**Tracking de onboarding:**
+- El superadmin configura UN solo link de onboarding en `crm_vendor_links`
+- Los vendedores reciben su URL personalizada: `{onboarding_link}?ref={vendor_slug}`
+- El `FormRenderer` al hacer submit captura `ref` del query param y lo guarda en `crm_form_submissions.vendor_slug`
+- Trigger en Supabase: cuando se inserta una submission con `vendor_slug`, busca el vendedor, crea/actualiza contacto en el CRM del vendedor, registra venta con el monto del servicio elegido
+
+**Detección de servicio y monto:**
+- El formulario de onboarding tiene un campo de tipo `select` con los servicios del negocio
+- El precio del servicio seleccionado se toma de `crm_services.price`
+- La venta se registra con ese monto + `vendor_id`
+
+**Archivos:**
+- `src/App.tsx` — nueva ruta `/:vendorSlug`
+- `src/pages/VendorLanding.tsx` — wrapper que carga datos del negocio del owner y pasa `vendorSlug`
+- `src/components/crm/FormRenderer.tsx` — captura `?ref=` y lo incluye en el submit
+- `supabase/migrations/YYYYMMDD_form_submissions_vendor.sql` — columna `vendor_slug` en `crm_form_submissions`
+- `supabase/functions/process-onboarding/index.ts` — Edge Function que procesa submissions con ref
+
+---
+
+### AV-5 · Fase 3 — Ventas, Comisiones y Pagos
+
+**Objetivo:** El superadmin ve ventas consolidadas de todos sus vendedores con cálculo de comisiones. Puede marcar pagos iniciales y de mantenimiento. Puede subir comprobantes.
+
+**Vista Ventas del superadmin (nueva lógica):**
+- Filtros: por vendedor, por tipo (inicial / mantenimiento), por mes, por estado de pago
+- Métricas: ingreso total, ganancia del superadmin (total − comisiones), comisión por vendedor
+- Tabla: cada venta muestra vendedor, cliente, servicio, monto, comisión, estado de pago
+- Botón "Marcar como pagado" + upload de comprobante por fila
+- Sección separada "Mantenimientos del mes": agrupado por vendedor, con total de mantenimientos activos y monto de comisión a pagar
+
+**Vista Ventas del vendedor:**
+- Solo sus propias ventas
+- Resumen: total ventas, ingresos generados, comisiones ganadas
+- Lista de sus clientes con el servicio contratado
+- Historial de comprobantes de pago que subió el superadmin (solo lectura)
+
+**Archivos:**
+- `src/components/crm/CrmSales.tsx` — bifurcación: vista superadmin vs vista vendedor
+- `src/hooks/useCrmData.ts` — nuevos hooks: `useVendorSales`, `useVendorCommissions`, `useMaintenancePayments`
+- `supabase/functions/upload-payment-proof/index.ts` — subida a Storage + update de `crm_sales`
+- `supabase/migrations/YYYYMMDD_sales_vendor_fields.sql`
+
+---
+
+### AV-6 · Fase 4 — Links, Notificaciones y Settings del Vendedor
+
+**Objetivo:** El vendedor tiene acceso a los links del superadmin y puede configurar notificaciones de email.
+
+**Tab "Links" en sidebar del vendedor:**
+- Muestra los links configurados por el superadmin en `crm_vendor_links`
+- Título personalizable por el superadmin
+- Links: Pago y Onboarding (con su `?ref=` ya incluido automáticamente)
+
+**Tab "Links Vendedores" en Settings del superadmin:**
+- Formulario para guardar título, link de pago y link de onboarding
+- Vista previa de cómo verá cada vendedor sus links
+
+**Notificaciones del vendedor:**
+- Mismo componente `ReminderRulesEditor` pero ligado a los calendarios del vendedor
+- Solo canal Email (igual que el resto del CRM actualmente)
+
+**Settings del vendedor (restringidos):**
+- Puede ver/editar: nombre, WhatsApp (no email)
+- Puede elegir qué calendario usar en su landing page
+- Puede ver historial de recordatorios
+- No puede: añadir staff, ver logs, modificar notificaciones de soporte, ver Videos/Cursos, ver Soporte
+
+**Archivos:**
+- `src/components/crm/CrmSettings.tsx` — sección condicional para vendedores
+- `src/components/crm/CrmVendorLinks.tsx` — nuevo componente de tab Links
+- `src/hooks/useCrmData.ts` — `useVendorLinks`
+- `supabase/migrations/YYYYMMDD_vendor_links.sql`
+
+---
+
+### Resumen del Sistema de Vendedores
+
+| Feature | Fase | Estado |
+|---|---|---|
+| DB base + RLS multi-vendor | AV-3 | 🔄 En progreso |
+| Invitación + creación automática de recursos | AV-3 | ⏳ Pendiente |
+| Restricciones UI por rol vendedor | AV-3 | ⏳ Pendiente |
+| Landing del vendedor + tracking `?ref=` | AV-4 | ⏳ Pendiente |
+| Auto-creación de contacto/venta al submit | AV-4 | ⏳ Pendiente |
+| Vista ventas superadmin con comisiones | AV-5 | ⏳ Pendiente |
+| Marcar pagado + subir comprobante | AV-5 | ⏳ Pendiente |
+| Vista ventas del vendedor | AV-5 | ⏳ Pendiente |
+| Tab Links del vendedor | AV-6 | ⏳ Pendiente |
+| Settings restringidos del vendedor | AV-6 | ⏳ Pendiente |

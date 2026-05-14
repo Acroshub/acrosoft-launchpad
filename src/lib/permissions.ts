@@ -106,7 +106,7 @@ export function canAccessItem(
  */
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
-    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings", "soporte", "videos"]);
+    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings", "soporte", "videos", "vendors"]);
   }
 
   const can = buildPermChecker(staffRecord);
@@ -127,4 +127,23 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   // Staff no accede a videos
 
   return visible;
+}
+
+/**
+ * Nav sections visible for a vendor (vendedor).
+ * Vendors have full access to their own resources but cannot see
+ * business config, support, or videos.
+ */
+export function vendorVisibleNavItems(): Set<string> {
+  return new Set([
+    "overview",
+    "calendar",
+    "forms",
+    "contacts",
+    "pipeline",
+    "ventas",
+    "reminders",
+    "settings",
+    "vendor_links",
+  ]);
 }
