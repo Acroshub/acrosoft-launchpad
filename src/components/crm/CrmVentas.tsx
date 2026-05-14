@@ -795,8 +795,8 @@ const CrmVentas = ({
           ))}
         </div>
 
-        {/* DIA DE PAGO RECURRENTE — last month recurring commissions */}
-        {isSuperAdmin && maintByVendorLastMonth.length > 0 && (
+        {/* DIA DE PAGO RECURRENTE — solo día 1 de cada mes, mientras haya pagos pendientes */}
+        {isSuperAdmin && today.getDate() === 1 && maintByVendorLastMonth.length > 0 && maintByVendorLastMonth.some(r => !r.paid) && (
           <div className="border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 rounded-2xl overflow-hidden">
             <div className="px-6 py-4 border-b border-amber-200 dark:border-amber-800 flex items-center gap-3">
               <AlertTriangle size={16} className="text-amber-600 shrink-0" />
