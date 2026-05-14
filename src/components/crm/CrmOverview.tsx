@@ -30,7 +30,7 @@ const INTERVAL_LABELS: Record<string, string> = {
   semiannual: "Semestral",
 };
 
-const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
+const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?: boolean; isVendor?: boolean }) => {
   // ─── Supabase hooks ───
   const { user } = useCurrentUser();
   const { data: contacts = [] } = useContacts();
@@ -554,7 +554,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       </div>
 
       {/* Registrar Venta */}
-      {canCreateSale && <div className="bg-card border rounded-2xl p-6">
+      {canCreateSale && !isVendor && <div className="bg-card border rounded-2xl p-6">
         <h2 className="text-sm font-semibold mb-4">Registrar Venta</h2>
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
           <div className="space-y-1.5">
@@ -671,7 +671,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
       </div>}
 
       {/* Historial de Ventas */}
-      <div className="bg-card border rounded-2xl overflow-hidden">
+      {!isVendor && <div className="bg-card border rounded-2xl overflow-hidden">
         <div className="px-6 py-4 border-b flex justify-between items-center">
           <h2 className="text-sm font-semibold">Historial de Ventas</h2>
         </div>
@@ -779,7 +779,7 @@ const CrmOverview = ({ isSuperAdmin = false }: { isSuperAdmin?: boolean }) => {
             )}
           </div>
         )}
-      </div>
+      </div>}
     </div>
     </>
   );
