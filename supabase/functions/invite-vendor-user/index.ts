@@ -192,7 +192,7 @@ Deno.serve(async (req) => {
       },
     ];
 
-    await supabase
+    const { data: newCal } = await supabase
       .from("crm_calendar_config")
       .insert({
         user_id:          vendorUserId,
@@ -205,7 +205,17 @@ Deno.serve(async (req) => {
         linked_form_id:   form?.id ?? null,
         timezone:         "America/La_Paz",
         reminder_rules:   reminderRules,
-      });
+      })
+      .select("id")
+      .single();
+
+    // Guardar landing_calendar_id en el vendor para la landing page
+    if (newCal?.id) {
+      await supabase
+        .from("crm_vendors")
+        .update({ landing_calendar_id: newCal.id })
+        .eq("id", vendor_id);
+    }
 
     // 4c. Pipeline "Seguimiento de Leads"
     await supabase

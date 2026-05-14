@@ -70,15 +70,6 @@ const Crm = () => {
     ? vendorVisibleNavItems()
     : allowedNavItems;
 
-  // While loading vendor status, show spinner to avoid flash
-  if (vendorLoading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <Loader2 size={24} className="animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
   // While loading account status, show spinner to avoid CRM flash for disabled clients
   if (isSaasClient && accountLoading) {
     return (
@@ -126,9 +117,9 @@ const Crm = () => {
       case "forms":     return can("formularios", "read")  ? <CrmForms />     : null;
       case "contacts":  return can("contactos", "read")    ? <CrmContacts isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} /> : null;
       case "pipeline":   return can("pipeline", "read")     ? <CrmPipeline />   : null;
-      case "ventas":     return can("ventas", "read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} /> : null;
+      case "ventas":     return can("ventas", "read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} vendorProfile={vendorProfile ?? null} /> : null;
       case "reminders":  return can("recordatorios", "read") ? <CrmReminders /> : null;
-      case "settings":   return (!isStaff || isVendor)       ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} vendorProfile={vendorProfile ?? null} />   : null;
+      case "settings":   return (!isStaff || isVendor)        ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} vendorId={vendorProfile?.id ?? null} />   : null;
       case "soporte":    return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;
       case "videos":     return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
       case "vendor_links": return isVendor ? <CrmVendorLinks vendorProfile={vendorProfile!} /> : null;

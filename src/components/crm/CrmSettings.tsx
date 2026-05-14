@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell } from "lucide-react";
-import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient } from "@/hooks/useCrmData";
+import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient, useVendorProfile, useUpdateVendor, useVendorLinks, useUpsertVendorLinks } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmLog, CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
@@ -1312,25 +1312,175 @@ const SupportTab = () => {
   );
 };
 
+// ─── Vendor Profile Tab ───────────────────────────────────────────────────────
+
+const VendorProfileTab = () => {
+  const { data: vendorProfile, isLoading } = useVendorProfile();
+  const updateVendor = useUpdateVendor();
+  const [name, setName]         = useState("");
+  const [whatsapp, setWhatsapp] = useState("");
+  const [saving, setSaving]     = useState(false);
+  const initialized             = useRef(false);
+
+  useEffect(() => {
+    if (vendorProfile && !initialized.current) {
+      initialized.current = true;
+      setName(vendorProfile.name);
+      setWhatsapp(vendorProfile.whatsapp ?? "");
+    }
+  }, [vendorProfile]);
+
+  const handleSave = async () => {
+    if (!vendorProfile || !name.trim()) return;
+    setSaving(true);
+    try {
+      await updateVendor.mutateAsync({ id: vendorProfile.id, name: name.trim(), whatsapp: whatsapp || null });
+      toast.success("Perfil actualizado");
+    } catch {
+      toast.error("Error al guardar");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <div className="space-y-5 max-w-md">
+      <div>
+        <h2 className="text-sm font-semibold">Mi Perfil</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">Edita tus datos personales</p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">Nombre *</label>
+        <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 text-sm" />
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">Correo electrónico</label>
+        <Input value={vendorProfile?.email ?? ""} disabled className="h-9 text-sm opacity-60" />
+        <p className="text-[10px] text-muted-foreground">El correo no se puede modificar.</p>
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">WhatsApp</label>
+        <PhoneInputField value={whatsapp} onChange={setWhatsapp} />
+      </div>
+
+      <Button onClick={handleSave} disabled={saving || !name.trim()} className="rounded-xl h-9 text-sm">
+        {saving && <Loader2 size={13} className="animate-spin mr-1.5" />}
+        Guardar cambios
+      </Button>
+    </div>
+  );
+};
+
+// ─── Vendor Links Admin Tab ───────────────────────────────────────────────────
+
+const VendorLinksAdminTab = () => {
+  const { data: links }     = useVendorLinks();
+  const upsertLinks         = useUpsertVendorLinks();
+  const [paymentTitle,    setPaymentTitle]    = useState("");
+  const [paymentLink,     setPaymentLink]     = useState("");
+  const [onboardingTitle, setOnboardingTitle] = useState("");
+  const [onboardingLink,  setOnboardingLink]  = useState("");
+  const [saving, setSaving] = useState(false);
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (links && !initialized.current) {
+      initialized.current = true;
+      setPaymentTitle(links.payment_link_title ?? "Link de Pago");
+      setPaymentLink(links.payment_link ?? "");
+      setOnboardingTitle(links.onboarding_link_title ?? "Link de Onboarding");
+      setOnboardingLink(links.onboarding_link ?? "");
+    }
+  }, [links]);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await upsertLinks.mutateAsync({
+        payment_link_title:    paymentTitle.trim() || "Link de Pago",
+        payment_link:          paymentLink.trim() || null,
+        onboarding_link_title: onboardingTitle.trim() || "Link de Onboarding",
+        onboarding_link:       onboardingLink.trim() || null,
+      });
+      toast.success("Links guardados");
+    } catch {
+      toast.error("Error al guardar links");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6 max-w-lg">
+      <div>
+        <h2 className="text-sm font-semibold">Links para Vendedores</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Estos links aparecerán en el tab "Links" de cada vendedor con su código de seguimiento ya incluido.
+        </p>
+      </div>
+
+      <div className="space-y-4 bg-card border rounded-2xl p-5">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Link de Pago</p>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Título</label>
+          <Input value={paymentTitle} onChange={(e) => setPaymentTitle(e.target.value)} placeholder="Link de Pago" className="h-9 text-sm" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">URL</label>
+          <Input value={paymentLink} onChange={(e) => setPaymentLink(e.target.value)} placeholder="https://..." className="h-9 text-sm" />
+        </div>
+      </div>
+
+      <div className="space-y-4 bg-card border rounded-2xl p-5">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Link de Onboarding</p>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Título</label>
+          <Input value={onboardingTitle} onChange={(e) => setOnboardingTitle(e.target.value)} placeholder="Link de Onboarding" className="h-9 text-sm" />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">URL del formulario</label>
+          <Input value={onboardingLink} onChange={(e) => setOnboardingLink(e.target.value)} placeholder={`${window.location.origin}/f/...`} className="h-9 text-sm" />
+          <p className="text-[10px] text-muted-foreground">
+            Ingresa el link de tu formulario de onboarding. El código <span className="font-mono">?ref=slug</span> del vendedor se agrega automáticamente.
+          </p>
+        </div>
+      </div>
+
+      <Button onClick={handleSave} disabled={saving} className="rounded-xl h-9 text-sm">
+        {saving && <Loader2 size={13} className="animate-spin mr-1.5" />}
+        Guardar links
+      </Button>
+    </div>
+  );
+};
+
 // ─── Settings shell ───────────────────────────────────────────────────────────
 
-type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte";
+type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte" | "perfil" | "vendor_links";
 
-const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; adminOnly?: boolean }[] = [
-  { id: "general",   label: "General",        Component: GeneralTab,   adminOnly: true },
-  { id: "soporte",   label: "Soporte",        Component: SupportTab,   adminOnly: true },
-  { id: "logs",      label: "Logs",           Component: LogsTab       },
-  { id: "staff",     label: "Staff",          Component: StaffTab      },
-  { id: "reminders", label: "Recordatorios",  Component: RemindersTab  },
+const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; adminOnly?: boolean; vendorOnly?: boolean }[] = [
+  { id: "general",      label: "General",          Component: GeneralTab,           adminOnly: true  },
+  { id: "soporte",      label: "Soporte",          Component: SupportTab,           adminOnly: true  },
+  { id: "vendor_links", label: "Links Vendedores", Component: VendorLinksAdminTab,  adminOnly: true  },
+  { id: "logs",         label: "Logs",             Component: LogsTab                               },
+  { id: "staff",        label: "Staff",            Component: StaffTab                              },
+  { id: "reminders",    label: "Recordatorios",    Component: RemindersTab                          },
+  { id: "perfil",       label: "Mi Perfil",        Component: VendorProfileTab,     vendorOnly: true },
 ];
 
-const CrmSettings = ({ isSuperAdmin, isVendor }: { isSuperAdmin?: boolean; isVendor?: boolean }) => {
+const CrmSettings = ({ isSuperAdmin, isVendor, vendorId }: { isSuperAdmin?: boolean; isVendor?: boolean; vendorId?: string | null }) => {
   const visibleTabs = ALL_TABS.filter((t) => {
     if (t.adminOnly && !isSuperAdmin) return false;
+    if (t.vendorOnly && !isVendor) return false;
     if (isVendor && (t.id === "staff" || t.id === "logs" || t.id === "general" || t.id === "soporte")) return false;
     return true;
   });
-  const defaultTab  = isSuperAdmin ? "general" : isVendor ? "reminders" : "logs";
+  const defaultTab  = isSuperAdmin ? "general" : isVendor ? "perfil" : "logs";
   const [tab, setTab] = useState<TabId>(defaultTab);
 
   const activeTab = visibleTabs.find((t) => t.id === tab) ?? visibleTabs[0];

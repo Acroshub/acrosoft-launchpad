@@ -15,6 +15,7 @@ import TerminosPoliticas from "./pages/TerminosPoliticas.tsx";
 import ProtectedRoute from "./components/shared/ProtectedRoute.tsx";
 import GoogleCalendarCallback from "./pages/GoogleCalendarCallback.tsx";
 import VipLanding from "./pages/VipLanding.tsx";
+import VendorLanding from "./pages/VendorLanding.tsx";
 
 const queryClient = new QueryClient();
 
@@ -42,6 +43,9 @@ const App = () => (
 
           {/* Protected routes */}
           <Route path="/crm" element={<ProtectedRoute><Crm /></ProtectedRoute>} />
+
+          {/* Vendor landing pages — must be before * catch-all */}
+          <Route path="/:vendorSlug" element={<VendorLanding />} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>

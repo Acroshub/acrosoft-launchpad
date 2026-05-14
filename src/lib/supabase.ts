@@ -13,6 +13,14 @@ export const supabase = createClient(
   supabaseAnonKey ?? 'placeholder-key',
 )
 
+// Cliente sin sesión para queries públicas (landing pages, booking, formularios).
+// Siempre envía requests como 'anon' sin importar quién esté logueado.
+export const supabasePublic = createClient(
+  supabaseUrl ?? 'https://placeholder.supabase.co',
+  supabaseAnonKey ?? 'placeholder-key',
+  { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false } }
+)
+
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
 // ─── CRM Types ────────────────────────────────────────────────

@@ -1886,7 +1886,7 @@ baileys-service/
 
 ---
 
-### AV-3 · Fase 1 — Base: Roles, DB y RLS 🔄 EN PROGRESO
+### AV-3 · Fase 1 — Base: Roles, DB y RLS ✅ COMPLETADO
 
 **Objetivo:** Crear la infraestructura de datos que soporta el rol `vendedor` con aislamiento total entre vendedores y visibilidad del superadmin sobre todos.
 
@@ -1914,7 +1914,7 @@ baileys-service/
 
 ---
 
-### AV-4 · Fase 2 — Landing del Vendedor + Tracking de Onboarding
+### AV-4 · Fase 2 — Landing del Vendedor + Tracking de Onboarding ✅ COMPLETADO
 
 **Objetivo:** Cada vendedor tiene una landing page en `/{vendor_slug}` que es réplica exacta del home del superadmin. El formulario de onboarding captura `?ref={vendor_slug}` y registra la venta al vendedor correspondiente.
 
@@ -1943,7 +1943,7 @@ baileys-service/
 
 ---
 
-### AV-5 · Fase 3 — Ventas, Comisiones y Pagos
+### AV-5 · Fase 3 — Ventas, Comisiones y Pagos ✅ COMPLETADO
 
 **Objetivo:** El superadmin ve ventas consolidadas de todos sus vendedores con cálculo de comisiones. Puede marcar pagos iniciales y de mantenimiento. Puede subir comprobantes.
 
@@ -2003,13 +2003,13 @@ baileys-service/
 
 | Feature | Fase | Estado |
 |---|---|---|
-| DB base + RLS multi-vendor | AV-3 | 🔄 En progreso |
-| Invitación + creación automática de recursos | AV-3 | ⏳ Pendiente |
-| Restricciones UI por rol vendedor | AV-3 | ⏳ Pendiente |
-| Landing del vendedor + tracking `?ref=` | AV-4 | ⏳ Pendiente |
-| Auto-creación de contacto/venta al submit | AV-4 | ⏳ Pendiente |
-| Vista ventas superadmin con comisiones | AV-5 | ⏳ Pendiente |
-| Marcar pagado + subir comprobante | AV-5 | ⏳ Pendiente |
-| Vista ventas del vendedor | AV-5 | ⏳ Pendiente |
+| DB base + RLS multi-vendor | AV-3 | ✅ Completo |
+| Invitación + creación automática de recursos | AV-3 | ✅ Completo |
+| Restricciones UI por rol vendedor | AV-3 | ✅ Completo |
+| Landing del vendedor + tracking `?ref=` | AV-4 | ✅ Completo |
+| Auto-creación de contacto/venta al submit | AV-4 | ✅ Completo |
+| Vista ventas superadmin con comisiones | AV-5 | ✅ Completo |
+| Marcar pagado + subir comprobante | AV-5 | ✅ Completo |
+| Vista ventas del vendedor | AV-5 | ✅ Completo |
 | Tab Links del vendedor | AV-6 | ⏳ Pendiente |
 | Settings restringidos del vendedor | AV-6 | ⏳ Pendiente |

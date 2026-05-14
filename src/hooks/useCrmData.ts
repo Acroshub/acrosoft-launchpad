@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { supabase } from "@/lib/supabase";
+import { supabase, supabasePublic } from "@/lib/supabase";
 import type {
   CrmContact,
   CrmAppointment,
@@ -1137,7 +1137,7 @@ export const usePublicForm = (formId: string) =>
   useQuery({
     queryKey: ["public_form", formId],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await supabasePublic
         .from("crm_forms")
         .select("*")
         .eq("id", formId)
@@ -1153,7 +1153,7 @@ export const usePublicServices = (userId?: string | null, allowedIds?: string[])
     queryKey: ["public_services", userId, allowedIds?.join(",")],
     queryFn: async () => {
       if (!userId) return [];
-      const { data, error } = await supabase
+      const { data, error } = await supabasePublic
         .from("crm_services")
         .select("*")
         .eq("user_id", userId)
@@ -1171,7 +1171,7 @@ export const useLandingProfile = () =>
   useQuery({
     queryKey: ["landing_profile"],
     queryFn: async () => {
-      const { data, error } = await supabase
+      const { data, error } = await supabasePublic
         .from("crm_business_profile")
         .select("user_id, landing_calendar_id, vip_calendar_id")
         .order("created_at", { ascending: true })
@@ -1187,7 +1187,7 @@ export const useLandingServices = (userId?: string | null) =>
     queryKey: ["landing_services", userId],
     queryFn: async () => {
       if (!userId) return [];
-      const { data, error } = await supabase
+      const { data, error } = await supabasePublic
         .from("crm_services")
         .select("*")
         .eq("user_id", userId)
@@ -1206,7 +1206,7 @@ export const usePublicCalendar = (calendarId: string) =>
     queryKey: ["public_calendar", calendarId],
     queryFn: async () => {
       const isUUID = UUID_RE.test(calendarId);
-      const { data, error } = await supabase
+      const { data, error } = await supabasePublic
         .from("crm_calendar_config")
         .select("*")
         .eq(isUUID ? "id" : "slug", calendarId)
@@ -1230,7 +1230,7 @@ export const usePublicAppointments = (
       // Use the actual last day of the month — PostgreSQL rejects invalid dates like "2026-04-31"
       const lastDay = new Date(year, month + 1, 0).getDate();
       const endDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-      const { data, error } = await supabase
+      const { data, error } = await supabasePublic
         .from("crm_appointments")
         .select("date, hour, minute, duration_min, status")
         .eq("calendar_id", calendarId)
@@ -1248,7 +1248,7 @@ export const usePublicBlockedSlots = (calendarId?: string | null) =>
     queryKey: ["public_blocked_slots", calendarId],
     queryFn: async () => {
       if (!calendarId) return [];
-      const { data, error } = await supabase
+      const { data, error } = await supabasePublic
         .from("crm_blocked_slots")
         .select("*")
         .eq("calendar_id", calendarId);
@@ -1263,7 +1263,7 @@ export const usePublicBusinessProfile = (userId?: string | null) =>
     queryKey: ["public_business_profile", userId],
     queryFn: async () => {
       if (!userId) return null;
-      const { data, error } = await supabase
+      const { data, error } = await supabasePublic
         .from("crm_business_profile")
         .select("color_primary, color_secondary, color_accent, logo_url, theme, timezone")
         .eq("user_id", userId)
@@ -2288,6 +2288,6 @@ export const useMarkSalePaid = () => {
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["sales"] }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_sales"] }),
   });
 };
