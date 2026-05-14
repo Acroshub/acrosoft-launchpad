@@ -449,25 +449,6 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
             <button type="button" onClick={() => handleChannelChange("email")} className={pill(channel === "email")}>
               <Mail size={11} /> Email
             </button>
-            <button
-              type="button"
-              onClick={() => handleChannelChange("whatsapp")}
-              disabled={!whatsappEnabled || noWaDestinations}
-              title={
-                !whatsappEnabled
-                  ? "WhatsApp no está configurado. Ve a Configuración → Integraciones."
-                  : noWaDestinations
-                  ? "Ningún destinatario seleccionado tiene número de teléfono registrado."
-                  : undefined
-              }
-              className={
-                whatsappEnabled && !noWaDestinations
-                  ? pill(channel === "whatsapp")
-                  : "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium border-border text-muted-foreground/40 cursor-not-allowed opacity-50"
-              }
-            >
-              <MessageSquare size={11} /> WhatsApp
-            </button>
           </div>
           {/* Show destination address(es) */}
           {(() => {

@@ -349,19 +349,6 @@ const RuleForm = ({
           >
             <Mail size={11} /> Email
           </button>
-          <button
-            type="button"
-            onClick={() => whatsappEnabled && onChange({ channel: "whatsapp" })}
-            disabled={!whatsappEnabled}
-            title={whatsappEnabled ? undefined : "WhatsApp no está configurado. Ve a Configuración → WhatsApp."}
-            className={
-              whatsappEnabled
-                ? pill(rule.channel === "whatsapp")
-                : "flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium border-border text-muted-foreground/40 cursor-not-allowed opacity-50"
-            }
-          >
-            <MessageSquare size={11} /> WhatsApp
-          </button>
         </div>
       </div>
 

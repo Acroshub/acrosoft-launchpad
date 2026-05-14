@@ -32,7 +32,7 @@ const CreateReminderModal = ({
     ? `Hola ${contactName}, este es un recordatorio para ti.`
     : "Este es un recordatorio para ti.";
 
-  const [type,     setType]     = useState<"email" | "whatsapp">("email");
+  const type = "email" as const;
   const [subject,  setSubject]  = useState("");
   const [message,  setMessage]  = useState(defaultMessage);
   const [sendMode, setSendMode] = useState<"now" | "schedule">("now");
@@ -84,39 +84,13 @@ const CreateReminderModal = ({
         </DialogHeader>
 
         <div className="space-y-4 py-1">
-          {/* Canal */}
-          <div>
-            <p className="text-xs font-medium text-muted-foreground mb-1.5">Canal</p>
-            <div className="flex gap-2">
-              {(["email", "whatsapp"] as const).map((ch) => (
-                <button
-                  key={ch}
-                  type="button"
-                  onClick={() => setType(ch)}
-                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-medium transition-all ${
-                    type === ch
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-border text-muted-foreground hover:border-primary/40"
-                  }`}
-                >
-                  {ch === "email" ? <Mail size={12} /> : <MessageSquare size={12} />}
-                  {ch === "email" ? "Email" : "WhatsApp"}
-                </button>
-              ))}
-            </div>
-            {type === "email" && !recipientEmail && (
-              <p className="text-[11px] text-destructive mt-1">Este contacto no tiene email registrado.</p>
-            )}
-            {type === "whatsapp" && !recipientPhone && (
-              <p className="text-[11px] text-destructive mt-1">Este contacto no tiene teléfono registrado.</p>
-            )}
-            {type === "email" && recipientEmail && (
-              <p className="text-[11px] text-muted-foreground mt-1">→ {recipientEmail}</p>
-            )}
-            {type === "whatsapp" && recipientPhone && (
-              <p className="text-[11px] text-muted-foreground mt-1">→ {recipientPhone}</p>
-            )}
-          </div>
+          {/* Destino */}
+          {!recipientEmail && (
+            <p className="text-[11px] text-destructive">Este contacto no tiene email registrado.</p>
+          )}
+          {recipientEmail && (
+            <p className="text-[11px] text-muted-foreground">→ {recipientEmail}</p>
+          )}
 
           {/* Asunto — solo email */}
           {type === "email" && (

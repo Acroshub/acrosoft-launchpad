@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Link2, Loader2, Trash2, CheckCircle2, Unlink, Bell } from "lucide-react";
+import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Link2, Loader2, Trash2, CheckCircle2, Unlink, Bell, ShieldAlert } from "lucide-react";
 import { useCreateCalendarConfig, useUpdateCalendarConfig, useDeleteCalendarConfig, useForms, useCreateForm, useBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmCalendarConfig as CalendarData } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -83,7 +83,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
   const deleteConfig = useDeleteCalendarConfig();
   const createForm   = useCreateForm();
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  type Section = "general" | "horarios" | "integraciones" | "enlace" | "notificaciones";
+  type Section = "general" | "horarios" | "integraciones" | "enlace" | "notificaciones" | "avanzado";
   const [activeSection, setActiveSection] = useState<Section>(
     initialSection && existingCalendar ? initialSection : "general"
   );
@@ -246,7 +246,8 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
     { id: "horarios",       label: "Disponibilidad",  icon: Clock },
     { id: "integraciones",  label: "Integraciones",   icon: Link2,  onlyEdit: true },
     { id: "enlace",         label: "Enlace & Embed",  icon: Globe,  onlyEdit: true },
-    { id: "notificaciones", label: "Notificaciones",  icon: Bell,   onlyEdit: true },
+    { id: "notificaciones", label: "Notificaciones",  icon: Bell,        onlyEdit: true },
+    { id: "avanzado",       label: "Avanzado",         icon: ShieldAlert, onlyEdit: true },
   ];
   const visibleNav = navItems.filter(n => !n.onlyEdit || !isNew);
 
@@ -310,16 +311,6 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
               {isNew ? "Completa los datos para comenzar a recibir citas" : name || "Personaliza cómo los clientes agendan contigo"}
             </p>
           </div>
-          {!isNew && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowDeleteDialog(true)}
-              className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 gap-1.5 h-8 shrink-0"
-            >
-              <Trash2 size={13} /> Eliminar
-            </Button>
-          )}
         </div>
       </div>
 
@@ -504,6 +495,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                 {saving ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
                 {isNew ? "Crear Calendario" : "Guardar cambios"}
               </Button>
+
             </div>
           )}
 
@@ -689,6 +681,30 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                     );
                   })}
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Avanzado ── */}
+          {activeSection === "avanzado" && !isNew && (
+            <div className="bg-card border rounded-2xl p-6 space-y-5">
+              <div className="flex items-center gap-2">
+                <ShieldAlert size={15} className="text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Zona de peligro</h2>
+              </div>
+              <div className="border border-destructive/30 rounded-xl p-5 bg-destructive/5 space-y-3">
+                <p className="text-sm font-medium text-destructive">Eliminar este calendario</p>
+                <p className="text-xs text-muted-foreground">
+                  Esta acción es permanente. El calendario y su configuración serán eliminados. Las citas existentes no se verán afectadas.
+                </p>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setShowDeleteDialog(true)}
+                  className="gap-1.5"
+                >
+                  <Trash2 size={13} /> Eliminar calendario
+                </Button>
               </div>
             </div>
           )}

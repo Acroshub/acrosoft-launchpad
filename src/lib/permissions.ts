@@ -106,8 +106,7 @@ export function canAccessItem(
  */
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
-    // Principal sees everything (incluye agente_ia que se filtra en Crm.tsx por superadmin)
-    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings", "soporte", "videos", "agente_ia"]);
+    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings", "soporte", "videos"]);
   }
 
   const can = buildPermChecker(staffRecord);
