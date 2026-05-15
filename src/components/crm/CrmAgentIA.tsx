@@ -121,6 +121,14 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const [showSecret, setShowSecret]       = useState(false);
   const verifyToken = existingConfig?.webhook_verify_token ?? "—";
 
+  // Auto-crear fila en DB al montar para que el verify_token quede disponible de inmediato
+  useEffect(() => {
+    if (!existingConfig) {
+      upsert.mutateAsync({ agent_name: "Asistente" }).catch(() => {});
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // Step 2
   const [agentName, setAgentName]   = useState(existingConfig?.agent_name ?? "Asistente");
   const [model, setModel]           = useState(existingConfig?.model ?? "claude-haiku-4-5-20251001");
