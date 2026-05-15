@@ -485,6 +485,8 @@ export type CrmWaConversation = {
 
 export type CrmWaMessage = {
   id: string
+  media_type: string | null
+  media_url: string | null
   conversation_id: string
   role: 'user' | 'assistant' | 'human'
   content: string

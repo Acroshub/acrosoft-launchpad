@@ -139,16 +139,38 @@ async function sendWhatsAppMessage(
   return { wa_message_id: id };
 }
 
-// ─── Llamada a Claude ──────────────────────────────────────────────────────────
+// ─── Llamada a Claude (con soporte de visión/PDF) ────────────────────────────
 async function callClaude(
   systemPrompt: string,
   history: WaMessage[],
   model: string,
+  media?: { base64: string; mimeType: string; type: "image" | "document" } | null,
 ): Promise<string> {
-  const messages = history.map(m => ({
+  // Todos los mensajes previos como texto
+  const messages: any[] = history.slice(0, -1).map(m => ({
     role: m.role === "user" ? "user" : "assistant",
     content: m.content,
   }));
+
+  // Último mensaje: puede llevar media adjunta
+  const lastMsg = history[history.length - 1];
+  if (lastMsg) {
+    if (media) {
+      const mediaBlock = media.type === "image"
+        ? { type: "image", source: { type: "base64", media_type: media.mimeType, data: media.base64 } }
+        : { type: "document", source: { type: "base64", media_type: "application/pdf", data: media.base64 } };
+
+      messages.push({
+        role: "user",
+        content: [
+          mediaBlock,
+          { type: "text", text: lastMsg.content || (media.type === "image" ? "¿Qué ves en esta imagen?" : "¿Qué dice este documento?") },
+        ],
+      });
+    } else {
+      messages.push({ role: lastMsg.role === "user" ? "user" : "assistant", content: lastMsg.content });
+    }
+  }
 
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -157,12 +179,7 @@ async function callClaude(
       "anthropic-version": "2023-06-01",
       "content-type": "application/json",
     },
-    body: JSON.stringify({
-      model,
-      max_tokens: 1024,
-      system: systemPrompt,
-      messages,
-    }),
+    body: JSON.stringify({ model, max_tokens: 1024, system: systemPrompt, messages }),
   });
 
   if (!res.ok) {
@@ -182,14 +199,24 @@ Deno.serve(async (req: Request) => {
     return new Response("method not allowed", { status: 405 });
   }
 
-  let body: { conversation_id: string; tenant_user_id: string; phone: string };
+  let body: {
+    conversation_id: string;
+    tenant_user_id: string;
+    phone: string;
+    media_base64?: string;
+    media_mime_type?: string;
+    media_type?: string;
+  };
   try {
     body = await req.json();
   } catch {
     return new Response("bad json", { status: 400 });
   }
 
-  const { conversation_id, tenant_user_id, phone } = body;
+  const { conversation_id, tenant_user_id, phone, media_base64, media_mime_type, media_type } = body;
+  const media = (media_base64 && media_mime_type && media_type)
+    ? { base64: media_base64, mimeType: media_mime_type, type: media_type as "image" | "document" }
+    : null;
   if (!conversation_id || !tenant_user_id || !phone) {
     return new Response("missing fields", { status: 400 });
   }
@@ -239,8 +266,8 @@ Deno.serve(async (req: Request) => {
     const t0 = Date.now();
     const systemPrompt = await buildSystemPrompt(config, phone);
 
-    // 5. Llamar a Claude
-    const reply = await callClaude(systemPrompt, history, config.model ?? "claude-haiku-4-5-20251001");
+    // 5. Llamar a Claude (con media si aplica)
+    const reply = await callClaude(systemPrompt, history, config.model ?? "claude-haiku-4-5-20251001", media);
     console.log(`[ai-agent] Claude respondió en ${Date.now() - t0}ms`);
 
     // 6. Guardar respuesta en DB

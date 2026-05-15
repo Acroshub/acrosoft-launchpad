@@ -1,141 +1,143 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { crypto } from "https://deno.land/std@0.208.0/crypto/mod.ts";
 import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
+import { encodeBase64 } from "https://deno.land/std@0.208.0/encoding/base64.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-// ─── Verificación de firma HMAC-SHA256 ────────────────────────────────────────
-// CRÍTICO: se calcula sobre el raw body, NO el JSON parseado
+const MAX_MEDIA_BYTES = 10 * 1024 * 1024; // 10 MB
+
+// ─── HMAC-SHA256 signature verification ──────────────────────────────────────
 async function verifySignature(rawBody: string, signatureHeader: string | null, appSecret: string): Promise<boolean> {
   if (!signatureHeader?.startsWith("sha256=")) return false;
   const provided = signatureHeader.slice("sha256=".length);
   const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(appSecret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
+    "raw", new TextEncoder().encode(appSecret),
+    { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
   );
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody));
   const expected = encodeHex(new Uint8Array(sig));
   if (provided.length !== expected.length) return false;
-  // Comparación en tiempo constante
   let diff = 0;
-  for (let i = 0; i < provided.length; i++) {
-    diff |= provided.charCodeAt(i) ^ expected.charCodeAt(i);
-  }
+  for (let i = 0; i < provided.length; i++) diff |= provided.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
 }
 
-// ─── GET — verificación del webhook con Meta ───────────────────────────────────
-// Meta envía hub.verify_token cuando configuras el webhook en el panel.
-// Lo comparamos contra el webhook_verify_token del tenant que tiene ese phone_number_id.
-// Como en el panel solo puedes poner una URL global, el verify_token identifica al tenant.
+// ─── GET — webhook verification ───────────────────────────────────────────────
 async function handleGet(req: Request): Promise<Response> {
   const url = new URL(req.url);
-  const mode       = url.searchParams.get("hub.mode");
-  const token      = url.searchParams.get("hub.verify_token");
-  const challenge  = url.searchParams.get("hub.challenge");
-
-  if (mode !== "subscribe" || !token) {
-    return new Response("forbidden", { status: 403 });
-  }
-
-  // Buscar tenant por verify_token
+  const mode      = url.searchParams.get("hub.mode");
+  const token     = url.searchParams.get("hub.verify_token");
+  const challenge = url.searchParams.get("hub.challenge");
+  if (mode !== "subscribe" || !token) return new Response("forbidden", { status: 403 });
   const { data: config } = await supabase
     .from("crm_ai_agent_config")
     .select("id")
     .eq("webhook_verify_token", token)
     .maybeSingle();
-
-  if (!config) {
-    console.error("[webhook-verify] token no encontrado:", token);
-    return new Response("forbidden", { status: 403 });
-  }
-
-  // IMPORTANTE: devolver challenge como text/plain — Meta rechaza JSON
-  return new Response(challenge ?? "", {
-    status: 200,
-    headers: { "Content-Type": "text/plain" },
-  });
+  if (!config) return new Response("forbidden", { status: 403 });
+  return new Response(challenge ?? "", { status: 200, headers: { "Content-Type": "text/plain" } });
 }
 
-// ─── POST — recibe mensajes entrantes de Meta ──────────────────────────────────
+// ─── Download media from Meta ─────────────────────────────────────────────────
+async function downloadMedia(mediaId: string, accessToken: string): Promise<{
+  buffer: ArrayBuffer; mimeType: string;
+} | null> {
+  try {
+    // Step 1: get media URL
+    const infoRes = await fetch(`https://graph.facebook.com/v21.0/${mediaId}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!infoRes.ok) return null;
+    const { url, mime_type: mimeType } = await infoRes.json();
+    if (!url) return null;
+
+    // Step 2: download binary
+    const dlRes = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+    if (!dlRes.ok) return null;
+
+    const buffer = await dlRes.arrayBuffer();
+    if (buffer.byteLength > MAX_MEDIA_BYTES) {
+      console.log(`[webhook] media demasiado grande (${buffer.byteLength} bytes), ignorando`);
+      return null;
+    }
+    return { buffer, mimeType };
+  } catch (err) {
+    console.error("[webhook] error descargando media:", err);
+    return null;
+  }
+}
+
+// ─── Upload media to Supabase Storage ────────────────────────────────────────
+async function uploadMedia(buffer: ArrayBuffer, path: string, mimeType: string): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.storage
+      .from("wa-media")
+      .upload(path, buffer, { contentType: mimeType, upsert: true });
+    if (error) { console.error("[webhook] storage upload error:", error); return null; }
+    const { data: urlData } = supabase.storage.from("wa-media").getPublicUrl(data.path);
+    return urlData.publicUrl;
+  } catch (err) {
+    console.error("[webhook] error subiendo a storage:", err);
+    return null;
+  }
+}
+
+// ─── POST — incoming messages ─────────────────────────────────────────────────
 async function handlePost(req: Request): Promise<Response> {
-  // 1. Leer raw body PRIMERO (el HMAC se calcula sobre esto)
   const rawBody = await req.text();
   const signatureHeader = req.headers.get("x-hub-signature-256");
 
-  // 2. Parsear para obtener phone_number_id y buscar el tenant
   let payload: any;
-  try {
-    payload = JSON.parse(rawBody);
-  } catch {
-    return new Response("bad json", { status: 400 });
-  }
+  try { payload = JSON.parse(rawBody); }
+  catch { return new Response("bad json", { status: 400 }); }
 
-  if (payload?.object !== "whatsapp_business_account") {
-    return new Response("ok", { status: 200 });
-  }
+  if (payload?.object !== "whatsapp_business_account") return new Response("ok", { status: 200 });
 
-  // 3. Extraer phone_number_id del primer entry para identificar tenant
   const phoneNumberId = payload?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
-  if (!phoneNumberId) {
-    return new Response("ok", { status: 200 });
-  }
+  if (!phoneNumberId) return new Response("ok", { status: 200 });
 
   const { data: config } = await supabase
     .from("crm_ai_agent_config")
-    .select("user_id, app_secret, is_active")
+    .select("user_id, app_secret, access_token, is_active")
     .eq("phone_number_id", phoneNumberId)
     .maybeSingle();
 
-  if (!config?.app_secret) {
-    console.error("[webhook] tenant no encontrado para phone_number_id:", phoneNumberId);
-    return new Response("ok", { status: 200 }); // Responder 200 igual para no revelar info
-  }
+  if (!config?.app_secret) return new Response("ok", { status: 200 });
 
-  // 4. Verificar firma con el app_secret del tenant
   const valid = await verifySignature(rawBody, signatureHeader, config.app_secret);
-  if (!valid) {
-    console.error("[webhook] firma inválida para phone_number_id:", phoneNumberId);
-    return new Response("invalid signature", { status: 401 });
-  }
+  if (!valid) return new Response("invalid signature", { status: 401 });
 
-  // 5. Responder 200 INMEDIATAMENTE — Meta tiene timeout de ~10s
-  //    Procesar de forma async sin bloquear la respuesta
-  processPayload(payload, config.user_id, config.is_active).catch((err) =>
+  // Respond 200 immediately, process async
+  processPayload(payload, config.user_id, config.is_active, config.access_token ?? "").catch((err) =>
     console.error("[webhook] error procesando payload:", err)
   );
 
   return new Response(JSON.stringify({ ok: true }), {
-    status: 200,
-    headers: { "Content-Type": "application/json" },
+    status: 200, headers: { "Content-Type": "application/json" },
   });
 }
 
-// ─── Procesamiento async del payload ──────────────────────────────────────────
-async function processPayload(payload: any, tenantUserId: string, isActive: boolean): Promise<void> {
+// ─── Async payload processing ─────────────────────────────────────────────────
+async function processPayload(payload: any, tenantUserId: string, isActive: boolean, accessToken: string): Promise<void> {
   for (const entry of payload.entry ?? []) {
     for (const change of entry.changes ?? []) {
       if (change.field !== "messages") continue;
       const value = change.value ?? {};
 
-      // Statuses: solo log (sent/delivered/read)
       for (const status of value.statuses ?? []) {
-        console.log(`[webhook] status ${status.status} para wamid ${status.id}`);
+        console.log(`[webhook] status ${status.status} wamid ${status.id}`);
       }
 
-      // Mapa phone → nombre del contacto (viene en value.contacts)
       const nameByPhone = new Map<string, string | null>(
         (value.contacts ?? []).map((c: any) => [c.wa_id, c.profile?.name ?? null])
       );
 
       for (const msg of value.messages ?? []) {
-        await handleIncomingMessage(msg, nameByPhone.get(msg.from) ?? null, tenantUserId, isActive);
+        await handleIncomingMessage(msg, nameByPhone.get(msg.from) ?? null, tenantUserId, isActive, accessToken);
       }
     }
   }
@@ -146,86 +148,194 @@ async function handleIncomingMessage(
   contactName: string | null,
   tenantUserId: string,
   isActive: boolean,
+  accessToken: string,
 ): Promise<void> {
-  // Solo procesamos mensajes de texto en v1
-  if (msg.type !== "text") {
-    console.log(`[webhook] tipo no soportado: ${msg.type}, ignorando`);
-    return;
-  }
-
   const waMessageId = msg.id;
-  const phone = msg.from; // E.164 sin '+'
-  const text = msg.text?.body;
-  if (!text) return;
+  const phone = msg.from;
+  const msgType: string = msg.type;
 
-  // Dedup: marcar ANTES de procesar (si crashea, preferimos perder el msg a duplicar)
-  const { error: dedupErr } = await supabase
-    .from("crm_wa_webhook_dedup")
-    .insert({ wa_message_id: waMessageId })
-    .select();
+  // ── Audio: auto-reply, no AI ──
+  if (msgType === "audio" || msgType === "voice") {
+    const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
+    if (dedupErr) return;
 
-  if (dedupErr) {
-    // Unique violation = ya procesado
-    console.log(`[webhook] mensaje ${waMessageId} ya procesado, ignorando`);
-    return;
-  }
+    const conv = await upsertConversation(tenantUserId, phone, contactName);
+    if (!conv) return;
 
-  console.log(`[webhook] ← mensaje de ${phone}: "${text.slice(0, 60)}"`);
-
-  // Obtener o crear conversación
-  const { data: conv, error: convErr } = await supabase
-    .from("crm_wa_conversations")
-    .upsert(
-      { user_id: tenantUserId, phone, contact_name: contactName },
-      { onConflict: "user_id,phone", ignoreDuplicates: false }
-    )
-    .select()
-    .single();
-
-  if (convErr || !conv) {
-    console.error("[webhook] error creando conversación:", convErr);
-    return;
-  }
-
-  // Guardar mensaje del usuario
-  await supabase.from("crm_wa_messages").insert({
-    conversation_id: conv.id,
-    role: "user",
-    content: text,
-    wa_message_id: waMessageId,
-  });
-
-  // Actualizar last_message_at
-  await supabase
-    .from("crm_wa_conversations")
-    .update({ last_message_at: new Date().toISOString() })
-    .eq("id", conv.id);
-
-  // Si el agente no está activo o la conversación está en modo HUMAN, no responder
-  if (!isActive) {
-    console.log(`[webhook] agente inactivo para tenant ${tenantUserId}, no se responde`);
-    return;
-  }
-
-  // Re-leer el modo (puede haber cambiado mientras procesábamos)
-  const { data: freshConv } = await supabase
-    .from("crm_wa_conversations")
-    .select("mode")
-    .eq("id", conv.id)
-    .single();
-
-  if (freshConv?.mode !== "AI") {
-    console.log(`[webhook] conversación en modo HUMAN, no se responde`);
-    return;
-  }
-
-  // Invocar el agente de IA de forma async
-  supabase.functions.invoke("ai-agent", {
-    body: {
+    await supabase.from("crm_wa_messages").insert({
       conversation_id: conv.id,
-      tenant_user_id: tenantUserId,
-      phone,
-    },
+      role: "user",
+      content: "[Mensaje de voz]",
+      media_type: "audio",
+      wa_message_id: waMessageId,
+    });
+    await supabase.from("crm_wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conv.id);
+
+    if (isActive) {
+      const autoReply = "Hola, lamentablemente no puedo escuchar mensajes de voz. Por favor escríbeme tu mensaje y con gusto te ayudo 🙏";
+      await sendAutoReply(phone, autoReply, tenantUserId, conv.id);
+    }
+    return;
+  }
+
+  // ── Text ──
+  if (msgType === "text") {
+    const text = msg.text?.body;
+    if (!text) return;
+
+    const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
+    if (dedupErr) return;
+
+    console.log(`[webhook] ← texto de ${phone}: "${text.slice(0, 60)}"`);
+    const conv = await upsertConversation(tenantUserId, phone, contactName);
+    if (!conv) return;
+
+    await supabase.from("crm_wa_messages").insert({
+      conversation_id: conv.id, role: "user", content: text, wa_message_id: waMessageId,
+    });
+    await supabase.from("crm_wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conv.id);
+
+    await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {});
+    return;
+  }
+
+  // ── Image ──
+  if (msgType === "image") {
+    const mediaId = msg.image?.id;
+    const caption = msg.image?.caption ?? "";
+    if (!mediaId) return;
+
+    const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
+    if (dedupErr) return;
+
+    console.log(`[webhook] ← imagen de ${phone} (media_id: ${mediaId})`);
+    const conv = await upsertConversation(tenantUserId, phone, contactName);
+    if (!conv) return;
+
+    let mediaUrl: string | null = null;
+    let mediaBase64: string | null = null;
+    let mediaMimeType: string | null = null;
+
+    if (accessToken) {
+      const media = await downloadMedia(mediaId, accessToken);
+      if (media) {
+        mediaMimeType = media.mimeType;
+        mediaBase64 = encodeBase64(media.buffer);
+        const ext = media.mimeType.split("/")[1] ?? "jpg";
+        const path = `${tenantUserId}/${conv.id}/${waMessageId}.${ext}`;
+        mediaUrl = await uploadMedia(media.buffer, path, media.mimeType);
+      }
+    }
+
+    await supabase.from("crm_wa_messages").insert({
+      conversation_id: conv.id,
+      role: "user",
+      content: caption || "[Imagen]",
+      media_type: "image",
+      media_url: mediaUrl,
+      wa_message_id: waMessageId,
+    });
+    await supabase.from("crm_wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conv.id);
+
+    await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {
+      media_base64: mediaBase64,
+      media_mime_type: mediaMimeType,
+      media_type: "image",
+    });
+    return;
+  }
+
+  // ── Document (PDF) ──
+  if (msgType === "document") {
+    const mediaId = msg.document?.id;
+    const mimeType: string = msg.document?.mime_type ?? "";
+    const filename: string = msg.document?.filename ?? "documento";
+    if (!mediaId || !mimeType.includes("pdf")) {
+      console.log(`[webhook] documento no PDF (${mimeType}), ignorando`);
+      return;
+    }
+
+    const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
+    if (dedupErr) return;
+
+    console.log(`[webhook] ← PDF de ${phone}: ${filename}`);
+    const conv = await upsertConversation(tenantUserId, phone, contactName);
+    if (!conv) return;
+
+    let mediaUrl: string | null = null;
+    let mediaBase64: string | null = null;
+
+    if (accessToken) {
+      const media = await downloadMedia(mediaId, accessToken);
+      if (media) {
+        mediaBase64 = encodeBase64(media.buffer);
+        const path = `${tenantUserId}/${conv.id}/${waMessageId}.pdf`;
+        mediaUrl = await uploadMedia(media.buffer, path, "application/pdf");
+      }
+    }
+
+    await supabase.from("crm_wa_messages").insert({
+      conversation_id: conv.id,
+      role: "user",
+      content: `[PDF: ${filename}]`,
+      media_type: "document",
+      media_url: mediaUrl,
+      wa_message_id: waMessageId,
+    });
+    await supabase.from("crm_wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conv.id);
+
+    await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {
+      media_base64: mediaBase64,
+      media_mime_type: "application/pdf",
+      media_type: "document",
+    });
+    return;
+  }
+
+  console.log(`[webhook] tipo no soportado: ${msgType}, ignorando`);
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+async function upsertConversation(userId: string, phone: string, contactName: string | null) {
+  const { data, error } = await supabase
+    .from("crm_wa_conversations")
+    .upsert({ user_id: userId, phone, contact_name: contactName }, { onConflict: "user_id,phone", ignoreDuplicates: false })
+    .select().single();
+  if (error) { console.error("[webhook] error upsert conversación:", error); return null; }
+  return data;
+}
+
+async function sendAutoReply(phone: string, text: string, tenantUserId: string, conversationId: string) {
+  const { data: cfg } = await supabase
+    .from("crm_ai_agent_config")
+    .select("phone_number_id, access_token")
+    .eq("user_id", tenantUserId)
+    .maybeSingle();
+  if (!cfg?.phone_number_id || !cfg.access_token) return;
+
+  await fetch(`https://graph.facebook.com/v21.0/${cfg.phone_number_id}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${cfg.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ messaging_product: "whatsapp", to: phone, type: "text", text: { body: text } }),
+  }).catch(() => {});
+
+  await supabase.from("crm_wa_messages").insert({ conversation_id: conversationId, role: "assistant", content: text });
+  await supabase.from("crm_wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
+}
+
+async function maybeInvokeAgent(
+  conv: { id: string; mode: string },
+  tenantUserId: string,
+  phone: string,
+  isActive: boolean,
+  media: { media_base64?: string | null; media_mime_type?: string | null; media_type?: string },
+) {
+  if (!isActive) return;
+  const { data: freshConv } = await supabase.from("crm_wa_conversations").select("mode").eq("id", conv.id).single();
+  if (freshConv?.mode !== "AI") return;
+
+  supabase.functions.invoke("ai-agent", {
+    body: { conversation_id: conv.id, tenant_user_id: tenantUserId, phone, ...media },
   }).catch((err) => console.error("[webhook] error invocando ai-agent:", err));
 }
 

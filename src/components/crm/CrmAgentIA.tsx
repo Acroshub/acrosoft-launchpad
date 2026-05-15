@@ -3,6 +3,7 @@ import {
   Bot, Settings, Send, Wifi, WifiOff, MessageSquare, Loader2,
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, Zap, Clock, Calendar, Phone, Sparkles, Lock,
+  User, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -181,6 +182,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
     if (!phoneNumberId || !accessToken) { toast.error("Ingresa el Phone Number ID y el Access Token"); return; }
     setTesting(true); setTestResult(null);
     try {
+      // 1. Verificar credenciales y obtener número
       const res = await fetch(
         `https://graph.facebook.com/v21.0/${phoneNumberId}?fields=display_phone_number,verified_name`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
@@ -189,8 +191,15 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
       const json = await res.json();
       setTestResult({ phone: json.display_phone_number, name: json.verified_name });
       setVerified(true);
-      // Guardar el número formateado para mostrarlo en el dashboard
       await upsert.mutateAsync({ verified_phone: json.display_phone_number ?? null }).catch(() => {});
+
+      // 2. Registrar número en Cloud API (paso oculto que Meta no muestra en el portal)
+      await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/register`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ messaging_product: "whatsapp", pin: "123456" }),
+      }).catch(() => {}); // No bloqueamos si falla (ej. ya registrado con otro PIN)
+
       toast.success("¡Conexión exitosa!");
     } catch (err: any) {
       setVerified(false);
@@ -201,6 +210,15 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const handleSaveStep1 = async () => {
     if (!phoneNumberId || !accessToken || !appSecret) { toast.error("Completa todos los campos obligatorios"); return; }
     await upsert.mutateAsync({ phone_number_id: phoneNumberId, access_token: accessToken, waba_id: wabaId || null, app_secret: appSecret });
+
+    // 3. Suscribir app al WABA para que Meta envíe los mensajes al webhook
+    if (wabaId) {
+      await fetch(`https://graph.facebook.com/v21.0/${wabaId}/subscribed_apps`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}` },
+      }).catch(() => {}); // No bloqueamos si falla
+    }
+
     setStep(2);
   };
 
@@ -526,8 +544,16 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [schedule, setSchedule]           = useState<WeeklySchedule>(DEFAULT_SCHEDULE);
   const [timezone, setTimezone]           = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [offHoursMsg, setOffHoursMsg]     = useState("");
-  const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario">("conexion");
+  const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario"|"perfil">("conexion");
   const initialized                       = useRef(false);
+
+  // Perfil de WhatsApp
+  const [bio, setBio]                     = useState("");
+  const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
+  const [savingBio, setSavingBio]         = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef                     = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!config || initialized.current) return;
@@ -601,9 +627,84 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         timezone,
         off_hours_message: offHoursMsg || null,
       });
+
+      // Re-suscribir al WABA si hay credenciales completas
+      if (wabaId && accessToken) {
+        await fetch(`https://graph.facebook.com/v21.0/${wabaId}/subscribed_apps`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accessToken}` },
+        }).catch(() => {});
+      }
+
       toast.success("Configuración guardada");
     } catch { toast.error("Error al guardar"); }
     finally { setSaving(false); }
+  };
+
+  // Cargar perfil de WhatsApp al abrir el tab
+  useEffect(() => {
+    if (section !== "perfil") return;
+    const pid = config?.phone_number_id;
+    const tok = config?.access_token;
+    if (!pid || !tok) return;
+    setLoadingProfile(true);
+    fetch(`https://graph.facebook.com/v21.0/${pid}/whatsapp_business_profile?fields=about,profile_picture_url`, {
+      headers: { Authorization: `Bearer ${tok}` },
+    })
+      .then(r => r.json())
+      .then(json => {
+        const d = json.data?.[0] ?? {};
+        setBio(d.about ?? "");
+        setProfilePicUrl(d.profile_picture_url ?? null);
+      })
+      .catch(() => {})
+      .finally(() => setLoadingProfile(false));
+  }, [section, config?.phone_number_id, config?.access_token]);
+
+  const handleSaveBio = async () => {
+    const pid = config?.phone_number_id;
+    const tok = config?.access_token;
+    if (!pid || !tok) return;
+    setSavingBio(true);
+    try {
+      const res = await fetch(`https://graph.facebook.com/v21.0/${pid}/whatsapp_business_profile`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ messaging_product: "whatsapp", about: bio }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      toast.success("Bio actualizada");
+    } catch (err: any) { toast.error(err.message?.slice(0, 100)); }
+    finally { setSavingBio(false); }
+  };
+
+  const handlePhotoUpload = async (file: File) => {
+    const pid = config?.phone_number_id;
+    const tok = config?.access_token;
+    if (!pid || !tok) return;
+    setUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append("messaging_product", "whatsapp");
+      formData.append("type", file.type);
+      formData.append("file", file);
+      const uploadRes = await fetch(`https://graph.facebook.com/v21.0/${pid}/media`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tok}` },
+        body: formData,
+      });
+      if (!uploadRes.ok) throw new Error(await uploadRes.text());
+      const { id: mediaId } = await uploadRes.json();
+      const profileRes = await fetch(`https://graph.facebook.com/v21.0/${pid}/whatsapp_business_profile`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ messaging_product: "whatsapp", photo_media_handle: mediaId }),
+      });
+      if (!profileRes.ok) throw new Error(await profileRes.text());
+      setProfilePicUrl(URL.createObjectURL(file));
+      toast.success("Foto de perfil actualizada");
+    } catch (err: any) { toast.error(err.message?.slice(0, 100) ?? "Error al subir la foto"); }
+    finally { setUploadingPhoto(false); }
   };
 
   const handleTest = async () => {
@@ -639,6 +740,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     { id: "agente" as const,      label: "Agente",      icon: Sparkles },
     { id: "capacidades" as const, label: "Capacidades", icon: Zap },
     { id: "horario" as const,     label: "Horario",     icon: Clock },
+    { id: "perfil" as const,      label: "Perfil WA",   icon: User },
   ];
 
   return (
@@ -920,15 +1022,89 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
               </div>
             </div>
           )}
+
+          {section === "perfil" && (
+            <div className="space-y-5">
+              {loadingProfile ? (
+                <div className="flex justify-center pt-10">
+                  <Loader2 size={20} className="animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  {/* Foto de perfil */}
+                  <div className="space-y-3">
+                    <label className="text-xs font-medium text-muted-foreground">Foto de perfil</label>
+                    <div className="flex items-center gap-4">
+                      <div className="w-16 h-16 rounded-full overflow-hidden bg-secondary flex items-center justify-center shrink-0 border">
+                        {profilePicUrl ? (
+                          <img src={profilePicUrl} alt="Perfil WA" className="w-full h-full object-cover" />
+                        ) : (
+                          <User size={26} className="text-muted-foreground" />
+                        )}
+                      </div>
+                      <div className="space-y-1.5">
+                        <input
+                          ref={photoInputRef}
+                          type="file"
+                          accept="image/jpeg,image/png"
+                          className="hidden"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f); e.target.value = ""; }}
+                        />
+                        <Button
+                          variant="outline" size="sm"
+                          onClick={() => photoInputRef.current?.click()}
+                          disabled={uploadingPhoto || !config?.phone_number_id}
+                          className="h-8 text-xs gap-1.5"
+                        >
+                          {uploadingPhoto ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+                          {uploadingPhoto ? "Subiendo..." : "Cambiar foto"}
+                        </Button>
+                        <p className="text-[10px] text-muted-foreground">JPG o PNG · Imagen cuadrada recomendada</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bio */}
+                  <div className="space-y-2">
+                    <label className="text-xs font-medium text-muted-foreground">Bio / Descripción</label>
+                    <Textarea
+                      value={bio}
+                      onChange={e => setBio(e.target.value.slice(0, 139))}
+                      rows={3}
+                      className="text-sm resize-none"
+                      placeholder="Ej: Servicio de atención al cliente 24/7"
+                    />
+                    <div className="flex items-center justify-between">
+                      <span className={`text-[10px] ${bio.length >= 130 ? "text-amber-500" : "text-muted-foreground"}`}>
+                        {bio.length}/139
+                      </span>
+                      <Button size="sm" onClick={handleSaveBio} disabled={savingBio || !config?.phone_number_id} className="h-7 text-xs gap-1.5">
+                        {savingBio && <Loader2 size={11} className="animate-spin" />}
+                        Guardar bio
+                      </Button>
+                    </div>
+                  </div>
+
+                  {!config?.phone_number_id && (
+                    <p className="text-xs text-muted-foreground text-center bg-secondary/40 rounded-xl px-4 py-3">
+                      Completa la conexión en el tab Conexión para editar el perfil.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Footer */}
-        <div className="px-5 py-4 border-t shrink-0">
-          <Button onClick={handleSave} disabled={saving} className="w-full h-9 gap-1.5">
-            {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-            Guardar cambios
-          </Button>
-        </div>
+        {/* Footer — solo visible en tabs que tienen guardado global */}
+        {section !== "perfil" && (
+          <div className="px-5 py-4 border-t shrink-0">
+            <Button onClick={handleSave} disabled={saving} className="w-full h-9 gap-1.5">
+              {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+              Guardar cambios
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -937,25 +1113,63 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 const MessageBubble = ({ msg }: { msg: CrmWaMessage }) => {
   const isUser = msg.role === "user";
+  const bubbleClass = isUser
+    ? "bg-secondary text-foreground rounded-tl-sm"
+    : msg.role === "human"
+      ? "bg-amber-500 text-white rounded-tr-sm"
+      : "bg-emerald-500 text-white rounded-tr-sm";
+
   return (
     <div className={`flex ${isUser ? "justify-start" : "justify-end"} mb-2`}>
-      <div className={`max-w-[78%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed relative ${
-        isUser
-          ? "bg-secondary text-foreground rounded-tl-sm"
-          : msg.role === "human"
-            ? "bg-amber-500 text-white rounded-tr-sm"
-            : "bg-emerald-500 text-white rounded-tr-sm"
-      }`}>
-        {msg.content}
-        {msg.send_error && (
-          <div className="flex items-center gap-1 mt-1.5 text-[10px] opacity-80">
-            <AlertTriangle size={10} />
-            {msg.send_error === "24h_window_expired" ? "Ventana 24h expirada" : "Error al enviar"}
+      <div className={`max-w-[78%] rounded-2xl overflow-hidden text-sm relative ${bubbleClass}`}>
+        {/* Imagen */}
+        {msg.media_type === "image" && msg.media_url && (
+          <a href={msg.media_url} target="_blank" rel="noopener noreferrer">
+            <img
+              src={msg.media_url}
+              alt="Imagen"
+              className="w-full max-w-[260px] object-cover block"
+              style={{ maxHeight: 220 }}
+            />
+          </a>
+        )}
+        {/* PDF */}
+        {msg.media_type === "document" && msg.media_url && (
+          <a
+            href={msg.media_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium underline underline-offset-2 ${isUser ? "text-primary" : "text-white"}`}
+          >
+            <span>📄</span> {msg.content.replace(/^\[PDF: /, "").replace(/\]$/, "")}
+          </a>
+        )}
+        {/* Audio */}
+        {msg.media_type === "audio" && (
+          <div className={`flex items-center gap-2 px-3.5 py-2.5 text-xs ${isUser ? "text-muted-foreground" : "text-white/80"}`}>
+            🎤 Mensaje de voz
           </div>
         )}
-        <p className={`text-[10px] mt-1 ${isUser ? "text-muted-foreground" : "text-white/70"} text-right`}>
-          {new Date(msg.created_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
-        </p>
+        {/* Texto (siempre, excepto si es solo placeholder de media) */}
+        {!(msg.media_type === "document" || msg.media_type === "audio") && (
+          <div className="px-3.5 py-2 leading-relaxed">
+            {msg.content !== "[Imagen]" ? msg.content : null}
+            {msg.send_error && (
+              <div className="flex items-center gap-1 mt-1.5 text-[10px] opacity-80">
+                <AlertTriangle size={10} />
+                {msg.send_error === "24h_window_expired" ? "Ventana 24h expirada" : "Error al enviar"}
+              </div>
+            )}
+            <p className={`text-[10px] mt-1 ${isUser ? "text-muted-foreground" : "text-white/70"} text-right`}>
+              {new Date(msg.created_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
+            </p>
+          </div>
+        )}
+        {(msg.media_type === "document" || msg.media_type === "audio") && (
+          <p className={`text-[10px] px-3.5 pb-2 ${isUser ? "text-muted-foreground" : "text-white/70"} text-right`}>
+            {new Date(msg.created_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
+          </p>
+        )}
       </div>
     </div>
   );
