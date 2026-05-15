@@ -12,72 +12,69 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-// Envío manual desde el dashboard en modo HUMAN
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: corsHeaders });
 
-  if (req.method !== "POST") {
-    return new Response("method not allowed", { status: 405, headers: corsHeaders });
-  }
-
-  // Obtener el usuario autenticado del JWT
+  // Verificar JWT del caller
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
-    return new Response(JSON.stringify({ error: "no auth" }), { status: 401, headers: corsHeaders });
-  }
+  if (!authHeader) return new Response(JSON.stringify({ error: "no auth" }), { status: 401, headers: corsHeaders });
 
-  const { data: { user }, error: authErr } = await supabase.auth.getUser(
-    authHeader.replace("Bearer ", "")
-  );
-  if (authErr || !user) {
-    return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: corsHeaders });
-  }
+  const { data: { user }, error: authErr } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
+  if (authErr || !user) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: corsHeaders });
 
   let body: { conversation_id: string; text: string };
-  try {
-    body = await req.json();
-  } catch {
-    return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: corsHeaders });
-  }
+  try { body = await req.json(); }
+  catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: corsHeaders }); }
 
   const { conversation_id, text } = body;
   if (!conversation_id || !text?.trim()) {
     return new Response(JSON.stringify({ error: "missing fields" }), { status: 400, headers: corsHeaders });
   }
 
-  // Verificar que la conversación pertenece al usuario
+  // Cargar la conversación (sin filtrar por user_id para soportar staff)
   const { data: conv, error: convErr } = await supabase
     .from("crm_wa_conversations")
     .select("phone, user_id")
     .eq("id", conversation_id)
-    .eq("user_id", user.id)
     .single();
 
   if (convErr || !conv) {
     return new Response(JSON.stringify({ error: "conversation not found" }), { status: 404, headers: corsHeaders });
   }
 
-  // Cargar credenciales del tenant
+  // Verificar que el caller tiene acceso: es el dueño o es staff con perm_agente_ia.read
+  const isOwner = conv.user_id === user.id;
+  let isAuthorizedStaff = false;
+  if (!isOwner) {
+    const { data: staffRow } = await supabase
+      .from("crm_staff")
+      .select("perm_agente_ia")
+      .eq("owner_user_id", conv.user_id)
+      .eq("staff_user_id", user.id)
+      .maybeSingle();
+    isAuthorizedStaff = !!(staffRow?.perm_agente_ia as any)?.read;
+  }
+
+  if (!isOwner && !isAuthorizedStaff) {
+    return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: corsHeaders });
+  }
+
+  // Cargar credenciales usando el user_id del dueño de la conversación
   const { data: config, error: configErr } = await supabase
     .from("crm_ai_agent_config")
     .select("phone_number_id, access_token")
-    .eq("user_id", user.id)
+    .eq("user_id", conv.user_id)
     .single();
 
   if (configErr || !config?.phone_number_id || !config?.access_token) {
     return new Response(JSON.stringify({ error: "agent not configured" }), { status: 400, headers: corsHeaders });
   }
 
-  // Insertar el mensaje en DB inmediatamente (visible en dashboard)
+  // Insertar mensaje en DB
   const { data: savedMsg, error: insertErr } = await supabase
     .from("crm_wa_messages")
-    .insert({
-      conversation_id,
-      role: "human",
-      content: text.trim(),
-    })
+    .insert({ conversation_id, role: "human", content: text.trim() })
     .select()
     .single();
 
@@ -107,13 +104,11 @@ Deno.serve(async (req: Request) => {
 
     if (!res.ok) {
       const errText = await res.text();
-      // Error 131047 = fuera de ventana de 24h
       const is24hError = errText.includes("131047");
       await supabase
         .from("crm_wa_messages")
         .update({ send_error: is24hError ? "24h_window_expired" : `Graph ${res.status}` })
         .eq("id", savedMsg.id);
-
       return new Response(
         JSON.stringify({ ok: false, error: is24hError ? "24h_window_expired" : errText }),
         { status: 502, headers: corsHeaders }
@@ -123,10 +118,7 @@ Deno.serve(async (req: Request) => {
     const json = await res.json();
     const wa_message_id = json?.messages?.[0]?.id;
     if (wa_message_id) {
-      await supabase
-        .from("crm_wa_messages")
-        .update({ wa_message_id })
-        .eq("id", savedMsg.id);
+      await supabase.from("crm_wa_messages").update({ wa_message_id }).eq("id", savedMsg.id);
     }
 
     await supabase
@@ -134,20 +126,10 @@ Deno.serve(async (req: Request) => {
       .update({ last_message_at: new Date().toISOString() })
       .eq("id", conversation_id);
 
-    return new Response(
-      JSON.stringify({ ok: true, message_id: savedMsg.id }),
-      { status: 200, headers: corsHeaders }
-    );
+    return new Response(JSON.stringify({ ok: true, message_id: savedMsg.id }), { status: 200, headers: corsHeaders });
 
   } catch (err: any) {
-    await supabase
-      .from("crm_wa_messages")
-      .update({ send_error: err.message })
-      .eq("id", savedMsg.id);
-
-    return new Response(
-      JSON.stringify({ ok: false, error: err.message }),
-      { status: 502, headers: corsHeaders }
-    );
+    await supabase.from("crm_wa_messages").update({ send_error: err.message }).eq("id", savedMsg.id);
+    return new Response(JSON.stringify({ ok: false, error: err.message }), { status: 502, headers: corsHeaders });
   }
 });

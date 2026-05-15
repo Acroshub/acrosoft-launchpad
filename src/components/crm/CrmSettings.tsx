@@ -370,6 +370,7 @@ type PermKey = keyof Pick<
   | "perm_contactos"
   | "perm_pipeline"
   | "perm_recordatorios"
+  | "perm_agente_ia"
 >;
 
 const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermission)[] }[] = [
@@ -382,12 +383,13 @@ const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermiss
   { key: "perm_contactos",           label: "Contactos",                        actions: ["read", "edit", "create", "delete"] },
   { key: "perm_pipeline",            label: "Pipeline",                         actions: ["read", "edit", "create", "delete"] },
   { key: "perm_recordatorios",       label: "Recordatorios",                    actions: ["read", "create"] },
+  { key: "perm_agente_ia",           label: "Agente IA (solo conversaciones)",  actions: ["read"] },
 ];
 
 const DEFAULT_PERMS = (): Pick<CrmStaff,
   "perm_mi_negocio_datos" | "perm_mi_negocio_personal" | "perm_servicios" |
   "perm_dashboard" | "perm_ventas" | "perm_calendarios" | "perm_formularios" |
-  "perm_contactos" | "perm_pipeline" | "perm_recordatorios"
+  "perm_contactos" | "perm_pipeline" | "perm_recordatorios" | "perm_agente_ia"
 > => ({
   perm_mi_negocio_datos:    { read: true,  edit: false },
   perm_mi_negocio_personal: { read: true,  edit: true  }, // always on — staff can always see/edit their own info
@@ -399,6 +401,7 @@ const DEFAULT_PERMS = (): Pick<CrmStaff,
   perm_contactos:           { read: false, edit: false, create: false, delete: false },
   perm_pipeline:            { read: false, edit: false, create: false, delete: false },
   perm_recordatorios:       { read: false, create: false },
+  perm_agente_ia:           { read: false },
 });
 
 // ─── Permission Matrix ────────────────────────────────────────────────────────
@@ -630,6 +633,7 @@ const StaffDialog = ({
           perm_contactos:           initial.perm_contactos,
           perm_pipeline:            initial.perm_pipeline,
           perm_recordatorios:       initial.perm_recordatorios,
+          perm_agente_ia:           initial.perm_agente_ia ?? { read: false },
         }
       : DEFAULT_PERMS()
   );

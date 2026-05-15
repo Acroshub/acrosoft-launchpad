@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Bot, Settings, Send, Wifi, WifiOff, MessageSquare, Loader2,
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
-  Check, ChevronRight, Zap, Clock, Calendar, Phone, Sparkles, Lock,
+  Check, ChevronRight, ChevronLeft, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -681,29 +681,47 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const handlePhotoUpload = async (file: File) => {
     const pid = config?.phone_number_id;
     const tok = config?.access_token;
+    const wid = config?.waba_id;
     if (!pid || !tok) return;
+    if (!wid) {
+      toast.error("Configura el WABA ID en el tab Conexión para poder subir la foto de perfil");
+      return;
+    }
     setUploadingPhoto(true);
     try {
-      const formData = new FormData();
-      formData.append("messaging_product", "whatsapp");
-      formData.append("type", file.type);
-      formData.append("file", file);
-      const uploadRes = await fetch(`https://graph.facebook.com/v21.0/${pid}/media`, {
+      // Step 1: Crear sesión de upload (Meta requiere el Resumable Upload API, no /media)
+      const sessionRes = await fetch(
+        `https://graph.facebook.com/v21.0/${wid}/uploads?file_name=profile.jpg&file_length=${file.size}&file_type=${encodeURIComponent(file.type)}`,
+        { method: "POST", headers: { Authorization: `Bearer ${tok}` } }
+      );
+      if (!sessionRes.ok) throw new Error(`Error al iniciar upload: ${await sessionRes.text()}`);
+      const { id: uploadSessionId } = await sessionRes.json();
+
+      // Step 2: Subir el binario de la imagen
+      const uploadRes = await fetch(`https://graph.facebook.com/v21.0/${uploadSessionId}`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${tok}` },
-        body: formData,
+        headers: {
+          Authorization: `OAuth ${tok}`,
+          file_offset: "0",
+        },
+        body: file,
       });
-      if (!uploadRes.ok) throw new Error(await uploadRes.text());
-      const { id: mediaId } = await uploadRes.json();
+      if (!uploadRes.ok) throw new Error(`Error al subir imagen: ${await uploadRes.text()}`);
+      const uploadData = await uploadRes.json();
+      const fileHandle: string = uploadData.h;
+      if (!fileHandle) throw new Error("Meta no devolvió el handle del archivo");
+
+      // Step 3: Actualizar foto de perfil con el handle
       const profileRes = await fetch(`https://graph.facebook.com/v21.0/${pid}/whatsapp_business_profile`, {
         method: "POST",
         headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ messaging_product: "whatsapp", photo_media_handle: mediaId }),
+        body: JSON.stringify({ messaging_product: "whatsapp", photo_media_handle: fileHandle }),
       });
       if (!profileRes.ok) throw new Error(await profileRes.text());
+
       setProfilePicUrl(URL.createObjectURL(file));
       toast.success("Foto de perfil actualizada");
-    } catch (err: any) { toast.error(err.message?.slice(0, 100) ?? "Error al subir la foto"); }
+    } catch (err: any) { toast.error(err.message?.slice(0, 120) ?? "Error al subir la foto"); }
     finally { setUploadingPhoto(false); }
   };
 
@@ -1176,15 +1194,13 @@ const MessageBubble = ({ msg }: { msg: CrmWaMessage }) => {
 };
 
 // ─── Chat Panel ───────────────────────────────────────────────────────────────
-const ChatPanel = ({ conv }: { conv: CrmWaConversation }) => {
+const ChatPanel = ({ conv, onBack, onDelete }: { conv: CrmWaConversation; onBack?: () => void; onDelete?: () => void }) => {
   const { data: messages = [], isLoading } = useWaMessages(conv.id);
   const setMode = useSetWaConversationMode();
-  const deleteConv = useDeleteWaConversation();
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
   const [windowError, setWindowError] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -1215,51 +1231,69 @@ const ChatPanel = ({ conv }: { conv: CrmWaConversation }) => {
     toast.success(next === "AI" ? "Modo IA activado" : "Modo manual activado");
   };
 
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      await deleteConv.mutateAsync(conv.id);
-      toast.success("Conversación eliminada");
-    } catch { toast.error("Error al eliminar"); }
-    finally { setDeleting(false); setConfirmDelete(false); }
-  };
-
   return (
     <div className="flex flex-col h-full">
       {/* Chat header */}
-      <div className="px-5 py-3.5 border-b flex items-center gap-3 shrink-0">
-        <div className="w-9 h-9 rounded-full bg-secondary flex items-center justify-center shrink-0">
-          <Phone size={15} className="text-muted-foreground" />
+      <div className="px-3 sm:px-5 py-3 border-b flex items-center gap-2 sm:gap-3 shrink-0">
+        {/* Back button — mobile only */}
+        {onBack && (
+          <button onClick={onBack} className="lg:hidden p-1.5 rounded-lg hover:bg-secondary transition-colors shrink-0">
+            <ChevronLeft size={18} className="text-muted-foreground" />
+          </button>
+        )}
+        <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center shrink-0 ${
+          conv.mode === "AI" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
+        }`}>
+          <span className={`text-sm font-bold ${conv.mode === "AI" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+            {(conv.contact_name ?? conv.phone)[0].toUpperCase()}
+          </span>
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate">{conv.contact_name ?? conv.phone}</p>
+          <p className="text-sm font-semibold truncate">{conv.contact_name ?? `+${conv.phone}`}</p>
           {conv.contact_name && <p className="text-[11px] text-muted-foreground truncate">+{conv.phone}</p>}
         </div>
-        <div className="flex items-center gap-2">
-          {/* Mode toggle */}
+
+        {/* Segmented mode toggle */}
+        <div className={`flex rounded-xl border overflow-hidden shrink-0 text-xs font-semibold transition-colors ${setMode.isPending ? "opacity-50 pointer-events-none" : ""}`}>
           <button
-            onClick={handleToggleMode}
-            disabled={setMode.isPending}
-            className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${
-              conv.mode === "AI"
-                ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                : "border-amber-300 bg-amber-50 text-amber-700 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+            onClick={() => conv.mode !== "AI" && handleToggleMode()}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 transition-colors ${
+              conv.mode === "AI" ? "bg-emerald-500 text-white" : "text-muted-foreground hover:bg-secondary"
             }`}
           >
-            {conv.mode === "AI" ? <><Bot size={11} /> IA</> : <><MessageSquare size={11} /> HUMAN</>}
+            <Bot size={11} /> IA
           </button>
-          {/* Delete */}
-          {confirmDelete ? (
-            <div className="flex items-center gap-1">
-              <button onClick={handleDelete} disabled={deleting} className="text-[11px] text-destructive font-semibold hover:underline">
-                {deleting ? <Loader2 size={12} className="animate-spin" /> : "Confirmar"}
-              </button>
-              <button onClick={() => setConfirmDelete(false)} className="text-[11px] text-muted-foreground hover:text-foreground">Cancelar</button>
-            </div>
-          ) : (
-            <button onClick={() => setConfirmDelete(true)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-destructive transition-colors">
-              <Trash2 size={14} />
-            </button>
+          <div className="w-px bg-border shrink-0" />
+          <button
+            onClick={() => conv.mode !== "HUMAN" && handleToggleMode()}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 transition-colors ${
+              conv.mode === "HUMAN" ? "bg-amber-500 text-white" : "text-muted-foreground hover:bg-secondary"
+            }`}
+          >
+            <MessageSquare size={11} /> Manual
+          </button>
+        </div>
+
+        {/* 3-dot menu */}
+        <div className="relative shrink-0">
+          <button
+            onClick={() => setShowMenu(v => !v)}
+            className={`p-1.5 rounded-lg transition-colors ${showMenu ? "bg-secondary" : "hover:bg-secondary"} text-muted-foreground hover:text-foreground`}
+          >
+            <MoreVertical size={16} />
+          </button>
+          {showMenu && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
+              <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-xl shadow-lg py-1 min-w-[180px] overflow-hidden">
+                <button
+                  onClick={() => { setShowMenu(false); onDelete?.(); }}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                >
+                  <Trash2 size={14} /> Eliminar chat
+                </button>
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -1315,22 +1349,42 @@ const ChatPanel = ({ conv }: { conv: CrmWaConversation }) => {
 const CrmAgentIA = ({
   isSuperAdmin = false,
   isSaasClient = false,
+  isStaff      = false,
+  isVendor     = false,
+  ownerUserId,
 }: {
   isSuperAdmin?: boolean;
   isSaasClient?: boolean;
+  isStaff?:      boolean;
+  isVendor?:     boolean;
+  ownerUserId?:  string | null;
 }) => {
-  const { data: config, isLoading } = useAIAgentConfig();
-  const { data: conversations = [] } = useWaConversations();
-  const [selectedId, setSelectedId]   = useState<string | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [search, setSearch]           = useState("");
-  const [wizardDone, setWizardDone]   = useState(false);
-  const [forceWizard, setForceWizard] = useState(false);
+  // Staff uses principal's userId to fetch config and conversations
+  const principalId = isStaff ? (ownerUserId ?? undefined) : undefined;
+  const { data: config, isLoading } = useAIAgentConfig(principalId);
+  const { data: conversations = [] } = useWaConversations(principalId);
+  const deleteConv = useDeleteWaConversation();
+  const [selectedId, setSelectedId]         = useState<string | null>(null);
+  const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [showSettings, setShowSettings]     = useState(false);
+  const [search, setSearch]                 = useState("");
+  const [wizardDone, setWizardDone]         = useState(false);
+  const [forceWizard, setForceWizard]       = useState(false);
+  const [deleteModalId, setDeleteModalId]   = useState<string | null>(null);
 
   const handleDisconnect = () => {
     setForceWizard(true);
     setWizardDone(false);
     setShowSettings(false);
+  };
+
+  const handleDeleteConv = async (id: string) => {
+    try {
+      await deleteConv.mutateAsync(id);
+      if (selectedId === id) { setSelectedId(null); setMobileShowChat(false); }
+      toast.success("Conversación eliminada");
+    } catch { toast.error("Error al eliminar"); }
+    finally { setDeleteModalId(null); }
   };
 
   const selectedConv = useMemo(
@@ -1350,8 +1404,8 @@ const CrmAgentIA = ({
     if (!selectedId && conversations.length > 0) setSelectedId(conversations[0].id);
   }, [conversations, selectedId]);
 
-  if (!isSuperAdmin && !isSaasClient) return null;
-  if (!isSuperAdmin && isSaasClient) return <ProximamenteScreen />;
+  // Access control
+  if (!isSuperAdmin && !isSaasClient && !isStaff && !isVendor) return null;
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-full">
@@ -1360,99 +1414,154 @@ const CrmAgentIA = ({
   );
 
   const configRowExists = config !== null && config !== undefined;
-  const needsWizard = forceWizard || (!configRowExists && !wizardDone);
+  // Staff nunca ve el wizard — si no está configurado, muestra aviso
+  const needsWizard = !isStaff && (forceWizard || (!configRowExists && !wizardDone));
   if (needsWizard) {
     return <SetupWizard onComplete={() => { setWizardDone(true); setForceWizard(false); }} />;
+  }
+
+  // Staff sin config del principal → aviso simple
+  if (isStaff && !configRowExists) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-4 text-center px-8">
+        <div className="w-12 h-12 rounded-2xl bg-secondary flex items-center justify-center">
+          <Bot size={22} className="text-muted-foreground" />
+        </div>
+        <div className="space-y-1">
+          <p className="text-sm font-semibold">Agente IA no configurado</p>
+          <p className="text-xs text-muted-foreground">El titular de la cuenta aún no ha configurado el Agente de WhatsApp.</p>
+        </div>
+      </div>
+    );
   }
 
   return (
     <>
       {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onDisconnect={handleDisconnect} />}
 
+      {/* Modal de confirmación para eliminar */}
+      {deleteModalId && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setDeleteModalId(null)} />
+          <div className="relative bg-card rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+            <div className="p-6 space-y-1">
+              <div className="w-11 h-11 rounded-full bg-destructive/10 flex items-center justify-center mb-4">
+                <Trash2 size={20} className="text-destructive" />
+              </div>
+              <p className="text-base font-semibold">Eliminar chat</p>
+              <p className="text-sm text-muted-foreground">
+                Se eliminará el historial de mensajes. Esta acción no se puede deshacer.
+              </p>
+            </div>
+            <div className="flex border-t">
+              <button
+                onClick={() => setDeleteModalId(null)}
+                className="flex-1 py-3.5 text-sm font-medium text-muted-foreground hover:bg-secondary transition-colors border-r"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => handleDeleteConv(deleteModalId)}
+                disabled={deleteConv.isPending}
+                className="flex-1 py-3.5 text-sm font-semibold text-destructive hover:bg-destructive/10 transition-colors flex items-center justify-center gap-2"
+              >
+                {deleteConv.isPending ? <Loader2 size={14} className="animate-spin" /> : "Eliminar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col h-full -mx-4 -my-6 sm:-mx-6 sm:-my-8">
-        {/* Top bar */}
-        <div className="px-5 py-3.5 border-b flex items-center gap-3 shrink-0 bg-card">
-          <div className="flex items-center gap-2.5 flex-1">
-            <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center">
+
+        {/* Top bar — oculto en mobile cuando el chat está abierto */}
+        <div className={`px-4 sm:px-5 py-3 border-b flex items-center gap-3 shrink-0 bg-card ${mobileShowChat ? "hidden lg:flex" : "flex"}`}>
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
               <Bot size={16} className="text-primary" />
             </div>
-            <div>
-              <p className="text-sm font-semibold">{config?.agent_name ?? "Agente IA"}</p>
-              <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold truncate">{config?.agent_name ?? "Agente IA"}</p>
+              <div className="flex items-center gap-1.5">
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
                 <span className="text-[11px] text-muted-foreground">{config?.is_active ? "Activo" : "Inactivo"}</span>
                 {config?.verified_phone && (
-                  <span className="text-[11px] text-muted-foreground">· {config.verified_phone}</span>
+                  <span className="text-[11px] text-muted-foreground truncate hidden sm:inline">· {config.verified_phone}</span>
                 )}
-                <span className="text-[11px] text-muted-foreground">· {conversations.length} conv.</span>
               </div>
             </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowSettings(true)}
-            className="h-8 gap-1.5 text-xs"
-          >
-            <Settings size={13} /> Configurar
-          </Button>
+          {!isStaff && (
+            <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} className="h-8 gap-1.5 text-xs shrink-0">
+              <Settings size={13} />
+              <span className="hidden sm:inline">Configurar</span>
+            </Button>
+          )}
         </div>
 
         {/* Main layout */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Conversation list */}
-          <div className="w-72 shrink-0 border-r flex flex-col overflow-hidden">
+
+          {/* Conversation list — full screen on mobile, sidebar on desktop */}
+          <div className={`flex flex-col overflow-hidden border-r
+            ${mobileShowChat ? "hidden lg:flex lg:w-72 lg:shrink-0" : "flex w-full lg:w-72 lg:shrink-0"}
+          `}>
             <div className="p-3 border-b">
               <Input
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 placeholder="Buscar conversación..."
-                className="h-8 text-xs"
+                className="h-9 text-sm"
               />
             </div>
             <div className="flex-1 overflow-y-auto">
               {filteredConvs.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-32 gap-2 text-muted-foreground px-4 text-center">
-                  <MessageSquare size={20} className="opacity-30" />
+                <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground px-6 text-center">
+                  <MessageSquare size={24} className="opacity-30" />
                   <p className="text-xs">Sin conversaciones aún. Cuando alguien te escriba por WhatsApp, aparecerá aquí.</p>
                 </div>
               ) : (
                 filteredConvs.map(conv => (
                   <button
                     key={conv.id}
-                    onClick={() => setSelectedId(conv.id)}
-                    className={`w-full text-left px-4 py-3 border-b transition-colors hover:bg-secondary/50 ${
-                      selectedId === conv.id ? "bg-secondary" : ""
+                    onClick={() => { setSelectedId(conv.id); setMobileShowChat(true); }}
+                    className={`w-full text-left px-4 py-3.5 border-b transition-colors ${
+                      selectedId === conv.id ? "bg-secondary" : "hover:bg-secondary/50 active:bg-secondary/80"
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className="text-xs font-semibold truncate flex-1">
-                        {conv.contact_name ?? `+${conv.phone}`}
-                      </p>
-                      <div className="flex items-center gap-1.5 shrink-0">
+                    <div className="flex items-center gap-3">
+                      <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                        conv.mode === "AI" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
+                      }`}>
+                        <span className={`text-sm font-bold ${conv.mode === "AI" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+                          {(conv.contact_name ?? conv.phone)[0].toUpperCase()}
+                        </span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold truncate">{conv.contact_name ?? `+${conv.phone}`}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{conv.contact_name ? `+${conv.phone}` : formatTime(conv.last_message_at)}</p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        {conv.contact_name && <span className="text-[10px] text-muted-foreground">{formatTime(conv.last_message_at)}</span>}
                         <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
                           conv.mode === "AI"
                             ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
                             : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                        }`}>
-                          {conv.mode}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">{formatTime(conv.last_message_at)}</span>
+                        }`}>{conv.mode === "AI" ? "IA" : "Manual"}</span>
                       </div>
                     </div>
-                    {conv.contact_name && (
-                      <p className="text-[11px] text-muted-foreground truncate">+{conv.phone}</p>
-                    )}
                   </button>
                 ))
               )}
             </div>
           </div>
 
-          {/* Chat area */}
-          <div className="flex-1 overflow-hidden">
+          {/* Chat area — full screen on mobile when open, flex-1 on desktop */}
+          <div className={`overflow-hidden flex-col
+            ${mobileShowChat ? "flex w-full lg:flex-1" : "hidden lg:flex lg:flex-1"}
+          `}>
             {selectedConv ? (
-              <ChatPanel conv={selectedConv} />
+              <ChatPanel conv={selectedConv} onBack={() => setMobileShowChat(false)} onDelete={isStaff ? undefined : () => setDeleteModalId(selectedConv.id)} />
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                 <MessageSquare size={32} className="opacity-20" />

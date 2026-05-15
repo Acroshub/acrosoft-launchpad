@@ -380,6 +380,7 @@ export type CrmStaff = {
   perm_contactos:     StaffPermission
   perm_pipeline:      StaffPermission
   perm_recordatorios: StaffPermission
+  perm_agente_ia: StaffPermission
   // item-level overrides — null = no restriction (section perm applies to all)
   perm_calendarios_items: Record<string, StaffItemPermission> | null
   perm_formularios_items: Record<string, StaffItemPermission> | null

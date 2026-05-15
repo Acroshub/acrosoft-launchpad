@@ -21,7 +21,8 @@ export type Section =
   | "formularios"
   | "contactos"
   | "pipeline"
-  | "recordatorios";
+  | "recordatorios"
+  | "agente_ia";
 
 export type Action = "read" | "edit" | "create" | "delete";
 
@@ -39,6 +40,7 @@ export const SECTION_TO_KEY: Record<Section, PermKey> = {
   contactos:           "perm_contactos",
   pipeline:            "perm_pipeline",
   recordatorios:       "perm_recordatorios",
+  agente_ia:           "perm_agente_ia",
 };
 
 /**
@@ -121,6 +123,7 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (can("pipeline",     "read")) visible.add("pipeline");
   if (can("ventas",       "read")) visible.add("ventas");
   if (can("recordatorios","read")) visible.add("reminders");
+  if (can("agente_ia",    "read")) visible.add("agente_ia");
   // Soporte es visible para todo el staff (sin permiso específico requerido)
   visible.add("soporte");
   // Videos: solo el principal lo ve (filtrado adicional en Crm.tsx por isSaasClient)
@@ -143,6 +146,7 @@ export function vendorVisibleNavItems(): Set<string> {
     "pipeline",
     "ventas",
     "reminders",
+    "agente_ia",
     "settings",
     "vendor_links",
   ]);

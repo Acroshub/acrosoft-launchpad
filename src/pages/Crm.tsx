@@ -49,7 +49,7 @@ const groups = [...new Set(navItems.map((n) => n.group))];
 const Crm = () => {
   const navigate = useNavigate();
   const { user } = useCurrentUser();
-  const { isStaff, navItems: allowedNavItems, can } = useStaffPermissions();
+  const { isStaff, navItems: allowedNavItems, can, ownerUserId } = useStaffPermissions();
   const { data: businessProfile } = useBusinessProfile();
   const { data: myClientAccount, isLoading: accountLoading } = useMyClientAccount();
   const isBranded = businessProfile?.theme === "branded";
@@ -128,7 +128,13 @@ const Crm = () => {
       case "videos":     return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
       case "vendor_links": return isVendor ? <CrmVendorLinks vendorProfile={vendorProfile!} /> : null;
       case "vendors":      return effectiveIsAdmin ? <CrmVendors /> : null;
-      case "agente_ia":   return (effectiveIsAdmin || isSaasClient) ? <CrmAgentIA isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} /> : null;
+      case "agente_ia":   return <CrmAgentIA
+        isSuperAdmin={effectiveIsAdmin}
+        isSaasClient={isSaasClient}
+        isStaff={isStaff}
+        isVendor={isVendor}
+        ownerUserId={isStaff ? ownerUserId : null}
+      />;
     }
   };
 
@@ -153,7 +159,6 @@ const Crm = () => {
               {navItems
                 .filter((n) => n.group === group && effectiveAllowedNavItems.has(n.id)
                   && (n.id !== "videos"        || effectiveIsAdmin || isSaasClient)
-                  && (n.id !== "agente_ia"     || effectiveIsAdmin || isSaasClient)
                   && (n.id !== "vendor_links"  || isVendor)
 )
                 .map((item) => {

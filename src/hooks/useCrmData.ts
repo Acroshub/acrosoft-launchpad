@@ -2297,20 +2297,21 @@ export const useMarkSalePaid = () => {
 
 // ─── AI Agent ─────────────────────────────────────────────────────────────────
 
-export const useAIAgentConfig = () => {
+export const useAIAgentConfig = (userId?: string) => {
   const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
   return useQuery({
-    queryKey: ["crm_ai_agent_config", user?.id],
+    queryKey: ["crm_ai_agent_config", effectiveId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("crm_ai_agent_config")
         .select("*")
-        .eq("user_id", user!.id)
+        .eq("user_id", effectiveId!)
         .maybeSingle();
       if (error) throw error;
       return data as CrmAIAgentConfig | null;
     },
-    enabled: !!user,
+    enabled: !!effectiveId,
   });
 };
 
@@ -2328,20 +2329,21 @@ export const useUpsertAIAgentConfig = () => {
   });
 };
 
-export const useWaConversations = () => {
+export const useWaConversations = (userId?: string) => {
   const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
   return useQuery({
-    queryKey: ["crm_wa_conversations", user?.id],
+    queryKey: ["crm_wa_conversations", effectiveId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("crm_wa_conversations")
         .select("*")
-        .eq("user_id", user!.id)
+        .eq("user_id", effectiveId!)
         .order("last_message_at", { ascending: false, nullsFirst: false });
       if (error) throw error;
       return (data ?? []) as CrmWaConversation[];
     },
-    enabled: !!user,
+    enabled: !!effectiveId,
     refetchInterval: 3000,
   });
 };
