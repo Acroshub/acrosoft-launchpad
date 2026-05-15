@@ -7,6 +7,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import WeeklySchedulePicker from "@/components/shared/WeeklySchedulePicker";
+import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
 import {
   useAIAgentConfig, useUpsertAIAgentConfig,
   useWaConversations, useWaMessages,
@@ -19,7 +21,15 @@ import { toast } from "sonner";
 // ─── Constants ────────────────────────────────────────────────────────────────
 const WEBHOOK_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-webhook`;
 
-const DAYS_SHORT = ["Do", "Lu", "Ma", "Mi", "Ju", "Vi", "Sá"];
+const DEFAULT_SCHEDULE: WeeklySchedule = {
+  "Lun": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
+  "Mar": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
+  "Mié": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
+  "Jue": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
+  "Vie": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
+  "Sáb": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
+  "Dom": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
+};
 
 const TIMEZONES = [
   "America/Mexico_City", "America/Monterrey", "America/Cancun",
@@ -107,12 +117,13 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const upsert = useUpsertAIAgentConfig();
   const { data: existingConfig } = useAIAgentConfig();
 
-  const [step, setStep] = useState(1);
-  const [testing, setTesting] = useState(false);
+  const [step, setStep]         = useState(1);
+  const [testing, setTesting]   = useState(false);
   const [testResult, setTestResult] = useState<{ phone: string; name: string } | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [saving, setSaving]     = useState(false);
 
-  // Step 1
+  // Step 1 — Conexión
   const [phoneNumberId, setPhoneNumberId] = useState(existingConfig?.phone_number_id ?? "");
   const [accessToken, setAccessToken]     = useState(existingConfig?.access_token ?? "");
   const [wabaId, setWabaId]               = useState(existingConfig?.waba_id ?? "");
@@ -121,30 +132,35 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const [showSecret, setShowSecret]       = useState(false);
   const verifyToken = existingConfig?.webhook_verify_token ?? "—";
 
-  // Auto-crear fila en DB al montar para que el verify_token quede disponible de inmediato
+  const setPhoneNumberIdSafe = (v: string) => { setPhoneNumberId(v); setVerified(false); setTestResult(null); };
+  const setAccessTokenSafe   = (v: string) => { setAccessToken(v);   setVerified(false); setTestResult(null); };
+
+  // Step 2 — Agente
+  const [agentName, setAgentName]       = useState(existingConfig?.agent_name ?? "Asistente");
+  const [model, setModel]               = useState(existingConfig?.model ?? "claude-haiku-4-5-20251001");
+  const [systemPrompt, setSystemPrompt] = useState(existingConfig?.system_prompt ?? DEFAULT_PROMPT);
+  const promptRef = useRef<HTMLTextAreaElement>(null);
+
+  // Step 3 — Capacidades
+  const [canBook, setCanBook]         = useState(existingConfig?.can_book_appointments ?? false);
+  const [canContacts, setCanContacts] = useState(existingConfig?.can_create_contacts ?? true);
+  const [canServices, setCanServices] = useState(existingConfig?.can_answer_services ?? true);
+  const [canTransfer, setCanTransfer] = useState(existingConfig?.can_transfer_human ?? false);
+
+  // Step 4 — Horario
+  const [schedule, setSchedule]     = useState<WeeklySchedule>(
+    (existingConfig?.schedule as WeeklySchedule | null) ?? DEFAULT_SCHEDULE
+  );
+  const [timezone, setTimezone]     = useState(existingConfig?.timezone ?? "America/Mexico_City");
+  const [offHoursMsg, setOffHoursMsg] = useState(existingConfig?.off_hours_message ?? "");
+
+  // Auto-crear fila en DB al montar para generar el verify_token de inmediato
   useEffect(() => {
     if (!existingConfig) {
       upsert.mutateAsync({ agent_name: "Asistente" }).catch(() => {});
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Step 2
-  const [agentName, setAgentName]   = useState(existingConfig?.agent_name ?? "Asistente");
-  const [model, setModel]           = useState(existingConfig?.model ?? "claude-haiku-4-5-20251001");
-  const [systemPrompt, setSystemPrompt] = useState(existingConfig?.system_prompt ?? DEFAULT_PROMPT);
-  const promptRef = useRef<HTMLTextAreaElement>(null);
-
-  // Step 3
-  const [canBook, setCanBook]           = useState(existingConfig?.can_book_appointments ?? false);
-  const [canContacts, setCanContacts]   = useState(existingConfig?.can_create_contacts ?? true);
-  const [canServices, setCanServices]   = useState(existingConfig?.can_answer_services ?? true);
-  const [canTransfer, setCanTransfer]   = useState(existingConfig?.can_transfer_human ?? false);
-  const [activeDays, setActiveDays]     = useState<number[]>(existingConfig?.active_days ?? [1,2,3,4,5]);
-  const [activeFrom, setActiveFrom]     = useState(existingConfig?.active_from ?? "08:00");
-  const [activeUntil, setActiveUntil]   = useState(existingConfig?.active_until ?? "18:00");
-  const [timezone, setTimezone]         = useState(existingConfig?.timezone ?? "America/Mexico_City");
-  const [offHoursMsg, setOffHoursMsg]   = useState(existingConfig?.off_hours_message ?? "");
 
   const handleTestConnection = async () => {
     if (!phoneNumberId || !accessToken) { toast.error("Ingresa el Phone Number ID y el Access Token"); return; }
@@ -157,17 +173,16 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
       if (!res.ok) throw new Error(`Error ${res.status}: ${await res.text()}`);
       const json = await res.json();
       setTestResult({ phone: json.display_phone_number, name: json.verified_name });
+      setVerified(true);
       toast.success("¡Conexión exitosa!");
     } catch (err: any) {
+      setVerified(false);
       toast.error(err.message?.slice(0, 120) ?? "Error al conectar");
     } finally { setTesting(false); }
   };
 
   const handleSaveStep1 = async () => {
-    if (!phoneNumberId || !accessToken || !appSecret) {
-      toast.error("Completa todos los campos obligatorios");
-      return;
-    }
+    if (!phoneNumberId || !accessToken || !appSecret) { toast.error("Completa todos los campos obligatorios"); return; }
     await upsert.mutateAsync({ phone_number_id: phoneNumberId, access_token: accessToken, waba_id: wabaId || null, app_secret: appSecret });
     setStep(2);
   };
@@ -179,23 +194,22 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   };
 
   const handleSaveStep3 = async () => {
+    await upsert.mutateAsync({ can_book_appointments: canBook, can_create_contacts: canContacts, can_answer_services: canServices, can_transfer_human: canTransfer });
+    setStep(4);
+  };
+
+  const handleSaveStep4 = async () => {
+    await upsert.mutateAsync({ schedule, timezone, off_hours_message: offHoursMsg || null });
+    setStep(5);
+  };
+
+  const handleActivar = async () => {
     setSaving(true);
     try {
-      await upsert.mutateAsync({
-        can_book_appointments: canBook,
-        can_create_contacts: canContacts,
-        can_answer_services: canServices,
-        can_transfer_human: canTransfer,
-        active_days: activeDays,
-        active_from: activeFrom,
-        active_until: activeUntil,
-        timezone,
-        off_hours_message: offHoursMsg || null,
-        is_active: true,
-      });
-      toast.success("¡Agente configurado y activado!");
+      await upsert.mutateAsync({ is_active: true });
+      toast.success("¡Asistente IA activado!");
       onComplete();
-    } catch { toast.error("Error al guardar"); }
+    } catch { toast.error("Error al activar"); }
     finally { setSaving(false); }
   };
 
@@ -203,13 +217,12 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
     const el = promptRef.current;
     if (!el) return;
     const start = el.selectionStart ?? systemPrompt.length;
-    const end   = el.selectionEnd ?? systemPrompt.length;
+    const end   = el.selectionEnd   ?? systemPrompt.length;
     setSystemPrompt(systemPrompt.slice(0, start) + variable + systemPrompt.slice(end));
     setTimeout(() => { el.focus(); el.setSelectionRange(start + variable.length, start + variable.length); }, 0);
   };
 
-  const toggleDay = (d: number) =>
-    setActiveDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
+  const STEP_LABELS = ["Conexión", "Agente", "Capacidades", "Horario", "Activar"];
 
   return (
     <div className="flex flex-col items-center justify-center min-h-full py-10 px-4">
@@ -220,10 +233,10 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             <Bot size={24} className="text-primary" />
           </div>
           <h1 className="text-lg font-semibold">Configura tu Agente IA</h1>
-          <p className="text-sm text-muted-foreground">Conecta WhatsApp y personaliza el comportamiento del agente</p>
+          <p className="text-sm text-muted-foreground">{STEP_LABELS[step - 1]} — Paso {step} de 5</p>
         </div>
 
-        <StepIndicator current={step} total={3} />
+        <StepIndicator current={step} total={5} />
 
         {/* ── Step 1: Conexión ── */}
         {step === 1 && (
@@ -232,8 +245,6 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
               <h2 className="text-sm font-semibold flex items-center gap-2"><Wifi size={14} />Conexión con Meta WhatsApp</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Necesitas una app en Meta for Developers con WhatsApp Business habilitado.</p>
             </div>
-
-            {/* Webhook info */}
             <div className="bg-secondary/40 rounded-xl p-4 space-y-3">
               <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Configura en el panel de Meta</p>
               <div className="space-y-2">
@@ -253,19 +264,16 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 </div>
               </div>
             </div>
-
-            <div className="grid grid-cols-1 gap-4">
+            <div className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Phone Number ID <span className="text-destructive">*</span></label>
-                <Input value={phoneNumberId} onChange={e => setPhoneNumberId(e.target.value)} placeholder="123456789012345" className="h-9 text-sm font-mono" />
+                <Input value={phoneNumberId} onChange={e => setPhoneNumberIdSafe(e.target.value)} placeholder="123456789012345" className="h-9 text-sm font-mono" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Access Token (System User) <span className="text-destructive">*</span></label>
                 <div className="relative">
-                  <Input type={showToken ? "text" : "password"} value={accessToken} onChange={e => setAccessToken(e.target.value)} placeholder="EAAG..." className="h-9 text-sm font-mono pr-9" />
-                  <button onClick={() => setShowToken(!showToken)} className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground">
-                    {showToken ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
+                  <Input type={showToken ? "text" : "password"} value={accessToken} onChange={e => setAccessTokenSafe(e.target.value)} placeholder="EAAG..." className="h-9 text-sm font-mono pr-9" />
+                  <button onClick={() => setShowToken(!showToken)} className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground">{showToken ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                 </div>
                 <p className="text-[10px] text-muted-foreground">Usa un System User Token permanente, no el token de prueba de 24h.</p>
               </div>
@@ -277,13 +285,10 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 <label className="text-xs font-medium text-muted-foreground">App Secret <span className="text-destructive">*</span></label>
                 <div className="relative">
                   <Input type={showSecret ? "text" : "password"} value={appSecret} onChange={e => setAppSecret(e.target.value)} placeholder="App Dashboard → Settings → Basic" className="h-9 text-sm font-mono pr-9" />
-                  <button onClick={() => setShowSecret(!showSecret)} className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground">
-                    {showSecret ? <EyeOff size={15} /> : <Eye size={15} />}
-                  </button>
+                  <button onClick={() => setShowSecret(!showSecret)} className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground">{showSecret ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                 </div>
               </div>
             </div>
-
             {testResult && (
               <div className="flex items-center gap-3 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl px-4 py-3">
                 <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
@@ -293,14 +298,19 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 </div>
               </div>
             )}
-
+            {!verified && (
+              <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                <AlertTriangle size={12} /> Debes verificar la conexión antes de continuar.
+              </p>
+            )}
             <div className="flex gap-2">
-              <Button variant="outline" onClick={handleTestConnection} disabled={testing} className="gap-1.5 h-9 text-xs">
-                {testing ? <Loader2 size={13} className="animate-spin" /> : <Wifi size={13} />}
-                Verificar conexión
+              <Button variant="outline" onClick={handleTestConnection} disabled={testing || !phoneNumberId || !accessToken}
+                className={`gap-1.5 h-9 text-xs flex-1 ${verified ? "border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-400" : ""}`}>
+                {testing ? <Loader2 size={13} className="animate-spin" /> : verified ? <CheckCircle2 size={13} /> : <Wifi size={13} />}
+                {verified ? "Conexión verificada" : "Verificar conexión"}
               </Button>
-              <Button onClick={handleSaveStep1} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
-                {upsert.isPending ? <Loader2 size={13} className="animate-spin" /> : null}
+              <Button onClick={handleSaveStep1} disabled={!verified || upsert.isPending} className="flex-1 h-9 gap-1.5">
+                {upsert.isPending && <Loader2 size={13} className="animate-spin" />}
                 Continuar <ChevronRight size={14} />
               </Button>
             </div>
@@ -314,7 +324,6 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
               <h2 className="text-sm font-semibold flex items-center gap-2"><Sparkles size={14} />Personalidad del Agente</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Define cómo se presenta y responde tu agente de IA.</p>
             </div>
-
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-1.5 col-span-2 sm:col-span-1">
                 <label className="text-xs font-medium text-muted-foreground">Nombre del agente</label>
@@ -328,36 +337,24 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 </select>
               </div>
             </div>
-
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Prompt del sistema</label>
-              <Textarea
-                ref={promptRef}
-                value={systemPrompt}
-                onChange={e => setSystemPrompt(e.target.value)}
-                rows={8}
-                className="text-sm resize-none font-mono text-xs leading-relaxed"
-                placeholder="Describe el comportamiento del agente..."
-              />
+              <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={8}
+                className="text-sm resize-none font-mono text-xs leading-relaxed" placeholder="Describe el comportamiento del agente..." />
               <div className="flex flex-wrap gap-1.5">
                 <span className="text-[10px] text-muted-foreground self-center">Insertar variable:</span>
                 {PROMPT_VARIABLES.map(v => (
-                  <button
-                    key={v.label}
-                    onClick={() => insertVariable(v.label)}
-                    title={v.desc}
-                    className="text-[10px] font-mono bg-primary/8 text-primary border border-primary/20 px-1.5 py-0.5 rounded hover:bg-primary/15 transition-colors"
-                  >
+                  <button key={v.label} onClick={() => insertVariable(v.label)} title={v.desc}
+                    className="text-[10px] font-mono bg-primary/8 text-primary border border-primary/20 px-1.5 py-0.5 rounded hover:bg-primary/15 transition-colors">
                     {v.label}
                   </button>
                 ))}
               </div>
             </div>
-
             <div className="flex gap-2">
               <Button variant="outline" onClick={() => setStep(1)} className="h-9 text-xs">Atrás</Button>
               <Button onClick={handleSaveStep2} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
-                {upsert.isPending ? <Loader2 size={13} className="animate-spin" /> : null}
+                {upsert.isPending && <Loader2 size={13} className="animate-spin" />}
                 Continuar <ChevronRight size={14} />
               </Button>
             </div>
@@ -366,86 +363,108 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 
         {/* ── Step 3: Capacidades ── */}
         {step === 3 && (
+          <div className="bg-card border rounded-2xl p-6 space-y-4">
+            <div>
+              <h2 className="text-sm font-semibold flex items-center gap-2"><Zap size={14} />Capacidades</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">¿Qué puede hacer el agente además de responder preguntas?</p>
+            </div>
+            {[
+              { label: "Agendar citas", sub: "Crea citas en el calendario del CRM", val: canBook, set: setCanBook },
+              { label: "Crear contactos automáticamente", sub: "Guarda nuevos leads al recibir mensajes", val: canContacts, set: setCanContacts },
+              { label: "Responder sobre servicios y precios", sub: "Informa a clientes sobre el catálogo de servicios", val: canServices, set: setCanServices },
+              { label: "Transferir a humano", sub: "Cambia a modo HUMAN y te notifica para que tomes la conversación", val: canTransfer, set: setCanTransfer },
+            ].map(item => (
+              <div key={item.label} className="flex items-center justify-between gap-4 py-3 border-b last:border-0">
+                <div>
+                  <p className="text-sm font-medium">{item.label}</p>
+                  <p className="text-xs text-muted-foreground">{item.sub}</p>
+                </div>
+                <button onClick={() => item.set(!item.val)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
+                  <span className={`absolute inset-0 rounded-full transition-colors ${item.val ? "bg-primary" : "bg-secondary border"}`} />
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${item.val ? "left-[22px]" : "left-0.5"}`} />
+                </button>
+              </div>
+            ))}
+            <div className="flex gap-2 pt-2">
+              <Button variant="outline" onClick={() => setStep(2)} className="h-9 text-xs">Atrás</Button>
+              <Button onClick={handleSaveStep3} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
+                {upsert.isPending && <Loader2 size={13} className="animate-spin" />}
+                Continuar <ChevronRight size={14} />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 4: Horario ── */}
+        {step === 4 && (
+          <div className="bg-card border rounded-2xl p-6 space-y-5">
+            <div>
+              <h2 className="text-sm font-semibold flex items-center gap-2"><Clock size={14} />Horario del Asistente Virtual</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Este horario controla <strong>cuándo el asistente virtual responde automáticamente</strong> por WhatsApp.
+                No es el horario de atención de tu negocio — es solo para el bot.
+                Fuera de este horario, el asistente enviará el mensaje de "fuera de horario" en lugar de responder con IA.
+                Por defecto está configurado 24/7.
+              </p>
+            </div>
+            <WeeklySchedulePicker value={schedule} onChange={setSchedule} interval={30} />
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Zona horaria</label>
+              <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Mensaje fuera de horario</label>
+              <Textarea value={offHoursMsg} onChange={e => setOffHoursMsg(e.target.value)} rows={2} className="text-sm resize-none"
+                placeholder="Ej: ¡Hola! Estamos fuera de horario. Nuestro equipo te atenderá pronto." />
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setStep(3)} className="h-9 text-xs">Atrás</Button>
+              <Button onClick={handleSaveStep4} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
+                {upsert.isPending && <Loader2 size={13} className="animate-spin" />}
+                Continuar <ChevronRight size={14} />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 5: Resumen + Activar ── */}
+        {step === 5 && (
           <div className="bg-card border rounded-2xl p-6 space-y-6">
             <div>
-              <h2 className="text-sm font-semibold flex items-center gap-2"><Zap size={14} />Capacidades y Horario</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Define qué puede hacer el agente y cuándo está activo.</p>
+              <h2 className="text-sm font-semibold flex items-center gap-2"><CheckCircle2 size={14} />Todo listo para activar</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">Revisa la configuración y activa tu asistente.</p>
             </div>
 
-            {/* Capacidades */}
+            {/* Resumen */}
             <div className="space-y-3">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Capacidades</p>
               {[
-                { label: "Puede agendar citas", sub: "Crea citas en el calendario del CRM", val: canBook, set: setCanBook },
-                { label: "Puede crear contactos", sub: "Guarda automáticamente nuevos leads", val: canContacts, set: setCanContacts },
-                { label: "Responde sobre servicios", sub: "Informa precios y descripción de servicios", val: canServices, set: setCanServices },
-                { label: "Puede transferir a humano", sub: "Cambia a modo HUMAN y te notifica", val: canTransfer, set: setCanTransfer },
-              ].map(item => (
-                <div key={item.label} className="flex items-center justify-between gap-4 py-2 border-b last:border-0">
-                  <div>
-                    <p className="text-sm font-medium">{item.label}</p>
-                    <p className="text-xs text-muted-foreground">{item.sub}</p>
-                  </div>
-                  <button
-                    onClick={() => item.set(!item.val)}
-                    className={`w-10 h-5.5 rounded-full transition-colors shrink-0 relative ${item.val ? "bg-primary" : "bg-secondary border"}`}
-                    style={{ height: 22, width: 40 }}
-                  >
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${item.val ? "left-[22px]" : "left-0.5"}`} />
-                  </button>
+                { label: "Número de WhatsApp", value: testResult?.phone ?? existingConfig?.phone_number_id ?? "—" },
+                { label: "Nombre del asistente", value: agentName },
+                { label: "Modelo", value: model.includes("haiku") ? "Claude Haiku" : "Claude Sonnet" },
+                { label: "Capacidades", value: [canBook && "Citas", canContacts && "Contactos", canServices && "Servicios", canTransfer && "Transfer"].filter(Boolean).join(" · ") || "Solo responder preguntas" },
+                { label: "Zona horaria", value: timezone },
+              ].map(({ label, value }) => (
+                <div key={label} className="flex items-start justify-between gap-4 py-2 border-b last:border-0">
+                  <span className="text-xs text-muted-foreground shrink-0">{label}</span>
+                  <span className="text-xs font-medium text-right">{value}</span>
                 </div>
               ))}
             </div>
 
-            {/* Horario */}
-            <div className="space-y-3">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Horario activo</p>
-              <div className="flex gap-1.5">
-                {DAYS_SHORT.map((d, i) => (
-                  <button
-                    key={i}
-                    onClick={() => toggleDay(i)}
-                    className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-                      activeDays.includes(i)
-                        ? "bg-primary text-primary-foreground"
-                        : "bg-secondary text-muted-foreground hover:text-foreground"
-                    }`}
-                  >{d}</button>
-                ))}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground">Hora inicio</label>
-                  <Input type="time" value={activeFrom} onChange={e => setActiveFrom(e.target.value)} className="h-9 text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground">Hora fin</label>
-                  <Input type="time" value={activeUntil} onChange={e => setActiveUntil(e.target.value)} className="h-9 text-sm" />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Zona horaria</label>
-                <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz.replace("_", " ")}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Mensaje fuera de horario</label>
-                <Textarea
-                  value={offHoursMsg}
-                  onChange={e => setOffHoursMsg(e.target.value)}
-                  rows={2}
-                  className="text-sm resize-none"
-                  placeholder="Gracias por escribirnos. Nuestro horario es Lu-Vi 8am-6pm. Te responderemos pronto."
-                />
-              </div>
-            </div>
-
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(2)} className="h-9 text-xs">Atrás</Button>
-              <Button onClick={handleSaveStep3} disabled={saving} className="flex-1 h-9 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white">
-                {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                Activar Agente
+              <Button variant="outline" onClick={() => setStep(4)} className="h-9 text-xs shrink-0">Atrás</Button>
+              <Button
+                onClick={handleActivar}
+                disabled={saving}
+                className="flex-1 h-11 gap-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm"
+              >
+                {saving
+                  ? <Loader2 size={15} className="animate-spin" />
+                  : <Bot size={15} />
+                }
+                Activar Asistente IA · {testResult?.phone ?? existingConfig?.phone_number_id ?? "WhatsApp"}
               </Button>
             </div>
           </div>
@@ -464,26 +483,46 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
   const [testResult, setTestResult] = useState<string | null>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
-  const [phoneNumberId, setPhoneNumberId] = useState(config?.phone_number_id ?? "");
-  const [accessToken, setAccessToken]     = useState(config?.access_token ?? "");
-  const [wabaId, setWabaId]               = useState(config?.waba_id ?? "");
-  const [appSecret, setAppSecret]         = useState(config?.app_secret ?? "");
-  const [agentName, setAgentName]         = useState(config?.agent_name ?? "");
-  const [model, setModel]                 = useState(config?.model ?? "claude-haiku-4-5-20251001");
-  const [systemPrompt, setSystemPrompt]   = useState(config?.system_prompt ?? DEFAULT_PROMPT);
-  const [isActive, setIsActive]           = useState(config?.is_active ?? false);
-  const [canBook, setCanBook]             = useState(config?.can_book_appointments ?? false);
-  const [canContacts, setCanContacts]     = useState(config?.can_create_contacts ?? true);
-  const [canServices, setCanServices]     = useState(config?.can_answer_services ?? true);
-  const [canTransfer, setCanTransfer]     = useState(config?.can_transfer_human ?? false);
-  const [activeDays, setActiveDays]       = useState<number[]>(config?.active_days ?? [1,2,3,4,5]);
-  const [activeFrom, setActiveFrom]       = useState(config?.active_from ?? "08:00");
-  const [activeUntil, setActiveUntil]     = useState(config?.active_until ?? "18:00");
-  const [timezone, setTimezone]           = useState(config?.timezone ?? "America/Mexico_City");
-  const [offHoursMsg, setOffHoursMsg]     = useState(config?.off_hours_message ?? "");
+  const [phoneNumberId, setPhoneNumberId] = useState("");
+  const [accessToken, setAccessToken]     = useState("");
+  const [wabaId, setWabaId]               = useState("");
+  const [appSecret, setAppSecret]         = useState("");
+  const [agentName, setAgentName]         = useState("Asistente");
+  const [model, setModel]                 = useState("claude-haiku-4-5-20251001");
+  const [systemPrompt, setSystemPrompt]   = useState(DEFAULT_PROMPT);
+  const [isActive, setIsActive]           = useState(false);
+  const [canBook, setCanBook]             = useState(false);
+  const [canContacts, setCanContacts]     = useState(true);
+  const [canServices, setCanServices]     = useState(true);
+  const [canTransfer, setCanTransfer]     = useState(false);
+  const [schedule, setSchedule]           = useState<WeeklySchedule>(DEFAULT_SCHEDULE);
+  const [timezone, setTimezone]           = useState("America/Mexico_City");
+  const [offHoursMsg, setOffHoursMsg]     = useState("");
   const [showToken, setShowToken]         = useState(false);
   const [showSecret, setShowSecret]       = useState(false);
   const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario">("conexion");
+  const initialized                       = useRef(false);
+
+  // Sincronizar desde DB cuando config carga (solo la primera vez)
+  useEffect(() => {
+    if (!config || initialized.current) return;
+    initialized.current = true;
+    setPhoneNumberId(config.phone_number_id ?? "");
+    setAccessToken(config.access_token ?? "");
+    setWabaId(config.waba_id ?? "");
+    setAppSecret(config.app_secret ?? "");
+    setAgentName(config.agent_name ?? "Asistente");
+    setModel(config.model ?? "claude-haiku-4-5-20251001");
+    setSystemPrompt(config.system_prompt ?? DEFAULT_PROMPT);
+    setIsActive(config.is_active ?? false);
+    setCanBook(config.can_book_appointments ?? false);
+    setCanContacts(config.can_create_contacts ?? true);
+    setCanServices(config.can_answer_services ?? true);
+    setCanTransfer(config.can_transfer_human ?? false);
+    setSchedule((config.schedule as WeeklySchedule | null) ?? DEFAULT_SCHEDULE);
+    setTimezone(config.timezone ?? "America/Mexico_City");
+    setOffHoursMsg(config.off_hours_message ?? "");
+  }, [config]);
 
   const handleSave = async () => {
     setSaving(true);
@@ -501,9 +540,7 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
         can_create_contacts: canContacts,
         can_answer_services: canServices,
         can_transfer_human: canTransfer,
-        active_days: activeDays,
-        active_from: activeFrom,
-        active_until: activeUntil,
+        schedule,
         timezone,
         off_hours_message: offHoursMsg || null,
       });
@@ -527,8 +564,6 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
     finally { setTesting(false); }
   };
 
-  const toggleDay = (d: number) =>
-    setActiveDays(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d].sort());
 
   const insertVariable = (v: string) => {
     const el = promptRef.current;
@@ -696,21 +731,14 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
 
           {section === "horario" && (
             <div className="space-y-4">
-              <div className="flex gap-1">
-                {DAYS_SHORT.map((d, i) => (
-                  <button key={i} onClick={() => toggleDay(i)} className={`flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors ${activeDays.includes(i) ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"}`}>{d}</button>
-                ))}
+              <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1">
+                <p className="text-xs font-medium">Horario del Asistente Virtual</p>
+                <p className="text-xs text-muted-foreground">
+                  Este horario controla <strong>cuándo el bot responde automáticamente</strong> por WhatsApp. No es el horario de atención de tu negocio.
+                  Fuera de este horario, enviará el mensaje de "fuera de horario". Por defecto 24/7.
+                </p>
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground">Hora inicio</label>
-                  <Input type="time" value={activeFrom} onChange={e => setActiveFrom(e.target.value)} className="h-9 text-sm" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs text-muted-foreground">Hora fin</label>
-                  <Input type="time" value={activeUntil} onChange={e => setActiveUntil(e.target.value)} className="h-9 text-sm" />
-                </div>
-              </div>
+              <WeeklySchedulePicker value={schedule} onChange={setSchedule} interval={30} />
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">Zona horaria</label>
                 <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
@@ -719,7 +747,8 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">Mensaje fuera de horario</label>
-                <Textarea value={offHoursMsg} onChange={e => setOffHoursMsg(e.target.value)} rows={3} className="text-sm resize-none" placeholder="Mensaje automático fuera del horario..." />
+                <Textarea value={offHoursMsg} onChange={e => setOffHoursMsg(e.target.value)} rows={3} className="text-sm resize-none"
+                  placeholder="Ej: ¡Hola! Estamos fuera de horario. Te atenderemos pronto." />
               </div>
             </div>
           )}
@@ -941,9 +970,10 @@ const CrmAgentIA = ({
     </div>
   );
 
-  // Show wizard if not configured yet
-  const isConfigured = !!(config?.phone_number_id && config?.access_token && config?.app_secret);
-  if (!isConfigured && !wizardDone) {
+  // Mostrar wizard solo si NUNCA se ha creado la fila de config (primera vez absoluta)
+  // Una vez que existe la fila en DB, siempre mostrar el dashboard aunque falten credenciales
+  const configRowExists = config !== null && config !== undefined;
+  if (!configRowExists && !wizardDone) {
     return <SetupWizard onComplete={() => setWizardDone(true)} />;
   }
 

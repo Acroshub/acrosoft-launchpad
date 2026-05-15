@@ -467,6 +467,7 @@ export type CrmAIAgentConfig = {
   session_timeout_minutes: number
   language: string
   is_active: boolean
+  schedule: Record<string, { open: boolean; slots: { from: string; to: string }[] }> | null
   created_at: string
   updated_at: string
 }
