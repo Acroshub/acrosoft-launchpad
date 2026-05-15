@@ -13,6 +13,7 @@ import {
   useAIAgentConfig, useUpsertAIAgentConfig,
   useWaConversations, useWaMessages,
   useSetWaConversationMode, useDeleteWaConversation,
+  useBusinessProfile,
 } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
 import type { CrmWaConversation, CrmWaMessage } from "@/lib/supabase";
@@ -117,6 +118,7 @@ const StepIndicator = ({ current, total }: { current: number; total: number }) =
 const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const upsert = useUpsertAIAgentConfig();
   const { data: existingConfig } = useAIAgentConfig();
+  const { data: businessProfile } = useBusinessProfile();
 
   const [step, setStep]         = useState(1);
   const [testing, setTesting]   = useState(false);
@@ -151,8 +153,9 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const [schedule, setSchedule]     = useState<WeeklySchedule>(
     (existingConfig?.schedule as WeeklySchedule | null) ?? DEFAULT_SCHEDULE
   );
-  const [timezone, setTimezone]     = useState(existingConfig?.timezone ?? "America/Mexico_City");
+  const [timezone, setTimezone]     = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [offHoursMsg, setOffHoursMsg] = useState(existingConfig?.off_hours_message ?? "");
+  const timezoneInitialized         = useRef(false);
 
   // Auto-crear fila en DB al montar para generar el verify_token de inmediato
   useEffect(() => {
@@ -161,6 +164,18 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Auto-detect timezone from existing config or business profile
+  useEffect(() => {
+    if (timezoneInitialized.current) return;
+    const tz = existingConfig?.timezone ?? businessProfile?.timezone;
+    if (tz) {
+      setTimezone(tz);
+      timezoneInitialized.current = true;
+    } else if (existingConfig !== undefined && businessProfile !== undefined) {
+      timezoneInitialized.current = true;
+    }
+  }, [existingConfig, businessProfile]);
 
   const handleTestConnection = async () => {
     if (!phoneNumberId || !accessToken) { toast.error("Ingresa el Phone Number ID y el Access Token"); return; }
@@ -174,6 +189,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
       const json = await res.json();
       setTestResult({ phone: json.display_phone_number, name: json.verified_name });
       setVerified(true);
+      // Guardar el número formateado para mostrarlo en el dashboard
+      await upsert.mutateAsync({ verified_phone: json.display_phone_number ?? null }).catch(() => {});
       toast.success("¡Conexión exitosa!");
     } catch (err: any) {
       setVerified(false);
@@ -411,7 +428,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Zona horaria</label>
               <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
+                {(TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES]).map(tz => <option key={tz} value={tz}>{tz}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">
@@ -477,6 +494,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 // ─── Settings Panel (slide-over) ──────────────────────────────────────────────
 const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisconnect: () => void }) => {
   const { data: config } = useAIAgentConfig();
+  const { data: businessProfile } = useBusinessProfile();
   const { user } = useCurrentUser();
   const upsert = useUpsertAIAgentConfig();
   const [saving, setSaving]         = useState(false);
@@ -506,7 +524,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [canServices, setCanServices]     = useState(true);
   const [canTransfer, setCanTransfer]     = useState(false);
   const [schedule, setSchedule]           = useState<WeeklySchedule>(DEFAULT_SCHEDULE);
-  const [timezone, setTimezone]           = useState("America/Mexico_City");
+  const [timezone, setTimezone]           = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [offHoursMsg, setOffHoursMsg]     = useState("");
   const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario">("conexion");
   const initialized                       = useRef(false);
@@ -526,7 +544,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setCanServices(config.can_answer_services ?? true);
     setCanTransfer(config.can_transfer_human ?? false);
     setSchedule((config.schedule as WeeklySchedule | null) ?? DEFAULT_SCHEDULE);
-    setTimezone(config.timezone ?? "America/Mexico_City");
+    setTimezone(config.timezone ?? businessProfile?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
     setOffHoursMsg(config.off_hours_message ?? "");
   }, [config]);
 
@@ -597,7 +615,9 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
       });
       if (!res.ok) throw new Error(await res.text());
       const json = await res.json();
-      setTestResult(`${json.verified_name} · ${json.display_phone_number}`);
+      const label = `${json.verified_name} · ${json.display_phone_number}`;
+      setTestResult(label);
+      await upsert.mutateAsync({ verified_phone: json.display_phone_number ?? null }).catch(() => {});
       toast.success("Conexión OK");
     } catch (err: any) { toast.error(err.message?.slice(0, 100)); }
     finally { setTesting(false); }
@@ -725,6 +745,25 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
               {/* Credentials — locked or revealed */}
               {!credentialsRevealed ? (
                 <div className="space-y-3">
+                  {/* Estado de conexión actual */}
+                  <div className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border ${
+                    config?.verified_phone
+                      ? "border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20"
+                      : "border-border bg-secondary/30"
+                  }`}>
+                    <div className={`w-2 h-2 rounded-full shrink-0 ${config?.verified_phone ? "bg-emerald-500" : "bg-muted-foreground/30"}`} />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium">
+                        {config?.verified_phone ?? "Sin verificar"}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">
+                        {config?.verified_phone ? "Número conectado" : "Reconecta para verificar el número"}
+                      </p>
+                    </div>
+                    {testResult && (
+                      <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
+                    )}
+                  </div>
                   <div className="space-y-2">
                     {[
                       { label: "Phone Number ID", value: phoneNumberId },
@@ -740,9 +779,14 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                       </div>
                     ))}
                   </div>
-                  <Button variant="outline" size="sm" onClick={() => setPwdPrompt("reveal")} className="w-full h-8 text-xs gap-1.5">
-                    <Eye size={12} /> Desbloquear para editar
-                  </Button>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={handleTest} disabled={testing || !phoneNumberId || !accessToken} className="flex-1 h-8 text-xs gap-1.5">
+                      {testing ? <Loader2 size={12} className="animate-spin" /> : <Wifi size={12} />} Reconectar
+                    </Button>
+                    <Button variant="outline" size="sm" onClick={() => setPwdPrompt("reveal")} className="flex-1 h-8 text-xs gap-1.5">
+                      <Eye size={12} /> Editar credenciales
+                    </Button>
+                  </div>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -776,7 +820,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     </div>
                   )}
                   <Button variant="outline" size="sm" onClick={handleTest} disabled={testing} className="w-full h-8 text-xs gap-1.5">
-                    {testing ? <Loader2 size={12} className="animate-spin" /> : <Wifi size={12} />} Verificar conexión
+                    {testing ? <Loader2 size={12} className="animate-spin" /> : <Wifi size={12} />} Reconectar
                   </Button>
                 </div>
               )}
@@ -866,7 +910,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">Zona horaria</label>
                 <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
+                  {(TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES]).map(tz => <option key={tz} value={tz}>{tz}</option>)}
                 </select>
               </div>
               <div className="space-y-1.5">
@@ -1120,10 +1164,13 @@ const CrmAgentIA = ({
             </div>
             <div>
               <p className="text-sm font-semibold">{config?.agent_name ?? "Agente IA"}</p>
-              <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full ${config?.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
                 <span className="text-[11px] text-muted-foreground">{config?.is_active ? "Activo" : "Inactivo"}</span>
-                <span className="text-[11px] text-muted-foreground">· {conversations.length} conversaciones</span>
+                {config?.verified_phone && (
+                  <span className="text-[11px] text-muted-foreground">· {config.verified_phone}</span>
+                )}
+                <span className="text-[11px] text-muted-foreground">· {conversations.length} conv.</span>
               </div>
             </div>
           </div>

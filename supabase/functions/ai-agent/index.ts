@@ -16,17 +16,9 @@ interface AgentConfig {
   agent_name: string;
   system_prompt: string | null;
   model: string;
-  can_book_appointments: boolean;
-  can_create_contacts: boolean;
-  can_answer_services: boolean;
-  can_transfer_human: boolean;
-  active_days: number[];
-  active_from: string;
-  active_until: string;
   timezone: string;
   off_hours_message: string | null;
-  session_timeout_minutes: number;
-  language: string;
+  schedule: Record<string, { open: boolean; slots: { from: string; to: string }[] }> | null;
 }
 
 interface WaMessage {
@@ -34,23 +26,40 @@ interface WaMessage {
   content: string;
 }
 
-// ─── Verificación de horario activo ───────────────────────────────────────────
-function isWithinActiveHours(config: AgentConfig): boolean {
+// ─── Verificación de horario con schedule JSONB ───────────────────────────────
+const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function parseTime12(t: string): number {
+  const m = t.match(/(\d+):(\d+)\s*(AM|PM)/i);
+  if (!m) return 0;
+  let h = parseInt(m[1]);
+  const min = parseInt(m[2]);
+  const period = m[3].toUpperCase();
+  if (period === "AM") { if (h === 12) h = 0; }
+  else { if (h !== 12) h += 12; }
+  return h * 60 + min;
+}
+
+function isWithinSchedule(schedule: AgentConfig["schedule"], timezone: string): boolean {
+  if (!schedule) return true; // Sin schedule configurado = siempre activo
+
   const now = new Date();
-  // Obtener hora local del tenant
-  const localStr = now.toLocaleString("en-US", { timeZone: config.timezone });
+  const localStr = now.toLocaleString("en-US", { timeZone: timezone });
   const local = new Date(localStr);
-  const dayOfWeek = local.getDay(); // 0=domingo, 1=lunes...
+  const dayName = DAY_NAMES[local.getDay()];
 
-  if (!config.active_days.includes(dayOfWeek)) return false;
+  const daySchedule = schedule[dayName];
+  if (!daySchedule?.open) return false;
 
-  const [fromH, fromM] = config.active_from.split(":").map(Number);
-  const [untilH, untilM] = config.active_until.split(":").map(Number);
   const currentMinutes = local.getHours() * 60 + local.getMinutes();
-  const fromMinutes = fromH * 60 + fromM;
-  const untilMinutes = untilH * 60 + untilM;
 
-  return currentMinutes >= fromMinutes && currentMinutes < untilMinutes;
+  for (const slot of daySchedule.slots ?? []) {
+    const fromMin = parseTime12(slot.from);
+    const toMin = parseTime12(slot.to);
+    if (currentMinutes >= fromMin && currentMinutes <= toMin) return true;
+  }
+
+  return false;
 }
 
 // ─── Compilar system prompt con variables dinámicas ───────────────────────────
@@ -58,21 +67,18 @@ async function buildSystemPrompt(config: AgentConfig, phone: string): Promise<st
   const base = config.system_prompt?.trim() ||
     `Eres ${config.agent_name}, un asistente virtual amable. Responde en español neutro, en mensajes breves de 2 a 4 líneas.`;
 
-  // Cargar datos del negocio del tenant
   const { data: business } = await supabase
     .from("crm_business_profile")
     .select("name, description")
     .eq("user_id", config.user_id)
     .maybeSingle();
 
-  // Cargar servicios activos del tenant
   const { data: services } = await supabase
     .from("crm_services")
     .select("name, price, currency, description")
     .eq("user_id", config.user_id)
     .order("name");
 
-  // Nombre del contacto si existe
   const { data: conv } = await supabase
     .from("crm_wa_conversations")
     .select("contact_name")
@@ -139,7 +145,6 @@ async function callClaude(
   history: WaMessage[],
   model: string,
 ): Promise<string> {
-  // Mapear mensajes: human → assistant (los mensajes 'human' salieron del bot hacia el cliente)
   const messages = history.map(m => ({
     role: m.role === "user" ? "user" : "assistant",
     content: m.content,
@@ -202,13 +207,12 @@ Deno.serve(async (req: Request) => {
       return new Response("config not found", { status: 404 });
     }
 
-    // 2. Verificar horario activo
-    if (!isWithinActiveHours(config)) {
+    // 2. Verificar horario usando schedule JSONB
+    if (!isWithinSchedule(config.schedule, config.timezone ?? "America/Mexico_City")) {
       const offMsg = config.off_hours_message?.trim() ||
-        "Gracias por escribirnos. Nuestro horario de atención es de lunes a viernes. Te responderemos pronto.";
+        "Gracias por escribirnos. En este momento estamos fuera del horario de atención. Te responderemos a la brevedad.";
       console.log(`[ai-agent] fuera de horario para ${phone}, enviando mensaje off-hours`);
       await sendWhatsAppMessage(phone, offMsg, config);
-      // Guardar el mensaje off-hours como 'assistant'
       await supabase.from("crm_wa_messages").insert({
         conversation_id,
         role: "assistant",
@@ -236,7 +240,7 @@ Deno.serve(async (req: Request) => {
     const systemPrompt = await buildSystemPrompt(config, phone);
 
     // 5. Llamar a Claude
-    const reply = await callClaude(systemPrompt, history, config.model);
+    const reply = await callClaude(systemPrompt, history, config.model ?? "claude-haiku-4-5-20251001");
     console.log(`[ai-agent] Claude respondió en ${Date.now() - t0}ms`);
 
     // 6. Guardar respuesta en DB
@@ -250,7 +254,6 @@ Deno.serve(async (req: Request) => {
     try {
       const { wa_message_id } = await sendWhatsAppMessage(phone, reply, config);
       console.log(`[ai-agent] → enviado a ${phone} (wamid: ${wa_message_id})`);
-      // Guardar el wa_message_id en el mensaje
       if (savedMsg) {
         await supabase
           .from("crm_wa_messages")
@@ -259,7 +262,6 @@ Deno.serve(async (req: Request) => {
       }
     } catch (sendErr: any) {
       console.error("[ai-agent] error enviando a Graph API:", sendErr.message);
-      // Registrar el error en el mensaje para que el dashboard lo muestre
       if (savedMsg) {
         await supabase
           .from("crm_wa_messages")

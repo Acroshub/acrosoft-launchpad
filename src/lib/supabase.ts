@@ -451,6 +451,7 @@ export type CrmAIAgentConfig = {
   access_token: string | null
   waba_id: string | null
   app_secret: string | null
+  verified_phone: string | null
   webhook_verify_token: string
   agent_name: string
   system_prompt: string | null
