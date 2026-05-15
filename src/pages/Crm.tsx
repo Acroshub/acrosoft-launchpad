@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle, PlayCircle, Link, UserCheck } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle, PlayCircle, Link, UserCheck, Bot } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
 import CrmOverview from "@/components/crm/CrmOverview";
@@ -17,12 +17,13 @@ import CrmSupportAdmin from "@/components/crm/CrmSupportAdmin";
 import CrmVideos from "@/components/crm/CrmVideos";
 import CrmVendorLinks from "@/components/crm/CrmVendorLinks";
 import CrmVendors from "@/components/crm/CrmVendors";
+import CrmAgentIA from "@/components/crm/CrmAgentIA";
 import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount, useVendorProfile } from "@/hooks/useCrmData";
 import { vendorVisibleNavItems } from "@/lib/permissions";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "vendor_links" | "vendors";
+type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "vendor_links" | "vendors" | "agente_ia";
 
 const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
   { id: "overview",      label: "Resumen",        icon: LayoutDashboard, group: "Principal"      },
@@ -38,6 +39,7 @@ const navItems: { id: View; label: string; icon: React.ElementType; group: strin
   { id: "videos",        label: "Videos",         icon: PlayCircle,      group: "Configuración"  },
   { id: "settings",      label: "Configuración",  icon: Settings,        group: "Configuración"  },
   { id: "soporte",       label: "Soporte",        icon: MessageCircle,   group: "Configuración"  },
+  { id: "agente_ia",    label: "Agente IA",      icon: Bot,             group: "Configuración"  },
 ];
 
 const groups = [...new Set(navItems.map((n) => n.group))];
@@ -124,6 +126,7 @@ const Crm = () => {
       case "videos":     return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
       case "vendor_links": return isVendor ? <CrmVendorLinks vendorProfile={vendorProfile!} /> : null;
       case "vendors":      return effectiveIsAdmin ? <CrmVendors /> : null;
+      case "agente_ia":   return (effectiveIsAdmin || isSaasClient) ? <CrmAgentIA isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} /> : null;
     }
   };
 
@@ -147,8 +150,9 @@ const Crm = () => {
             <div className="space-y-0.5">
               {navItems
                 .filter((n) => n.group === group && effectiveAllowedNavItems.has(n.id)
-                  && (n.id !== "videos"   || effectiveIsAdmin || isSaasClient)
-                  && (n.id !== "vendors"  || effectiveIsAdmin)
+                  && (n.id !== "videos"    || effectiveIsAdmin || isSaasClient)
+                  && (n.id !== "vendors"   || effectiveIsAdmin)
+                  && (n.id !== "agente_ia" || effectiveIsAdmin || isSaasClient)
 )
                 .map((item) => {
                   const Icon = item.icon;

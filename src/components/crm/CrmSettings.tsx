@@ -1316,17 +1316,20 @@ const SupportTab = () => {
 
 const VendorProfileTab = () => {
   const { data: vendorProfile, isLoading } = useVendorProfile();
+  const { data: calendars = [] }           = useCalendars();
   const updateVendor = useUpdateVendor();
-  const [name, setName]         = useState("");
-  const [whatsapp, setWhatsapp] = useState("");
-  const [saving, setSaving]     = useState(false);
-  const initialized             = useRef(false);
+  const [name, setName]               = useState("");
+  const [whatsapp, setWhatsapp]       = useState("");
+  const [landingCal, setLandingCal]   = useState("");
+  const [saving, setSaving]           = useState(false);
+  const initialized                   = useRef(false);
 
   useEffect(() => {
     if (vendorProfile && !initialized.current) {
       initialized.current = true;
       setName(vendorProfile.name);
       setWhatsapp(vendorProfile.whatsapp ?? "");
+      setLandingCal(vendorProfile.landing_calendar_id ?? "");
     }
   }, [vendorProfile]);
 
@@ -1334,7 +1337,12 @@ const VendorProfileTab = () => {
     if (!vendorProfile || !name.trim()) return;
     setSaving(true);
     try {
-      await updateVendor.mutateAsync({ id: vendorProfile.id, name: name.trim(), whatsapp: whatsapp || null });
+      await updateVendor.mutateAsync({
+        id: vendorProfile.id,
+        name: name.trim(),
+        whatsapp: whatsapp || null,
+        landing_calendar_id: landingCal || null,
+      });
       toast.success("Perfil actualizado");
     } catch {
       toast.error("Error al guardar");
@@ -1366,6 +1374,23 @@ const VendorProfileTab = () => {
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">WhatsApp</label>
         <PhoneInputField value={whatsapp} onChange={setWhatsapp} />
+      </div>
+
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">Calendario de mi landing</label>
+        <select
+          value={landingCal}
+          onChange={(e) => setLandingCal(e.target.value)}
+          className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <option value="">Sin calendario</option>
+          {calendars.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+        <p className="text-[10px] text-muted-foreground">
+          El calendario que verán tus clientes al visitar tu landing page.
+        </p>
       </div>
 
       <Button onClick={handleSave} disabled={saving || !name.trim()} className="rounded-xl h-9 text-sm">

@@ -27,6 +27,9 @@ import type {
   CrmVendor,
   CrmVendorLinks,
   CrmMaintenancePayment,
+  CrmAIAgentConfig,
+  CrmWaConversation,
+  CrmWaMessage,
 } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "./useAuth";
 
@@ -2289,5 +2292,105 @@ export const useMarkSalePaid = () => {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_sales"] }),
+  });
+};
+
+// ─── AI Agent ─────────────────────────────────────────────────────────────────
+
+export const useAIAgentConfig = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_ai_agent_config", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_ai_agent_config")
+        .select("*")
+        .eq("user_id", user!.id)
+        .maybeSingle();
+      if (error) throw error;
+      return data as CrmAIAgentConfig | null;
+    },
+    enabled: !!user,
+  });
+};
+
+export const useUpsertAIAgentConfig = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (updates: Partial<Omit<CrmAIAgentConfig, "id" | "user_id" | "created_at" | "updated_at" | "webhook_verify_token">>) => {
+      const { error } = await supabase
+        .from("crm_ai_agent_config")
+        .upsert({ ...updates, user_id: user!.id }, { onConflict: "user_id" });
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_ai_agent_config"] }),
+  });
+};
+
+export const useWaConversations = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_wa_conversations", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_conversations")
+        .select("*")
+        .eq("user_id", user!.id)
+        .order("last_message_at", { ascending: false, nullsFirst: false });
+      if (error) throw error;
+      return (data ?? []) as CrmWaConversation[];
+    },
+    enabled: !!user,
+    refetchInterval: 3000,
+  });
+};
+
+export const useWaMessages = (conversationId: string | null) => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_wa_messages", conversationId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_messages")
+        .select("*")
+        .eq("conversation_id", conversationId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmWaMessage[];
+    },
+    enabled: !!user && !!conversationId,
+    refetchInterval: 3000,
+  });
+};
+
+export const useSetWaConversationMode = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, mode }: { id: string; mode: 'AI' | 'HUMAN' }) => {
+      const { error } = await supabase
+        .from("crm_wa_conversations")
+        .update({ mode })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+  });
+};
+
+export const useDeleteWaConversation = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("crm_wa_conversations")
+        .delete()
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] });
+      qc.invalidateQueries({ queryKey: ["crm_wa_messages"] });
+    },
   });
 };

@@ -1968,7 +1968,7 @@ baileys-service/
 
 ---
 
-### AV-6 · Fase 4 — Links, Notificaciones y Settings del Vendedor
+### AV-6 · Fase 4 — Links, Notificaciones y Settings del Vendedor ✅ COMPLETADO
 
 **Objetivo:** El vendedor tiene acceso a los links del superadmin y puede configurar notificaciones de email.
 
@@ -2011,5 +2011,309 @@ baileys-service/
 | Vista ventas superadmin con comisiones | AV-5 | ✅ Completo |
 | Marcar pagado + subir comprobante | AV-5 | ✅ Completo |
 | Vista ventas del vendedor | AV-5 | ✅ Completo |
-| Tab Links del vendedor | AV-6 | ⏳ Pendiente |
-| Settings restringidos del vendedor | AV-6 | ⏳ Pendiente |
+| Tab Links del vendedor | AV-6 | ✅ Completo |
+| Settings restringidos del vendedor | AV-6 | ✅ Completo |
+
+---
+
+## BLOQUE 12 — Agente IA de WhatsApp (Meta Cloud API + Claude)
+
+> Despliegue inicial: solo Superadmin. Multi-tenant preparado desde el inicio.
+> Otros usuarios SaaS verán la sección como "Próximamente".
+
+---
+
+### Arquitectura general
+
+```
+WhatsApp del cliente final
+  → Meta Cloud API (webhook HTTPS)
+      → Edge Function: whatsapp-webhook (recibe, verifica firma, responde 200 inmediato)
+          → Dedup por wa_message_id
+          → Busca tenant por phone_number_id → crm_ai_agent_config
+          → Guarda mensaje en crm_wa_messages
+          → Llama Edge Function: ai-agent (async, no bloquea webhook)
+              → Carga historial reciente (últimos 20 mensajes)
+              → Construye system prompt con variables del CRM del tenant
+              → Llama Claude API con tools habilitadas según config
+              → Guarda respuesta en crm_wa_messages
+              → POST a Graph API → WhatsApp del cliente
+```
+
+Un solo webhook URL recibe mensajes de TODOS los tenants.
+El tenant se identifica por el `phone_number_id` dentro del payload de Meta.
+
+---
+
+### AI-12 · Fase 1 — Base de datos y configuración ✅ COMPLETADO
+
+**Tablas nuevas:**
+
+```sql
+-- Configuración del agente por tenant
+CREATE TABLE crm_ai_agent_config (
+  id                      uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id                 uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  -- Conexión Meta
+  phone_number_id         text,
+  access_token            text,          -- guardar encriptado vía pgp_sym_encrypt
+  waba_id                 text,
+  app_secret              text,          -- encriptado
+  webhook_verify_token    text NOT NULL DEFAULT gen_random_uuid()::text,
+  -- Agente
+  agent_name              text NOT NULL DEFAULT 'Asistente',
+  system_prompt           text,
+  model                   text NOT NULL DEFAULT 'claude-haiku-4-5-20251001',
+  -- Capacidades (toggles)
+  can_book_appointments   boolean NOT NULL DEFAULT false,
+  can_create_contacts     boolean NOT NULL DEFAULT true,
+  can_answer_services     boolean NOT NULL DEFAULT true,
+  can_transfer_human      boolean NOT NULL DEFAULT false,
+  -- Horario
+  active_days             int[] NOT NULL DEFAULT '{1,2,3,4,5}',
+  active_from             time NOT NULL DEFAULT '08:00',
+  active_until            time NOT NULL DEFAULT '18:00',
+  timezone                text NOT NULL DEFAULT 'America/Mexico_City',
+  off_hours_message       text,
+  -- Comportamiento
+  session_timeout_minutes int NOT NULL DEFAULT 30,
+  language                text NOT NULL DEFAULT 'es',
+  is_active               boolean NOT NULL DEFAULT false,
+  created_at              timestamptz NOT NULL DEFAULT now(),
+  updated_at              timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(user_id),
+  UNIQUE(phone_number_id)  -- un número por tenant
+);
+
+-- Conversaciones (una por número de teléfono por tenant)
+CREATE TABLE crm_wa_conversations (
+  id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id             uuid NOT NULL REFERENCES auth.users ON DELETE CASCADE,
+  phone               text NOT NULL,   -- E.164 sin '+', ej: '5219991234567'
+  contact_name        text,            -- nombre que reporta Meta
+  mode                text NOT NULL DEFAULT 'AI' CHECK (mode IN ('AI', 'HUMAN')),
+  last_message_at     timestamptz,
+  created_at          timestamptz NOT NULL DEFAULT now(),
+  UNIQUE(user_id, phone)
+);
+
+-- Mensajes de cada conversación
+CREATE TABLE crm_wa_messages (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  conversation_id uuid NOT NULL REFERENCES crm_wa_conversations ON DELETE CASCADE,
+  role            text NOT NULL CHECK (role IN ('user', 'assistant', 'human')),
+  content         text NOT NULL,
+  wa_message_id   text,                -- ID de Meta (para dedup y correlación)
+  send_error      text,                -- si Graph devolvió error al enviar
+  created_at      timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE UNIQUE INDEX idx_wa_messages_wa_id ON crm_wa_messages(wa_message_id)
+  WHERE wa_message_id IS NOT NULL;
+CREATE INDEX idx_wa_messages_conv ON crm_wa_messages(conversation_id, created_at);
+
+-- Dedup de webhooks (Meta reintenta hasta 7 días)
+CREATE TABLE crm_wa_webhook_dedup (
+  wa_message_id  text PRIMARY KEY,
+  processed_at   timestamptz NOT NULL DEFAULT now()
+);
+
+-- RLS
+ALTER TABLE crm_ai_agent_config   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE crm_wa_conversations   ENABLE ROW LEVEL SECURITY;
+ALTER TABLE crm_wa_messages        ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "owner" ON crm_ai_agent_config   USING (user_id = auth.uid());
+CREATE POLICY "owner" ON crm_wa_conversations  USING (user_id = auth.uid());
+CREATE POLICY "owner_conv" ON crm_wa_messages
+  USING (conversation_id IN (
+    SELECT id FROM crm_wa_conversations WHERE user_id = auth.uid()
+  ));
+```
+
+**Archivos:**
+- `supabase/migrations/YYYYMMDD_ai_agent.sql`
+
+---
+
+### AI-13 · Fase 2 — Edge Functions ✅ COMPLETADO
+
+#### `whatsapp-webhook` (recibe mensajes de Meta)
+
+**Lecciones críticas del prompt de referencia aplicadas a nuestro stack:**
+
+```
+GET  /functions/v1/whatsapp-webhook
+  → Verifica hub.verify_token contra crm_ai_agent_config (busca el tenant por verify_token)
+  → Devuelve hub.challenge como text/plain (NO JSON — Meta lo rechaza)
+
+POST /functions/v1/whatsapp-webhook
+  → Lee body como raw text PRIMERO (antes de parsear)
+  → Verifica HMAC-SHA256 con app_secret del tenant (X-Hub-Signature-256)
+  → Responde 200 OK INMEDIATAMENTE (Meta timeout ~10s; el LLM puede tardar más)
+  → Procesa de forma async (void + catch, sin await)
+  → Dedup: si wa_message_id ya está en crm_wa_webhook_dedup → ignorar
+  → Marcar procesado ANTES de procesar (no después)
+  → Identificar tenant por phone_number_id del payload
+  → Guardar mensaje en crm_wa_messages
+  → Invocar 'ai-agent' edge function de forma async
+```
+
+**Variables de entorno en Supabase Secrets:**
+```
+# No hay variables globales de Meta — cada tenant guarda sus credenciales en DB
+# Solo se necesita:
+ANTHROPIC_API_KEY          → para llamar Claude
+SUPABASE_SERVICE_ROLE_KEY  → para que la edge function escriba en DB sin RLS
+```
+
+**Archivos:**
+- `supabase/functions/whatsapp-webhook/index.ts`
+
+---
+
+#### `ai-agent` (procesa con Claude + tools)
+
+```
+Recibe: { conversation_id, user_message, tenant_user_id }
+
+1. Carga crm_ai_agent_config del tenant
+2. Verifica horario activo (active_days, active_from/until, timezone)
+   - Fuera de horario → envía off_hours_message por Graph API → termina
+3. Carga historial reciente: últimos 20 mensajes de la conversación
+4. Construye system prompt con variables dinámicas:
+   - {{negocio.nombre}} → crm_business_profile.name
+   - {{negocio.servicios}} → lista de crm_services activos
+   - {{contacto.nombre}} → contact_name de la conversación
+   - {{fecha.hoy}} → fecha actual en timezone del tenant
+5. Llama Claude API con:
+   - model: config.model (haiku por defecto)
+   - system: system_prompt compilado
+   - messages: historial mapeado (human → assistant para el LLM)
+   - tools: solo las habilitadas en config (can_book_appointments, etc.)
+6. Guarda respuesta en crm_wa_messages (role: 'assistant')
+7. POST a Graph API: https://graph.facebook.com/v21.0/{phone_number_id}/messages
+   - Solo texto libre (dentro de ventana 24h por diseño: respondemos a quien nos escribe)
+   - Si error 131047 (fuera de ventana 24h) → guardar send_error en el mensaje
+8. Actualiza crm_wa_conversations.last_message_at
+```
+
+**Tools disponibles (según toggles del tenant):**
+- `book_appointment` → crea cita en crm_appointments
+- `create_contact` → crea/actualiza en crm_contacts
+- `get_services` → lista servicios con precios
+- `transfer_to_human` → cambia mode='HUMAN' + notifica al admin
+
+**Archivos:**
+- `supabase/functions/ai-agent/index.ts`
+
+---
+
+### AI-14 + AI-15 · Fases 3 y 4 — CrmAgentIA (vista unificada) ✅ COMPLETADO
+
+Vista propia en el sidebar del CRM (no tab de Settings). Flujo en 2 estados:
+
+**Estado A — Sin configuración → Setup Wizard (3 pasos)**
+```
+[Paso 1: Conexión]  →  [Paso 2: Agente]  →  [Paso 3: Capacidades]
+```
+- Paso 1: credenciales Meta (Phone Number ID, Access Token, WABA ID, App Secret)
+  + Webhook URL (auto-generada, solo lectura + botón copiar)
+  + Webhook Verify Token (auto-generado + botón copiar)
+  + Instrucciones guiadas colapsables
+  + Botón "Verificar conexión" → llama Graph API
+- Paso 2: nombre del agente, modelo (Haiku/Sonnet), prompt guiado con template base
+  + chips clicables de variables disponibles: `{{negocio.nombre}}`, `{{negocio.servicios}}`, etc.
+- Paso 3: toggles de capacidades + horario activo (días + horas + timezone) + mensaje fuera de horario
+  + Toggle master "Activar agente" al guardar
+
+**Estado B — Configurado → Dashboard de conversaciones**
+```
+┌──────────────────────────────────────────────────────────────┐
+│ 🤖 [Nombre del agente]   ● Activo          [⚙ Configurar]  │
+├────────────────┬─────────────────────────────────────────────┤
+│ Buscar...      │  Juan Pérez (+52 999...)  [toggle AI/HUMAN] │
+│ ─────────────  │  ──────────────────────────────────────────  │
+│ 📱 Juan Pérez  │  [burbuja user: izq, fondo secundario]      │
+│ [badge IA 🟢]  │  [burbuja assistant: der, verde esmeralda]  │
+│ hace 5 min     │  [burbuja human: der, ámbar]                │
+│ ─────────────  │                                              │
+│ 📱 María López │  [banner rojo si error 24h]                 │
+│ [badge HUMAN🟡]│  ─────────────────────────────────────────  │
+│ hace 1h        │  [input deshabilitado en modo AI]           │
+│                │  [input + Enviar en modo HUMAN]              │
+└────────────────┴─────────────────────────────────────────────┘
+```
+- Ícono ⚙️ arriba a la derecha → abre panel lateral de configuración (slide-over)
+- Toggle AI/HUMAN por conversación
+- Burbujas coloreadas por rol: user (izq/gris), assistant (der/verde), human (der/ámbar)
+- Error `wa_message_id = null` → ícono de error en burbuja
+- Error 24h → banner rojo en el input
+- Borrar conversación con confirmación
+- Polling cada 3s automático (via hooks)
+
+**Panel de configuración (slide-over desde ⚙️):**
+- Sección: Conexión (re-verificar credenciales)
+- Sección: Agente (nombre, modelo, prompt + variables)
+- Sección: Capacidades (toggles)
+- Sección: Horario (días, horas, timezone, mensaje off-hours)
+- Toggle master is_active con color verde/rojo
+
+**Visibilidad en sidebar:**
+- Superadmin → vista completa funcional
+- SaaS clients → ítem visible en sidebar pero muestra pantalla "Próximamente"
+- Staff / Vendors → ítem oculto
+
+**Archivos:**
+- `src/components/crm/CrmAgentIA.tsx` — componente principal (wizard + dashboard + settings)
+- `src/pages/Crm.tsx` — agregar view `"agente_ia"` al sidebar y renderView
+
+**Funcionalidad:**
+- Lista de conversaciones ordenada por `last_message_at DESC`
+- Badge IA (verde) / HUMANO (ámbar) — igual que la paleta del CRM
+- Toggle AI/HUMAN por conversación → `PATCH crm_wa_conversations.mode`
+- En modo HUMAN: input de texto + botón Enviar → POST directo a Graph API desde el frontend via edge function `send-wa-message`
+- En modo AI: input deshabilitado, el bot responde automáticamente
+- Error 131047 (ventana 24h expirada): banner rojo en el panel
+- Polling cada 3s a `crm_wa_messages` mientras está abierto el panel
+- Botón "Borrar conversación" con confirmación → DELETE cascade
+
+**Burbujas de mensaje:**
+- `role: 'user'` → izquierda, fondo secundario
+- `role: 'assistant'` → derecha, verde esmeralda (igual que el agente)
+- `role: 'human'` → derecha, ámbar (el admin respondiendo manualmente)
+- Si `send_error` → icono de error en la burbuja
+
+**Archivos:**
+- `src/components/crm/CrmAgentIA.tsx` — panel de conversaciones
+- `src/pages/Crm.tsx` — agregar view "agente_ia" al sidebar (solo superadmin)
+- `supabase/functions/send-wa-message/index.ts` — envío manual desde HUMAN mode
+
+---
+
+### Resumen del Bloque 12 — Agente IA WhatsApp
+
+| Feature | Fase | Estado |
+|---|---|---|
+| Migración DB (config + conversaciones + mensajes + dedup) | AI-12 | ✅ Completo |
+| Edge function `whatsapp-webhook` (recibe, verifica, dedup) | AI-13 | ✅ Completo |
+| Edge function `ai-agent` (Claude + tools + Graph API) | AI-13 | ✅ Completo |
+| Tab "Agente IA" en CrmSettings (config + status) | AI-14 | ✅ Completo |
+| Panel de conversaciones con toggle AI/HUMAN | AI-15 | ✅ Completo |
+| Modo HUMAN: envío manual desde dashboard | AI-15 | ✅ Completo |
+
+**Despliegue por fase:**
+- Fase 1 (AI-12 + AI-13): infraestructura invisible para el usuario
+- Fase 2 (AI-14): config visible solo para superadmin
+- Fase 3 (AI-15): panel de conversaciones
+- Expansión multi-tenant: activar el tab para tenants Pro (cambiar condición de visibilidad)
+
+---
+
+### Variables de entorno necesarias en Supabase Secrets
+
+```
+ANTHROPIC_API_KEY    → para llamar Claude desde ai-agent
+```
+
+Las credenciales de Meta (access_token, app_secret) se guardan **en la base de datos por tenant** (encriptadas con pgp_sym_encrypt), no como secrets globales. Esto es lo que hace posible el multi-tenant.

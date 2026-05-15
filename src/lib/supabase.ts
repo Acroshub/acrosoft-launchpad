@@ -416,6 +416,7 @@ export type CrmVendor = {
   slug: string
   status: 'invited' | 'active' | 'inactive'
   notes: string | null
+  landing_calendar_id: string | null
 }
 
 export type CrmVendorLinks = {
@@ -441,5 +442,52 @@ export type CrmMaintenancePayment = {
   paid_at: string | null
   proof_url: string | null
   notes: string | null
+}
+
+export type CrmAIAgentConfig = {
+  id: string
+  user_id: string
+  phone_number_id: string | null
+  access_token: string | null
+  waba_id: string | null
+  app_secret: string | null
+  webhook_verify_token: string
+  agent_name: string
+  system_prompt: string | null
+  model: string
+  can_book_appointments: boolean
+  can_create_contacts: boolean
+  can_answer_services: boolean
+  can_transfer_human: boolean
+  active_days: number[]
+  active_from: string
+  active_until: string
+  timezone: string
+  off_hours_message: string | null
+  session_timeout_minutes: number
+  language: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type CrmWaConversation = {
+  id: string
+  user_id: string
+  phone: string
+  contact_name: string | null
+  mode: 'AI' | 'HUMAN'
+  last_message_at: string | null
+  created_at: string
+}
+
+export type CrmWaMessage = {
+  id: string
+  conversation_id: string
+  role: 'user' | 'assistant' | 'human'
+  content: string
+  wa_message_id: string | null
+  send_error: string | null
+  created_at: string
 }
 
