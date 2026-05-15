@@ -20,13 +20,15 @@ export const DEFAULT_WEEKLY_SCHEDULE: WeeklySchedule = {
 
 const buildHours = (interval: 15 | 30 | 60): string[] => {
   const hours: string[] = [];
-  for (let totalMin = 6 * 60; totalMin <= 22 * 60; totalMin += interval) {
+  for (let totalMin = 0; totalMin < 24 * 60; totalMin += interval) {
     const h24 = Math.floor(totalMin / 60);
     const m   = totalMin % 60;
     const period = h24 < 12 ? "AM" : "PM";
     const h12 = h24 === 0 ? 12 : h24 > 12 ? h24 - 12 : h24;
     hours.push(`${h12}:${String(m).padStart(2, "0")} ${period}`);
   }
+  // 11:59 PM como opción especial de "fin del día"
+  if (!hours.includes("11:59 PM")) hours.push("11:59 PM");
   return hours;
 };
 

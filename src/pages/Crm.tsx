@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle, PlayCircle, Link, UserCheck, Bot } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList, Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle, PlayCircle, Link, Bot, GraduationCap } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
 import CrmOverview from "@/components/crm/CrmOverview";
@@ -26,20 +26,22 @@ const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "vendor_links" | "vendors" | "agente_ia";
 
 const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
-  { id: "overview",      label: "Resumen",        icon: LayoutDashboard, group: "Principal"      },
-  { id: "business",      label: "Mi Negocio",     icon: Store,           group: "Principal"      },
-  { id: "forms",         label: "Formularios",    icon: ClipboardList,   group: "Calendario"     },
-  { id: "calendar",      label: "Calendarios",    icon: CalendarDays,    group: "Calendario"     },
-  { id: "contacts",      label: "Contactos",      icon: Users,           group: "CRM"            },
-  { id: "pipeline",      label: "Pipeline",       icon: Kanban,          group: "CRM"            },
-  { id: "ventas",        label: "Ventas",         icon: DollarSign,      group: "CRM"            },
-  { id: "reminders",     label: "Notificaciones", icon: Bell,            group: "CRM"            },
-  { id: "vendor_links",  label: "Links",          icon: Link,            group: "CRM"            },
-  { id: "vendors",       label: "Vendedores",     icon: UserCheck,       group: "Configuración"  },
-  { id: "videos",        label: "Videos",         icon: PlayCircle,      group: "Configuración"  },
-  { id: "settings",      label: "Configuración",  icon: Settings,        group: "Configuración"  },
-  { id: "soporte",       label: "Soporte",        icon: MessageCircle,   group: "Configuración"  },
-  { id: "agente_ia",    label: "Agente IA",      icon: Bot,             group: "Configuración"  },
+  // ── Grupo 1: Principal ──
+  { id: "overview",     label: "Resumen",            icon: LayoutDashboard, group: "Principal"   },
+  { id: "business",     label: "Mi Negocio",         icon: Store,           group: "Principal"   },
+  { id: "ventas",       label: "Ventas",             icon: DollarSign,      group: "Principal"   },
+  // ── Grupo 2: CRM ──
+  { id: "contacts",     label: "Contactos",          icon: Users,           group: "CRM"         },
+  { id: "forms",        label: "Formularios",        icon: ClipboardList,   group: "CRM"         },
+  { id: "calendar",     label: "Calendarios",        icon: CalendarDays,    group: "CRM"         },
+  { id: "pipeline",     label: "Pipeline",           icon: Kanban,          group: "CRM"         },
+  { id: "reminders",    label: "Notificaciones",     icon: Bell,            group: "CRM"         },
+  { id: "agente_ia",    label: "Agente IA",          icon: Bot,             group: "CRM"         },
+  { id: "vendor_links", label: "Links",              icon: Link,            group: "CRM"         },
+  // ── Grupo 3: Ajustes ──
+  { id: "videos",       label: "Tutoriales y Cursos", icon: GraduationCap,  group: "Ajustes"     },
+  { id: "soporte",      label: "Soporte",            icon: MessageCircle,   group: "Ajustes"     },
+  { id: "settings",     label: "Configuración",      icon: Settings,        group: "Ajustes"     },
 ];
 
 const groups = [...new Set(navItems.map((n) => n.group))];
@@ -150,9 +152,9 @@ const Crm = () => {
             <div className="space-y-0.5">
               {navItems
                 .filter((n) => n.group === group && effectiveAllowedNavItems.has(n.id)
-                  && (n.id !== "videos"    || effectiveIsAdmin || isSaasClient)
-                  && (n.id !== "vendors"   || effectiveIsAdmin)
-                  && (n.id !== "agente_ia" || effectiveIsAdmin || isSaasClient)
+                  && (n.id !== "videos"        || effectiveIsAdmin || isSaasClient)
+                  && (n.id !== "agente_ia"     || effectiveIsAdmin || isSaasClient)
+                  && (n.id !== "vendor_links"  || isVendor)
 )
                 .map((item) => {
                   const Icon = item.icon;

@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import PhoneInputField from "@/components/shared/PhoneInput";
 import { Badge } from "@/components/ui/badge";
+import CrmVendors from "@/components/crm/CrmVendors";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
@@ -1486,14 +1487,15 @@ const VendorLinksAdminTab = () => {
 
 // ─── Settings shell ───────────────────────────────────────────────────────────
 
-type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte" | "perfil" | "vendor_links";
+type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte" | "perfil" | "vendor_links" | "vendedores";
 
 const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; adminOnly?: boolean; vendorOnly?: boolean }[] = [
   { id: "general",      label: "General",          Component: GeneralTab,           adminOnly: true  },
-  { id: "soporte",      label: "Soporte",          Component: SupportTab,           adminOnly: true  },
+  { id: "staff",        label: "Staff",            Component: StaffTab,             adminOnly: true  },
+  { id: "vendedores",   label: "Vendedores",       Component: CrmVendors,           adminOnly: true  },
   { id: "vendor_links", label: "Links Vendedores", Component: VendorLinksAdminTab,  adminOnly: true  },
-  { id: "logs",         label: "Logs",             Component: LogsTab                               },
-  { id: "staff",        label: "Staff",            Component: StaffTab                              },
+  { id: "soporte",      label: "Soporte",          Component: SupportTab,           adminOnly: true  },
+  { id: "logs",         label: "Logs",             Component: LogsTab,              adminOnly: true  },
   { id: "reminders",    label: "Recordatorios",    Component: RemindersTab                          },
   { id: "perfil",       label: "Mi Perfil",        Component: VendorProfileTab,     vendorOnly: true },
 ];

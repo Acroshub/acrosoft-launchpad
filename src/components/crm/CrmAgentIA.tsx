@@ -16,6 +16,7 @@ import {
 } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
 import type { CrmWaConversation, CrmWaMessage } from "@/lib/supabase";
+import { useCurrentUser } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -137,7 +138,6 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 
   // Step 2 — Agente
   const [agentName, setAgentName]       = useState(existingConfig?.agent_name ?? "Asistente");
-  const [model, setModel]               = useState(existingConfig?.model ?? "claude-haiku-4-5-20251001");
   const [systemPrompt, setSystemPrompt] = useState(existingConfig?.system_prompt ?? DEFAULT_PROMPT);
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
@@ -189,7 +189,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 
   const handleSaveStep2 = async () => {
     if (!agentName.trim()) { toast.error("El nombre del agente es obligatorio"); return; }
-    await upsert.mutateAsync({ agent_name: agentName.trim(), model, system_prompt: systemPrompt || null });
+    await upsert.mutateAsync({ agent_name: agentName.trim(), model: "claude-haiku-4-5-20251001", system_prompt: systemPrompt || null });
     setStep(3);
   };
 
@@ -324,18 +324,9 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
               <h2 className="text-sm font-semibold flex items-center gap-2"><Sparkles size={14} />Personalidad del Agente</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Define cómo se presenta y responde tu agente de IA.</p>
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1.5 col-span-2 sm:col-span-1">
-                <label className="text-xs font-medium text-muted-foreground">Nombre del agente</label>
-                <Input value={agentName} onChange={e => setAgentName(e.target.value)} placeholder="Sofi, Asistente..." className="h-9 text-sm" />
-              </div>
-              <div className="space-y-1.5 col-span-2 sm:col-span-1">
-                <label className="text-xs font-medium text-muted-foreground">Modelo de IA</label>
-                <select value={model} onChange={e => setModel(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <option value="claude-haiku-4-5-20251001">Claude Haiku (rápido · económico)</option>
-                  <option value="claude-sonnet-4-6">Claude Sonnet (más inteligente)</option>
-                </select>
-              </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Nombre del agente</label>
+              <Input value={agentName} onChange={e => setAgentName(e.target.value)} placeholder="Sofi, Asistente..." className="h-9 text-sm" />
             </div>
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Prompt del sistema</label>
@@ -349,6 +340,15 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                     {v.label}
                   </button>
                 ))}
+              </div>
+            </div>
+            {/* Nota sobre capacidades de media */}
+            <div className="rounded-xl border border-border bg-secondary/30 px-4 py-3 space-y-1.5">
+              <p className="text-xs font-semibold">Capacidades del asistente con archivos</p>
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p>✅ <strong>Imágenes</strong> — el asistente puede verlas y analizarlas (ideal para comprobantes de pago, fotos de productos, etc.)</p>
+                <p>✅ <strong>PDFs</strong> — puede leer documentos PDF enviados por WhatsApp</p>
+                <p>🚫 <strong>Audios</strong> — no soportado. Cuando alguien envíe un audio, el asistente responderá automáticamente pidiendo que escriban el mensaje</p>
               </div>
             </div>
             <div className="flex gap-2">
@@ -442,7 +442,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
               {[
                 { label: "Número de WhatsApp", value: testResult?.phone ?? existingConfig?.phone_number_id ?? "—" },
                 { label: "Nombre del asistente", value: agentName },
-                { label: "Modelo", value: model.includes("haiku") ? "Claude Haiku" : "Claude Sonnet" },
+                { label: "Modelo", value: "Claude Haiku" },
                 { label: "Capacidades", value: [canBook && "Citas", canContacts && "Contactos", canServices && "Servicios", canTransfer && "Transfer"].filter(Boolean).join(" · ") || "Solo responder preguntas" },
                 { label: "Zona horaria", value: timezone },
               ].map(({ label, value }) => (
@@ -475,20 +475,30 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 };
 
 // ─── Settings Panel (slide-over) ──────────────────────────────────────────────
-const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
+const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisconnect: () => void }) => {
   const { data: config } = useAIAgentConfig();
+  const { user } = useCurrentUser();
   const upsert = useUpsertAIAgentConfig();
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
+  const [saving, setSaving]         = useState(false);
+  const [testing, setTesting]       = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
+  // Credentials revealed state
+  const [credentialsRevealed, setCredentialsRevealed] = useState(false);
+
+  // Password prompt: "reveal" | "disconnect" | null
+  const [pwdPrompt, setPwdPrompt]   = useState<"reveal" | "disconnect" | null>(null);
+  const [password, setPassword]     = useState("");
+  const [verifying, setVerifying]   = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+
+  // Form state
   const [phoneNumberId, setPhoneNumberId] = useState("");
   const [accessToken, setAccessToken]     = useState("");
   const [wabaId, setWabaId]               = useState("");
   const [appSecret, setAppSecret]         = useState("");
   const [agentName, setAgentName]         = useState("Asistente");
-  const [model, setModel]                 = useState("claude-haiku-4-5-20251001");
   const [systemPrompt, setSystemPrompt]   = useState(DEFAULT_PROMPT);
   const [isActive, setIsActive]           = useState(false);
   const [canBook, setCanBook]             = useState(false);
@@ -498,12 +508,9 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
   const [schedule, setSchedule]           = useState<WeeklySchedule>(DEFAULT_SCHEDULE);
   const [timezone, setTimezone]           = useState("America/Mexico_City");
   const [offHoursMsg, setOffHoursMsg]     = useState("");
-  const [showToken, setShowToken]         = useState(false);
-  const [showSecret, setShowSecret]       = useState(false);
   const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario">("conexion");
   const initialized                       = useRef(false);
 
-  // Sincronizar desde DB cuando config carga (solo la primera vez)
   useEffect(() => {
     if (!config || initialized.current) return;
     initialized.current = true;
@@ -512,7 +519,6 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
     setWabaId(config.waba_id ?? "");
     setAppSecret(config.app_secret ?? "");
     setAgentName(config.agent_name ?? "Asistente");
-    setModel(config.model ?? "claude-haiku-4-5-20251001");
     setSystemPrompt(config.system_prompt ?? DEFAULT_PROMPT);
     setIsActive(config.is_active ?? false);
     setCanBook(config.can_book_appointments ?? false);
@@ -524,6 +530,39 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
     setOffHoursMsg(config.off_hours_message ?? "");
   }, [config]);
 
+  // Verify password and execute action
+  const handleVerifyPassword = async () => {
+    if (!password.trim()) { toast.error("Ingresa tu contraseña"); return; }
+    setVerifying(true);
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: user!.email!,
+        password: password.trim(),
+      });
+      if (error) { toast.error("Contraseña incorrecta"); return; }
+
+      if (pwdPrompt === "reveal") {
+        setCredentialsRevealed(true);
+        toast.success("Credenciales desbloqueadas");
+      } else if (pwdPrompt === "disconnect") {
+        setDisconnecting(true);
+        await upsert.mutateAsync({
+          phone_number_id: null,
+          access_token: null,
+          waba_id: null,
+          app_secret: null,
+          is_active: false,
+        });
+        toast.success("Asistente desconectado");
+        onDisconnect();
+        onClose();
+      }
+      setPwdPrompt(null);
+      setPassword("");
+    } catch { toast.error("Error al verificar la contraseña"); }
+    finally { setVerifying(false); setDisconnecting(false); }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -533,7 +572,7 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
         waba_id: wabaId || null,
         app_secret: appSecret || null,
         agent_name: agentName || "Asistente",
-        model,
+        model: "claude-haiku-4-5-20251001",
         system_prompt: systemPrompt || null,
         is_active: isActive,
         can_book_appointments: canBook,
@@ -564,7 +603,6 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
     finally { setTesting(false); }
   };
 
-
   const insertVariable = (v: string) => {
     const el = promptRef.current;
     if (!el) return;
@@ -574,55 +612,92 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
     setTimeout(() => { el.focus(); el.setSelectionRange(start + v.length, start + v.length); }, 0);
   };
 
+  const maskValue = (v: string) => v ? "•".repeat(Math.min(v.length || 16, 24)) : "No configurado";
+
   const TABS = [
-    { id: "conexion" as const,     label: "Conexión",    icon: Wifi },
-    { id: "agente" as const,       label: "Agente",      icon: Sparkles },
-    { id: "capacidades" as const,  label: "Capacidades", icon: Zap },
-    { id: "horario" as const,      label: "Horario",     icon: Clock },
+    { id: "conexion" as const,    label: "Conexión",    icon: Wifi },
+    { id: "agente" as const,      label: "Agente",      icon: Sparkles },
+    { id: "capacidades" as const, label: "Capacidades", icon: Zap },
+    { id: "horario" as const,     label: "Horario",     icon: Clock },
   ];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md bg-card h-full flex flex-col shadow-2xl border-l">
+
+        {/* Password prompt modal */}
+        {pwdPrompt && (
+          <div className="absolute inset-0 z-20 bg-card/95 backdrop-blur-sm flex flex-col items-center justify-center p-8 gap-5">
+            <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${pwdPrompt === "disconnect" ? "bg-destructive/10" : "bg-primary/10"}`}>
+              {pwdPrompt === "disconnect"
+                ? <WifiOff size={22} className="text-destructive" />
+                : <Eye size={22} className="text-primary" />
+              }
+            </div>
+            <div className="text-center space-y-1">
+              <p className="text-sm font-semibold">
+                {pwdPrompt === "disconnect" ? "Desconectar el Asistente" : "Desbloquear credenciales"}
+              </p>
+              <p className="text-xs text-muted-foreground max-w-xs">
+                {pwdPrompt === "disconnect"
+                  ? "Esto borrará las credenciales de conexión y detendrá el asistente. El Verify Token se mantendrá. Ingresa tu contraseña para confirmar."
+                  : "Ingresa tu contraseña para ver y editar las credenciales de conexión."
+                }
+              </p>
+            </div>
+            <div className="w-full space-y-3">
+              <Input
+                type="password"
+                placeholder="Tu contraseña"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleVerifyPassword(); }}
+                className="h-10 text-sm"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => { setPwdPrompt(null); setPassword(""); }} className="flex-1 h-9 text-xs">
+                  Cancelar
+                </Button>
+                <Button
+                  onClick={handleVerifyPassword}
+                  disabled={verifying || !password.trim()}
+                  className={`flex-1 h-9 text-xs gap-1.5 ${pwdPrompt === "disconnect" ? "bg-destructive hover:bg-destructive/90 text-white" : ""}`}
+                >
+                  {verifying ? <Loader2 size={13} className="animate-spin" /> : null}
+                  {pwdPrompt === "disconnect" ? "Desconectar" : "Desbloquear"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div className="px-5 py-4 border-b flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
-            <div className={`w-2 h-2 rounded-full ${isActive ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
-            <h2 className="text-sm font-semibold">Configuración del Agente</h2>
+            <div className={`w-2 h-2 rounded-full ${config?.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+            <div>
+              <h2 className="text-sm font-semibold">Configuración del Agente</h2>
+              <p className="text-[10px] text-muted-foreground">
+                {config?.is_active ? "Asistente activo" : "Asistente inactivo"}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsActive(!isActive)}
-              className={`flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${
-                isActive
-                  ? "border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              <span className={`w-1.5 h-1.5 rounded-full ${isActive ? "bg-emerald-500" : "bg-muted-foreground/50"}`} />
-              {isActive ? "Activo" : "Inactivo"}
-            </button>
-            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
-              <X size={16} className="text-muted-foreground" />
-            </button>
-          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
+            <X size={16} className="text-muted-foreground" />
+          </button>
         </div>
 
         {/* Tabs */}
-        <div className="flex border-b shrink-0 px-2">
+        <div className="flex border-b shrink-0 px-2 overflow-x-auto">
           {TABS.map(t => {
             const Icon = t.icon;
             return (
-              <button
-                key={t.id}
-                onClick={() => setSection(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors ${
-                  section === t.id
-                    ? "border-primary text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}
-              >
+              <button key={t.id} onClick={() => setSection(t.id)}
+                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  section === t.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
+                }`}>
                 <Icon size={12} />{t.label}
               </button>
             );
@@ -633,65 +708,111 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {section === "conexion" && (
             <>
+              {/* Webhook info */}
               <div className="bg-secondary/40 rounded-xl p-3 space-y-2">
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Webhook URL</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-[10px] truncate">{WEBHOOK_URL}</code>
-                  <button onClick={() => copyToClipboard(WEBHOOK_URL, "URL")} className="shrink-0"><Copy size={12} className="text-muted-foreground" /></button>
+                  <button onClick={() => copyToClipboard(WEBHOOK_URL, "URL")}><Copy size={12} className="text-muted-foreground" /></button>
                 </div>
                 <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mt-1">Verify Token</p>
                 <div className="flex items-center gap-2">
                   <code className="flex-1 text-[10px] truncate">{config?.webhook_verify_token}</code>
-                  <button onClick={() => copyToClipboard(config?.webhook_verify_token ?? "", "Token")} className="shrink-0"><Copy size={12} className="text-muted-foreground" /></button>
+                  <button onClick={() => copyToClipboard(config?.webhook_verify_token ?? "", "Token")}><Copy size={12} className="text-muted-foreground" /></button>
                 </div>
               </div>
-              <div className="space-y-3">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Phone Number ID</label>
-                  <Input value={phoneNumberId} onChange={e => setPhoneNumberId(e.target.value)} className="h-9 text-sm font-mono" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Access Token</label>
-                  <div className="relative">
-                    <Input type={showToken ? "text" : "password"} value={accessToken} onChange={e => setAccessToken(e.target.value)} className="h-9 text-sm pr-9 font-mono" />
-                    <button onClick={() => setShowToken(!showToken)} className="absolute right-2.5 top-2 text-muted-foreground"><EyeOff size={14} /></button>
+
+              {/* Credentials — locked or revealed */}
+              {!credentialsRevealed ? (
+                <div className="space-y-3">
+                  <div className="space-y-2">
+                    {[
+                      { label: "Phone Number ID", value: phoneNumberId },
+                      { label: "Access Token",    value: accessToken },
+                      { label: "WABA ID",         value: wabaId },
+                      { label: "App Secret",      value: appSecret },
+                    ].map(f => (
+                      <div key={f.label} className="space-y-1">
+                        <label className="text-xs text-muted-foreground">{f.label}</label>
+                        <div className="h-9 px-3 flex items-center rounded-md border border-input bg-secondary/30 text-sm font-mono text-muted-foreground select-none">
+                          {f.value ? maskValue(f.value) : <span className="text-muted-foreground/40 italic text-xs">No configurado</span>}
+                        </div>
+                      </div>
+                    ))}
                   </div>
+                  <Button variant="outline" size="sm" onClick={() => setPwdPrompt("reveal")} className="w-full h-8 text-xs gap-1.5">
+                    <Eye size={12} /> Desbloquear para editar
+                  </Button>
                 </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">WABA ID</label>
-                  <Input value={wabaId} onChange={e => setWabaId(e.target.value)} className="h-9 text-sm font-mono" />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">App Secret</label>
-                  <div className="relative">
-                    <Input type={showSecret ? "text" : "password"} value={appSecret} onChange={e => setAppSecret(e.target.value)} className="h-9 text-sm pr-9 font-mono" />
-                    <button onClick={() => setShowSecret(!showSecret)} className="absolute right-2.5 top-2 text-muted-foreground"><EyeOff size={14} /></button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5 font-medium">
+                      <CheckCircle2 size={12} /> Credenciales visibles
+                    </p>
+                    <button onClick={() => setCredentialsRevealed(false)} className="text-[11px] text-muted-foreground hover:text-foreground flex items-center gap-1">
+                      <EyeOff size={11} /> Bloquear
+                    </button>
                   </div>
-                </div>
-                {testResult && (
-                  <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl px-3 py-2">
-                    <CheckCircle2 size={13} /> {testResult}
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Phone Number ID</label>
+                    <Input value={phoneNumberId} onChange={e => setPhoneNumberId(e.target.value)} className="h-9 text-sm font-mono" />
                   </div>
-                )}
-                <Button variant="outline" size="sm" onClick={handleTest} disabled={testing} className="w-full h-8 text-xs gap-1.5">
-                  {testing ? <Loader2 size={12} className="animate-spin" /> : <Wifi size={12} />} Verificar conexión
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">Access Token</label>
+                    <Input value={accessToken} onChange={e => setAccessToken(e.target.value)} className="h-9 text-sm font-mono" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">WABA ID</label>
+                    <Input value={wabaId} onChange={e => setWabaId(e.target.value)} className="h-9 text-sm font-mono" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground">App Secret</label>
+                    <Input value={appSecret} onChange={e => setAppSecret(e.target.value)} className="h-9 text-sm font-mono" />
+                  </div>
+                  {testResult && (
+                    <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl px-3 py-2">
+                      <CheckCircle2 size={13} /> {testResult}
+                    </div>
+                  )}
+                  <Button variant="outline" size="sm" onClick={handleTest} disabled={testing} className="w-full h-8 text-xs gap-1.5">
+                    {testing ? <Loader2 size={12} className="animate-spin" /> : <Wifi size={12} />} Verificar conexión
+                  </Button>
+                </div>
+              )}
+
+              {/* Disconnect button */}
+              <div className="pt-2 border-t">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPwdPrompt("disconnect")}
+                  className="w-full h-8 text-xs gap-1.5 border-destructive/30 text-destructive hover:bg-destructive/10 hover:border-destructive"
+                >
+                  <WifiOff size={12} /> Desconectar Asistente IA
                 </Button>
+                <p className="text-[10px] text-muted-foreground text-center mt-1.5">
+                  Borra las credenciales y vuelve al wizard de configuración inicial. El Verify Token se conserva.
+                </p>
               </div>
             </>
           )}
 
           {section === "agente" && (
             <div className="space-y-4">
+              <div className="flex items-center justify-between py-3 border-b">
+                <div>
+                  <p className="text-sm font-medium">Asistente activo</p>
+                  <p className="text-xs text-muted-foreground">Cuando está inactivo, no responde mensajes de WhatsApp.</p>
+                </div>
+                <button onClick={() => setIsActive(!isActive)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
+                  <span className={`absolute inset-0 rounded-full transition-colors ${isActive ? "bg-emerald-500" : "bg-secondary border"}`} />
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${isActive ? "left-[22px]" : "left-0.5"}`} />
+                </button>
+              </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Nombre del agente</label>
                 <Input value={agentName} onChange={e => setAgentName(e.target.value)} className="h-9 text-sm" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Modelo</label>
-                <select value={model} onChange={e => setModel(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  <option value="claude-haiku-4-5-20251001">Claude Haiku (rápido · económico)</option>
-                  <option value="claude-sonnet-4-6">Claude Sonnet (más inteligente)</option>
-                </select>
               </div>
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">Prompt del sistema</label>
@@ -704,23 +825,27 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
                   ))}
                 </div>
               </div>
+              <div className="rounded-xl border border-border bg-secondary/30 px-3 py-2.5 space-y-1 text-xs text-muted-foreground">
+                <p className="font-semibold text-foreground">Archivos soportados</p>
+                <p>✅ Imágenes · ✅ PDFs · 🚫 Audios (respuesta automática)</p>
+              </div>
             </div>
           )}
 
           {section === "capacidades" && (
             <div className="space-y-1">
               {[
-                { label: "Agendar citas", sub: "Crea citas en el calendario", val: canBook, set: setCanBook },
-                { label: "Crear contactos", sub: "Guarda nuevos leads automáticamente", val: canContacts, set: setCanContacts },
-                { label: "Responder sobre servicios", sub: "Informa precios y servicios", val: canServices, set: setCanServices },
-                { label: "Transferir a humano", sub: "Cambia a HUMAN y notifica", val: canTransfer, set: setCanTransfer },
+                { label: "Agendar citas",              sub: "Crea citas en el calendario",       val: canBook,     set: setCanBook },
+                { label: "Crear contactos",            sub: "Guarda nuevos leads automáticamente", val: canContacts, set: setCanContacts },
+                { label: "Responder sobre servicios",  sub: "Informa precios y servicios",       val: canServices, set: setCanServices },
+                { label: "Transferir a humano",        sub: "Cambia a HUMAN y notifica",         val: canTransfer, set: setCanTransfer },
               ].map(item => (
                 <div key={item.label} className="flex items-center justify-between py-3 border-b last:border-0">
                   <div>
                     <p className="text-sm font-medium">{item.label}</p>
                     <p className="text-xs text-muted-foreground">{item.sub}</p>
                   </div>
-                  <button onClick={() => item.set(!item.val)} className={`relative shrink-0 rounded-full transition-colors`} style={{ width: 40, height: 22 }}>
+                  <button onClick={() => item.set(!item.val)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
                     <span className={`absolute inset-0 rounded-full transition-colors ${item.val ? "bg-primary" : "bg-secondary border"}`} />
                     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${item.val ? "left-[22px]" : "left-0.5"}`} />
                   </button>
@@ -734,8 +859,7 @@ const SettingsPanel = ({ onClose }: { onClose: () => void }) => {
               <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1">
                 <p className="text-xs font-medium">Horario del Asistente Virtual</p>
                 <p className="text-xs text-muted-foreground">
-                  Este horario controla <strong>cuándo el bot responde automáticamente</strong> por WhatsApp. No es el horario de atención de tu negocio.
-                  Fuera de este horario, enviará el mensaje de "fuera de horario". Por defecto 24/7.
+                  Este horario controla <strong>cuándo el bot responde automáticamente</strong> por WhatsApp. No es el horario de atención de tu negocio. Por defecto 24/7.
                 </p>
               </div>
               <WeeklySchedulePicker value={schedule} onChange={setSchedule} interval={30} />
@@ -943,6 +1067,13 @@ const CrmAgentIA = ({
   const [showSettings, setShowSettings] = useState(false);
   const [search, setSearch]           = useState("");
   const [wizardDone, setWizardDone]   = useState(false);
+  const [forceWizard, setForceWizard] = useState(false);
+
+  const handleDisconnect = () => {
+    setForceWizard(true);
+    setWizardDone(false);
+    setShowSettings(false);
+  };
 
   const selectedConv = useMemo(
     () => conversations.find(c => c.id === selectedId) ?? null,
@@ -970,16 +1101,15 @@ const CrmAgentIA = ({
     </div>
   );
 
-  // Mostrar wizard solo si NUNCA se ha creado la fila de config (primera vez absoluta)
-  // Una vez que existe la fila en DB, siempre mostrar el dashboard aunque falten credenciales
   const configRowExists = config !== null && config !== undefined;
-  if (!configRowExists && !wizardDone) {
-    return <SetupWizard onComplete={() => setWizardDone(true)} />;
+  const needsWizard = forceWizard || (!configRowExists && !wizardDone);
+  if (needsWizard) {
+    return <SetupWizard onComplete={() => { setWizardDone(true); setForceWizard(false); }} />;
   }
 
   return (
     <>
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} />}
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onDisconnect={handleDisconnect} />}
 
       <div className="flex flex-col h-full -mx-4 -my-6 sm:-mx-6 sm:-my-8">
         {/* Top bar */}
