@@ -17,6 +17,7 @@ interface ReminderRule {
   recipient:        "contact" | "business";
   businessTargets?: string[];
   businessTarget?:  string;
+  channels?:        { email: boolean; whatsapp: boolean };
   channel:          "email" | "whatsapp";
   channelValue:     string;
   timing:           "before" | "after";
@@ -30,6 +31,11 @@ function getTargets(rule: ReminderRule): string[] {
   if (rule.businessTargets?.length) return rule.businessTargets;
   if (rule.businessTarget)          return [rule.businessTarget];
   return ["admin"];
+}
+
+function getChannels(rule: ReminderRule): { email: boolean; whatsapp: boolean } {
+  if (rule.channels) return rule.channels;
+  return { email: rule.channel === "email", whatsapp: rule.channel === "whatsapp" };
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -122,11 +128,14 @@ async function processRules(
       // Skip if already more than 1 hour past (missed)
       if (scheduledAt < new Date(now.getTime() - 3_600_000)) continue;
 
+      const ruleChannels = getChannels(rule);
+
       if (rule.recipient === "contact") {
-        const channelValue = rule.channel === "email"
-          ? (contact?.email ?? "")
-          : (contact?.phone ?? "");
-        if (!channelValue) continue;
+        const emailVal = contact?.email ?? "";
+        const phoneVal = contact?.phone ?? "";
+        const hasEmail = ruleChannels.email && !!emailVal;
+        const hasPhone = ruleChannels.whatsapp && !!phoneVal;
+        if (!hasEmail && !hasPhone) continue;
 
         const marker = ruleMarker(sourceId, rule.id, "contact");
 
@@ -148,8 +157,9 @@ async function processRules(
             appointment_id:  appt.id,
             contact_id:      appt.contact_id,
             type:            rule.channel,
-            recipient_email: rule.channel === "email"    ? channelValue : null,
-            recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
+            channels:        ruleChannels,
+            recipient_email: hasEmail ? emailVal : null,
+            recipient_phone: hasPhone ? phoneVal : null,
             scheduled_at:    scheduledAt.toISOString(),
             subject:         (rule as any).subject?.trim() || null,
             message,
@@ -179,19 +189,20 @@ async function processRules(
 
           if ((existingCount ?? 0) > 0) continue;
 
-          let channelValue = "";
+          let emailVal = "";
+          let phoneVal = "";
+
           if (targetId === "admin") {
             const { data: profile } = await supabase
               .from("crm_business_profile")
               .select("contact_email, contact_phone, whatsapp")
               .eq("user_id", appt.user_id)
               .single();
-            channelValue = rule.channel === "email"
-              ? (profile?.contact_email ?? "")
-              : (profile?.contact_phone ?? profile?.whatsapp ?? "");
-            if (!channelValue && rule.channel === "email") {
+            emailVal = profile?.contact_email ?? "";
+            phoneVal = profile?.contact_phone ?? profile?.whatsapp ?? "";
+            if (!emailVal && ruleChannels.email) {
               const { data: { user: authUser } } = await supabase.auth.admin.getUserById(appt.user_id);
-              channelValue = authUser?.email ?? "";
+              emailVal = authUser?.email ?? "";
             }
           } else {
             const { data: staffMember } = await supabase
@@ -199,12 +210,13 @@ async function processRules(
               .select("email, phone")
               .eq("id", targetId)
               .single();
-            channelValue = rule.channel === "email"
-              ? (staffMember?.email ?? "")
-              : (staffMember?.phone ?? "");
+            emailVal = staffMember?.email ?? "";
+            phoneVal = staffMember?.phone ?? "";
           }
 
-          if (!channelValue) continue;
+          const hasEmail = ruleChannels.email && !!emailVal;
+          const hasPhone = ruleChannels.whatsapp && !!phoneVal;
+          if (!hasEmail && !hasPhone) continue;
 
           const message = (rule as any).content?.trim()
             || `Cita confirmada: ${contactName} el ${appt.date} a las ${String(appt.hour).padStart(2, "0")}:00 hs.`;
@@ -216,8 +228,9 @@ async function processRules(
               appointment_id:  appt.id,
               contact_id:      appt.contact_id,
               type:            rule.channel,
-              recipient_email: rule.channel === "email"    ? channelValue : null,
-              recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
+              channels:        ruleChannels,
+              recipient_email: hasEmail ? emailVal : null,
+              recipient_phone: hasPhone ? phoneVal : null,
               scheduled_at:    scheduledAt.toISOString(),
               subject:         (rule as any).subject?.trim() || null,
               message,

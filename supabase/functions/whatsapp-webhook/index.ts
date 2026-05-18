@@ -137,6 +137,13 @@ async function processPayload(payload: any, tenantUserId: string, isActive: bool
       );
 
       for (const msg of value.messages ?? []) {
+        // Ignorar mensajes de grupos de WhatsApp — @g.us es el sufijo de IDs de grupos en la Cloud API
+        const msgFrom = String(msg.from ?? "");
+        const msgTo   = String(msg.to   ?? "");
+        if (msgFrom.endsWith("@g.us") || msgTo.endsWith("@g.us")) {
+          console.log(`[webhook] mensaje de grupo ignorado (from=${msgFrom})`);
+          continue;
+        }
         await handleIncomingMessage(msg, nameByPhone.get(msg.from) ?? null, tenantUserId, isActive, accessToken);
       }
     }

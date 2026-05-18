@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import {
   Plus, Trash2, Mail, MessageSquare, Clock, User, Building2, Bell, Pencil, ChevronDown,
 } from "lucide-react";
-import { useStaff, useBusinessProfile, useWhatsappEnabled, useVendorProfile } from "@/hooks/useCrmData";
+import { useStaff, useBusinessProfile, useAIAgentConfig, useVendorProfile } from "@/hooks/useCrmData";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -25,6 +25,9 @@ export interface ReminderRule {
   businessTargets?: string[];
   /** @deprecated kept for backward-compat with rules saved before multi-select */
   businessTarget?:  string;
+  /** Multi-channel: email and/or WhatsApp */
+  channels?:        { email: boolean; whatsapp: boolean };
+  /** @deprecated kept for backward-compat — use channels instead */
   channel:          ReminderChannel;
   channelValue:     string;
   timing:           ReminderTiming;
@@ -39,6 +42,12 @@ const getTargets = (rule: ReminderRule): string[] => {
   if (rule.businessTargets?.length) return rule.businessTargets;
   if (rule.businessTarget)          return [rule.businessTarget];
   return ["admin"];
+};
+
+/** Get effective channels, falling back to legacy channel field */
+const getChannels = (rule: ReminderRule): { email: boolean; whatsapp: boolean } => {
+  if (rule.channels) return rule.channels;
+  return { email: rule.channel === "email", whatsapp: rule.channel === "whatsapp" };
 };
 
 // ─── Variables disponibles ────────────────────────────────────────────────────
@@ -61,6 +70,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
 const DEFAULT_RULE: Omit<ReminderRule, "id"> = {
   recipient:        "contact",
   businessTargets:  ["admin"],
+  channels:         { email: true, whatsapp: false },
   channel:          "email",
   channelValue:     "",
   timing:           "before",
@@ -131,7 +141,8 @@ const RuleSummaryCard = ({
   onDelete:      () => void;
 }) => {
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const targets = getTargets(rule);
+  const targets  = getTargets(rule);
+  const channels = getChannels(rule);
 
   const recipientLabel = rule.recipient === "contact"
     ? "Quien agendó"
@@ -143,13 +154,18 @@ const RuleSummaryCard = ({
     ? "Al reservar"
     : `${rule.amount} ${UNITS.find(u => u.value === rule.unit)?.label ?? rule.unit} ${rule.timing === "before" ? "antes" : "después"} de la cita`;
 
+  const channelLabel = channels.email && channels.whatsapp
+    ? "Email + WhatsApp"
+    : channels.whatsapp ? "WhatsApp" : "Email";
+
   return (
     <div className="border border-border/60 rounded-xl px-3.5 py-3 bg-card flex items-center gap-3">
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[11px] font-medium">
-            {rule.channel === "email" ? <Mail size={10} /> : <MessageSquare size={10} />}
-            {rule.channel === "email" ? "Email" : "WhatsApp"}
+            {channels.email && <Mail size={10} />}
+            {channels.whatsapp && <MessageSquare size={10} />}
+            {channelLabel}
           </span>
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             {rule.recipient === "contact" ? <User size={10} /> : <Building2 size={10} />}
@@ -210,9 +226,29 @@ const RuleForm = ({
 }) => {
   const { data: staffList = [] } = useStaff();
   const { data: profile }        = useBusinessProfile();
+  const { data: agentConfig }    = useAIAgentConfig();
   const { data: vendorProfile }  = useVendorProfile();
   const isVendor                 = !!vendorProfile;
-  const whatsappEnabled          = useWhatsappEnabled();
+  const agentWaEnabled           = !!agentConfig?.phone_number_id;
+
+  const channels = getChannels(rule);
+
+  const toggleChannel = (ch: "email" | "whatsapp") => {
+    const next = { ...channels, [ch]: !channels[ch] };
+    // Must keep at least one channel active
+    if (!next.email && !next.whatsapp) return;
+    onChange({ channels: next, channel: next.email ? "email" : "whatsapp" });
+  };
+
+  // Conflicto: teléfono del admin = número del agente IA
+  const agentPhone  = (agentConfig?.verified_phone ?? "").replace(/\D/g, "");
+  const adminPhone_ = (adminPhone ?? "").replace(/\D/g, "");
+  const adminAgentConflict =
+    channels.whatsapp &&
+    rule.recipient === "business" &&
+    getTargets(rule).includes("admin") &&
+    !!agentPhone && !!adminPhone_ &&
+    agentPhone === adminPhone_;
 
   const subjectRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
@@ -229,8 +265,9 @@ const RuleForm = ({
   const toggleTarget = (id: string) => {
     const current = new Set(targets);
     if (current.has(id)) {
+      // Don't allow deselecting the last target
+      if (current.size === 1) return;
       current.delete(id);
-      if (current.size === 0) current.add("admin");
     } else {
       current.add(id);
     }
@@ -260,6 +297,32 @@ const RuleForm = ({
         el.setSelectionRange(start + variable.length, start + variable.length);
       }, 0);
     }
+  };
+
+  // Resolve display info for each target
+  const recipientInfo = () => {
+    if (rule.recipient === "contact") {
+      const lines: string[] = [];
+      if (channels.email)    lines.push("Email del contacto");
+      if (channels.whatsapp) lines.push("WhatsApp del contacto");
+      return lines;
+    }
+    // Business targets
+    return targets.flatMap((targetId) => {
+      const lines: string[] = [];
+      if (targetId === "vendor") {
+        lines.push("Email del vendedor");
+        return lines;
+      }
+      const name  = targetId === "admin" ? adminLabel : staffList.find(s => s.id === targetId)?.name ?? targetId;
+      const email = targetId === "admin" ? adminEmail  : staffList.find(s => s.id === targetId)?.email;
+      const phone = targetId === "admin" ? adminPhone  : staffList.find(s => s.id === targetId)?.phone;
+      if (channels.email && email)    lines.push(`${name}: ${email}`);
+      if (channels.whatsapp && phone) lines.push(`${name}: ${phone}`);
+      if (channels.email && !email)   lines.push(`${name}: sin email configurado`);
+      if (channels.whatsapp && !phone) lines.push(`${name}: sin teléfono configurado`);
+      return lines;
+    });
   };
 
   return (
@@ -358,17 +421,49 @@ const RuleForm = ({
       )}
 
       {/* ── Channel ───────────────────────────────────────────────────────── */}
-      <div>
-        <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">Canal</p>
+      <div className="space-y-2">
+        <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Canal</p>
         <div className="flex gap-2 flex-wrap">
           <button
             type="button"
-            onClick={() => onChange({ channel: "email" })}
-            className={pill(rule.channel === "email")}
+            onClick={() => toggleChannel("email")}
+            className={pill(channels.email)}
           >
             <Mail size={11} /> Email
           </button>
+          {agentWaEnabled && (
+            <button
+              type="button"
+              onClick={() => toggleChannel("whatsapp")}
+              className={pill(channels.whatsapp)}
+            >
+              <MessageSquare size={11} /> WhatsApp
+            </button>
+          )}
         </div>
+
+        {/* Recipient info */}
+        {(() => {
+          const lines = recipientInfo();
+          if (!lines.length) return null;
+          return (
+            <div className="rounded-xl border border-border/40 bg-secondary/30 px-3 py-2 space-y-0.5">
+              {lines.map((line, i) => (
+                <p key={i} className="text-[11px] text-muted-foreground">{line}</p>
+              ))}
+            </div>
+          );
+        })()}
+
+        {adminAgentConflict && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2.5 space-y-1">
+            <p className="text-[11px] font-semibold text-destructive">Número en conflicto</p>
+            <p className="text-[11px] text-destructive/80 leading-relaxed">
+              El teléfono registrado en tu perfil (<strong>+{adminPhone_}</strong>) es el mismo que el número del Agente IA.
+              Un número no puede enviarse mensajes a sí mismo. Actualiza el teléfono en <strong>Mi Negocio → Datos del negocio</strong>.
+            </p>
+          </div>
+        )}
       </div>
 
       {/* ── Timing ────────────────────────────────────────────────────────── */}
@@ -421,9 +516,9 @@ const RuleForm = ({
           <VariablePicker onSelect={insertVariable} />
         </div>
 
-        {rule.channel === "email" && (
+        {channels.email && (
           <div>
-            <p className="text-[10px] text-muted-foreground mb-1">Asunto</p>
+            <p className="text-[10px] text-muted-foreground mb-1">Asunto (email)</p>
             <Input
               ref={subjectRef}
               value={rule.subject ?? ""}
@@ -437,7 +532,7 @@ const RuleForm = ({
 
         <div>
           <p className="text-[10px] text-muted-foreground mb-1">
-            {rule.channel === "email" ? "Contenido" : "Mensaje"}
+            {channels.email && channels.whatsapp ? "Contenido (mismo para ambos canales)" : channels.email ? "Contenido" : "Mensaje"}
           </p>
           <Textarea
             ref={contentRef}
@@ -445,7 +540,7 @@ const RuleForm = ({
             onChange={(e) => onChange({ content: e.target.value })}
             onFocus={() => setActiveField("content")}
             placeholder={
-              rule.channel === "email"
+              channels.email
                 ? "Hola {{contact.name}}, te recordamos tu cita el {{appointment.date}} a las {{appointment.time}}."
                 : "Hola {{contact.name}}, tu cita es el {{appointment.date}} a las {{appointment.time}}."
             }
@@ -475,7 +570,8 @@ interface EditingState {
 }
 
 const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
-  const { data: profile } = useBusinessProfile();
+  const { data: profile }     = useBusinessProfile();
+  const { data: agentConfig } = useAIAgentConfig();
   const [editing, setEditing] = useState<EditingState | null>(null);
 
   const openNew = () =>
@@ -500,6 +596,21 @@ const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
 
   const patchEditing = (patch: Partial<ReminderRule>) =>
     setEditing((prev) => prev ? { ...prev, rule: { ...prev.rule, ...patch } } : prev);
+
+  const isSaveDisabled = (() => {
+    if (!editing) return false;
+    const r = editing.rule;
+    const ch = getChannels(r);
+    if (ch.whatsapp && r.recipient === "business") {
+      const agentPhone = (agentConfig?.verified_phone ?? "").replace(/\D/g, "");
+      const adminPh    = (profile?.contact_phone ?? profile?.whatsapp ?? "").replace(/\D/g, "");
+      const targets    = getTargets(r);
+      if (!!agentPhone && !!adminPh && agentPhone === adminPh && targets.includes("admin")) {
+        return true;
+      }
+    }
+    return false;
+  })();
 
   return (
     <div className="space-y-3">
@@ -552,7 +663,12 @@ const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
             <Button type="button" variant="ghost" size="sm" onClick={closeDialog}>
               Cancelar
             </Button>
-            <Button type="button" size="sm" onClick={saveDialog}>
+            <Button
+              type="button"
+              size="sm"
+              onClick={saveDialog}
+              disabled={isSaveDisabled}
+            >
               Guardar notificación
             </Button>
           </DialogFooter>

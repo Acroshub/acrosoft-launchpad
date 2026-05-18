@@ -716,6 +716,12 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
     }
   };
 
+  const handleRulesChange = (newRules: ReminderRule[]) => {
+    setReminderRules(newRules);
+    // Auto-save: el parent (CrmForms) llama a updateForm.mutateAsync y muestra el toast
+    onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId: facebookPixelId || undefined, pipelineIds, reminderRules: newRules });
+  };
+
   const addSection = () =>
     setSections(s => [...s, { id: `sec-${Date.now()}`, name: `Página ${s.length + 1}` }]);
 
@@ -1288,7 +1294,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                 </h2>
                 <p className="text-xs text-muted-foreground mt-1">Se enviarán automáticamente después de que alguien complete este formulario o agende una cita vinculada.</p>
               </div>
-              <ReminderRulesEditor rules={reminderRules} onChange={setReminderRules} />
+              <ReminderRulesEditor rules={reminderRules} onChange={handleRulesChange} />
             </div>
           )}
           {formTab === "notificaciones" && !canEditReminders && (

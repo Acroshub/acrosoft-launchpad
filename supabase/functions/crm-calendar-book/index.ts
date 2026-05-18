@@ -372,17 +372,28 @@ Deno.serve(async (req) => {
         const nowIso = new Date().toISOString();
         let queued = 0;
 
+        const ruleGetChannels = (rule: any) => {
+          if (rule.channels) return rule.channels as { email: boolean; whatsapp: boolean };
+          return { email: rule.channel === "email", whatsapp: rule.channel === "whatsapp" };
+        };
+
         for (const rule of onBookingRules) {
+          const ruleChannels = ruleGetChannels(rule);
+
           if (rule.recipient === "contact") {
-            const channelValue = rule.channel === "email" ? (email || null) : (phone || null);
-            if (!channelValue) continue;
+            const emailVal = ruleChannels.email ? (email || "") : "";
+            const phoneVal = ruleChannels.whatsapp ? (phone || "") : "";
+            const hasEmail = ruleChannels.email && !!emailVal;
+            const hasPhone = ruleChannels.whatsapp && !!phoneVal;
+            if (!hasEmail && !hasPhone) continue;
             const msg = rule.content?.trim()
               || `Hola ${name || "Cliente"}, confirmamos tu cita el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs con ${calendar.name ?? "nosotros"}.`;
             const { data: rem } = await supabase.from("crm_reminders").insert({
               user_id: calendar.user_id, appointment_id: appointment.id, contact_id: contactId,
               type: rule.channel,
-              recipient_email: rule.channel === "email" ? channelValue : null,
-              recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
+              channels: ruleChannels,
+              recipient_email: hasEmail ? emailVal : null,
+              recipient_phone: hasPhone ? phoneVal : null,
               scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
               business_target: `rule:${calendar_id}:${rule.id}:contact`,
             }).select("id").single();
@@ -394,36 +405,38 @@ Deno.serve(async (req) => {
               : rule.businessTarget ? [rule.businessTarget] : ["admin"];
 
             for (const targetId of targets) {
-              let channelValue = "";
+              let emailVal = "";
+              let phoneVal = "";
               if (targetId === "vendor") {
-                // Calendar belongs to a vendor — send to the vendor's auth email
                 const { data: { user: vendorUser } } = await supabase.auth.admin.getUserById(calendar.user_id);
-                channelValue = vendorUser?.email ?? "";
+                emailVal = vendorUser?.email ?? "";
               } else if (targetId === "admin") {
                 const { data: profile } = await supabase
                   .from("crm_business_profile").select("contact_email, contact_phone, whatsapp")
                   .eq("user_id", calendar.user_id).single();
-                channelValue = rule.channel === "email"
-                  ? (profile?.contact_email ?? "")
-                  : (profile?.contact_phone ?? (profile as any)?.whatsapp ?? "");
-                // Fallback: use auth email when contact_email is not configured
-                if (!channelValue && rule.channel === "email") {
+                emailVal = profile?.contact_email ?? "";
+                phoneVal = profile?.contact_phone ?? (profile as any)?.whatsapp ?? "";
+                if (!emailVal && ruleChannels.email) {
                   const { data: { user: authUser } } = await supabase.auth.admin.getUserById(calendar.user_id);
-                  channelValue = authUser?.email ?? "";
+                  emailVal = authUser?.email ?? "";
                 }
               } else {
                 const { data: staff } = await supabase
                   .from("crm_staff").select("email, phone").eq("id", targetId).single();
-                channelValue = rule.channel === "email" ? (staff?.email ?? "") : (staff?.phone ?? "");
+                emailVal = staff?.email ?? "";
+                phoneVal = staff?.phone ?? "";
               }
-              if (!channelValue) continue;
+              const hasEmail = ruleChannels.email && !!emailVal;
+              const hasPhone = ruleChannels.whatsapp && !!phoneVal;
+              if (!hasEmail && !hasPhone) continue;
               const msg = rule.content?.trim()
                 || `Cita confirmada: ${name || email || "Cliente"} el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs.`;
               const { data: rem } = await supabase.from("crm_reminders").insert({
                 user_id: calendar.user_id, appointment_id: appointment.id, contact_id: contactId,
                 type: rule.channel,
-                recipient_email: rule.channel === "email" ? channelValue : null,
-                recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
+                channels: ruleChannels,
+                recipient_email: hasEmail ? emailVal : null,
+                recipient_phone: hasPhone ? phoneVal : null,
                 scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
                 business_target: `rule:${calendar_id}:${rule.id}:${targetId}`,
               }).select("id").single();

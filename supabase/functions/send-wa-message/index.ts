@@ -16,23 +16,30 @@ Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: corsHeaders });
 
-  // Verificar JWT del caller
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return new Response(JSON.stringify({ error: "no auth" }), { status: 401, headers: corsHeaders });
 
   const { data: { user }, error: authErr } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
   if (authErr || !user) return new Response(JSON.stringify({ error: "unauthorized" }), { status: 401, headers: corsHeaders });
 
-  let body: { conversation_id: string; text: string };
+  let body: {
+    conversation_id: string;
+    text?: string;
+    media_url?: string;
+    media_type?: "image" | "document";
+    media_filename?: string;
+  };
   try { body = await req.json(); }
   catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: corsHeaders }); }
 
-  const { conversation_id, text } = body;
-  if (!conversation_id || !text?.trim()) {
+  const { conversation_id, text, media_url, media_type, media_filename } = body;
+
+  // Debe tener texto o media
+  if (!conversation_id || (!text?.trim() && !media_url)) {
     return new Response(JSON.stringify({ error: "missing fields" }), { status: 400, headers: corsHeaders });
   }
 
-  // Cargar la conversación (sin filtrar por user_id para soportar staff)
+  // Cargar la conversación
   const { data: conv, error: convErr } = await supabase
     .from("crm_wa_conversations")
     .select("phone, user_id")
@@ -43,7 +50,7 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: "conversation not found" }), { status: 404, headers: corsHeaders });
   }
 
-  // Verificar que el caller tiene acceso: es el dueño o es staff con perm_agente_ia.read
+  // Verificar acceso: dueño o staff con perm_agente_ia.read
   const isOwner = conv.user_id === user.id;
   let isAuthorizedStaff = false;
   if (!isOwner) {
@@ -60,7 +67,7 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: corsHeaders });
   }
 
-  // Cargar credenciales usando el user_id del dueño de la conversación
+  // Cargar credenciales del agente
   const { data: config, error: configErr } = await supabase
     .from("crm_ai_agent_config")
     .select("phone_number_id, access_token")
@@ -71,10 +78,57 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: "agent not configured" }), { status: 400, headers: corsHeaders });
   }
 
-  // Insertar mensaje en DB
+  // Construir payload para WhatsApp y registro en DB
+  let waPayload: Record<string, unknown>;
+  let dbContent: string;
+  let dbMediaType: string | null = null;
+  let dbMediaUrl: string | null = null;
+
+  if (media_url && media_type) {
+    dbMediaType = media_type;
+    dbMediaUrl = media_url;
+
+    if (media_type === "image") {
+      dbContent = "[Imagen]";
+      waPayload = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: conv.phone,
+        type: "image",
+        image: { link: media_url },
+      };
+    } else {
+      const fname = media_filename ?? "archivo";
+      dbContent = fname;
+      waPayload = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: conv.phone,
+        type: "document",
+        document: { link: media_url, filename: fname },
+      };
+    }
+  } else {
+    dbContent = text!.trim();
+    waPayload = {
+      messaging_product: "whatsapp",
+      recipient_type: "individual",
+      to: conv.phone,
+      type: "text",
+      text: { preview_url: false, body: text!.trim() },
+    };
+  }
+
+  // Insertar en DB
   const { data: savedMsg, error: insertErr } = await supabase
     .from("crm_wa_messages")
-    .insert({ conversation_id, role: "human", content: text.trim() })
+    .insert({
+      conversation_id,
+      role: "human",
+      content: dbContent,
+      ...(dbMediaType ? { media_type: dbMediaType } : {}),
+      ...(dbMediaUrl ? { media_url: dbMediaUrl } : {}),
+    })
     .select()
     .single();
 
@@ -92,13 +146,7 @@ Deno.serve(async (req: Request) => {
           Authorization: `Bearer ${config.access_token}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to: conv.phone,
-          type: "text",
-          text: { preview_url: false, body: text.trim() },
-        }),
+        body: JSON.stringify(waPayload),
       }
     );
 

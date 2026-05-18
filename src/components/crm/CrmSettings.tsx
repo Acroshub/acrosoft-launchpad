@@ -1491,7 +1491,152 @@ const VendorLinksAdminTab = () => {
 
 // ─── Settings shell ───────────────────────────────────────────────────────────
 
-type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte" | "perfil" | "vendor_links" | "vendedores";
+// ─── Tab: Costos IA ──────────────────────────────────────────────────────────
+type UsageRow = {
+  user_id: string; business_name: string | null; contact_email: string | null;
+  total_calls: number; total_input: number; total_output: number;
+  total_cache_read: number; total_cache_creation: number; total_cost: number;
+};
+
+// Costo que hubiera tenido SIN caching (todos los tokens al precio normal de entrada)
+const costWithoutCache = (r: UsageRow) => {
+  const allInput = Number(r.total_input) + Number(r.total_cache_read) + Number(r.total_cache_creation);
+  return (allInput * 0.25 + Number(r.total_output) * 1.25) / 1_000_000;
+};
+
+const IACostosTab = () => {
+  const now = new Date();
+  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  const [rows, setRows] = useState<UsageRow[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    const [y, m] = month.split("-").map(Number);
+    const from = new Date(y, m - 1, 1).toISOString();
+    const to = new Date(y, m, 0, 23, 59, 59).toISOString();
+    setLoading(true);
+    supabase.rpc("get_ai_usage_by_account", { p_from: from, p_to: to })
+      .then(({ data, error }) => {
+        if (!error && data) setRows(data as UsageRow[]);
+        setLoading(false);
+      });
+  }, [month]);
+
+  const totals = rows.reduce(
+    (acc, r) => ({
+      calls:       acc.calls       + Number(r.total_calls),
+      costReal:    acc.costReal    + Number(r.total_cost),
+      costWithout: acc.costWithout + costWithoutCache(r),
+    }),
+    { calls: 0, costReal: 0, costWithout: 0 }
+  );
+  const totalSaved   = totals.costWithout - totals.costReal;
+  const totalSavedPct = totals.costWithout > 0 ? (totalSaved / totals.costWithout) * 100 : 0;
+
+  const fmtUsd  = (n: number) => `$${n.toFixed(4)}`;
+  const fmtPct  = (n: number) => `${n.toFixed(1)}%`;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <h3 className="font-semibold">Costos de IA por cuenta</h3>
+        <input
+          type="month"
+          value={month}
+          onChange={e => setMonth(e.target.value)}
+          className="border rounded-md px-3 py-1.5 text-sm bg-background"
+        />
+      </div>
+
+      {/* KPI cards resumen */}
+      {!loading && rows.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="border rounded-xl p-4">
+            <p className="text-xs text-muted-foreground mb-1">Llamadas totales</p>
+            <p className="text-xl font-semibold">{totals.calls.toLocaleString("es-MX")}</p>
+          </div>
+          <div className="border rounded-xl p-4">
+            <p className="text-xs text-muted-foreground mb-1">Costo real</p>
+            <p className="text-xl font-semibold">{fmtUsd(totals.costReal)}</p>
+          </div>
+          <div className="border rounded-xl p-4 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10">
+            <p className="text-xs text-muted-foreground mb-1">Ahorro por caching</p>
+            <p className="text-xl font-semibold text-emerald-600">{fmtUsd(totalSaved)}</p>
+          </div>
+          <div className="border rounded-xl p-4 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10">
+            <p className="text-xs text-muted-foreground mb-1">% Ahorro global</p>
+            <p className="text-xl font-semibold text-emerald-600">{fmtPct(totalSavedPct)}</p>
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-muted-foreground text-sm py-8 justify-center">
+          <Loader2 className="w-4 h-4 animate-spin" /> Cargando...
+        </div>
+      ) : rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground text-center py-8">Sin datos para este mes.</p>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50">
+              <tr>
+                <th className="text-left px-3 py-2 font-medium">Negocio</th>
+                <th className="text-left px-3 py-2 font-medium">Email</th>
+                <th className="text-right px-3 py-2 font-medium">Llamadas</th>
+                <th className="text-right px-3 py-2 font-medium">Costo real</th>
+                <th className="text-right px-3 py-2 font-medium">Sin caching</th>
+                <th className="text-right px-3 py-2 font-medium text-emerald-600">Ahorro $</th>
+                <th className="text-right px-3 py-2 font-medium text-emerald-600">Ahorro %</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {rows.map(r => {
+                const without = costWithoutCache(r);
+                const saved   = without - Number(r.total_cost);
+                const savedPct = without > 0 ? (saved / without) * 100 : 0;
+                return (
+                  <tr key={r.user_id} className="hover:bg-muted/30">
+                    <td className="px-3 py-2 font-medium">{r.business_name ?? <span className="text-muted-foreground italic">Sin nombre</span>}</td>
+                    <td className="px-3 py-2 text-muted-foreground text-xs">{r.contact_email ?? "—"}</td>
+                    <td className="px-3 py-2 text-right">{Number(r.total_calls).toLocaleString("es-MX")}</td>
+                    <td className="px-3 py-2 text-right font-medium">{fmtUsd(Number(r.total_cost))}</td>
+                    <td className="px-3 py-2 text-right text-muted-foreground">{fmtUsd(without)}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-emerald-600">{saved > 0 ? fmtUsd(saved) : "—"}</td>
+                    <td className="px-3 py-2 text-right">
+                      {savedPct > 0
+                        ? <span className="inline-block bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-1.5 py-0.5 rounded-full">{fmtPct(savedPct)}</span>
+                        : <span className="text-muted-foreground">—</span>
+                      }
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+            <tfoot className="bg-muted/50 font-semibold border-t-2">
+              <tr>
+                <td className="px-3 py-2" colSpan={2}>Total</td>
+                <td className="px-3 py-2 text-right">{totals.calls.toLocaleString("es-MX")}</td>
+                <td className="px-3 py-2 text-right">{fmtUsd(totals.costReal)}</td>
+                <td className="px-3 py-2 text-right text-muted-foreground">{fmtUsd(totals.costWithout)}</td>
+                <td className="px-3 py-2 text-right text-emerald-600">{fmtUsd(totalSaved)}</td>
+                <td className="px-3 py-2 text-right">
+                  <span className="inline-block bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-1.5 py-0.5 rounded-full">{fmtPct(totalSavedPct)}</span>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        "Sin caching" = costo hipotético si todos los tokens se cobraran al precio normal ($0.25/M entrada). El ahorro refleja el beneficio real del prompt caching.
+      </p>
+    </div>
+  );
+};
+
+type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte" | "perfil" | "vendor_links" | "vendedores" | "ia_costos";
 
 const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; adminOnly?: boolean; vendorOnly?: boolean }[] = [
   { id: "general",      label: "General",          Component: GeneralTab,           adminOnly: true  },
@@ -1500,6 +1645,7 @@ const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; admi
   { id: "vendor_links", label: "Links Vendedores", Component: VendorLinksAdminTab,  adminOnly: true  },
   { id: "soporte",      label: "Soporte",          Component: SupportTab,           adminOnly: true  },
   { id: "logs",         label: "Logs",             Component: LogsTab,              adminOnly: true  },
+  { id: "ia_costos",    label: "Costos IA",        Component: IACostosTab,          adminOnly: true  },
   { id: "reminders",    label: "Recordatorios",    Component: RemindersTab                          },
   { id: "perfil",       label: "Mi Perfil",        Component: VendorProfileTab,     vendorOnly: true },
 ];

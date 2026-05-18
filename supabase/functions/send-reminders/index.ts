@@ -174,57 +174,139 @@ Deno.serve(async (req) => {
       const resolvedMessage = resolveVariables(reminder.message ?? "", vars);
       const resolvedSubject = reminder.subject
         ? resolveVariables(reminder.subject, vars)
-        : "Recordatorio de tu cita";
+        : "Tienes una notificación";
 
-      if (reminder.type === "email") {
-        if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY not configured");
-        if (!reminder.recipient_email) throw new Error("No recipient email on reminder");
+      // Determinar canales activos (soporta campo channels nuevo + type legacy)
+      const channels = reminder.channels as { email?: boolean; whatsapp?: boolean } | null;
+      const sendEmail     = channels ? !!channels.email     : reminder.type === "email";
+      const sendWhatsapp  = channels ? !!channels.whatsapp  : reminder.type === "whatsapp";
 
-        const emailHtml = buildEmailHtml(resolvedMessage);
+      const errors: string[] = [];
 
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            "Authorization": `Bearer ${RESEND_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from:    RESEND_FROM,
-            to:      [reminder.recipient_email],
-            subject: resolvedSubject,
-            html:    emailHtml,
-          }),
-        });
-
-        if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`Resend error ${res.status}: ${errText}`);
+      // ── Canal: Email ────────────────────────────────────────────────────────
+      if (sendEmail) {
+        if (!RESEND_API_KEY) {
+          errors.push("RESEND_API_KEY not configured");
+        } else if (!reminder.recipient_email) {
+          errors.push("No recipient email on reminder");
+        } else {
+          const emailHtml = buildEmailHtml(resolvedMessage);
+          const res = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${RESEND_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              from:    RESEND_FROM,
+              to:      [reminder.recipient_email],
+              subject: resolvedSubject,
+              html:    emailHtml,
+            }),
+          });
+          if (!res.ok) {
+            const errText = await res.text();
+            errors.push(`Email error ${res.status}: ${errText}`);
+          }
         }
+      }
 
-      } else if (reminder.type === "whatsapp") {
-        const BAILEYS_SERVICE_URL = Deno.env.get("BAILEYS_SERVICE_URL");
-        const BAILEYS_API_KEY     = Deno.env.get("BAILEYS_API_KEY");
-        if (!BAILEYS_SERVICE_URL || !BAILEYS_API_KEY) throw new Error("Baileys service not configured");
-        if (!reminder.recipient_phone) throw new Error("No recipient phone on reminder");
+      // ── Canal: WhatsApp (Meta Cloud API) ────────────────────────────────────
+      if (sendWhatsapp) {
+        if (!reminder.recipient_phone) {
+          errors.push("No recipient phone on reminder");
+        } else {
+          // Cargar credenciales del agente del tenant
+          const { data: agentCfg } = await supabase
+            .from("crm_ai_agent_config")
+            .select("phone_number_id, access_token")
+            .eq("user_id", reminder.user_id)
+            .maybeSingle();
 
-        const waRes = await fetch(`${BAILEYS_SERVICE_URL.replace(/\/$/, "")}/message/send`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": BAILEYS_API_KEY,
-          },
-          body: JSON.stringify({
-            userId: reminder.user_id,
-            phone:  reminder.recipient_phone,
-            text:   resolvedMessage,
-          }),
-        });
-        if (!waRes.ok) {
-          const errText = await waRes.text();
-          throw new Error(`Baileys service error ${waRes.status}: ${errText}`);
+          if (!agentCfg?.phone_number_id || !agentCfg?.access_token) {
+            errors.push("WhatsApp agent not configured for this tenant");
+          } else {
+            const phone = reminder.recipient_phone.replace(/\D/g, "");
+            const waRes = await fetch(
+              `https://graph.facebook.com/v21.0/${agentCfg.phone_number_id}/messages`,
+              {
+                method: "POST",
+                headers: {
+                  Authorization: `Bearer ${agentCfg.access_token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                  messaging_product: "whatsapp",
+                  recipient_type: "individual",
+                  to: phone,
+                  type: "text",
+                  text: { preview_url: false, body: resolvedMessage },
+                }),
+              }
+            );
+
+            let sendError: string | null = null;
+            if (!waRes.ok) {
+              const errText = await waRes.text().catch(() => "");
+              const is24h = errText.includes("131047");
+              sendError = is24h ? "whatsapp_window_expired" : "send_failed";
+              errors.push(sendError);
+            }
+
+            // Registrar en conversaciones del Agente IA (tanto éxito como error)
+            try {
+              const { data: conv } = await supabase
+                .from("crm_wa_conversations")
+                .select("id")
+                .eq("user_id", reminder.user_id)
+                .eq("phone", phone)
+                .maybeSingle();
+
+              let convId: string | null = conv?.id ?? null;
+
+              if (!convId) {
+                const { data: newConv } = await supabase
+                  .from("crm_wa_conversations")
+                  .insert({
+                    user_id: reminder.user_id,
+                    phone,
+                    contact_name: vars.contact_name ?? null,
+                    mode: "AI",
+                    last_message_at: now.toISOString(),
+                  })
+                  .select("id")
+                  .single();
+                convId = newConv?.id ?? null;
+              } else {
+                await supabase
+                  .from("crm_wa_conversations")
+                  .update({ last_message_at: now.toISOString() })
+                  .eq("id", convId);
+              }
+
+              if (convId) {
+                await supabase.from("crm_wa_messages").insert({
+                  conversation_id: convId,
+                  role: "assistant",
+                  content: `[notif]${resolvedMessage}`,
+                  wa_message_id: null,
+                  send_error: sendError,
+                });
+              }
+            } catch (e) {
+              console.error("wa conversation record (non-fatal):", e);
+            }
+          }
         }
-      } else {
-        throw new Error(`Unknown channel type: ${reminder.type}`);
+      }
+
+      if (!sendEmail && !sendWhatsapp) {
+        throw new Error(`No active channels in reminder ${reminder.id}`);
+      }
+
+      if (errors.length > 0 && errors.length === (sendEmail ? 1 : 0) + (sendWhatsapp ? 1 : 0)) {
+        // Todos los canales fallaron
+        throw new Error(errors.join(" | "));
       }
 
       // ── Success ─────────────────────────────────────────────────────────────

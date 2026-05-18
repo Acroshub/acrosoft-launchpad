@@ -19,11 +19,47 @@ interface AgentConfig {
   timezone: string;
   off_hours_message: string | null;
   schedule: Record<string, { open: boolean; slots: { from: string; to: string }[] }> | null;
+  can_transfer_human: boolean;
+  can_answer_services: boolean;
+  can_create_contacts: boolean;
+  notify_on_transfer: boolean;
+  notify_email: string | null;
+  products_mode: "all" | "selected";
+  selected_product_ids: string[];
+  services_mode: "all" | "selected";
+  selected_service_ids: string[];
+  auto_detect_payments: boolean;
+  payment_notify_email: string | null;
+  // Configuración estratégica B15-1
+  agent_objectives: string[] | null;
+  agent_personality: string | null;
+  agent_proactivity: string | null;
+  agent_data_collect: string[] | null;
+  response_length: string | null;
+  emoji_level: string | null;
+  do_upsell: boolean;
+  confirm_summary: boolean;
+  agent_faq: Array<{ q: string; a: string }> | null;
+  agent_extra_prompt: string | null;
 }
 
 interface WaMessage {
   role: "user" | "assistant" | "human";
   content: string;
+}
+
+interface WaLabel {
+  id: string;
+  name: string;
+  hint: string | null;
+}
+
+interface PaymentMethodRow {
+  id: string;
+  type: string;
+  label: string | null;
+  content: string;
+  sort_order: number;
 }
 
 // ─── Verificación de horario con schedule JSONB ───────────────────────────────
@@ -41,7 +77,7 @@ function parseTime12(t: string): number {
 }
 
 function isWithinSchedule(schedule: AgentConfig["schedule"], timezone: string): boolean {
-  if (!schedule) return true; // Sin schedule configurado = siempre activo
+  if (!schedule) return true;
 
   const now = new Date();
   const localStr = now.toLocaleString("en-US", { timeZone: timezone });
@@ -62,29 +98,460 @@ function isWithinSchedule(schedule: AgentConfig["schedule"], timezone: string): 
   return false;
 }
 
-// ─── Compilar system prompt con variables dinámicas ───────────────────────────
-async function buildSystemPrompt(config: AgentConfig, phone: string): Promise<string> {
-  const base = config.system_prompt?.trim() ||
-    `Eres ${config.agent_name}, un asistente virtual amable. Responde en español neutro, en mensajes breves de 2 a 4 líneas.`;
+// Convierte formato Markdown a WhatsApp (garantizado en backend, no dependemos de Claude)
+function toWhatsAppFormat(text: string): string {
+  return text
+    .replace(/\*\*([^*\n]+)\*\*/g, "*$1*")  // **bold** → *bold*
+    .replace(/__([^_\n]+)__/g, "_$1_");       // __italic__ → _italic_
+}
 
-  const { data: business } = await supabase
-    .from("crm_business_profile")
-    .select("name, description")
-    .eq("user_id", config.user_id)
-    .maybeSingle();
+// Extrae el marcador [NO_PAYMENT] del texto (puede ir en cualquier posición)
+function parseAndStripNoPayment(text: string): { text: string; hasNoPayment: boolean } {
+  const hasNoPayment = /\[NO_PAYMENT\]/i.test(text);
+  return { text: text.replace(/\[NO_PAYMENT\]/gi, "").trim(), hasNoPayment };
+}
 
-  const { data: services } = await supabase
-    .from("crm_services")
-    .select("name, price, currency, description")
+// ─── Parsear y quitar la marca |LABELS| de la respuesta de Claude ─────────────
+function parseAndStripLabels(reply: string): { text: string; labelNames: string[] } {
+  const markerIndex = reply.lastIndexOf("|LABELS|");
+  if (markerIndex === -1) return { text: reply, labelNames: [] };
+
+  const text = reply.slice(0, markerIndex).trimEnd();
+  const labelPart = reply.slice(markerIndex + 8).trim();
+  const labelNames = labelPart.split(",").map(n => n.trim()).filter(Boolean);
+  return { text, labelNames };
+}
+
+// ─── Aplicar etiquetas automáticas a la conversación ─────────────────────────
+async function applyAutoLabels(userId: string, conversationId: string, labelNames: string[]): Promise<void> {
+  if (!labelNames.length) return;
+
+  const { data: allLabels } = await supabase
+    .from("crm_wa_labels")
+    .select("id, name")
+    .eq("user_id", userId);
+
+  if (!allLabels?.length) return;
+
+  const labelMap = new Map<string, string>();
+  for (const l of allLabels) labelMap.set(l.name.toLowerCase(), l.id);
+
+  const rows = labelNames
+    .map(name => labelMap.get(name.toLowerCase()))
+    .filter((id): id is string => !!id)
+    .map(labelId => ({ conversation_id: conversationId, label_id: labelId }));
+
+  if (!rows.length) return;
+
+  await supabase
+    .from("crm_wa_conversation_labels")
+    .upsert(rows, { onConflict: "conversation_id,label_id" });
+
+  console.log(`[ai-agent] auto-labels aplicadas: ${labelNames.join(", ")}`);
+}
+
+// ─── Parsear marcador [CONTACT_DATA|campo:valor|campo:valor] ─────────────────
+function parseAndStripContactData(text: string): { text: string; contactData: Record<string, string> | null } {
+  const match = text.match(/\[CONTACT_DATA\|([^\]]+)\]/i);
+  if (!match) return { text, contactData: null };
+  const data: Record<string, string> = {};
+  for (const pair of match[1].split("|")) {
+    const colonIdx = pair.indexOf(":");
+    if (colonIdx === -1) continue;
+    const key = pair.slice(0, colonIdx).trim();
+    const value = pair.slice(colonIdx + 1).trim();
+    if (key && value) data[key] = value;
+  }
+  return {
+    text: text.replace(match[0], "").trim(),
+    contactData: Object.keys(data).length > 0 ? data : null,
+  };
+}
+
+// ─── Parsear marcador [PAYMENT_DETECTED|...] ─────────────────────────────────
+function parseAndStripPayment(text: string): {
+  text: string;
+  payment: { product_id: string; variant_id: string | null; amount: number; method_type: string } | null;
+} {
+  const match = text.match(/\[PAYMENT_DETECTED\|product_id:([^|\]]+)\|variant_id:([^|\]]+)\|amount:([^|\]]+)\|method_type:([^\]]+)\]/i);
+  if (!match) return { text, payment: null };
+  return {
+    text: text.replace(match[0], "").trim(),
+    payment: {
+      product_id: match[1].trim(),
+      variant_id: match[2].trim().toLowerCase() === "none" ? null : match[2].trim(),
+      amount: parseFloat(match[3]),
+      method_type: match[4].trim(),
+    },
+  };
+}
+
+// ─── Formatear precio según moneda con símbolo correcto ─────────────────────
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  USD: "$", EUR: "€", GBP: "£",
+  BOB: "Bs.", PEN: "S/", COP: "COP$",
+  MXN: "MX$", ARS: "ARS$", CLP: "CLP$",
+  BRL: "R$", UYU: "$U", PYG: "Gs.",
+  GTQ: "Q", HNL: "L", NIO: "C$",
+  CRC: "₡", DOP: "RD$", PAB: "B/.",
+};
+
+function formatPrice(amount: number | string, currency: string | null): string {
+  const cur = (currency ?? "USD").toUpperCase();
+  const symbol = CURRENCY_SYMBOLS[cur];
+  if (symbol) return `${symbol}${amount}`;
+  return `${cur} ${amount}`;
+}
+
+// ─── Formatear un método de pago para el prompt ───────────────────────────────
+function formatPaymentMethod(pm: PaymentMethodRow): string {
+  const prefix = pm.label ? `${pm.label}: ` : "";
+  if (pm.type === "qr_code") {
+    // El backend detecta [SEND_QR:id] y envía la imagen real por WhatsApp
+    return `${prefix}[SEND_QR:${pm.id}]`;
+  }
+  return `${prefix}${pm.content}`;
+}
+
+// Extrae marcadores [SEND_QR:id] de la respuesta de Claude
+function parseAndStripQrMarkers(text: string): { text: string; qrIds: string[] } {
+  const qrIds: string[] = [];
+  const cleaned = text.replace(/\[SEND_QR:([^\]]+)\]/gi, (_, id) => { qrIds.push(id.trim()); return ""; }).trim();
+  return { text: cleaned, qrIds };
+}
+
+// Enviar imagen por WhatsApp Graph API
+async function sendWhatsAppImage(phone: string, imageUrl: string, caption: string | null, config: AgentConfig): Promise<void> {
+  const payload: Record<string, unknown> = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: phone,
+    type: "image",
+    image: { link: imageUrl, ...(caption ? { caption } : {}) },
+  };
+  const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phone_number_id}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    console.error(`[ai-agent] error enviando QR image: ${err}`);
+  }
+}
+
+// ─── Cargar catálogo de productos con variantes y métodos de pago ─────────────
+async function buildProductsCatalog(config: AgentConfig): Promise<string> {
+  if (config.products_mode === "none") return "";
+
+  let productsQuery = supabase
+    .from("crm_products")
+    .select("id, name, price, discount_pct, currency, description, has_variants, deliverable_type")
     .eq("user_id", config.user_id)
+    .eq("is_active", true)
     .order("name");
 
-  const { data: conv } = await supabase
-    .from("crm_wa_conversations")
-    .select("contact_name")
+  if (config.products_mode === "selected" && config.selected_product_ids?.length) {
+    productsQuery = productsQuery.in("id", config.selected_product_ids);
+  }
+
+  const { data: products } = await productsQuery;
+  if (!products?.length) return "";
+
+  const productIds = products.map(p => p.id);
+
+  // Cargar variantes y métodos de pago en paralelo
+  const [variantsRes, paymentMethodsRes] = await Promise.all([
+    supabase
+      .from("crm_product_variants")
+      .select("id, product_id, name, price_override, discount_pct, sort_order")
+      .in("product_id", productIds)
+      .order("sort_order"),
+    supabase
+      .from("crm_payment_methods")
+      .select("id, entity_id, entity_type, type, label, content, sort_order")
+      .in("entity_id", productIds)
+      .eq("entity_type", "product")
+      .order("sort_order"),
+  ]);
+
+  const variants = variantsRes.data ?? [];
+  const paymentMethods = paymentMethodsRes.data ?? [];
+
+  // Agrupar por product_id
+  const variantsByProduct = new Map<string, typeof variants>();
+  for (const v of variants) {
+    if (!variantsByProduct.has(v.product_id)) variantsByProduct.set(v.product_id, []);
+    variantsByProduct.get(v.product_id)!.push(v);
+  }
+
+  const pmByProduct = new Map<string, PaymentMethodRow[]>();
+  for (const pm of paymentMethods) {
+    if (!pmByProduct.has(pm.entity_id)) pmByProduct.set(pm.entity_id, []);
+    pmByProduct.get(pm.entity_id)!.push(pm as PaymentMethodRow);
+  }
+
+  const lines: string[] = ["CATÁLOGO DE PRODUCTOS:"];
+
+  for (const p of products) {
+    const disc = p.discount_pct ?? 0;
+    const finalPrice = disc > 0 ? p.price * (1 - disc / 100) : p.price;
+    const price = disc > 0
+      ? `${formatPrice(finalPrice, p.currency)} (antes ${formatPrice(p.price, p.currency)}, ${disc}% de descuento)`
+      : formatPrice(p.price, p.currency);
+    lines.push(`- ${p.name}: ${price} [product_id:${p.id}]`);
+
+    if (p.description) {
+      lines.push(`  Descripción: ${p.description}`);
+    }
+
+    // Variantes
+    const productVariants = variantsByProduct.get(p.id) ?? [];
+    if (p.has_variants && productVariants.length > 0) {
+      const variantList = productVariants.map(v => {
+        // Misma lógica que calcProductPrice en el frontend:
+        // Si tiene price_override → usa ese como base; si no → usa precio del producto
+        const base = v.price_override != null ? v.price_override : p.price;
+        // Descuento: usa el de la variante si existe; si no y no tiene price_override → hereda del producto
+        const disc = (v.discount_pct ?? 0) > 0
+          ? (v.discount_pct ?? 0)
+          : (v.price_override == null ? (p.discount_pct ?? 0) : 0);
+        const finalVPrice = disc > 0 ? +(base * (1 - disc / 100)).toFixed(2) : base;
+        const priceLabel = disc > 0
+          ? `${formatPrice(finalVPrice, p.currency)} (antes ${formatPrice(base, p.currency)}, ${disc}% de descuento)`
+          : (v.price_override != null ? formatPrice(finalVPrice, p.currency) : `igual al base ${formatPrice(p.discount_pct && p.discount_pct > 0 ? +(p.price * (1 - p.discount_pct / 100)).toFixed(2) : p.price, p.currency)}`);
+        return `${v.name} (${priceLabel}) [variant_id:${v.id}]`;
+      }).join(", ");
+      lines.push(`  Variantes: ${variantList}`);
+    }
+
+    // Entregable digital
+    if (p.deliverable_type) {
+      lines.push(`  Entrega: automática por WhatsApp al confirmar el pago`);
+    }
+
+    // Métodos de pago
+    const pms = pmByProduct.get(p.id) ?? [];
+    if (pms.length > 0) {
+      lines.push(`  Métodos de pago:`);
+      for (const pm of pms) {
+        lines.push(`    · ${formatPaymentMethod(pm)}`);
+      }
+    } else {
+      lines.push(`  ⚠️ Sin métodos de pago`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+// ─── Formatear precio de servicio con descuentos ─────────────────────────────
+function formatServicePriceLines(s: {
+  price: number; currency: string | null;
+  discount_pct: number | null;
+  is_recurring: boolean | null;
+  recurring_price: number | null;
+  recurring_interval: string | null;
+  recurring_label: string | null;
+  recurring_discount_pct: number | null;
+}): string[] {
+  const lines: string[] = [];
+
+  const disc = s.discount_pct ?? 0;
+  if (disc > 0) {
+    const final = (s.price * (1 - disc / 100)).toFixed(2);
+    lines.push(`  Precio: ${formatPrice(final, s.currency)} (antes ${formatPrice(s.price, s.currency)}, ${disc}% de descuento)`);
+  } else {
+    lines.push(`  Precio: ${formatPrice(s.price, s.currency)}`);
+  }
+
+  if (s.is_recurring && s.recurring_price != null && s.recurring_price > 0) {
+    const interval = s.recurring_label ?? s.recurring_interval ?? "mes";
+    const recDisc = s.recurring_discount_pct ?? 0;
+    if (recDisc > 0) {
+      const finalRec = (s.recurring_price * (1 - recDisc / 100)).toFixed(2);
+      lines.push(`  Plan recurrente: ${formatPrice(finalRec, s.currency)}/${interval} (antes ${formatPrice(s.recurring_price, s.currency)}, ${recDisc}% de descuento)`);
+    } else {
+      lines.push(`  Plan recurrente: ${formatPrice(s.recurring_price, s.currency)}/${interval}`);
+    }
+  }
+
+  return lines;
+}
+
+// ─── Cargar catálogo de servicios con métodos de pago ─────────────────────────
+async function buildServicesCatalog(config: AgentConfig): Promise<string> {
+  if (config.services_mode === "none") return "";
+
+  let servicesQuery = supabase
+    .from("crm_services")
+    .select("id, name, price, currency, description, discount_pct, is_recurring, recurring_price, recurring_interval, recurring_label, recurring_discount_pct")
     .eq("user_id", config.user_id)
-    .eq("phone", phone)
-    .maybeSingle();
+    .eq("active", true)
+    .order("sort_order", { ascending: true });
+
+  if (config.services_mode === "selected" && config.selected_service_ids?.length) {
+    servicesQuery = servicesQuery.in("id", config.selected_service_ids);
+  }
+
+  const { data: services } = await servicesQuery;
+  if (!services?.length) return "";
+
+  const serviceIds = services.map(s => s.id);
+
+  const { data: paymentMethods } = await supabase
+    .from("crm_payment_methods")
+    .select("id, entity_id, type, label, content, sort_order")
+    .in("entity_id", serviceIds)
+    .eq("entity_type", "service")
+    .order("sort_order");
+
+  const pmByService = new Map<string, PaymentMethodRow[]>();
+  for (const pm of paymentMethods ?? []) {
+    if (!pmByService.has(pm.entity_id)) pmByService.set(pm.entity_id, []);
+    pmByService.get(pm.entity_id)!.push(pm as PaymentMethodRow);
+  }
+
+  const lines: string[] = ["CATÁLOGO DE SERVICIOS:"];
+
+  for (const s of services) {
+    lines.push(`- ${s.name} [service_id:${s.id}]`);
+
+    if (s.description) lines.push(`  Descripción: ${s.description}`);
+
+    for (const priceLine of formatServicePriceLines(s)) lines.push(priceLine);
+
+    const pms = pmByService.get(s.id) ?? [];
+    if (pms.length > 0) {
+      lines.push(`  Métodos de pago:`);
+      for (const pm of pms) lines.push(`    · ${formatPaymentMethod(pm)}`);
+    } else {
+      lines.push(`  ⚠️ Sin métodos de pago`);
+    }
+  }
+
+  return lines.join("\n");
+}
+
+// ─── Construir instrucciones estratégicas desde config B15-1 ─────────────────
+function buildStrategicInstructions(config: AgentConfig): string {
+  const parts: string[] = [];
+
+  // Objectives — primero = CTA implícito
+  if (config.agent_objectives?.length) {
+    const primary = config.agent_objectives[0];
+    const secondary = config.agent_objectives.slice(1);
+    parts.push(
+      `Tu objetivo principal es: ${primary}.` +
+      (secondary.length ? ` También puedes: ${secondary.join(", ")}.` : "")
+    );
+    const ctaMap: Record<string, string> = {
+      "Agendar citas": "Siempre que sea pertinente, invita al cliente a agendar una cita.",
+      "Vender productos": "Siempre que sea pertinente, orienta al cliente hacia la compra.",
+      "Capturar leads": "Procura obtener los datos de contacto del cliente para hacer seguimiento.",
+      "Calificar prospectos": "Haz las preguntas necesarias para calificar si el cliente es un prospecto válido.",
+      "Dar soporte postventa": "Enfócate en resolver el problema del cliente de forma eficiente.",
+      "Responder dudas": "Responde con claridad y precisión las preguntas del cliente.",
+    };
+    if (ctaMap[primary]) parts.push(ctaMap[primary]);
+  }
+
+  // Personality
+  const personalityMap: Record<string, string> = {
+    "Profesional y formal": "Tu tono es profesional y formal. Usa un lenguaje respetuoso y estructurado.",
+    "Amigable y cercano": "Tu tono es amigable y cercano. Usa un lenguaje casual pero respetuoso.",
+    "Entusiasta y dinámico": "Tu tono es entusiasta y dinámico. Muestra energía y positivismo en cada mensaje.",
+    "Empático y tranquilizador": "Tu tono es empático y tranquilizador. Valida las emociones del cliente y responde con calma.",
+    "Directo y conciso": "Tu tono es directo y conciso. Ve al punto sin rodeos, respeta el tiempo del cliente.",
+  };
+  if (config.agent_personality && personalityMap[config.agent_personality]) {
+    parts.push(personalityMap[config.agent_personality]);
+  }
+
+  // Proactivity
+  const proactivityMap: Record<string, string> = {
+    "reactivo": "Responde únicamente lo que el cliente pregunta. No hagas sugerencias a menos que te las pidan.",
+    "moderado": "Responde lo que el cliente pregunta y, cuando notes una oportunidad natural, haz una sugerencia breve.",
+    "proactivo": "Orienta activamente cada conversación hacia el objetivo principal. Si hay oportunidad, toma la iniciativa.",
+  };
+  if (config.agent_proactivity && proactivityMap[config.agent_proactivity]) {
+    parts.push(proactivityMap[config.agent_proactivity]);
+  }
+
+  // Response length
+  const lengthMap: Record<string, string> = {
+    "short": "Escribe respuestas muy cortas: máximo 2-3 líneas por mensaje.",
+    "normal": "Escribe respuestas de longitud normal: 3-4 líneas, sin ser demasiado extenso.",
+    "detailed": "Puedes escribir respuestas detalladas cuando el tema lo requiera, explicando con profundidad.",
+  };
+  if (config.response_length && lengthMap[config.response_length]) {
+    parts.push(lengthMap[config.response_length]);
+  }
+
+  // Emoji level
+  const emojiMap: Record<string, string> = {
+    "none": "No uses emojis en ningún mensaje.",
+    "poco": "Usa emojis de forma muy esporádica, solo cuando sea muy natural.",
+    "medio": "Usa emojis con moderación, 1-2 por mensaje cuando sea apropiado.",
+    "mucho": "Usa emojis con frecuencia para dar energía y calidez a los mensajes.",
+  };
+  if (config.emoji_level && emojiMap[config.emoji_level]) {
+    parts.push(emojiMap[config.emoji_level]);
+  }
+
+  // Data collection (solo si también puede crear contactos)
+  if (config.agent_data_collect?.length && config.can_create_contacts) {
+    const fields = config.agent_data_collect.join(", ");
+    parts.push(
+      `Durante la conversación, intenta obtener de forma natural los siguientes datos del cliente: ${fields}.\n` +
+      `Cuando el cliente proporcione alguno de esos datos, añade al FINAL de tu respuesta (invisible para el cliente) el marcador:\n` +
+      `[CONTACT_DATA|campo1:valor1|campo2:valor2]\n` +
+      `Usa el nombre exacto del campo en español, en minúsculas sin espacios (ej: nombre, presupuesto, email). ` +
+      `Solo incluye los datos obtenidos en ESTE mensaje. No repitas datos ya mencionados antes.`
+    );
+  }
+
+  // Upsell
+  if (config.do_upsell) {
+    parts.push("Cuando sea relevante y natural, sugiere productos o servicios complementarios que podrían interesarle al cliente.");
+  }
+
+  // Confirmation summary
+  if (config.confirm_summary) {
+    parts.push("Antes de cerrar una venta o agendar una cita, resume brevemente lo acordado para que el cliente confirme.");
+  }
+
+  // FAQ
+  if (config.agent_faq?.length) {
+    const faqBlock = config.agent_faq
+      .map(pair => `P: ${pair.q}\nR: ${pair.a}`)
+      .join("\n\n");
+    parts.push(
+      `PREGUNTAS FRECUENTES (responde estas preguntas exactas con las respuestas definidas, sin modificarlas):\n${faqBlock}`
+    );
+  }
+
+  return parts.join("\n\n");
+}
+
+// ─── Compilar system prompt con variables dinámicas ───────────────────────────
+async function buildSystemPrompt(config: AgentConfig, phone: string, canTransfer = false): Promise<string> {
+  const strategicInstructions = buildStrategicInstructions(config);
+  const hasStrategicConfig = strategicInstructions.length > 0;
+
+  const [businessRes, servicesRes, convRes, labelsRes, productsCatalog, servicesCatalog] = await Promise.all([
+    supabase.from("crm_business_profile").select("business_name, description").eq("user_id", config.user_id).maybeSingle(),
+    supabase.from("crm_services").select("name, price, currency, description, discount_pct, is_recurring, recurring_price, recurring_interval, recurring_label, recurring_discount_pct").eq("user_id", config.user_id).eq("active", true).order("sort_order", { ascending: true }),
+    supabase.from("crm_wa_conversations").select("contact_name").eq("user_id", config.user_id).eq("phone", phone).maybeSingle(),
+    supabase.from("crm_wa_labels").select("id, name, hint").eq("user_id", config.user_id).not("hint", "is", null),
+    buildProductsCatalog(config),
+    buildServicesCatalog(config),
+  ]);
+
+  const business = businessRes.data;
+  const services = servicesRes.data;
+  const conv = convRes.data;
+  const labelsWithHints = (labelsRes.data ?? []) as WaLabel[];
 
   const now = new Date().toLocaleDateString("es-ES", {
     timeZone: config.timezone,
@@ -92,16 +559,99 @@ async function buildSystemPrompt(config: AgentConfig, phone: string): Promise<st
   });
 
   const servicesList = services?.length
-    ? services.map(s => `- ${s.name}: ${s.currency ?? "USD"} $${s.price}`).join("\n")
+    ? services.map(s => {
+        const disc = s.discount_pct ?? 0;
+        const priceStr = disc > 0
+          ? `${formatPrice((s.price * (1 - disc / 100)).toFixed(2), s.currency)} (antes ${formatPrice(s.price, s.currency)}, ${disc}% off)`
+          : formatPrice(s.price, s.currency);
+        return `- ${s.name}: ${priceStr}`;
+      }).join("\n")
     : "No hay servicios configurados.";
 
+  const transferInstruction = canTransfer
+    ? "\n\nSi el usuario pide explícitamente hablar con una persona, un humano o un agente, responde ÚNICAMENTE con el texto: [TRANSFER]. No agregues nada más."
+    : "";
+
+  // Catálogo de productos y servicios con métodos de pago
+  const catalogSections: string[] = [];
+  if (productsCatalog) catalogSections.push(productsCatalog);
+  if (servicesCatalog) catalogSections.push(servicesCatalog);
+
+  let catalogInstruction = "";
+  if (catalogSections.length > 0) {
+    catalogInstruction = "\n\n" + catalogSections.join("\n\n");
+    catalogInstruction += "\n\nREGLA DE PAGO:\n- Si el producto/servicio SÍ tiene métodos de pago: compártelos directamente. Si hay [SEND_QR:xxx], inclúyelo tal cual en tu respuesta — el sistema enviará la imagen automáticamente.\n- Si tiene ⚠️ Sin métodos de pago: escribe SOLO algo como «Perfecto, en breve te pasamos los datos para el pago 😊» (máx 1 línea, sin explicar nada más) y añade [NO_PAYMENT] al final. NUNCA uses palabras como 'asesor', 'representante', 'comunicará', 'configurado', 'sistema'.";
+  }
+
+  // Instrucción de etiquetas automáticas
+  let labelInstruction = "";
+  const activeLabels = labelsWithHints.filter(l => l.hint?.trim());
+  if (activeLabels.length > 0) {
+    const labelList = activeLabels.map(l => `- ${l.name}: ${l.hint}`).join("\n");
+    labelInstruction = `\n\nETIQUETADO AUTOMÁTICO: Si la conversación actual encaja claramente en alguna de las siguientes categorías, añade al FINAL de tu respuesta (después del mensaje al usuario) la marca: |LABELS|NombreEtiqueta\nSi aplica más de una, sepáralas con coma: |LABELS|Etiqueta1,Etiqueta2\nSolo añade la marca si hay una coincidencia clara. Si no aplica ninguna, no añadas nada.\n\nCategorías disponibles:\n${labelList}`;
+  }
+
+  // Instrucciones globales fijas — aplican a TODOS los tenants, sin excepción
+  const globalRules = `\n\nREGLAS GLOBALES (obligatorias siempre):
+1. IDENTIDAD: Eres una persona del equipo de atención, no una IA ni un bot. NUNCA menciones que eres inteligencia artificial, asistente virtual, sistema automático ni nada similar. Habla siempre como una persona real.
+2. LENGUAJE: Usa lenguaje natural y humano. NUNCA uses términos técnicos o de sistema como "configurado", "módulo", "plataforma", "base de datos", "sistema" al hablar con clientes.
+3. FORMATO WHATSAPP: Para negrilla usa *un solo asterisco* por lado — NUNCA doble asterisco **. Para cursiva _guion bajo_. Para tachado ~virgulilla~.`;
+
+  // Instrucción de detección de pagos
+  let paymentInstruction = "";
+  if (config.auto_detect_payments && catalogSections.length > 0) {
+    paymentInstruction = `\n\nDETECCIÓN DE PAGOS — analiza visualmente la imagen recibida:
+Cuando el cliente envíe una imagen, inspecciona su contenido visual para determinar si es un comprobante de pago.
+
+Para registrar el pago deben cumplirse OBLIGATORIAMENTE estos 2 requisitos:
+1. COMPROBANTE: La imagen muestra claramente un comprobante de pago completado (recibo de transferencia, voucher bancario, QR con monto confirmado, captura de pago exitoso, etc.). NO aplica si es una foto de producto, captura de app sin transacción completada, o imagen genérica.
+2. MONTO CORRECTO: El monto numérico visible en el comprobante coincide con el precio FINAL del producto o servicio discutido en esta conversación. Si el producto tiene descuento, el monto válido es el precio CON descuento aplicado (el precio final que aparece en el catálogo, no el precio original tachado). Compara el número exacto contra el precio final — si no coincide, no registres el pago.
+
+IMPORTANTE — lo que NO debes revisar:
+- NO verifiques el nombre del destinatario ni de quién está a nombre el QR o cuenta. Los pagos pueden ir a nombres personales, apodos, o nombres distintos al negocio — eso es completamente normal y válido.
+- NO rechaces un comprobante por el banco, app de pago o método usado.
+- Solo importa: ¿es un comprobante real? ¿el monto es correcto?
+
+Si ambos requisitos se cumplen:
+- Identifica el producto o servicio del catálogo al que corresponde (elige el más probable según la conversación).
+- Responde brevemente (1-2 líneas): «¡Gracias! Comprobante recibido y verificado. Tu compra de [nombre_producto] está confirmada 🎉»
+- Al FINAL añade EXACTAMENTE (sin espacios extra): [PAYMENT_DETECTED|product_id:{id}|variant_id:{variant_id_o_none}|amount:{monto_numerico}|method_type:{tipo}]
+  · product_id: copia el valor exacto de [product_id:...] o [service_id:...] que aparece en el catálogo junto al producto/servicio identificado
+  · variant_id: copia el valor exacto de [variant_id:...] si aplica una variante, o escribe "none"
+  · amount: el número exacto visible en el comprobante, sin símbolo de moneda (ej: 25.00)
+  · method_type: "transfer" | "qr" | "cash" | "card" | "other"
+
+Si algún requisito NO se cumple:
+- NO añadas el marcador [PAYMENT_DETECTED]
+- Responde: «Gracias por enviarlo, pero el comprobante no coincide con el pago esperado. Por favor envía el comprobante correcto del pago de [producto] por [monto].»`;
+  }
+
+  // Construir el base según si hay config estratégica o config libre legacy
+  let base: string;
+  if (hasStrategicConfig) {
+    const identidad = `Eres ${config.agent_name}${business?.business_name ? `, del equipo de ${business.business_name}` : ""}.`;
+    base = identidad + "\n\n" + strategicInstructions;
+    // Añadir instrucciones adicionales — omitir si contiene variables de plantilla legacy ({{negocio.nombre}})
+    const rawExtra = (config.agent_extra_prompt ?? config.system_prompt ?? "").trim();
+    const isLegacyTemplate = rawExtra.includes("{{negocio.");
+    if (rawExtra && !isLegacyTemplate) base += "\n\n" + rawExtra;
+  } else {
+    base = config.system_prompt?.trim() ||
+      `Eres ${config.agent_name}, un asistente virtual amable. Responde en español neutro, en mensajes breves de 2 a 4 líneas.`;
+  }
+
   return base
-    .replace(/\{\{negocio\.nombre\}\}/g, business?.name ?? "el negocio")
+    .replace(/\{\{negocio\.nombre\}\}/g, business?.business_name ?? "el negocio")
     .replace(/\{\{negocio\.descripcion\}\}/g, business?.description ?? "")
     .replace(/\{\{negocio\.servicios\}\}/g, servicesList)
     .replace(/\{\{contacto\.nombre\}\}/g, conv?.contact_name ?? "cliente")
     .replace(/\{\{fecha\.hoy\}\}/g, now)
-    + `\n\nFecha actual: ${now}.`;
+    + `\n\nFecha actual: ${now}.`
+    + globalRules
+    + catalogInstruction
+    + paymentInstruction
+    + transferInstruction
+    + labelInstruction;
 }
 
 // ─── Enviar mensaje de texto por Graph API ────────────────────────────────────
@@ -139,20 +689,92 @@ async function sendWhatsAppMessage(
   return { wa_message_id: id };
 }
 
-// ─── Llamada a Claude (con soporte de visión/PDF) ────────────────────────────
+// ─── Transferir conversación a HUMAN y notificar al owner ─────────────────────
+async function transferToHuman(
+  config: AgentConfig,
+  phone: string,
+  conversation_id: string,
+  clientMessage: string,
+  notifySubject: string,
+  notifyBody: string,
+): Promise<void> {
+  try {
+    await sendWhatsAppMessage(phone, clientMessage, config);
+    await supabase.from("crm_wa_messages").insert({ conversation_id, role: "assistant", content: clientMessage });
+  } catch (e) {
+    console.error("[ai-agent] error enviando mensaje de transferencia:", e);
+  }
+
+  await supabase
+    .from("crm_wa_conversations")
+    .update({ mode: "HUMAN", last_message_at: new Date().toISOString() })
+    .eq("id", conversation_id);
+
+  if (config.notify_on_transfer && config.notify_email) {
+    const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+    const RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
+    if (RESEND_API_KEY) {
+      const { data: conv } = await supabase
+        .from("crm_wa_conversations")
+        .select("contact_name, phone")
+        .eq("id", conversation_id)
+        .single();
+      const contactLabel = conv?.contact_name ?? conv?.phone ?? phone;
+      const crmUrl = Deno.env.get("SITE_URL") ?? "https://app.acrosoftlabs.com";
+      const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/></head>
+<body style="margin:0;padding:0;background:#f4f4f5;font-family:system-ui,sans-serif;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 20px;"><tr><td align="center">
+<table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
+<tr><td style="background:#18181b;padding:24px 32px;"><p style="margin:0;color:#ffffff;font-size:18px;font-weight:600;">Acrosoft</p></td></tr>
+<tr><td style="padding:32px;">
+  <p style="margin:0 0 8px;font-size:16px;font-weight:600;color:#18181b;">Chat requiere tu atención</p>
+  <p style="margin:0 0 20px;font-size:14px;color:#52525b;line-height:1.6;">
+    ${notifyBody.replace(/\n/g, "<br/>")}
+  </p>
+  <a href="${crmUrl}/crm" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:500;">
+    Ir al CRM &rarr; Agente IA
+  </a>
+  <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">Mensaje automático de Acrosoft.</p>
+</td></tr>
+</table></td></tr></table>
+</body></html>`;
+      fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          from: RESEND_FROM,
+          to: [config.notify_email],
+          subject: notifySubject,
+          html,
+        }),
+      }).catch(() => {});
+    }
+  }
+}
+
+// ─── Precios por modelo (USD por millón de tokens) ───────────────────────────
+// Fuente: console.anthropic.com/settings/usage — cacheWrite = 1.25× input, cacheRead = 0.10× input
+const MODEL_PRICES: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
+  "claude-haiku-4-5-20251001": { input: 0.25, output: 1.25, cacheWrite: 0.30, cacheRead: 0.03 },
+  "claude-haiku-4-5":          { input: 0.25, output: 1.25, cacheWrite: 0.30, cacheRead: 0.03 },
+  "claude-3-haiku-20240307":   { input: 0.25, output: 1.25, cacheWrite: 0.30, cacheRead: 0.03 },
+  "claude-sonnet-4-5":         { input: 3.00, output: 15.00, cacheWrite: 3.75, cacheRead: 0.30 },
+  "claude-sonnet-4-6":         { input: 3.00, output: 15.00, cacheWrite: 3.75, cacheRead: 0.30 },
+  "claude-opus-4-7":           { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
+};
+
+// ─── Llamada a Claude (con soporte de visión/PDF + prompt caching) ───────────
 async function callClaude(
   systemPrompt: string,
   history: WaMessage[],
   model: string,
   media?: { base64: string; mimeType: string; type: "image" | "document" } | null,
-): Promise<string> {
-  // Todos los mensajes previos como texto
+): Promise<{ text: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }> {
   const messages: any[] = history.slice(0, -1).map(m => ({
     role: m.role === "user" ? "user" : "assistant",
     content: m.content,
   }));
 
-  // Último mensaje: puede llevar media adjunta
   const lastMsg = history[history.length - 1];
   if (lastMsg) {
     if (media) {
@@ -177,9 +799,16 @@ async function callClaude(
     headers: {
       "x-api-key": ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
+      "anthropic-beta": "prompt-caching-2024-07-31",
       "content-type": "application/json",
     },
-    body: JSON.stringify({ model, max_tokens: 1024, system: systemPrompt, messages }),
+    body: JSON.stringify({
+      model,
+      max_tokens: 512,
+      // El system prompt se cachea por 5 min — ahorra ~90% de tokens de entrada en conversaciones activas
+      system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+      messages,
+    }),
   });
 
   if (!res.ok) {
@@ -190,7 +819,13 @@ async function callClaude(
   const json = await res.json();
   const text = json?.content?.[0]?.text;
   if (!text) throw new Error("Claude no devolvió contenido");
-  return text;
+  return {
+    text,
+    inputTokens:         json.usage?.input_tokens              ?? 0,
+    outputTokens:        json.usage?.output_tokens             ?? 0,
+    cacheReadTokens:     json.usage?.cache_read_input_tokens   ?? 0,
+    cacheCreationTokens: json.usage?.cache_creation_input_tokens ?? 0,
+  };
 }
 
 // ─── Entry point ───────────────────────────────────────────────────────────────
@@ -236,8 +871,8 @@ Deno.serve(async (req: Request) => {
 
     // 2. Verificar horario usando schedule JSONB
     if (!isWithinSchedule(config.schedule, config.timezone ?? "America/Mexico_City")) {
-      const offMsg = config.off_hours_message?.trim() ||
-        "Gracias por escribirnos. En este momento estamos fuera del horario de atención. Te responderemos a la brevedad.";
+      const offMsg = toWhatsAppFormat(config.off_hours_message?.trim() ||
+        "Gracias por escribirnos. En este momento estamos fuera del horario de atención. Te responderemos a la brevedad.");
       console.log(`[ai-agent] fuera de horario para ${phone}, enviando mensaje off-hours`);
       await sendWhatsAppMessage(phone, offMsg, config);
       await supabase.from("crm_wa_messages").insert({
@@ -252,52 +887,332 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ ok: true, reason: "off_hours" }), { status: 200 });
     }
 
-    // 3. Cargar historial reciente (últimos 20 mensajes)
+    // 3. Cargar historial reciente (últimos 15 mensajes — balance contexto/costo)
     const { data: rawHistory } = await supabase
       .from("crm_wa_messages")
       .select("role, content")
       .eq("conversation_id", conversation_id)
       .order("created_at", { ascending: false })
-      .limit(20);
+      .limit(15);
 
     const history: WaMessage[] = ((rawHistory ?? []) as WaMessage[]).reverse();
 
-    // 4. Construir system prompt con variables del CRM
+    // 4. Construir system prompt con catálogo, variables y etiquetas
     const t0 = Date.now();
-    const systemPrompt = await buildSystemPrompt(config, phone);
+    const systemPrompt = await buildSystemPrompt(config as AgentConfig, phone, config.can_transfer_human ?? false);
 
-    // 5. Llamar a Claude (con media si aplica)
-    const reply = await callClaude(systemPrompt, history, config.model ?? "claude-haiku-4-5-20251001", media);
-    console.log(`[ai-agent] Claude respondió en ${Date.now() - t0}ms`);
+    // 5. Llamar a Claude
+    const model = "claude-haiku-4-5-20251001";
+    const { text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens } = await callClaude(systemPrompt, history, model, media);
+    console.log(`[ai-agent] Claude respondió en ${Date.now() - t0}ms tokens:${inputTokens}in/${outputTokens}out cacheRead:${cacheReadTokens} cacheWrite:${cacheCreationTokens}`);
 
-    // 6. Guardar respuesta en DB
-    const { data: savedMsg } = await supabase
-      .from("crm_wa_messages")
-      .insert({ conversation_id, role: "assistant", content: reply })
-      .select()
-      .single();
+    // Log de uso de tokens con costo real (incluye cache write/read a sus precios correctos)
+    const _prices = MODEL_PRICES[model] ?? { input: 0.25, output: 1.25, cacheWrite: 0.30, cacheRead: 0.03 };
+    const _costUsd = (
+      inputTokens         * _prices.input      +
+      outputTokens        * _prices.output     +
+      cacheCreationTokens * _prices.cacheWrite +
+      cacheReadTokens     * _prices.cacheRead
+    ) / 1_000_000;
+    supabase.from("crm_ai_usage_log").insert({
+      user_id: tenant_user_id, conversation_id, model,
+      input_tokens: inputTokens, output_tokens: outputTokens,
+      cache_read_tokens: cacheReadTokens, cache_creation_tokens: cacheCreationTokens,
+      cost_usd: _costUsd,
+    }).then(() => {}).catch(() => {});
 
-    // 7. Enviar a WhatsApp por Graph API
-    try {
-      const { wa_message_id } = await sendWhatsAppMessage(phone, reply, config);
-      console.log(`[ai-agent] → enviado a ${phone} (wamid: ${wa_message_id})`);
-      if (savedMsg) {
-        await supabase
-          .from("crm_wa_messages")
-          .update({ wa_message_id })
-          .eq("id", savedMsg.id);
-      }
-    } catch (sendErr: any) {
-      console.error("[ai-agent] error enviando a Graph API:", sendErr.message);
-      if (savedMsg) {
-        await supabase
-          .from("crm_wa_messages")
-          .update({ send_error: String(sendErr.message) })
-          .eq("id", savedMsg.id);
+    // 6. Extraer todos los marcadores del reply (antes de cualquier decisión)
+    const { text: withoutPayment, payment } = parseAndStripPayment(rawReply);
+    const { text: withoutNoPayment, hasNoPayment } = parseAndStripNoPayment(withoutPayment);
+    const { text: withoutQr, qrIds } = parseAndStripQrMarkers(withoutNoPayment);
+    const { text: withoutContactData, contactData } = parseAndStripContactData(withoutQr);
+    const { text: replyRaw, labelNames } = parseAndStripLabels(withoutContactData);
+
+    // 6a. [TRANSFER] — verificar sobre el texto limpio (sin marcadores ni etiquetas)
+    if (config.can_transfer_human && /^\[TRANSFER\]\s*$/i.test(replyRaw.trim())) {
+      console.log(`[ai-agent] IA detectó intención de hablar con humano → HUMAN para ${phone}`);
+      const waitingMsg = "Entendido, en un momento te contacta alguien de nuestro equipo 😊";
+      await transferToHuman(config as AgentConfig, phone, conversation_id, waitingMsg,
+        `💬 Chat requiere atención`,
+        `El cliente solicitó hablar con una persona. Conversación transferida a modo Manual.`);
+      return new Response(JSON.stringify({ ok: true, reason: "ai_transfer" }), { status: 200 });
+    }
+
+    // 7. Convertir Markdown → WhatsApp
+    const reply = toWhatsAppFormat(replyRaw);
+
+    // 8 & 9. Solo guardar y enviar texto si hay contenido (puede ser vacío si Claude solo envió marcadores)
+    let savedMsg: { id: string } | null = null;
+    if (reply.trim()) {
+      const { data } = await supabase
+        .from("crm_wa_messages")
+        .insert({ conversation_id, role: "assistant", content: reply })
+        .select()
+        .single();
+      savedMsg = data;
+
+      try {
+        const { wa_message_id } = await sendWhatsAppMessage(phone, reply, config as AgentConfig);
+        if (savedMsg) await supabase.from("crm_wa_messages").update({ wa_message_id }).eq("id", savedMsg.id);
+      } catch (sendErr: any) {
+        console.error("[ai-agent] error enviando texto:", sendErr.message);
+        if (savedMsg) await supabase.from("crm_wa_messages").update({ send_error: String(sendErr.message) }).eq("id", savedMsg.id);
       }
     }
 
-    // 8. Actualizar last_message_at
+    // 9b. Enviar imágenes QR (una por cada marcador [SEND_QR:id])
+    for (const qrId of qrIds) {
+      const { data: pm } = await supabase.from("crm_payment_methods").select("content, label").eq("id", qrId).single();
+      if (pm?.content) {
+        await sendWhatsAppImage(phone, pm.content, null, config as AgentConfig);
+        await supabase.from("crm_wa_messages").insert({
+          conversation_id, role: "assistant",
+          content: "[Imagen]",
+          media_type: "image",
+          media_url: pm.content,
+        });
+      }
+    }
+
+    // 10. Etiquetas automáticas (fire & forget)
+    if (labelNames.length > 0) {
+      applyAutoLabels(tenant_user_id, conversation_id, labelNames).catch(err =>
+        console.error("[ai-agent] error labels:", err.message)
+      );
+    }
+
+    // 10b. Si Claude recopiló datos del prospecto → guardar en crm_contacts
+    if (contactData && Object.keys(contactData).length > 0 && config.can_create_contacts) {
+      try {
+        const { data: convRow } = await supabase
+          .from("crm_wa_conversations")
+          .select("contact_id, contact_name")
+          .eq("id", conversation_id)
+          .single();
+
+        let contactId = convRow?.contact_id ?? null;
+
+        if (!contactId) {
+          // Crear contacto nuevo
+          const contactName = contactData["nombre"] ?? contactData["name"] ?? convRow?.contact_name ?? phone;
+          const { data: newContact } = await supabase
+            .from("crm_contacts")
+            .insert({
+              user_id: tenant_user_id,
+              name: contactName,
+              phone,
+              email: contactData["email"] ?? null,
+              company: contactData["empresa"] ?? contactData["company"] ?? null,
+              ai_collected_data: contactData,
+            })
+            .select("id")
+            .single();
+
+          if (newContact) {
+            contactId = newContact.id;
+            await supabase
+              .from("crm_wa_conversations")
+              .update({ contact_id: newContact.id })
+              .eq("id", conversation_id);
+            console.log(`[ai-agent] contacto creado: ${newContact.id}`);
+          }
+        } else {
+          // Fusionar nuevos datos con los existentes
+          const { data: existing } = await supabase
+            .from("crm_contacts")
+            .select("ai_collected_data")
+            .eq("id", contactId)
+            .single();
+
+          const merged = { ...(existing?.ai_collected_data ?? {}), ...contactData };
+          await supabase
+            .from("crm_contacts")
+            .update({ ai_collected_data: merged })
+            .eq("id", contactId);
+          console.log(`[ai-agent] datos de contacto actualizados: ${contactId}`);
+        }
+      } catch (e: any) {
+        console.error("[ai-agent] error guardando datos del contacto:", e.message);
+      }
+    }
+
+    // 10c. Si Claude detectó un comprobante de pago → crear venta en CRM
+    if (payment && !isNaN(payment.amount) && payment.product_id) {
+      console.log(`[ai-agent] pago detectado → item_id:${payment.product_id} amount:${payment.amount} auto:${config.auto_detect_payments}`);
+      try {
+        const { data: convData } = await supabase
+          .from("crm_wa_conversations")
+          .select("contact_id, contact_name")
+          .eq("id", conversation_id)
+          .single();
+
+        // Resolver si el UUID es un producto o un servicio
+        const itemId = payment.product_id;
+        const { data: productRow } = await supabase
+          .from("crm_products")
+          .select("id, name, currency")
+          .eq("id", itemId)
+          .eq("user_id", config.user_id)
+          .maybeSingle();
+
+        let serviceRow: { id: string; name: string; currency: string | null } | null = null;
+        if (!productRow) {
+          const { data } = await supabase
+            .from("crm_services")
+            .select("id, name, currency")
+            .eq("id", itemId)
+            .eq("user_id", config.user_id)
+            .maybeSingle();
+          serviceRow = data;
+        }
+
+        if (!productRow && !serviceRow) {
+          console.error(`[ai-agent] item_id ${itemId} no existe en productos ni servicios — venta no registrada`);
+        } else {
+          const isProduct = !!productRow;
+          const itemInfo = productRow ?? serviceRow!;
+
+          // Resolver nombre de variante si aplica
+          let variantName = "";
+          if (isProduct && payment.variant_id) {
+            const { data: vRow } = await supabase
+              .from("crm_product_variants")
+              .select("name")
+              .eq("id", payment.variant_id)
+              .single();
+            if (vRow?.name) variantName = ` (${vRow.name})`;
+          }
+
+          // auto_detect_payments ON → confirma automáticamente; OFF → requiere revisión manual
+          const autoConfirm = config.auto_detect_payments ?? false;
+          const saleStatus = autoConfirm ? "confirmed" : "pending_review";
+          const now = new Date().toISOString();
+
+          const salePayload: Record<string, unknown> = {
+            user_id: config.user_id,
+            product_id: isProduct ? itemId : null,
+            product_variant_id: isProduct ? (payment.variant_id ?? null) : null,
+            product_name: isProduct ? (itemInfo.name + variantName) : null,
+            service_id: !isProduct ? itemId : null,
+            service_name: !isProduct ? itemInfo.name : null,
+            wa_conversation_id: conversation_id,
+            amount: payment.amount,
+            currency: itemInfo.currency ?? "USD",
+            status: saleStatus,
+            is_ai_sale: true,
+            is_paid: autoConfirm,
+            paid_at: autoConfirm ? now : null,
+            contact_id: convData?.contact_id ?? null,
+            contact_name: convData?.contact_name ?? null,
+            payment_method_type: payment.method_type,
+          };
+
+          const { data: newSale, error: saleErr } = await supabase
+            .from("crm_sales")
+            .insert(salePayload)
+            .select("id")
+            .single();
+
+          if (saleErr) {
+            console.error("[ai-agent] error creando venta:", saleErr.message);
+          }
+
+          if (newSale) {
+            console.log(`[ai-agent] venta creada: ${newSale.id} status:${saleStatus}`);
+
+            const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+            const itemName = itemInfo.name ?? (isProduct ? "producto" : "servicio");
+            const amountFormatted = formatPrice(payment.amount, itemInfo.currency ?? null);
+
+            const emailSubject = autoConfirm
+              ? `Venta IA Realizada - ${itemName}`
+              : `Comprobante de pago recibido - ${itemName}`;
+            const emailHtml = autoConfirm
+              ? `<p>El agente IA confirmó una venta de <strong>${itemName}</strong> por <strong>${amountFormatted}</strong>.</p><p>El entregable (si aplica) ya fue enviado al cliente por WhatsApp.</p>`
+              : `<p>El agente IA recibió un comprobante de pago para <strong>${itemName}</strong> por <strong>${amountFormatted}</strong>. Pendiente de revisión en el CRM.</p>`;
+
+            // Query fresca y explícita para email — bypassa cualquier problema de schema cache
+            const { data: emailRow } = await supabase
+              .from("crm_ai_agent_config")
+              .select("payment_notify_email, notify_email")
+              .eq("user_id", config.user_id)
+              .single();
+            const saleToEmail: string | null =
+              (emailRow as any)?.payment_notify_email ||
+              (emailRow as any)?.notify_email ||
+              null;
+            console.log(`[ai-agent] saleToEmail=${saleToEmail}`);
+
+            // Email fire-and-forget ANTES de Promise.allSettled — mismo patrón que notificaciones de transferencia
+            // El fetch (~800ms) completa durante los ~1001ms que tarda send-deliverable en paralelo
+            const _RESEND_KEY = Deno.env.get("RESEND_API_KEY");
+            const _RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
+            if (_RESEND_KEY && saleToEmail) {
+              fetch("https://api.resend.com/emails", {
+                method: "POST",
+                headers: { Authorization: `Bearer ${_RESEND_KEY}`, "Content-Type": "application/json" },
+                body: JSON.stringify({ from: _RESEND_FROM, to: [saleToEmail], subject: emailSubject, html: emailHtml }),
+              }).then(async r => console.log(`[ai-agent] sale email sent: ${r.status} ${(await r.text()).slice(0,60)}`)).catch(e => console.error("[ai-agent] sale email error:", e.message));
+            } else {
+              console.warn(`[ai-agent] sale email omitido — key:${!!_RESEND_KEY} to:${saleToEmail}`);
+            }
+
+            // Ejecutar en paralelo: entregable + stock
+            await Promise.allSettled([
+              // Entregable (solo para productos con auto-confirm)
+              ...(autoConfirm && isProduct ? [
+                supabase.functions.invoke("send-deliverable", {
+                  body: { sale_id: newSale.id },
+                  headers: { "x-internal-key": SERVICE_ROLE_KEY },
+                }).then(r => {
+                  if (r.error) console.error("[ai-agent] send-deliverable error:", r.error);
+                  else console.log("[ai-agent] send-deliverable: ok");
+                }),
+              ] : []),
+
+              // Decrement stock
+              ...(autoConfirm && isProduct ? [
+                supabase.rpc("decrement_sale_stock", {
+                  p_product_id: itemId,
+                  p_variant_id: payment.variant_id ?? null,
+                }).catch(e => console.error("[ai-agent] stock decrement error:", e)),
+              ] : []),
+            ]);
+          }
+        }
+      } catch (payErr: any) {
+        console.error("[ai-agent] error procesando pago:", payErr.message);
+      }
+    }
+
+    // 10d. Si Claude detectó que no hay métodos de pago → transferir a HUMAN
+    if (hasNoPayment) {
+      console.log(`[ai-agent] sin método de pago detectado → HUMAN para ${phone}`);
+      await supabase
+        .from("crm_wa_conversations")
+        .update({ mode: "HUMAN", last_message_at: new Date().toISOString() })
+        .eq("id", conversation_id);
+      if (config.notify_on_transfer && config.notify_email) {
+        const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+        const RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
+        if (RESEND_API_KEY) {
+          const crmUrl = Deno.env.get("SITE_URL") ?? "https://app.acrosoftlabs.com";
+          fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              from: RESEND_FROM,
+              to: [config.notify_email],
+              subject: `💳 Cliente quiere comprar — envíale los métodos de pago`,
+              html: `<p>Un cliente en WhatsApp quiere comprar pero no hay métodos de pago configurados para ese producto/servicio.</p><p><a href="${crmUrl}/crm">Ir al CRM para enviarle los datos →</a></p>`,
+            }),
+          }).catch(() => {});
+        }
+      }
+      return new Response(JSON.stringify({ ok: true, reason: "no_payment" }), { status: 200 });
+    }
+
+    // 11. Actualizar last_message_at
     await supabase
       .from("crm_wa_conversations")
       .update({ last_message_at: new Date().toISOString() })

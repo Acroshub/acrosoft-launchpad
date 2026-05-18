@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import PhoneInput from "@/components/shared/PhoneInput";
 import {
   useCalendars, useForms, useUpdateForm, useStaff, useBusinessProfile,
-  usePersonalReminders, useCreateReminder, useWhatsappEnabled, useWhatsappConfig,
+  usePersonalReminders, useCreateReminder, useAIAgentConfig,
   useUpsertBusinessProfile, useDeleteReminder, useVendorProfile,
 } from "@/hooks/useCrmData";
 import ReminderRulesEditor, { ReminderRule } from "@/components/shared/ReminderRulesEditor";
@@ -201,12 +201,12 @@ const pill = (active: boolean) =>
 const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSaved: () => void }) => {
   const { data: staffList = [] }   = useStaff();
   const { data: profile }          = useBusinessProfile();
-  const { data: waConfig }         = useWhatsappConfig();
+  const { data: agentConfig }      = useAIAgentConfig();
   const { data: vendorProfile }    = useVendorProfile();
   const isVendor                   = !!vendorProfile;
   const createReminder             = useCreateReminder();
   const upsertProfile              = useUpsertBusinessProfile();
-  const whatsappEnabled            = useWhatsappEnabled();
+  const agentWaEnabled             = !!agentConfig?.phone_number_id;
 
   const adminLabel = (() => {
     const name = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ");
@@ -215,73 +215,79 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
   })();
 
   const [note, setNote]             = useState("");
+  const [subject, setSubject]       = useState("");
   const [dateStr, setDateStr]       = useState("");
   const [timeStr, setTimeStr]       = useState("");
   const [targets, setTargets]       = useState<string[]>(["admin"]);
-  const [channel, setChannel]       = useState<"email" | "whatsapp">("email");
-  // Inline phone override for admin when WA conflict
+  const [channels, setChannels]     = useState({ email: true, whatsapp: false });
   const [adminPhoneOverride, setAdminPhoneOverride] = useState("");
   const [savingPhone, setSavingPhone]               = useState(false);
   const [sending, setSending]                       = useState(false);
 
-  // ── WhatsApp conflict detection for admin ──────────────────────────────────
-  const waPhone   = waConfig?.phone_number?.replace(/\D/g, "") ?? "";
-  const profPhone = (profile?.contact_phone ?? profile?.whatsapp ?? "").replace(/\D/g, "");
+  const profPhone  = (profile?.contact_phone ?? profile?.whatsapp ?? "").replace(/\D/g, "");
+  const agentPhone = (agentConfig?.verified_phone ?? "").replace(/\D/g, "");
 
-  // Shows inline phone input when: channel=whatsapp, admin selected, and either
-  // (a) no phone in profile, or (b) profile phone = linked WA number
-  const showAdminPhoneInput =
-    channel === "whatsapp" &&
+  // El número del agente IA no puede ser el destinatario (no puede mensajearse a sí mismo)
+  const adminAgentConflict =
+    channels.whatsapp &&
     targets.includes("admin") &&
-    (!profPhone || (waPhone && profPhone === waPhone));
+    !!agentPhone && !!profPhone &&
+    agentPhone === profPhone;
 
-  const adminPhoneConflict = showAdminPhoneInput && !!profPhone && profPhone === waPhone;
-  // When override is empty and no conflict, use profile phone
+  // Mostrar input de teléfono si WA seleccionado y admin no tiene teléfono registrado
+  const showAdminPhoneInput =
+    channels.whatsapp &&
+    targets.includes("admin") &&
+    !profPhone &&
+    !adminAgentConflict;
+
   const effectiveAdminPhone = showAdminPhoneInput
     ? adminPhoneOverride.replace(/\D/g, "")
     : profPhone;
 
-  const resolveChannelValue = (targetId: string, ch: "email" | "whatsapp"): string => {
-    if (isVendor) return ch === "email" ? (vendorProfile?.email ?? "") : "";
-    if (targetId === "admin") {
-      if (ch === "email") return profile?.contact_email ?? "";
-      return showAdminPhoneInput ? adminPhoneOverride.replace(/\D/g, "") : profPhone;
-    }
-    const staff = staffList.find(s => s.id === targetId);
-    return ch === "email" ? (staff?.email ?? "") : (staff?.phone ?? "");
+  const resolveEmail = (targetId: string): string => {
+    if (isVendor) return vendorProfile?.email ?? "";
+    if (targetId === "admin") return profile?.contact_email ?? "";
+    return staffList.find(s => s.id === targetId)?.email ?? "";
+  };
+
+  const resolvePhone = (targetId: string): string => {
+    if (isVendor) return "";
+    if (targetId === "admin") return showAdminPhoneInput ? adminPhoneOverride.replace(/\D/g, "") : profPhone;
+    return (staffList.find(s => s.id === targetId)?.phone ?? "").replace(/\D/g, "");
   };
 
   const toggleTarget = (id: string) => {
     setTargets(prev => {
       if (prev.includes(id)) {
+        // Don't allow deselecting the last target
+        if (prev.length === 1) return prev;
         const next = prev.filter(t => t !== id);
-        const result = next.length === 0 ? ["admin"] : next;
-        // Switch to email only if no remaining target has a WA-capable number
-        if (channel === "whatsapp") {
-          const anyHasWa = result.some(t => {
+        // If WhatsApp is active and no remaining target has a phone, disable WhatsApp
+        if (channels.whatsapp) {
+          const anyHasWa = next.some(t => {
             if (t === "admin") return !!profPhone;
             const s = staffList.find(st => st.id === t);
             return !!s?.phone;
           });
-          if (!anyHasWa) setChannel("email");
+          if (!anyHasWa) setChannels(ch => ({ ...ch, whatsapp: false }));
         }
-        return result;
+        return next;
       }
       return [...prev, id];
     });
   };
 
   // Disable WA only if none of the selected targets have a phone
-  const noWaDestinations = targets.every(t => {
-    if (t === "admin") return showAdminPhoneInput ? !adminPhoneOverride.replace(/\D/g, "") : !profPhone;
-    const s = staffList.find(st => st.id === t);
-    return !s?.phone;
-  });
+  const noWaDestinations = targets.every(t => !resolvePhone(t));
 
-  const handleChannelChange = (ch: "email" | "whatsapp") => {
-    if (!whatsappEnabled && ch === "whatsapp") return;
-    if (noWaDestinations && ch === "whatsapp") return;
-    setChannel(ch);
+  const toggleChannel = (ch: "email" | "whatsapp") => {
+    setChannels(prev => {
+      const next = { ...prev, [ch]: !prev[ch] };
+      // Al menos uno debe quedar activo
+      if (!next.email && !next.whatsapp) return prev;
+      return next;
+    });
   };
 
   // Save new phone to profile inline then schedule
@@ -302,14 +308,17 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
 
   const buildReminderPayloads = (scheduledAt: string, msg: string) =>
     targets.map((targetId) => {
-      const channelValue = resolveChannelValue(targetId, channel);
+      const email = resolveEmail(targetId);
+      const phone = resolvePhone(targetId);
       return createReminder.mutateAsync({
         contact_id:      null,
         appointment_id:  null,
-        type:            channel,
-        recipient_email: channel === "email"     ? channelValue : null,
-        recipient_phone: channel === "whatsapp"  ? channelValue.replace(/\D/g, "") : null,
+        type:            channels.email ? "email" : "whatsapp",
+        channels:        channels,
+        recipient_email: channels.email ? (email || null) : null,
+        recipient_phone: channels.whatsapp ? (phone || null) : null,
         scheduled_at:    scheduledAt,
+        subject:         subject.trim() || null,
         message:         msg,
         is_auto:         false,
         is_personal:     true,
@@ -401,6 +410,19 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
           />
         </div>
 
+        {/* Subject (only shown when email channel is active) */}
+        {channels.email && (
+          <div className="space-y-1.5">
+            <label className="text-xs font-medium text-muted-foreground">Asunto del email <span className="text-muted-foreground/60">(opcional)</span></label>
+            <Input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Tienes una notificación"
+              className="rounded-xl text-sm"
+            />
+          </div>
+        )}
+
         {/* Destination */}
         <div className="space-y-1.5">
           <p className="text-xs font-medium text-muted-foreground">Enviar a *</p>
@@ -458,47 +480,67 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
 
         {/* Channel */}
         <div className="space-y-1.5">
-          <p className="text-xs font-medium text-muted-foreground">Canal</p>
-          <div className="flex gap-2">
-            <button type="button" onClick={() => handleChannelChange("email")} className={pill(channel === "email")}>
+          <p className="text-xs font-medium text-muted-foreground">Canal de envío</p>
+          <div className="flex gap-2 flex-wrap">
+            <button type="button" onClick={() => toggleChannel("email")} className={pill(channels.email)}>
               <Mail size={11} /> Email
             </button>
+            {agentWaEnabled && (
+              <button
+                type="button"
+                onClick={() => toggleChannel("whatsapp")}
+                disabled={noWaDestinations}
+                className={`${pill(channels.whatsapp)} disabled:opacity-40 disabled:cursor-not-allowed`}
+                title={noWaDestinations ? "Ningún destinatario tiene número registrado" : undefined}
+              >
+                <MessageSquare size={11} /> WhatsApp
+              </button>
+            )}
           </div>
-          {/* Show destination address(es) */}
-          {(() => {
-            const dests = targets.map(targetId => {
-              if (targetId === "admin") {
-                if (channel === "email") return profile?.contact_email || null;
-                if (showAdminPhoneInput) return adminPhoneOverride || null;
-                return profPhone || null;
-              }
-              const s = staffList.find(m => m.id === targetId);
-              return channel === "email" ? (s?.email || null) : (s?.phone || null);
-            }).filter(Boolean) as string[];
-            if (!dests.length) return null;
-            return (
-              <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                <span className="text-muted-foreground/50">→</span>
-                <span className="truncate">{dests.join(", ")}</span>
-              </p>
-            );
-          })()}
+          {/* Destinos */}
+          <div className="space-y-0.5">
+            {channels.email && (() => {
+              const dests = targets.map(t => resolveEmail(t)).filter(Boolean);
+              return dests.length ? (
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <Mail size={9} className="shrink-0 text-muted-foreground/50" />
+                  <span className="truncate">{dests.join(", ")}</span>
+                </p>
+              ) : null;
+            })()}
+            {channels.whatsapp && (() => {
+              const dests = targets.map(t => resolvePhone(t)).filter(Boolean);
+              return dests.length ? (
+                <p className="text-[11px] text-muted-foreground flex items-center gap-1">
+                  <MessageSquare size={9} className="shrink-0 text-muted-foreground/50" />
+                  <span className="truncate">{dests.map(p => `+${p}`).join(", ")}</span>
+                </p>
+              ) : null;
+            })()}
+          </div>
         </div>
 
-        {/* ── Inline phone input for admin WA conflict ────────────────────── */}
+        {/* ── Conflicto: número del perfil = número del agente IA ─────────── */}
+        {adminAgentConflict && (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3.5 space-y-1">
+            <p className="text-xs font-semibold text-destructive">Número en conflicto</p>
+            <p className="text-[11px] text-destructive/80 leading-relaxed">
+              El número registrado en tu perfil (<strong>+{profPhone}</strong>) es el mismo que el número del Agente IA.
+              Un número no puede enviarse mensajes a sí mismo.
+            </p>
+            <p className="text-[11px] text-destructive/80">
+              Ve a <strong>Mi Negocio → Datos del negocio</strong> y actualiza el teléfono de contacto con tu número personal.
+            </p>
+          </div>
+        )}
+
+        {/* ── Inline phone input cuando admin no tiene teléfono registrado ── */}
         {showAdminPhoneInput && (
           <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 p-3.5 space-y-3">
-            {adminPhoneConflict ? (
-              <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                <strong>El número vinculado (+{waPhone}) es el mismo que el del negocio.</strong>{" "}
-                WhatsApp no puede enviarse mensajes a sí mismo. Ingresa un número diferente al que enviar esta notificación.
-              </p>
-            ) : (
-              <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-                <strong>No hay número de teléfono registrado en tu negocio.</strong>{" "}
-                Ingresa el número al que enviar la notificación (se guardará en tu perfil).
-              </p>
-            )}
+            <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
+              <strong>No hay número de teléfono registrado en tu perfil.</strong>{" "}
+              Ingresa el número personal al que enviar la notificación por WhatsApp (se guardará en tu perfil).
+            </p>
             <PhoneInput
               value={adminPhoneOverride}
               onChange={setAdminPhoneOverride}
@@ -548,7 +590,7 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
             type="button"
             variant="outline"
             onClick={handleSendNow}
-            disabled={!canSendNow || sending || createReminder.isPending || savingPhone}
+            disabled={!canSendNow || sending || createReminder.isPending || savingPhone || adminAgentConflict}
             className="flex-1 rounded-xl h-10 font-medium text-sm gap-1.5"
           >
             {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
@@ -556,7 +598,7 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
           </Button>
           <Button
             onClick={handleSchedule}
-            disabled={!canSchedule || createReminder.isPending || savingPhone}
+            disabled={!canSchedule || createReminder.isPending || savingPhone || adminAgentConflict}
             className="flex-1 rounded-xl h-10 font-medium text-sm gap-1.5"
           >
             {(createReminder.isPending || savingPhone) ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}
@@ -623,10 +665,13 @@ const PersonalReminderPanel = ({ onBack }: { onBack: () => void }) => {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                {r.type === "email"
-                  ? <Mail size={10} className="shrink-0" />
-                  : <MessageSquare size={10} className="shrink-0" />}
-                <span className="truncate">{r.recipient_email ?? r.recipient_phone ?? "—"}</span>
+                <div className="flex items-center gap-1 shrink-0">
+                  {(r.channels?.email ?? r.type === "email") && <Mail size={10} />}
+                  {(r.channels?.whatsapp ?? r.type === "whatsapp") && <MessageSquare size={10} />}
+                </div>
+                <span className="truncate">
+                  {[r.recipient_email, r.recipient_phone ? `+${r.recipient_phone}` : null].filter(Boolean).join(" · ") || "—"}
+                </span>
               </div>
               <div className="mt-auto pt-1 flex items-center justify-between">
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${

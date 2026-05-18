@@ -1,11 +1,24 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, GripVertical, Tag } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, GripVertical, Tag, CreditCard } from "lucide-react";
 import { useServices, useCreateService, useUpdateService, useDeleteService } from "@/hooks/useCrmData";
 import type { CrmService } from "@/lib/supabase";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+import PaymentMethodsEditor from "@/components/shared/PaymentMethodsEditor";
+
+const CURRENCIES = [
+  { value: "USD", label: "$ USD — Dólar" },
+  { value: "BOB", label: "Bs. BOB — Boliviano" },
+  { value: "PEN", label: "S/ PEN — Sol" },
+];
+
+const CURRENCY_SYMBOLS: Record<string, string> = { USD: "$", BOB: "Bs.", PEN: "S/" };
+const fmtSvc = (amount: number, currency?: string | null) => {
+  const sym = CURRENCY_SYMBOLS[(currency ?? "USD").toUpperCase()] ?? "$";
+  return `${sym}${amount.toFixed(2)}`;
+};
 import {
   DndContext,
   closestCenter,
@@ -40,6 +53,7 @@ const ServiceEditor = ({
   const [description, setDescription]       = useState(service.description ?? "");
   const [benefits, setBenefits]             = useState<string[]>(service.benefits ?? []);
   const [price, setPrice]                   = useState(service.price);
+  const [currency, setCurrency]             = useState(service.currency ?? "USD");
   const [recurringPrice, setRecurringPrice] = useState(service.recurring_price ?? 0);
   const [recurringInterval, setRecurringInterval] = useState(service.recurring_interval ?? "");
   const [recurringLabel, setRecurringLabel] = useState(service.recurring_label ?? "");
@@ -63,6 +77,7 @@ const ServiceEditor = ({
         description: description || null,
         benefits,
         price,
+        currency,
         recurring_price: recurringPrice > 0 ? recurringPrice : null,
         recurring_interval: recurringInterval || null,
         recurring_label: recurringLabel || null,
@@ -147,7 +162,7 @@ const ServiceEditor = ({
           </div>
 
           {/* Precio */}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
                 <DollarSign size={12} />
@@ -160,6 +175,17 @@ const ServiceEditor = ({
                 className="h-10 text-sm"
                 min={0}
               />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Moneda</label>
+              <select
+                value={currency}
+                onChange={e => setCurrency(e.target.value)}
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                {CURRENCIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+              </select>
             </div>
 
             <div className="space-y-1.5">
@@ -325,6 +351,19 @@ const ServiceEditor = ({
           </div>
         </div>
       </div>
+
+      {/* Métodos de pago */}
+      <div className="bg-card border rounded-2xl p-6 space-y-4">
+        <div className="flex items-center gap-2">
+          <CreditCard size={15} className="text-muted-foreground" />
+          <h2 className="text-sm font-semibold">Métodos de pago</h2>
+          <span className="text-xs text-muted-foreground/60 ml-1">— opcional</span>
+        </div>
+        <p className="text-xs text-muted-foreground -mt-1">
+          El Agente IA usará estos métodos para cerrar ventas. Si no hay ninguno, transferirá a modo Manual.
+        </p>
+        <PaymentMethodsEditor entityType="service" entityId={service.id} />
+      </div>
     </div>
   );
 };
@@ -385,22 +424,22 @@ const SortableServiceItem = ({
           <p className="text-sm font-bold text-foreground">
             {svc.discount_pct > 0 ? (
               <>
-                <span className="line-through text-muted-foreground font-normal mr-1">${svc.price.toFixed(2)}</span>
-                <span className="text-primary">${(svc.price * (1 - svc.discount_pct / 100)).toFixed(2)}</span>
+                <span className="line-through text-muted-foreground font-normal mr-1">{fmtSvc(svc.price, svc.currency)}</span>
+                <span className="text-primary">{fmtSvc(svc.price * (1 - svc.discount_pct / 100), svc.currency)}</span>
               </>
             ) : (
-              `$${svc.price.toFixed(2)}`
+              fmtSvc(svc.price, svc.currency)
             )}
             {svc.recurring_price != null && svc.recurring_price > 0 && (
               <span className="text-muted-foreground text-xs font-normal">
                 {" "}+{" "}
                 {(svc.recurring_discount_pct ?? 0) > 0 ? (
                   <>
-                    <span className="line-through opacity-60">${svc.recurring_price.toFixed(2)}</span>
-                    {" "}<span className="text-primary">${(svc.recurring_price * (1 - (svc.recurring_discount_pct ?? 0) / 100)).toFixed(2)}</span>
+                    <span className="line-through opacity-60">{fmtSvc(svc.recurring_price, svc.currency)}</span>
+                    {" "}<span className="text-primary">{fmtSvc(svc.recurring_price * (1 - (svc.recurring_discount_pct ?? 0) / 100), svc.currency)}</span>
                   </>
                 ) : (
-                  `$${svc.recurring_price.toFixed(2)}`
+                  fmtSvc(svc.recurring_price, svc.currency)
                 )}
                 {svc.recurring_interval ? ` ${svc.recurring_interval}` : ""}
               </span>
@@ -494,6 +533,7 @@ const CrmServices = ({
       const created = await createService.mutateAsync({
         name: "Nuevo Servicio",
         price: 0,
+        currency: "USD",
         description: null,
         benefits: [],
         is_recurring: false,

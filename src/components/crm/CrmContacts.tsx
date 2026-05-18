@@ -10,7 +10,7 @@ import {
   ArrowLeft, FolderOpen, Star, FileText, MessageSquare,
   TrendingUp, Briefcase, Target, ImagePlus, Plus,
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
-  Trash2, ChevronDown, ExternalLink, Bell, Upload, FileUp, CheckCircle2,
+  Trash2, ChevronDown, ExternalLink, Bell, Upload, FileUp, CheckCircle2, Bot,
 } from "lucide-react";
 import Papa from "papaparse";
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices } from "@/hooks/useCrmData";
@@ -1904,15 +1904,23 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
                       <X size={14} />
                     </button>
                   </div>
-                  {isSuperAdmin && (
-                    <Button
-                      className="w-full h-9 rounded-xl text-xs font-medium gap-2"
-                      onClick={() => setViewing(detail.id)}
-                    >
-                      <Eye size={14} />
-                      Ver Ficha Técnica
-                    </Button>
-                  )}
+                  {isSuperAdmin && (() => {
+                    const cf = (detail.custom_fields ?? {}) as Record<string, any>;
+                    const hasOnboarding = forms.some(f =>
+                      cf[f.id] !== undefined &&
+                      (f.slug?.toLowerCase().includes("onboarding") || f.name?.toLowerCase().includes("onboarding"))
+                    );
+                    if (!hasOnboarding) return null;
+                    return (
+                      <Button
+                        className="w-full h-9 rounded-xl text-xs font-medium gap-2"
+                        onClick={() => setViewing(detail.id)}
+                      >
+                        <Eye size={14} />
+                        Ver Ficha Técnica
+                      </Button>
+                    );
+                  })()}
 
                   {/* SaaS account actions in detail panel */}
                   {(() => {
@@ -2117,6 +2125,27 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
                     </button>
                   </div>
                 )}
+
+                {/* Datos recopilados por el Agente IA */}
+                {(() => {
+                  const aiData = Object.entries(detail.ai_collected_data ?? {}).filter(([, v]) => v);
+                  if (aiData.length === 0) return null;
+                  return (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2 flex items-center gap-1.5">
+                        <Bot size={10} /> Datos recopilados por IA
+                      </p>
+                      <div className="border rounded-xl overflow-hidden divide-y bg-primary/3">
+                        {aiData.map(([key, value]) => (
+                          <div key={key} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                            <p className="text-xs text-muted-foreground capitalize shrink-0">{key.replace(/_/g, " ")}</p>
+                            <p className="text-xs font-medium text-right break-all">{String(value)}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Campos personalizados (importados por CSV u otros) */}
                 {(() => {

@@ -8,6 +8,10 @@ import type {
   CrmForm,
   CrmFormSubmission,
   CrmService,
+  CrmProduct,
+  CrmProductVariant,
+  CrmCatalog,
+  CrmCatalogProduct,
   CrmSale,
   CrmCalendarConfig,
   CrmBusinessProfile,
@@ -30,6 +34,8 @@ import type {
   CrmAIAgentConfig,
   CrmWaConversation,
   CrmWaMessage,
+  CrmWaLabel,
+  CrmPaymentMethod,
 } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "./useAuth";
 
@@ -501,10 +507,15 @@ export const useSales = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("crm_sales")
-        .select("*")
+        .select("*, crm_products(name)")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return data as CrmSale[];
+      // Aplanar el nombre del producto para acceso directo
+      return (data ?? []).map((s: any) => ({
+        ...s,
+        product_name: s.crm_products?.name ?? null,
+        crm_products: undefined,
+      })) as CrmSale[];
     },
     enabled: !!user,
   });
@@ -2395,4 +2406,540 @@ export const useDeleteWaConversation = () => {
       qc.invalidateQueries({ queryKey: ["crm_wa_messages"] });
     },
   });
+};
+
+export const useAssignConversation = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ conversationId, staffId }: { conversationId: string; staffId: string | null }) => {
+      const { error } = await supabase
+        .from("crm_wa_conversations")
+        .update({ assigned_to: staffId })
+        .eq("id", conversationId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+  });
+};
+
+// ─── WhatsApp Labels ──────────────────────────────────────────────────────────
+
+export const useWaLabels = (userId?: string) => {
+  const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
+  return useQuery({
+    queryKey: ["wa_labels", effectiveId],
+    queryFn: async () => {
+      if (!effectiveId) return [] as CrmWaLabel[];
+      const { data } = await supabase
+        .from("crm_wa_labels")
+        .select("*")
+        .eq("user_id", effectiveId)
+        .order("created_at");
+      return (data ?? []) as CrmWaLabel[];
+    },
+    enabled: !!effectiveId,
+  });
+};
+
+export const useUpsertWaLabel = () => {
+  const { user } = useCurrentUser();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (label: { id?: string; name: string; color: string; hint?: string | null }) => {
+      if (label.id) {
+        const { data, error } = await supabase
+          .from("crm_wa_labels")
+          .update({ name: label.name, color: label.color, hint: label.hint ?? null })
+          .eq("id", label.id)
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      } else {
+        const { data, error } = await supabase
+          .from("crm_wa_labels")
+          .insert({ name: label.name, color: label.color, hint: label.hint ?? null, user_id: user!.id })
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_labels"] }),
+  });
+};
+
+export const useDeleteWaLabel = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_wa_labels").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["wa_labels"] });
+      qc.invalidateQueries({ queryKey: ["wa_conv_labels_all"] });
+      qc.invalidateQueries({ queryKey: ["wa_conv_labels"] });
+    },
+  });
+};
+
+export const useAllConversationLabels = (userId?: string) => {
+  const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
+  return useQuery({
+    queryKey: ["wa_conv_labels_all", effectiveId],
+    queryFn: async () => {
+      if (!effectiveId) return {} as Record<string, CrmWaLabel[]>;
+      const { data } = await supabase
+        .from("crm_wa_conversation_labels")
+        .select("conversation_id, crm_wa_labels(id, name, color, hint, user_id, created_at)");
+      const map: Record<string, CrmWaLabel[]> = {};
+      for (const row of data ?? []) {
+        const label = (row as any).crm_wa_labels as CrmWaLabel | null;
+        if (!label) continue;
+        const cid = row.conversation_id as string;
+        if (!map[cid]) map[cid] = [];
+        map[cid].push(label);
+      }
+      return map;
+    },
+    enabled: !!effectiveId,
+  });
+};
+
+export const useConversationLabels = (conversationId?: string) => {
+  return useQuery({
+    queryKey: ["wa_conv_labels", conversationId],
+    queryFn: async () => {
+      if (!conversationId) return [] as CrmWaLabel[];
+      const { data } = await supabase
+        .from("crm_wa_conversation_labels")
+        .select("label_id, crm_wa_labels(id, name, color, hint, user_id, created_at)")
+        .eq("conversation_id", conversationId);
+      return (data ?? []).map((r: any) => r.crm_wa_labels as CrmWaLabel).filter(Boolean);
+    },
+    enabled: !!conversationId,
+  });
+};
+
+export const useToggleConversationLabel = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ conversationId, labelId, active }: { conversationId: string; labelId: string; active: boolean }) => {
+      if (active) {
+        await supabase
+          .from("crm_wa_conversation_labels")
+          .upsert({ conversation_id: conversationId, label_id: labelId }, { ignoreDuplicates: true });
+      } else {
+        await supabase
+          .from("crm_wa_conversation_labels")
+          .delete()
+          .eq("conversation_id", conversationId)
+          .eq("label_id", labelId);
+      }
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["wa_conv_labels", vars.conversationId] });
+      qc.invalidateQueries({ queryKey: ["wa_conv_labels_all"] });
+    },
+  });
+};
+
+// ─── Payment Methods ──────────────────────────────────────────────────────────
+
+export const usePaymentMethods = (entityType: string, entityId: string | null) => {
+  return useQuery({
+    queryKey: ["payment_methods", entityType, entityId],
+    queryFn: async () => {
+      if (!entityId) return [] as CrmPaymentMethod[];
+      const { data, error } = await supabase
+        .from("crm_payment_methods")
+        .select("*")
+        .eq("entity_type", entityType)
+        .eq("entity_id", entityId)
+        .order("sort_order");
+      if (error) throw error;
+      return (data ?? []) as CrmPaymentMethod[];
+    },
+    enabled: !!entityId,
+  });
+};
+
+export const useUpsertPaymentMethod = () => {
+  const { user } = useCurrentUser();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (pm: Omit<CrmPaymentMethod, "id" | "created_at" | "user_id"> & { id?: string }) => {
+      if (pm.id) {
+        const { data, error } = await supabase
+          .from("crm_payment_methods")
+          .update({ type: pm.type, label: pm.label, content: pm.content, sort_order: pm.sort_order })
+          .eq("id", pm.id)
+          .select()
+          .single();
+        if (error) throw error;
+        return data as CrmPaymentMethod;
+      } else {
+        const { data, error } = await supabase
+          .from("crm_payment_methods")
+          .insert({ ...pm, user_id: user!.id })
+          .select()
+          .single();
+        if (error) throw error;
+        return data as CrmPaymentMethod;
+      }
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["payment_methods", vars.entity_type, vars.entity_id] });
+    },
+  });
+};
+
+export const useDeletePaymentMethod = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, entityType, entityId }: { id: string; entityType: string; entityId: string }) => {
+      const { error } = await supabase.from("crm_payment_methods").delete().eq("id", id);
+      if (error) throw error;
+      return { entityType, entityId };
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["payment_methods", vars.entityType, vars.entityId] });
+    },
+  });
+};
+
+export const useSearchWaMessages = (query: string) => {
+  return useQuery({
+    queryKey: ["wa_message_search", query],
+    queryFn: async () => {
+      if (query.length < 3) return [];
+      const { data } = await supabase
+        .from("crm_wa_messages")
+        .select("id, content, created_at, role, conversation_id, crm_wa_conversations(id, contact_name, phone)")
+        .ilike("content", `%${query}%`)
+        .not("content", "ilike", "[notif]%")
+        .order("created_at", { ascending: false })
+        .limit(20);
+      return (data ?? []) as Array<{
+        id: string;
+        content: string;
+        created_at: string;
+        role: string;
+        conversation_id: string;
+        crm_wa_conversations: { id: string; contact_name: string | null; phone: string } | null;
+      }>;
+    },
+    enabled: query.length >= 3,
+    staleTime: 30_000,
+  });
+};
+
+// ─── Catálogos ────────────────────────────────────────────────────────────────
+
+export const useCatalogs = (userId?: string) => {
+  const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
+  return useQuery({
+    queryKey: ["crm_catalogs", effectiveId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_catalogs")
+        .select("*")
+        .eq("user_id", effectiveId!)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CrmCatalog[];
+    },
+    enabled: !!effectiveId,
+  });
+};
+
+export const useUpsertCatalog = () => {
+  const { user } = useCurrentUser();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (catalog: Partial<CrmCatalog> & { name: string; slug: string }) => {
+      if (catalog.id) {
+        const { data, error } = await supabase
+          .from("crm_catalogs")
+          .update({ name: catalog.name, description: catalog.description, slug: catalog.slug, cover_image: catalog.cover_image, is_active: catalog.is_active, whatsapp_number: catalog.whatsapp_number ?? null })
+          .eq("id", catalog.id).select().single();
+        if (error) throw error;
+        return data as CrmCatalog;
+      } else {
+        const { data, error } = await supabase
+          .from("crm_catalogs")
+          .insert({ name: catalog.name, description: catalog.description ?? null, slug: catalog.slug, cover_image: catalog.cover_image ?? null, is_active: catalog.is_active ?? true, whatsapp_number: catalog.whatsapp_number ?? null, user_id: user!.id })
+          .select().single();
+        if (error) throw error;
+        return data as CrmCatalog;
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_catalogs"] }),
+  });
+};
+
+export const useDeleteCatalog = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_catalogs").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_catalogs"] }),
+  });
+};
+
+// ─── Productos ────────────────────────────────────────────────────────────────
+
+export const useProducts = (userId?: string) => {
+  const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
+  return useQuery({
+    queryKey: ["crm_products", effectiveId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_products")
+        .select("*")
+        .eq("user_id", effectiveId!)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmProduct[];
+    },
+    enabled: !!effectiveId,
+  });
+};
+
+export const useCatalogProducts = (catalogId: string | null) => {
+  return useQuery({
+    queryKey: ["crm_catalog_products", catalogId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_catalog_products")
+        .select("product_id, sort_order, crm_products(*)")
+        .eq("catalog_id", catalogId!)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return (data ?? []).map((r: any) => r.crm_products as CrmProduct).filter(Boolean);
+    },
+    enabled: !!catalogId,
+  });
+};
+
+export const useProductCatalogIds = (productId: string | null) => {
+  return useQuery({
+    queryKey: ["crm_product_catalog_ids", productId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_catalog_products")
+        .select("catalog_id")
+        .eq("product_id", productId!);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => r.catalog_id as string);
+    },
+    enabled: !!productId,
+  });
+};
+
+export const useUpsertProduct = () => {
+  const { user } = useCurrentUser();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (product: Partial<CrmProduct> & { name: string; price: number }) => {
+      if (product.id) {
+        const { id, user_id, created_at, updated_at, ...updates } = product as any;
+        const { data, error } = await supabase
+          .from("crm_products")
+          .update({ ...updates, updated_at: new Date().toISOString() })
+          .eq("id", product.id).select().single();
+        if (error) throw error;
+        return data as CrmProduct;
+      } else {
+        const { id, user_id, created_at, updated_at, ...rest } = product as any;
+        const { data, error } = await supabase
+          .from("crm_products")
+          .insert({ ...rest, user_id: user!.id })
+          .select().single();
+        if (error) throw error;
+        return data as CrmProduct;
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_products"] });
+      qc.invalidateQueries({ queryKey: ["crm_catalog_products"] });
+      qc.invalidateQueries({ queryKey: ["crm_orphan_products"] });
+    },
+  });
+};
+
+export const useDeleteProduct = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_products").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_products"] });
+      qc.invalidateQueries({ queryKey: ["crm_catalog_products"] });
+      qc.invalidateQueries({ queryKey: ["crm_orphan_products"] });
+    },
+  });
+};
+
+export const useToggleCatalogProduct = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ catalogId, productId, add }: { catalogId: string; productId: string; add: boolean }) => {
+      if (add) {
+        const { count } = await supabase
+          .from("crm_catalog_products")
+          .select("*", { count: "exact", head: true })
+          .eq("catalog_id", catalogId);
+        await supabase.from("crm_catalog_products")
+          .upsert({ catalog_id: catalogId, product_id: productId, sort_order: count ?? 0 }, { ignoreDuplicates: true });
+      } else {
+        await supabase.from("crm_catalog_products")
+          .delete().eq("catalog_id", catalogId).eq("product_id", productId);
+      }
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["crm_catalog_products", vars.catalogId] });
+      qc.invalidateQueries({ queryKey: ["crm_product_catalog_ids", vars.productId] });
+      qc.invalidateQueries({ queryKey: ["crm_orphan_products"] });
+    },
+  });
+};
+
+// ─── Variantes ────────────────────────────────────────────────────────────────
+
+export const useProductVariants = (productId: string | null) => {
+  return useQuery({
+    queryKey: ["crm_product_variants", productId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_product_variants")
+        .select("*")
+        .eq("product_id", productId!)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmProductVariant[];
+    },
+    enabled: !!productId,
+  });
+};
+
+export const useUpsertProductVariant = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (variant: Partial<CrmProductVariant> & { product_id: string; name: string }) => {
+      if (variant.id) {
+        const { data, error } = await supabase
+          .from("crm_product_variants")
+          .update({ name: variant.name, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0 })
+          .eq("id", variant.id).select().single();
+        if (error) throw error;
+        return data as CrmProductVariant;
+      } else {
+        const { data, error } = await supabase
+          .from("crm_product_variants")
+          .insert({ product_id: variant.product_id, name: variant.name, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0 })
+          .select().single();
+        if (error) throw error;
+        return data as CrmProductVariant;
+      }
+    },
+    onSuccess: (_d, vars) => qc.invalidateQueries({ queryKey: ["crm_product_variants", vars.product_id ?? vars.id] }),
+  });
+};
+
+export const useDeleteProductVariant = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, productId }: { id: string; productId: string }) => {
+      const { error } = await supabase.from("crm_product_variants").delete().eq("id", id);
+      if (error) throw error;
+      return { productId };
+    },
+    onSuccess: (_d, vars) => qc.invalidateQueries({ queryKey: ["crm_product_variants", vars.productId] }),
+  });
+};
+
+export const useOrphanProducts = (userId?: string) => {
+  const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
+  return useQuery({
+    queryKey: ["crm_orphan_products", effectiveId],
+    queryFn: async () => {
+      const { data: inCatalog } = await supabase
+        .from("crm_catalog_products")
+        .select("product_id");
+      const inCatalogIds = new Set((inCatalog ?? []).map((r: any) => r.product_id as string));
+      const { data, error } = await supabase
+        .from("crm_products")
+        .select("*")
+        .eq("user_id", effectiveId!)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return ((data ?? []) as CrmProduct[]).filter(p => !inCatalogIds.has(p.id));
+    },
+    enabled: !!effectiveId,
+  });
+};
+
+// Retorna mapa catalogId -> productId[] para agrupar productos por catálogo en UI
+export const useCatalogProductsMap = (userId?: string) => {
+  const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
+  return useQuery({
+    queryKey: ["crm_catalog_products_map", effectiveId],
+    queryFn: async () => {
+      // Primero obtenemos los IDs de catálogos del usuario
+      const { data: catalogs } = await supabase
+        .from("crm_catalogs")
+        .select("id")
+        .eq("user_id", effectiveId!);
+      if (!catalogs?.length) return new Map<string, string[]>();
+
+      const catalogIds = catalogs.map((c: any) => c.id as string);
+      const { data, error } = await supabase
+        .from("crm_catalog_products")
+        .select("catalog_id, product_id")
+        .in("catalog_id", catalogIds);
+      if (error) throw error;
+
+      const map = new Map<string, string[]>();
+      for (const row of (data ?? [])) {
+        const cid = (row as any).catalog_id as string;
+        const pid = (row as any).product_id as string;
+        if (!map.has(cid)) map.set(cid, []);
+        map.get(cid)!.push(pid);
+      }
+      return map;
+    },
+    enabled: !!effectiveId,
+  });
+};
+
+// ─── Onboarding status ────────────────────────────────────────────────────────
+export const useOnboardingStatus = () => {
+  const { data: profile } = useBusinessProfile();
+  const { data: services = [] } = useServices();
+  const { data: products = [] } = useProducts();
+
+  const flags = (profile?.onboarding_flags ?? {}) as Record<string, boolean>;
+
+  const step1 = !!(profile?.first_name && profile?.last_name && profile?.contact_email && profile?.contact_phone);
+  const step2 = !!(profile?.business_name && profile?.description);
+  const step3 = !!profile?.logo_url || !!flags.logo_skipped;
+  const step4 = services.length > 0 || products.length > 0 || !!flags.catalog_skipped;
+
+  const allDone = step1 && step2 && step3 && step4;
+  const requiredDone = step1 && step2;
+  const completed = [step1, step2, step3, step4].filter(Boolean).length;
+
+  return { step1, step2, step3, step4, allDone, requiredDone, completed, flags, profile };
 };

@@ -97,6 +97,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
   const [linkedFormId, setLinkedFormId]   = useState<string | null>(null);
   const [availability, setAvailability]   = useState<WeeklySchedule>(DEFAULT_WEEKLY_SCHEDULE);
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
+  const [savingRules, setSavingRules]     = useState(false);
   const [timezone, setTimezone]               = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   // For new calendars, inherit business profile timezone once it loads
   useEffect(() => {
@@ -224,6 +225,20 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
   const handleSaveHours = async () => {
     await handleSave();
     setIsEditingHours(false);
+  };
+
+  const handleRulesChange = async (newRules: ReminderRule[]) => {
+    setReminderRules(newRules);
+    if (!existingCalendar) return; // calendario nuevo: se guardará con el save inicial
+    setSavingRules(true);
+    try {
+      await updateConfig.mutateAsync({ id: existingCalendar.id, reminder_rules: newRules as unknown as any });
+      toast.success("Notificaciones guardadas");
+    } catch {
+      toast.error("Error al guardar notificaciones");
+    } finally {
+      setSavingRules(false);
+    }
   };
 
   const handleConfirmDelete = async () => {
@@ -721,16 +736,15 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
               </p>
               {canEditReminders ? (
                 <>
-                  <ReminderRulesEditor rules={reminderRules} onChange={setReminderRules} />
-                  <Button
-                    onClick={handleSave}
-                    disabled={saving}
-                    variant="outline"
-                    className="rounded-xl h-9 font-medium text-sm"
-                  >
-                    {saving ? <Loader2 size={13} className="animate-spin mr-2" /> : null}
-                    Guardar notificaciones
-                  </Button>
+                  <ReminderRulesEditor rules={reminderRules} onChange={handleRulesChange} />
+                  {savingRules && (
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      <Loader2 size={11} className="animate-spin" /> Guardando...
+                    </p>
+                  )}
+                  {isNew && (
+                    <p className="text-xs text-muted-foreground">Las notificaciones se guardarán al crear el calendario.</p>
+                  )}
                 </>
               ) : (
                 <p className="text-xs text-muted-foreground">No tienes permiso para editar notificaciones.</p>

@@ -39,6 +39,7 @@ export type CrmContact = {
   custom_fields: Json
   master_doc_url?: string | null
   pipeline_position?: Record<string, number> | null
+  ai_collected_data?: Record<string, string> | null
 }
 
 export type CrmPipeline = {
@@ -203,6 +204,16 @@ export type CrmSale = {
   paid_at: string | null
   payment_proof_url: string | null
   commission_pct: number
+  // Campos de ventas IA / productos
+  product_id: string | null
+  product_variant_id: string | null
+  payment_method_id: string | null
+  is_ai_sale: boolean
+  status: 'confirmed' | 'pending_review' | 'rejected'
+  wa_conversation_id: string | null
+  deliverable_sent_at: string | null
+  payment_method_type: string | null
+  product_name: string | null
 }
 
 export type CrmContactNote = {
@@ -240,6 +251,8 @@ export type CrmBusinessProfile = {
   landing_calendar_id?: string | null
   vip_calendar_id?: string | null
   timezone: string
+  slug: string | null
+  onboarding_flags?: Record<string, boolean>
 }
 
 export type CrmReminderConfig = {
@@ -260,6 +273,7 @@ export type CrmReminder = {
   contact_id: string | null
   appointment_id: string | null
   type: 'email' | 'whatsapp'
+  channels: { email: boolean; whatsapp: boolean } | null
   recipient_email: string | null
   recipient_phone: string | null
   scheduled_at: string
@@ -470,8 +484,104 @@ export type CrmAIAgentConfig = {
   language: string
   is_active: boolean
   schedule: Record<string, { open: boolean; slots: { from: string; to: string }[] }> | null
+  notify_on_transfer: boolean
+  notify_email: string | null
   created_at: string
   updated_at: string
+  // Selección de catálogo y detección de pagos
+  products_mode: 'all' | 'selected' | 'none'
+  selected_product_ids: string[]
+  services_mode: 'all' | 'selected' | 'none'
+  selected_service_ids: string[]
+  auto_detect_payments: boolean
+  payment_notify_email: string | null
+  // Configuración estratégica B15-1
+  agent_objectives: string[]
+  agent_personality: string | null
+  agent_proactivity: string | null
+  agent_data_collect: string[]
+  response_length: 'short' | 'normal' | 'detailed'
+  emoji_level: 'none' | 'poco' | 'medio' | 'mucho'
+  show_catalog_on_ask: boolean
+  do_upsell: boolean
+  confirm_summary: boolean
+  agent_faq: Array<{ q: string; a: string }> | null
+  agent_extra_prompt: string | null
+}
+
+// ─── Productos ────────────────────────────────────────────────────────────────
+
+export type CrmProduct = {
+  id: string
+  created_at: string
+  updated_at: string
+  user_id: string
+  name: string
+  description: string | null
+  price: number
+  currency: string
+  sku: string | null
+  stock_enabled: boolean
+  stock: number | null
+  images: string[]
+  has_variants: boolean
+  deliverable_type: 'file' | 'text' | null
+  deliverable_url: string | null
+  deliverable_text: string | null
+  deliverable_sent_at: string | null
+  is_active: boolean
+  sort_order: number
+  discount_pct: number
+}
+
+export type CrmProductVariant = {
+  id: string
+  created_at: string
+  product_id: string
+  name: string
+  price_override: number | null
+  stock: number | null
+  sort_order: number
+  discount_pct: number
+}
+
+export type CrmPaymentMethod = {
+  id: string
+  created_at: string
+  user_id: string
+  entity_type: 'product' | 'product_variant' | 'service'
+  entity_id: string
+  type: 'bank_transfer' | 'payment_link' | 'qr_code'
+  label: string | null
+  content: string
+  sort_order: number
+}
+
+export type CrmCatalog = {
+  id: string
+  created_at: string
+  user_id: string
+  name: string
+  description: string | null
+  slug: string
+  cover_image: string | null
+  is_active: boolean
+  whatsapp_number: string | null
+}
+
+export type CrmCatalogProduct = {
+  catalog_id: string
+  product_id: string
+  sort_order: number
+}
+
+export type CrmWaLabel = {
+  id: string
+  user_id: string
+  name: string
+  color: string
+  hint: string | null
+  created_at: string
 }
 
 export type CrmWaConversation = {
@@ -480,6 +590,7 @@ export type CrmWaConversation = {
   phone: string
   contact_name: string | null
   mode: 'AI' | 'HUMAN'
+  assigned_to: string | null
   last_message_at: string | null
   created_at: string
 }

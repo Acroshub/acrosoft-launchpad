@@ -2316,4 +2316,984 @@ Vista propia en el sidebar del CRM (no tab de Settings). Flujo en 2 estados:
 ANTHROPIC_API_KEY    → para llamar Claude desde ai-agent
 ```
 
+---
+
+---
+
+## BLOQUE 13 — Agente IA: Features Avanzados
+
+> **Base:** El Agente IA (Bloque 12, AI-12 a AI-22) ya está funcional con Meta WhatsApp Cloud API.
+> Este bloque agrega capas de automatización, comunicación multicanal y gestión de conversaciones.
+
+---
+
+### AI-23 · WhatsApp como Canal de Notificaciones (Recordatorios) ✅ COMPLETADO
+
+**Contexto:** El sistema de recordatorios (`crm_reminders` + `send-reminders`) solo envía por email. Ya tiene el campo `type` con valor `whatsapp` pero lanza error. Ahora que cada tenant tiene un número Cloud API en `crm_ai_agent_config`, se puede usar ese mismo número para enviar recordatorios a contactos/equipo.
+
+**Reglas de negocio:**
+- La opción WhatsApp **solo aparece en la UI** si el tenant tiene agente conectado (`crm_ai_agent_config.phone_number_id IS NOT NULL`)
+- El usuario puede elegir: email, WhatsApp, o **ambos** (checkboxes independientes, no radio)
+- Cuando se eligen ambos, se envía el mismo mensaje por los dos canales
+- Fuera de la ventana 24h de WhatsApp → se registra error `whatsapp_window_expired` en el reminder (no bloquea el email)
+
+**Flujo de envío WhatsApp en `send-reminders`:**
+```
+1. Cargar crm_ai_agent_config para el tenant (user_id del reminder)
+2. Si no tiene phone_number_id → skip WhatsApp, solo email
+3. Normalizar teléfono del contacto a E.164 sin "+" (ej: "59176421171")
+4. POST https://graph.facebook.com/v21.0/{phone_number_id}/messages
+   { messaging_product: "whatsapp", to: phone, type: "text", text: { body: message } }
+5. Si error 131047 → marcar send_error = "whatsapp_window_expired"
+```
+
+**Archivos a modificar:**
+- `supabase/migrations/` → columna `channels jsonb` en `crm_reminders` (ej: `{"email":true,"whatsapp":false}`)
+- `src/lib/supabase.ts` → actualizar tipo `CrmReminder` con `channels`
+- `supabase/functions/send-reminders/index.ts` → reemplazar `throw Error` WhatsApp con llamada real a Graph API
+- `src/components/crm/CrmReminders.tsx` → checkboxes de canal en crear/editar reminder
+
+---
+
+### AI-24 · Click en Teléfono de Contacto → Abrir Chat en Agente IA ❌ DESCARTADO
+
+**Comportamiento:**
+- En el detalle de un contacto, el número de teléfono tiene un ícono de WhatsApp clickeable
+- Al hacer clic → navega al tab "Agente IA" con ese número abierto en modo HUMAN
+- Si existe conversación previa → abre directamente ese chat
+- Si NO existe → abre el panel con el número pre-cargado listo para escribir el primer mensaje
+
+**Implementación:**
+- `Crm.tsx` → estado `whatsappTarget: string | null`; al recibir `onOpenWhatsApp(phone)`, hacer `setView("agente_ia")` y pasar `initialPhone` como prop a `CrmAgentIA`
+- `CrmContacts.tsx` → botón WhatsApp en ficha del contacto que llama `onOpenWhatsApp(phone)`
+- `CrmAgentIA.tsx` → aceptar prop `initialPhone`; al montar, buscar conversación con ese número o preparar nueva
+
+**Archivos a modificar:**
+- `src/pages/Crm.tsx`
+- `src/components/crm/CrmContacts.tsx`
+- `src/components/crm/CrmAgentIA.tsx`
+
+---
+
+### AI-25 · Auto-transferencia por Palabras Clave ✅ COMPLETADO
+
+**Comportamiento:**
+- El tenant configura una lista de keywords (ej: `"humano, persona, precio, urgente, hablar con alguien"`)
+- El `ai-agent` edge function revisa cada mensaje entrante contra esa lista (case-insensitive, substring match)
+- Si hay match → cambia conversación a modo HUMAN → notifica al staff/principal (ver AI-26)
+- El agente NO responde con IA cuando hay match — deja el turno al humano
+
+**Dónde se configura:**
+- **Wizard Step 3 (Capacidades)** — si "Transferir a humano" está activado, aparece campo de texto para ingresar keywords separadas por coma
+- **Settings → tab Capacidades** — misma UI para editar después de la configuración inicial
+
+**DB:**
+```sql
+ALTER TABLE crm_ai_agent_config ADD COLUMN IF NOT EXISTS transfer_keywords text[];
+```
+
+**Archivos a modificar:**
+- `supabase/migrations/` → columna `transfer_keywords text[]`
+- `src/lib/supabase.ts` → `transfer_keywords: string[] | null` en `CrmAIAgentConfig`
+- `supabase/functions/ai-agent/index.ts` → verificar keywords antes de llamar a Claude
+- `src/components/crm/CrmAgentIA.tsx` → UI en Step 3 del wizard y tab Capacidades del panel
+
+---
+
+### AI-26 · Notificaciones WhatsApp al Staff (Cambio a Modo HUMAN)
+
+**Cuándo se dispara:**
+1. Conversación cambia a HUMAN por **keyword automática** (AI-25)
+2. Llega **nuevo mensaje** en conversación ya en modo HUMAN con staff asignado (AI-28)
+3. Conversación es **asignada manualmente** a un staff
+
+**A quién se notifica:**
+- Al **staff asignado** (AI-28) si existe
+- Si no hay asignado → al **principal/dueño** del tenant
+- Se usa el campo `personal_whatsapp` del staff (nuevo campo en `crm_staff`)
+
+**Mensaje:**
+```
+Tienes un chat de WhatsApp esperando respuesta.
+Cliente: {contact_name} (+{phone})
+Último mensaje: "{preview de 80 chars}"
+Entra al CRM para atender.
+```
+
+**Nota técnica:** El envío se hace con el número del agente del tenant hacia el WhatsApp personal del staff. Dentro de ventana 24h → texto libre. Fuera de ventana → requiere template aprobado. El staff debe haber escrito al número del negocio alguna vez para abrir la ventana inicialmente.
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` → `ALTER TABLE crm_staff ADD COLUMN personal_whatsapp text`
+- `src/components/crm/CrmSettings.tsx` → campo "WhatsApp personal" en formulario de staff
+- `supabase/functions/ai-agent/index.ts` → dispara notificación cuando cambia a HUMAN
+- `supabase/functions/send-wa-message/index.ts` → o nueva función `notify-staff-whatsapp`
+
+---
+
+### ✅ AI-27 · Etiquetas en Conversaciones — COMPLETADO
+
+**Funcionalidad:**
+- El tenant crea etiquetas personalizadas (nombre + color HEX + sugerencia para IA)
+- Se aplican múltiples etiquetas a una conversación (manual o automáticamente por la IA)
+- Visibles como dots de color en la lista de conversaciones
+- Filtro por etiqueta en la barra superior de la lista
+- Gestión (crear/editar/eliminar) en Settings → nuevo tab "Etiquetas"
+- Auto-etiquetado: `ai-agent` incluye sugerencias en el system prompt y parsea `|LABELS|` de la respuesta de Claude
+
+**DB:**
+```sql
+CREATE TABLE crm_wa_labels (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  color text NOT NULL DEFAULT '#6366f1',
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE crm_wa_labels ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner" ON crm_wa_labels USING (user_id = auth.uid());
+
+CREATE TABLE crm_wa_conversation_labels (
+  conversation_id uuid REFERENCES crm_wa_conversations(id) ON DELETE CASCADE,
+  label_id uuid REFERENCES crm_wa_labels(id) ON DELETE CASCADE,
+  PRIMARY KEY (conversation_id, label_id)
+);
+ALTER TABLE crm_wa_conversation_labels ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner" ON crm_wa_conversation_labels
+  USING (conversation_id IN (SELECT id FROM crm_wa_conversations WHERE user_id = auth.uid()));
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` → tablas de arriba
+- `src/lib/supabase.ts` → tipos `CrmWaLabel`, `CrmWaConversationLabel`
+- `src/hooks/useCrmData.ts` → `useWaLabels`, `useUpsertWaLabel`, `useToggleConversationLabel`
+- `src/components/crm/CrmAgentIA.tsx` → selector de etiquetas en header del chat + dots en lista + filtros
+
+---
+
+### ✅ AI-28 · Asignación de Conversaciones a Staff — COMPLETADO
+
+**Funcionalidad:**
+- Asignar conversaciones a staff desde el header del chat (dropdown con avatares)
+- Badge de iniciales del asignado en cada item de la lista
+- Filtros: "Todas" / "Sin asignar" / "Mías" (Mías solo visible si el usuario logueado es staff)
+- Staff puede ver a sus colegas del mismo owner en el dropdown (nueva política RLS `staff_read_colleagues`)
+
+**DB:**
+```sql
+ALTER TABLE crm_wa_conversations
+  ADD COLUMN IF NOT EXISTS assigned_to uuid REFERENCES crm_staff(id) ON DELETE SET NULL;
+```
+
+**Archivos a modificar:**
+- `supabase/migrations/` → columna `assigned_to`
+- `src/lib/supabase.ts` → `CrmWaConversation.assigned_to: string | null`
+- `src/hooks/useCrmData.ts` → `useAssignConversation`
+- `src/components/crm/CrmAgentIA.tsx` → selector en header + badge en lista + filtros
+
+---
+
+### ✅ AI-29 · Búsqueda en Historial de Mensajes — COMPLETADO
+
+**Funcionalidad:**
+- Toggle en la barra de búsqueda: modo **"Contactos"** (actual, por nombre/teléfono) vs **"Mensajes"** (nuevo, dentro del contenido)
+- Resultados muestran: nombre del contacto, fragmento del mensaje con keyword resaltada, timestamp
+- Hacer clic en resultado navega a esa conversación y hace scroll al mensaje
+- Mínimo 3 caracteres, debounce 400ms
+
+**Implementación:**
+- Query: `supabase.from("crm_wa_messages").select("*, crm_wa_conversations(*)").ilike("content", "%query%").limit(20)`
+- El hook acepta `userId` para soportar staff buscando en conversaciones del principal
+
+**Archivos a modificar:**
+- `src/hooks/useCrmData.ts` → `useSearchWaMessages(query: string, userId?: string)`
+- `src/components/crm/CrmAgentIA.tsx` → toggle de modo búsqueda + resultados
+
+---
+
+### Resumen del Bloque 13 — Agente IA Features Avanzados
+
+| Feature | ID | Prioridad | Complejidad | Estado |
+|---|---|---|---|---|
+| WhatsApp en Recordatorios | AI-23 | 🔴 Alta | Media | ✅ Completado |
+| Click teléfono → chat | AI-24 | 🔴 Alta | Baja | ❌ Descartado |
+| Keywords auto-transfer | AI-25 | 🔴 Alta | Baja | ✅ Completado |
+| Notificaciones staff HUMAN | AI-26 | 🟡 Media | Media | ✅ Completado (email) |
+| Etiquetas en conversaciones | AI-27 | 🟡 Media | Media | ✅ Completado |
+| Asignación a staff | AI-28 | 🟡 Media | Media | ✅ Completado |
+| Búsqueda en mensajes | AI-29 | 🟢 Baja | Baja | ✅ Completado |
+
 Las credenciales de Meta (access_token, app_secret) se guardan **en la base de datos por tenant** (encriptadas con pgp_sym_encrypt), no como secrets globales. Esto es lo que hace posible el multi-tenant.
+
+---
+
+## BLOQUE 14 — Módulo Productos, Catálogos y Ventas por IA
+
+### Contexto
+El CRM actualmente tiene un módulo de Servicios orientado a ventas de tiempo/trabajo. Este bloque añade un módulo de **Productos** completamente independiente (con catálogos, variantes, stock, entregables digitales y métodos de pago), actualiza Servicios para que también admitan métodos de pago, y extiende el Agente IA para que pueda cerrar ventas detectando comprobantes de pago y entregar archivos digitales de forma automática.
+
+---
+
+### Arquitectura general
+
+```
+Mi Negocio
+  ├── Servicios (existente, se añade Método de pago)
+  └── Productos (nuevo)
+        ├── Catálogos (agrupan productos, URL pública)
+        └── Productos (CRUD con variantes, stock, imágenes, entregable, métodos de pago)
+
+Página pública: /catalogo/{slug}
+  └── Vitrina informativa → botón "Comprar por WhatsApp" → abre chat con IA
+
+Agente IA (ai-agent edge function)
+  └── Detecta comprobante de pago → crea Venta → (si procede) envía entregable
+```
+
+---
+
+### ✅ PR-1 · DB: Tablas y migraciones — COMPLETADO
+
+**Nuevas tablas:**
+
+```sql
+-- Productos
+CREATE TABLE crm_products (
+  id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id         uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name            text NOT NULL,
+  description     text,
+  price           numeric NOT NULL DEFAULT 0,
+  currency        text NOT NULL DEFAULT 'USD',
+  sku             text,
+  stock_enabled   boolean NOT NULL DEFAULT false,
+  stock           integer,                        -- null = "Sin stock" / no tracking
+  images          text[] NOT NULL DEFAULT '{}',   -- [0] = thumbnail principal, [1-4] adicionales
+  has_variants    boolean NOT NULL DEFAULT false,
+  deliverable_type text,                          -- 'file' | 'text' | null
+  deliverable_url  text,                          -- URL en Supabase Storage (zip/pdf)
+  deliverable_text text,                          -- texto libre (link Drive, instrucciones)
+  is_active       boolean NOT NULL DEFAULT true,
+  sort_order      integer NOT NULL DEFAULT 0,
+  created_at      timestamptz DEFAULT now(),
+  updated_at      timestamptz DEFAULT now()
+);
+ALTER TABLE crm_products ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner" ON crm_products USING (user_id = auth.uid());
+
+-- Variantes de producto
+CREATE TABLE crm_product_variants (
+  id             uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  product_id     uuid NOT NULL REFERENCES crm_products(id) ON DELETE CASCADE,
+  name           text NOT NULL,          -- "Talla L", "Color Rojo + Azul"
+  price_override numeric,               -- si es null, usa precio del producto base
+  stock          integer,               -- si es null, usa stock del producto base
+  sort_order     integer NOT NULL DEFAULT 0,
+  created_at     timestamptz DEFAULT now()
+);
+ALTER TABLE crm_product_variants ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner" ON crm_product_variants
+  USING (product_id IN (SELECT id FROM crm_products WHERE user_id = auth.uid()));
+
+-- Métodos de pago (unifica productos, variantes y servicios)
+CREATE TABLE crm_payment_methods (
+  id           uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id      uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  entity_type  text NOT NULL,   -- 'product' | 'product_variant' | 'service'
+  entity_id    uuid NOT NULL,
+  type         text NOT NULL,   -- 'bank_transfer' | 'payment_link' | 'qr_code'
+  label        text,            -- "Banco XYZ", "PayPal", etc.
+  content      text NOT NULL,   -- texto con datos bancarios, URL, o URL del QR en Storage
+  sort_order   integer NOT NULL DEFAULT 0,
+  created_at   timestamptz DEFAULT now()
+);
+ALTER TABLE crm_payment_methods ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner" ON crm_payment_methods USING (user_id = auth.uid());
+
+-- Catálogos
+CREATE TABLE crm_catalogs (
+  id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id     uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name        text NOT NULL,
+  description text,
+  slug        text UNIQUE NOT NULL,   -- URL pública: /catalogo/{slug}
+  cover_image text,
+  is_active   boolean NOT NULL DEFAULT true,
+  created_at  timestamptz DEFAULT now()
+);
+ALTER TABLE crm_catalogs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner" ON crm_catalogs USING (user_id = auth.uid());
+
+-- Relación catálogo ↔ producto (N:M)
+CREATE TABLE crm_catalog_products (
+  catalog_id uuid REFERENCES crm_catalogs(id) ON DELETE CASCADE,
+  product_id uuid REFERENCES crm_products(id) ON DELETE CASCADE,
+  sort_order integer NOT NULL DEFAULT 0,
+  PRIMARY KEY (catalog_id, product_id)
+);
+ALTER TABLE crm_catalog_products ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner" ON crm_catalog_products
+  USING (catalog_id IN (SELECT id FROM crm_catalogs WHERE user_id = auth.uid()));
+```
+
+**Modificaciones a tablas existentes:**
+
+```sql
+-- Ventas: campos para ventas por IA
+ALTER TABLE crm_sales
+  ADD COLUMN IF NOT EXISTS product_id         uuid REFERENCES crm_products(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS product_variant_id  uuid REFERENCES crm_product_variants(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS payment_method_id   uuid REFERENCES crm_payment_methods(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS is_ai_sale          boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS status              text NOT NULL DEFAULT 'confirmed', -- 'confirmed' | 'pending_review'
+  ADD COLUMN IF NOT EXISTS wa_conversation_id  uuid REFERENCES crm_wa_conversations(id) ON DELETE SET NULL;
+
+-- Config del Agente IA: selección y detección de pagos
+ALTER TABLE crm_ai_agent_config
+  ADD COLUMN IF NOT EXISTS products_mode        text NOT NULL DEFAULT 'all',  -- 'all' | 'selected'
+  ADD COLUMN IF NOT EXISTS selected_product_ids uuid[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS services_mode        text NOT NULL DEFAULT 'all',  -- 'all' | 'selected'
+  ADD COLUMN IF NOT EXISTS selected_service_ids uuid[] NOT NULL DEFAULT '{}',
+  ADD COLUMN IF NOT EXISTS auto_detect_payments boolean NOT NULL DEFAULT false;
+```
+
+**Buckets de Storage:**
+- `product-images` (público) — imágenes de productos
+- `payment-qr` (público) — imágenes QR de métodos de pago
+- `product-deliverables` (privado) — archivos zip/pdf de entregables
+
+---
+
+### ✅ PR-2 · Métodos de pago en Servicios — COMPLETADO
+
+**Qué cambia:** Los servicios existentes ganan soporte de métodos de pago usando la tabla `crm_payment_methods` con `entity_type = 'service'`.
+
+**UI (`src/components/crm/CrmServices.tsx`):**
+- En el formulario de edición de cada servicio, agregar sección "Métodos de pago" (igual que en productos)
+- Cada método tiene: tipo (transferencia/link/QR), etiqueta, contenido
+- Botón para añadir método, lista editable con eliminar
+
+**Hooks (`src/hooks/useCrmData.ts`):**
+- `usePaymentMethods(entityType, entityId)` → lista de métodos
+- `useUpsertPaymentMethod()` → crear/editar
+- `useDeletePaymentMethod()` → eliminar
+
+---
+
+### ✅ PR-3 · UI: Módulo de Productos — COMPLETADO
+
+**Ubicación:** Pestaña "Productos" dentro de "Mi Negocio", al lado de "Servicios".
+
+**Vista principal:** Lista de catálogos (cards con cover image, nombre, cantidad de productos, badge activo/inactivo, botón de URL pública).
+
+**Flujo de creación:**
+1. Crear catálogo → nombre, descripción, slug (auto-generado del nombre, editable), imagen de portada
+2. Dentro del catálogo → botón "Agregar producto"
+3. Formulario de producto:
+   - **Info básica:** nombre, descripción, precio, moneda, SKU (opcional)
+   - **Imágenes:** 1 principal + hasta 4 adicionales (drag & drop / upload)
+   - **Stock:** toggle "Gestionar stock" → si activo: campo numérico de stock inicial. Si inactivo: "Sin límite"
+   - **Variantes:** toggle "Este producto tiene variantes" → lista editable de variantes con nombre, precio propio (opcional, si no hereda el base), stock propio (opcional). Botón "Añadir variante"
+   - **Métodos de pago:** lista de métodos con tipo/etiqueta/contenido. Para QR: upload de imagen
+   - **Entregable:** toggle "Producto digital / entregable" → tipo (Archivo o Texto). Si archivo: upload de zip/pdf. Si texto: textarea (links de Drive, instrucciones, etc.)
+   - **Catálogos:** checklist de catálogos del tenant donde incluir este producto
+
+**Archivos a crear/modificar:**
+- `src/components/crm/CrmProductos.tsx` — componente principal nuevo
+- `src/hooks/useCrmData.ts` — hooks para productos, variantes, catálogos, métodos de pago
+- `src/lib/supabase.ts` — tipos: `CrmProduct`, `CrmProductVariant`, `CrmPaymentMethod`, `CrmCatalog`
+- `src/pages/Crm.tsx` — añadir tab "Productos" en Mi Negocio
+
+---
+
+### ✅ PR-4 · Página pública del catálogo — COMPLETADO
+
+**URL:** `/catalogo/:slug` (ruta pública, sin auth)
+
+**Layout (mobile-first):**
+- Header con cover image del catálogo, nombre, descripción del negocio
+- Grid de cards de productos: imagen principal, nombre, precio, descripción breve
+- Click en producto → modal/drawer con:
+  - Galería de imágenes (principal + adicionales)
+  - Nombre, descripción completa, precio
+  - Selector de variante si el producto las tiene (precio se actualiza)
+  - Métodos de pago (informativo: texto con datos bancarios, link clicable, o imagen QR)
+  - Botón **"Comprar por WhatsApp"** → abre `https://wa.me/{phone_negocio}?text=Hola!+Me+interesa+el+producto+{nombre}` (la IA del negocio recibirá ese mensaje y sabrá de qué producto se trata)
+- Footer con nombre del negocio y logo
+
+**Acceso a datos:** Via `supabasePublic` (cliente sin sesión) con políticas RLS públicas de solo lectura en `crm_catalogs`, `crm_products`, `crm_catalog_products`.
+
+**Archivos:**
+- `src/pages/CatalogPublic.tsx` — página nueva
+- `src/router.tsx` (o equivalente) — ruta pública `/catalogo/:slug`
+- RLS públicas:
+  ```sql
+  CREATE POLICY "public_read_active_catalogs" ON crm_catalogs FOR SELECT USING (is_active = true);
+  CREATE POLICY "public_read_active_products" ON crm_products FOR SELECT USING (is_active = true);
+  CREATE POLICY "public_read_catalog_products" ON crm_catalog_products FOR SELECT USING (true);
+  CREATE POLICY "public_read_payment_methods" ON crm_payment_methods FOR SELECT USING (true);
+  ```
+
+---
+
+### ✅ PR-5 · Upload seguro de entregables — COMPLETADO
+
+**Validación de tipos permitidos (solo en servidor):**
+- Archivos: `application/zip`, `application/pdf`
+- Bucket: `product-deliverables` (privado — RLS: solo el owner puede leer/escribir)
+- Tamaño máximo: 50 MB
+
+**Generación de URL temporal para descarga:**
+- Cuando la venta se confirma, el edge function genera una URL firmada (`createSignedUrl`) con expiración de 72h y la envía por WhatsApp al cliente. Nunca se expone la URL permanente.
+
+**Edge function:** `send-deliverable` (nueva)
+- Input: `{ sale_id, conversation_id }`
+- Busca el producto/variante de la venta, obtiene `deliverable_url` o `deliverable_text`
+- Si es archivo: genera signed URL y envía por WhatsApp
+- Si es texto: envía el texto directamente por WhatsApp
+- Registra en la venta: `deliverable_sent_at`
+
+---
+
+### ✅ PR-6 · Agente IA: conocimiento de productos y métodos de pago — COMPLETADO
+
+**Cambios en `buildSystemPrompt` (`supabase/functions/ai-agent/index.ts`):**
+
+```typescript
+// Carga productos según config (all | selected)
+const products = config.products_mode === 'all'
+  ? await loadAllProducts(config.user_id)
+  : await loadSelectedProducts(config.selected_product_ids);
+
+// Carga servicios según config (all | selected)
+const services = config.services_mode === 'all'
+  ? await loadAllServices(config.user_id)
+  : await loadSelectedServices(config.selected_service_ids);
+```
+
+**Formato en system prompt:**
+```
+PRODUCTOS DISPONIBLES:
+- {nombre} ({variantes si las hay}): {moneda} ${precio}
+  Descripción: {descripción}
+  Métodos de pago: {lista de métodos con su contenido}
+  {Si tiene entregable: "Entrega digital automática al confirmar pago"}
+
+SERVICIOS DISPONIBLES:
+- {nombre}: {moneda} ${precio}
+  Métodos de pago: {lista}
+```
+
+**Regla si no hay método de pago:**
+```
+Si un cliente quiere comprar un producto/servicio sin método de pago configurado, 
+responde ÚNICAMENTE: [TRANSFER] (para pasar a modo Manual)
+```
+
+---
+
+### PR-7 · Agente IA: detección de pagos
+
+**Estado:** ✅ Completado. `parseAndStripPayment` en ai-agent, edge function `confirm-ai-sale`, toggle `auto_detect_payments` en wizard y settings, panel de ventas pendientes con confirmar/rechazar, badge IA en historial de ventas. Email de notificación al owner funcional vía Resend (llamada directa en `ai-agent` v51) con campo `payment_notify_email` configurable en wizard y settings (sub-panel igual que "Transferir a humano").
+
+**Marcadores de respuesta de Claude:**
+
+```
+[PAYMENT_DETECTED|product_id:{uuid}|variant_id:{uuid_o_null}|amount:{numero}|method_type:{tipo}]
+```
+
+Claude añade este marcador al final de su respuesta cuando detecta un comprobante de pago válido. La función `parseAndStripPayment()` extrae los datos antes de enviar el mensaje al usuario.
+
+**Flujo completo:**
+
+```
+1. Cliente envía imagen de comprobante por WhatsApp
+2. ai-agent lo procesa como media (visión)
+3. System prompt incluye:
+   "Si recibes un comprobante de pago, analiza la imagen, identifica el monto, 
+   confirma con el cliente: «Recibí tu comprobante de {monto}. Confirmo tu compra de {producto}.»
+   Y añade al final de tu respuesta: [PAYMENT_DETECTED|product_id:...|amount:...|method_type:...]"
+4. Edge function parsea el marcador:
+   - Crea registro en crm_sales (is_ai_sale=true, wa_conversation_id=conv_id)
+   - Si auto_detect_payments=true: status='confirmed', notifica al owner por email, 
+     dispara send-deliverable si aplica, decrementa stock
+   - Si auto_detect_payments=false: status='pending_review', notifica al owner 
+     con link para confirmar/rechazar
+5. Respuesta limpia (sin marcador) se envía al cliente por WhatsApp
+```
+
+**Notificación email al owner:**
+- Asunto: `🛒 Nueva venta IA — {producto} · {monto}`
+- Cuerpo: datos del cliente (nombre/teléfono), producto, monto, método de pago, miniatura del comprobante
+- Si `pending_review`: incluir botones "Confirmar venta" / "Rechazar"
+
+**Edge function de confirmación manual:** `confirm-ai-sale`
+- Input: `{ sale_id, action: 'confirm' | 'reject' }` (llamado desde link del email)
+- Si confirm: cambia status a `confirmed`, dispara `send-deliverable`, decrementa stock
+- Si reject: cambia status a `rejected`, notifica al cliente por WhatsApp que el pago no fue verificado
+
+---
+
+### PR-8 · Agente IA: selección de servicios y productos (Wizard + Config)
+
+**Estado:** ✅ Completado. Sección "Catálogo del Agente IA" en wizard Step 3 y Settings Panel → Capacidades, con radio All/Seleccionados y checklist de servicios activos y productos activos. Backend ya usaba `products_mode`/`services_mode`.
+
+**Wizard — Step 3 (Capacidades):** Se añade subsección "Catálogo IA" después de los toggles actuales:
+
+```
+─ Servicios ──────────────────────────────────────
+  ○ Todos mis servicios
+  ○ Solo seleccionados → checklist de servicios activos
+
+─ Productos ──────────────────────────────────────
+  ○ Todos mis productos
+  ○ Solo seleccionados → checklist de productos activos
+
+─ Pagos ──────────────────────────────────────────
+  [ ] Detectar pagos automáticos con IA
+      "La IA analiza los comprobantes enviados por WhatsApp y registra
+       ventas automáticamente. Requiere atención: puede haber falsos positivos."
+```
+
+**Settings Panel — tab "Capacidades":** mismos controles para edición post-wizard.
+
+**Archivos:**
+- `src/components/crm/CrmAgentIA.tsx` — wizard Step 3 + SettingsPanel tab Capacidades
+- `src/lib/supabase.ts` — actualizar `CrmAIAgentConfig` con nuevos campos
+- `supabase/functions/ai-agent/index.ts` — leer nuevos campos de config
+
+---
+
+### PR-9 · Ventas: registro automático y decremento de stock
+
+**Estado:** ✅ Completado. Función SQL `decrement_sale_stock` (atómica, evita stock negativo), llamada en `ai-agent` (venta auto-confirmada) y `confirm-ai-sale` (confirmación manual). Columna "Servicio / Producto" en tabla de ventas muestra nombre de producto IA o servicio. `serviceName` usa `product_name ?? service_name`.
+
+**Decremento de stock:**
+```sql
+-- Al confirmar venta con product_variant_id:
+UPDATE crm_product_variants SET stock = stock - 1 WHERE id = {variant_id} AND stock IS NOT NULL;
+
+-- Al confirmar venta sin variante:
+UPDATE crm_products SET stock = stock - 1 WHERE id = {product_id} AND stock IS NOT NULL AND stock_enabled = true;
+```
+
+**Vista en módulo Ventas (`CrmVentas.tsx`):**
+- Badge "IA" en ventas con `is_ai_sale = true`
+- Badge "Pendiente" en ventas con `status = 'pending_review'`
+- En venta pendiente: botones "Confirmar" y "Rechazar" (llaman a `confirm-ai-sale`)
+- Columna "Producto" visible cuando `product_id` está seteado
+- Columna "Comprobante" con thumbnail del proof_url (ya existe en `crm_sales`)
+
+---
+
+### Orden de implementación sugerido
+
+| Prioridad | Feature | Complejidad | Impacto |
+|---|---|---|---|
+| 1 | PR-1 · DB: Tablas y migraciones | Alta | Bloqueante para todo |
+| 2 | PR-2 · Métodos de pago en Servicios | Baja | Alto — mejora inmediata |
+| 3 | PR-3 · UI: Módulo Productos | Alta | Alto — feature principal |
+| 4 | PR-4 · Página pública del catálogo | Media | Alto — valor para clientes |
+| 5 | PR-5 · Upload seguro de entregables | Media | Alto — diferenciador |
+| 6 | PR-6 · IA: conocimiento de productos | Media | Alto — cierre de ventas |
+| 7 | PR-7 · IA: detección de pagos | Alta | Alto — automatización |
+| 8 | PR-8 · IA: selección servicios/productos | Baja | Medio — control granular |
+| 9 | PR-9 · Ventas: registro y stock | Media | Alto — cierra el loop |
+
+---
+
+### Resumen del Bloque 14 — Productos, Catálogos y Ventas por IA
+
+| Feature | ID | Prioridad | Complejidad | Estado |
+|---|---|---|---|---|
+| DB: tablas y migraciones | PR-1 | 🔴 Alta | Alta | ✅ Completado |
+| Métodos de pago en Servicios | PR-2 | 🔴 Alta | Baja | ✅ Completado |
+| UI: Módulo Productos | PR-3 | 🔴 Alta | Alta | ✅ Completado |
+| Página pública del catálogo | PR-4 | 🔴 Alta | Media | ✅ Completado |
+| Upload seguro de entregables | PR-5 | 🔴 Alta | Media | ✅ Completado |
+| IA: conocimiento de productos | PR-6 | 🟡 Media | Media | ✅ Completado |
+| IA: detección de pagos | PR-7 | 🟡 Media | Alta | ✅ Completado |
+| IA: selección servicios/productos | PR-8 | 🟡 Media | Baja | ✅ Completado |
+| Ventas: registro automático + stock | PR-9 | 🟡 Media | Media | ✅ Completado |
+
+---
+
+## BLOQUE 15 — Mejoras y Correcciones (Backlog)
+
+Ideas registradas para planificar e implementar. Cada ítem indica si ya existe parcialmente (Revisar) o si es nuevo (Desarrollar).
+
+---
+
+### B15-1 · Configuración estratégica guiada del Agente IA
+
+**Estado:** ✅ Completado
+
+**Implementado:**
+- `buildStrategicInstructions(config)` en `ai-agent/index.ts` — convierte los campos estratégicos en instrucciones de prompt concretas
+- Wizard (Step 2 + Step 3) y Settings Panel tienen todos los campos: objetivos, personalidad, proactividad, datos a recopilar, longitud de respuesta, emojis, upsell, resumen de confirmación, FAQ, prompt adicional
+- DB: columnas añadidas vía migración a `crm_ai_agent_config`
+- Tipo `CrmAIAgentConfig` en `supabase.ts` actualizado
+- Detección de pagos IA (`auto_detect_payments`) + email de notificación al owner (`payment_notify_email`) — configurable en wizard Step 3 y Settings con sub-panel de correo de destino
+- Email de notificación de venta enviado directamente via Resend desde `ai-agent` (v51)
+
+**Problema:** El campo libre de system prompt exige que el usuario sepa qué escribir. La mayoría no sabe qué incluir y deja prompts genéricos o incompletos. Los datos de negocio ya existen en "Mi Negocio" — lo que falta es la estrategia de cómo actúa el agente.
+
+**Solución propuesta:** Reemplazar (o complementar) el textarea libre con una configuración estratégica guiada. El sistema convierte estas opciones en instrucciones de prompt específicas. El usuario puede seguir editando el resultado final en un textarea de "Prompt adicional" al pie.
+
+---
+
+#### Campos de configuración estratégica
+
+| Campo | Tipo | Opciones / Descripción |
+|-------|------|------------------------|
+| **Objetivos del agente** | Multi-select (el primero = CTA implícito) | Agendar cita · Vender productos · Responder dudas · Capturar leads · Dar soporte postventa · Calificar prospectos |
+| **Personalidad / tono** | Single-select | Profesional y formal · Amigable y cercano · Entusiasta y dinámico · Empático y tranquilizador · Directo y conciso |
+| **Nivel de proactividad** | Single-select | Reactivo (solo responde) · Moderado (sugiere cuando hay oportunidad) · Proactivo (siempre orienta al objetivo) |
+| **Datos a recopilar** | Multi-select → se guardan en `crm_contacts.ai_collected_data jsonb` | Nombre · Teléfono · Email · Presupuesto · Necesidad específica · Zona/ciudad · Tamaño de empresa · Fecha preferida |
+| **Longitud de respuestas** | Escala de 3 puntos | Muy cortas · Normales · Detalladas |
+| **Uso de emojis** | Escala de 4 puntos | Ninguno · Poco · Medio · Mucho |
+| **Mostrar catálogo al preguntar** | Toggle | ON = incluye lista de servicios/productos al preguntar sobre oferta |
+| **Hacer upsell/cross-sell** | Toggle | ON = sugiere productos/servicios complementarios cuando es relevante |
+| **Resumen de confirmación** | Toggle | ON = antes de cerrar una venta, el agente resume lo acordado para confirmación del cliente |
+| **Crear contactos automáticamente** | Toggle | ON = crea contacto + guarda datos recopilados en `ai_collected_data`; OFF = ni crea contacto ni recopila datos |
+| **Preguntas frecuentes (FAQ)** | Lista de pares Q&A | El agente responde estas preguntas exactas con las respuestas definidas, sin interpretación |
+| **Prompt adicional libre** | Textarea | Instrucciones extra que se anexan al final del prompt generado. Para casos avanzados. |
+
+---
+
+#### Comportamientos fijos (no configurables — siempre activos)
+
+- **Detección de idioma automática:** El agente detecta el idioma del cliente y responde en el mismo idioma.
+- **Gestión de objeciones:** Experto por defecto en todos los planes — maneja objeciones con argumentos basados en los servicios/productos del negocio.
+- **Bloqueo de temas fuera de contexto:** No responde preguntas ajenas al negocio (política, entretenimiento, etc.).
+- **Descuentos configurados:** Si el negocio tiene descuentos activos, el agente los menciona cuando es relevante (sin toggle — siempre que existan).
+
+---
+
+#### Relación entre "Crear contactos" y recopilación de datos
+
+El toggle **"Crear contactos automáticamente"** controla ambas funciones:
+- **ON:** El agente crea el contacto en el CRM al identificar al prospecto Y guarda los datos recopilados (nombre, presupuesto, etc.) en `crm_contacts.ai_collected_data`.
+- **OFF:** El agente no crea contactos ni recopila datos en la BD (modo conversacional puro).
+
+---
+
+#### Cómo se genera el prompt
+
+El sistema toma los valores de estos campos y los convierte en instrucciones concretas al final del wizard/settings. Ejemplo simplificado:
+
+```
+Tu objetivo principal es [primer objetivo seleccionado]. También puedes [otros objetivos].
+Tu personalidad es [personalidad elegida].
+[Si proactividad alta:] Orienta siempre la conversación hacia tu objetivo principal.
+[Si recopilar datos:] Durante la conversación, obtén de forma natural: [lista de campos].
+Responde con mensajes [cortos/normales/detallados].
+[Si emojis > Ninguno:] Usa emojis [ocasionalmente/con frecuencia/abundantemente].
+[Si FAQ:] Responde estas preguntas con las respuestas exactas definidas: [Q&A list]
+[Prompt adicional del usuario]
+```
+
+---
+
+#### DB — Columnas nuevas en `crm_ai_agent_config`
+
+```sql
+ALTER TABLE crm_ai_agent_config
+  ADD COLUMN agent_objectives text[] DEFAULT '{}',
+  ADD COLUMN agent_personality text,
+  ADD COLUMN agent_proactivity text,
+  ADD COLUMN agent_data_collect text[] DEFAULT '{}',
+  ADD COLUMN response_length text DEFAULT 'normal',  -- 'short' | 'normal' | 'detailed'
+  ADD COLUMN emoji_level text DEFAULT 'poco',        -- 'none' | 'poco' | 'medio' | 'mucho'
+  ADD COLUMN show_catalog_on_ask boolean DEFAULT true,
+  ADD COLUMN do_upsell boolean DEFAULT false,
+  ADD COLUMN confirm_summary boolean DEFAULT true,
+  ADD COLUMN agent_faq jsonb DEFAULT '[]',           -- [{ q: string, a: string }]
+  ADD COLUMN agent_extra_prompt text;
+```
+
+> Nota: `auto_create_contacts` ya existe o se puede reutilizar el toggle existente de creación de contactos.
+
+---
+
+**Archivos a modificar:**
+- `supabase/migrations/` — columnas nuevas en `crm_ai_agent_config`
+- `src/lib/supabase.ts` — actualizar tipo `CrmAIAgentConfig` con los nuevos campos
+- `src/components/crm/CrmAgentIA.tsx` — wizard Step 2 (Agente) + SettingsPanel tab "Agente": reemplazar textarea libre con los campos estratégicos + textarea "Prompt adicional" al pie; botón "Ver prompt generado" para previsualizar el resultado
+- `supabase/functions/ai-agent/index.ts` — leer los nuevos campos de config y construir las instrucciones estratégicas en el system prompt (función `buildStrategicInstructions(config)`)
+
+---
+
+### B15-2 · Selección de servicios y productos en el agente IA
+
+**Estado:** ✅ Completado en PR-8 — Solo revisar que funciona correctamente.
+
+El wizard Step 3 y Settings Panel → Capacidades tienen la sección "Catálogo del Agente IA" con radio All/Seleccionados y checklist de servicios activos y productos activos.
+
+---
+
+### B15-3 · Seguimiento de costos de Claude IA por cuenta
+
+**Estado:** ✅ Completado
+
+**Objetivo:** El superadmin puede ver cuántos tokens se han consumido por cada cuenta de cliente SaaS, con desglose de costo estimado.
+
+**Datos a guardar por cada llamada a Claude:**
+- `user_id` del tenant
+- `input_tokens` y `output_tokens` (disponibles en `json.usage` de la respuesta de Anthropic)
+- `model` usado
+- `timestamp`
+- `conversation_id`
+
+**Implementación:**
+- Nueva tabla `crm_ai_usage_log { id, user_id, conversation_id, model, input_tokens, output_tokens, created_at }`
+- En `ai-agent/index.ts`: después de llamar a Claude, insertar en `crm_ai_usage_log` con `json.usage.input_tokens` y `json.usage.output_tokens`
+- Vista en el CRM (solo superadmin): tabla agrupada por `user_id` con totales de tokens e ingreso estimado (ej: Haiku cuesta $0.25/M input + $1.25/M output)
+- Filtro por rango de fechas y por cuenta
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — tabla `crm_ai_usage_log`
+- `supabase/functions/ai-agent/index.ts` — registrar `json.usage` tras cada llamada
+- `src/components/crm/` — nuevo componente `CrmAIUsage.tsx` o sección en el superadmin dashboard
+
+---
+
+### B15-4 · UI/UX de ventas con múltiples monedas
+
+**Estado:** ✅ Completado — revisión exhaustiva 2026-05-18
+
+**Problema:** La tabla de ventas muestra todos los montos con `$` sin importar la moneda real (BOB, PEN, EUR, etc.). Mezclar monedas en los totales KPI es incorrecto.
+
+**Mejoras:**
+1. Mostrar el símbolo correcto según `currency` de la venta (solo `$` para USD, `Bs.` para BOB, `S/` para PEN)
+2. Los KPIs de "Total vendido" e "Ingresos del mes" deben agruparse por moneda o mostrar solo USD si hay mezcla
+3. Filtro de moneda en el historial de ventas
+4. En el modal de nueva venta: el selector de monto debe mostrar la moneda del servicio/producto seleccionado
+
+**Archivos a modificar:**
+- `src/components/crm/CrmVentas.tsx` — lógica de formateo de moneda, KPIs por moneda, filtro
+
+---
+
+### B15-5 · Monedas en Servicios (USD, BOB, PEN)
+
+**Estado:** ✅ Completado
+
+**Situación actual:** `crm_services` ya tiene columna `currency` (text), pero la UI de servicios no permite seleccionarla — siempre usa USD por defecto.
+
+**Solución:**
+- Agregar selector de moneda (USD / BOB / PEN) en el formulario de creación/edición de servicios
+- Las mismas monedas ya disponibles en Productos
+- El agente IA ya usa `formatPrice()` que maneja monedas correctamente
+
+**Archivos a modificar:**
+- `src/components/crm/CrmServicios.tsx` — agregar `<select>` de currency en el formulario de servicio
+- `src/hooks/useCrmData.ts` — verificar que `useUpsertService` guarda `currency`
+
+---
+
+### B15-6 · Descuentos en Productos (y mejora de descuentos en Servicios)
+
+**Estado:** ✅ Completado
+
+**Situación actual:**
+- Servicios: tienen `discount_pct` y el agente IA ya los muestra. La UI de servicios ya permite editarlo.
+- Productos: NO tienen `discount_pct`. Tampoco las variantes.
+
+**A implementar:**
+1. **Migración SQL:** `ALTER TABLE crm_products ADD COLUMN discount_pct numeric DEFAULT 0;` y en `crm_product_variants ADD COLUMN discount_pct numeric DEFAULT 0;`
+2. **UI en CrmProductos.tsx:** campo de descuento (%) en el formulario de producto y en cada variante dentro del wizard
+3. **UI en CrmServicios.tsx:** revisar que el campo de descuento ya esté visible y funcional — si no, mostrarlo
+4. **ai-agent:** `buildProductsCatalog` ya tendría que mostrar precio con descuento igual que servicios (usar `formatPrice` con el precio neto)
+5. **Catálogo público:** mostrar precio tachado + precio con descuento en las tarjetas de producto
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — columnas `discount_pct` en productos y variantes
+- `src/components/crm/CrmProductos.tsx` — campo descuento en wizard y formulario de variante
+- `src/components/crm/CrmServicios.tsx` — revisar visibilidad del campo descuento
+- `supabase/functions/ai-agent/index.ts` — aplicar descuento en `buildProductsCatalog`
+- `src/pages/CatalogPublic.tsx` — mostrar precio con descuento
+
+---
+
+### B15-7 · Auto-guardar notificaciones en calendarios y formularios
+
+**Estado:** ✅ Completado
+
+**Problema:** Al crear una notificación desde el calendario o desde formularios, el usuario debía hacer clic en un botón "Guardar" adicional, generando fricción innecesaria.
+
+**Solución implementada:** Al confirmar una regla en `ReminderRulesEditor`, el guardado ocurre automáticamente sin pasos extras.
+- `CrmCalendarConfig.tsx` — `handleRulesChange` llama `updateConfig.mutateAsync` con await real. Eliminado el botón "Guardar notificaciones". Spinner "Guardando..." mientras persiste. Calendarios nuevos: las reglas se incluyen en el save inicial.
+- `CrmForms.tsx` — `handleRulesChange` llama `onUpdate()` inmediatamente. El toast de feedback lo muestra el parent ("Formulario guardado").
+
+---
+
+### B15-8 · Corrección: cambio de foto de perfil del Agente IA
+
+**Estado:** ✅ Completado
+
+**Bug corregido:** Al Step 2 del upload binario le faltaba el header `Content-Type: application/octet-stream`, requerido por la Meta Resumable Upload API. Meta rechazaba silenciosamente el archivo sin ese header. Deployado como v2.
+
+**Si sigue fallando en producción:** el error más probable es permisos del Access Token (debe tener `whatsapp_business_management`) o WABA ID incorrecto. El mensaje de error específico aparecerá en el toast de la UI.
+
+---
+
+### B15-9 · Prompt caching + optimización de tokens IA
+
+**Estado:** ✅ Completado
+
+**Implementado en `ai-agent/index.ts`:**
+- Prompt caching: header `anthropic-beta: prompt-caching-2024-07-31` + `cache_control: {type: "ephemeral"}` en system prompt. Ahorra ~90% tokens de entrada en conversaciones activas (ventana de 5 min).
+- Historial reducido: 20 → 15 mensajes. Menos tokens sin perder contexto relevante.
+- max_tokens: 1024 → 512. Los mensajes de WhatsApp son cortos; el agente raramente supera 300 tokens de output.
+
+**Implementación en `ai-agent/index.ts`:**
+```typescript
+// En callClaude(), al construir el body:
+body: JSON.stringify({
+  model,
+  max_tokens: 1024,
+  system: [
+    {
+      type: "text",
+      text: systemPrompt,
+      cache_control: { type: "ephemeral" }  // Cache el system prompt
+    }
+  ],
+  messages,
+  betas: ["prompt-caching-2024-07-31"]  // Header requerido
+})
+```
+También agregar el header: `"anthropic-beta": "prompt-caching-2024-07-31"`.
+
+**Ahorro estimado:** El system prompt (~2000-4000 tokens) se cachea entre mensajes de la misma conversación. Costo de cache read ≈ 10% del costo original.
+
+---
+
+### B15-10 · Bloquear uso del agente en grupos de WhatsApp
+
+**Estado:** ✅ Completado
+
+**Problema:** Si el número de WhatsApp es agregado a un grupo, el agente podría responder a mensajes de grupo, enviando respuestas inapropiadas o siendo spam para el grupo.
+
+**Solución:** En `whatsapp-webhook/index.ts`, detectar si el mensaje viene de un grupo y no procesarlo.
+
+**Cómo detectarlo:** WhatsApp envía el `to` del mensaje con formato de grupo (`@g.us`) o el `from` en mensajes de grupo incluye el ID de grupo. Verificar el campo `entry[0].changes[0].value.messages[0]` — si `to` termina en `@g.us` es un grupo.
+
+**Implementación:**
+```typescript
+const recipientId = value.messages?.[0]?.to ?? "";
+if (recipientId.endsWith("@g.us")) {
+  console.log("[webhook] mensaje de grupo ignorado");
+  return; // No procesar
+}
+```
+
+**Archivos a modificar:**
+- `supabase/functions/whatsapp-webhook/index.ts` — agregar filtro antes de procesar el mensaje
+
+---
+
+### B15-11 · UX: Cómo añadir stock a un producto
+
+**Estado:** ✅ Completado
+
+**Situación actual:** El campo de stock existe en el wizard de productos (`CrmProductos.tsx`):
+- Toggle "Gestionar stock" → activa `stock_enabled`
+- Campo numérico de stock (solo visible cuando `stock_enabled = true`)
+- Las variantes también tienen campo de stock individual
+
+**Problema de UX:** No es evidente cómo añadir o reponer stock cuando el stock llega a cero, ni cómo incrementarlo después de la creación del producto.
+
+**Mejoras sugeridas:**
+1. En la vista de detalle del producto, mostrar el stock actual con un indicador visual (badge verde/amarillo/rojo según nivel)
+2. Botón "Ajustar stock" (±) que permite sumar o restar unidades sin entrar al modo de edición completa
+3. Alerta visual en el CRM cuando un producto llega a stock ≤ 0
+
+**Archivos a modificar:**
+- `src/components/crm/CrmProductos.tsx` — badge de stock, botón de ajuste rápido, alerta de stock bajo
+
+---
+
+---
+
+### B15-12 · Wizard de onboarding en el panel Resumen
+
+**Estado:** ✅ Completado
+
+**Objetivo:** Cuando un usuario nuevo accede al CRM, ve en el panel Resumen un wizard de configuración inicial que lo guía a completar los datos esenciales del negocio. Reduce la fricción de los primeros pasos.
+
+**Comportamiento del wizard:**
+
+| Paso | Sección destino | Obligatorio | Completado cuando... |
+|------|----------------|-------------|----------------------|
+| 1 · Datos personales | Mi Negocio → tab Personal | ✅ Sí | `first_name`, `last_name`, `contact_email` y `contact_phone` no están vacíos |
+| 2 · Datos del negocio | Mi Negocio → tab Negocio | ✅ Sí | `business_name` y `description` no están vacíos (`website`, `instagram`, `facebook` son opcionales) |
+| 3 · Logo y colores | Mi Negocio → tab Logo / Colores | ⬜ Opcional | `logo_url` tiene valor O el usuario hace clic en "Omitir" |
+| 4 · Servicios o Productos | Mi Negocio → tab Servicios / Productos | ⬜ Opcional | Al menos 1 servicio O 1 producto registrado, o el usuario hace clic en "Omitir" |
+
+**Estados del wizard:**
+- **Incompleto (pasos 1 o 2 sin completar):** el widget se muestra expandido y prominente con estado "Configura tu negocio" — no se puede ocultar.
+- **Obligatorios completos, opcionales pendientes:** el wizard se colapsa y muestra un resumen tipo checklist. El usuario puede mostrarlo/ocultarlo con un toggle.
+- **Todo completo:** el widget desaparece completamente del panel Resumen.
+
+**UI del widget:**
+```
+┌─ Configura tu negocio ──────────────────────── [Ocultar ˅] ─┐
+│  ✅ Datos personales              Completado                  │
+│  ✅ Datos del negocio             Completado                  │
+│  ⬜ Logo y colores                Agregar →   [Omitir]        │
+│  ⬜ Servicios o Productos         Agregar →   [Omitir]        │
+│                                                               │
+│  ████████████░░  2 de 4 pasos completos                       │
+└───────────────────────────────────────────────────────────────┘
+```
+
+Cada fila es clickeable y navega al módulo correspondiente (`Mi Negocio` con el tab ya seleccionado, o el módulo de Servicios/Productos).
+
+**Persistencia del estado "Omitir":**
+- Los pasos opcionales omitidos se guardan en `crm_business_profile` como flags (`onboarding_logo_skipped`, `onboarding_catalog_skipped`) o en `localStorage` si se prefiere no tocar la DB.
+- Recomendado: columna `onboarding_flags jsonb` en `crm_business_profile` para mantenerlo server-side y que persista entre dispositivos.
+
+**Campos verificados para cada paso:**
+
+*Paso 1 — Datos personales* (tabla `crm_user_profiles` o equivalente):
+- `first_name` — no vacío
+- `last_name` — no vacío
+- `contact_email` — no vacío
+- `contact_phone` — no vacío
+
+*Paso 2 — Datos del negocio* (tabla `crm_business_profile`):
+- `business_name` — no vacío
+- `description` — no vacío
+- `website`, `instagram`, `facebook` — opcionales, no afectan el estado
+
+*Paso 3 — Logo y colores* (tabla `crm_business_profile`):
+- `logo_url` — no null
+
+*Paso 4 — Servicios o Productos*:
+- `COUNT(crm_services WHERE user_id = ?) >= 1` OR `COUNT(crm_products WHERE user_id = ?) >= 1`
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — columna `onboarding_flags jsonb DEFAULT '{}'` en `crm_business_profile`
+- `src/components/crm/CrmResumen.tsx` (o equivalente del dashboard) — widget `<OnboardingWizard />`
+- `src/components/crm/OnboardingWizard.tsx` — nuevo componente del wizard
+- `src/hooks/useCrmData.ts` — hook `useOnboardingStatus()` que calcula el estado de cada paso consultando datos existentes
+
+---
+
+### Resumen del Bloque 15
+
+| Feature | ID | Prioridad | Esfuerzo | Estado |
+|---|---|---|---|---|
+| Prompt guiado IA | B15-1 | ✅ | — | Completado |
+| Selección catálogo IA | B15-2 | ✅ | — | Completado (PR-8) |
+| Costos Claude por cuenta | B15-3 | ✅ | — | Completado |
+| UI/UX ventas multi-moneda | B15-4 | ✅ | — | Completado |
+| Monedas en Servicios | B15-5 | ✅ | — | Completado |
+| Descuentos en Productos | B15-6 | ✅ | — | Completado |
+| Auto-guardar notificaciones | B15-7 | 🟡 Media | Baja | Pendiente |
+| Fix foto de perfil WhatsApp | B15-8 | 🔴 Alta | — | Revisar |
+| Prompt caching IA | B15-9 | 🟡 Media | Baja | Pendiente |
+| Bloquear bot en grupos WA | B15-10 | 🔴 Alta | Baja | Pendiente |
+| UX stock en productos | B15-11 | 🟡 Media | Baja | Pendiente |
+| Wizard onboarding en Resumen | B15-12 | 🔴 Alta | Media | Pendiente |

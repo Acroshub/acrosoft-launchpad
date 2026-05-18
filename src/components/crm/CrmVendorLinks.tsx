@@ -22,31 +22,17 @@ const CrmVendorLinks = ({ vendorProfile }: Props) => {
 
   if (isLoading) return null;
 
-  if (!links?.payment_link && !links?.onboarding_link) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-xl font-semibold">Links</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Links compartidos por el administrador</p>
-        </div>
-        <div className="bg-card border rounded-2xl p-8 text-center text-muted-foreground text-sm">
-          El administrador aún no ha configurado los links.
-        </div>
-      </div>
-    );
-  }
+  const landingUrl = `${window.location.origin}/${vendorProfile.slug}`;
 
-  const linkItems = [
-    links?.payment_link
-      ? { title: links.payment_link_title || "Link de Pago", url: links.payment_link }
-      : null,
-    links?.onboarding_link
-      ? {
-          title: links.onboarding_link_title || "Link de Onboarding",
-          url: buildOnboardingUrl(links.onboarding_link),
-        }
-      : null,
-  ].filter(Boolean) as { title: string; url: string }[];
+  const linkItems: { title: string; url: string }[] = [
+    { title: "Landing Page con Calendario", url: landingUrl },
+    ...(links?.payment_link
+      ? [{ title: links.payment_link_title || "Link de Pago", url: links.payment_link }]
+      : []),
+    ...(links?.onboarding_link
+      ? [{ title: links.onboarding_link_title || "Link de Onboarding", url: buildOnboardingUrl(links.onboarding_link) }]
+      : []),
+  ];
 
   return (
     <div className="space-y-6 max-w-2xl">
@@ -89,9 +75,11 @@ const CrmVendorLinks = ({ vendorProfile }: Props) => {
         ))}
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
-        El link de onboarding incluye tu identificador <span className="font-mono bg-secondary px-1.5 py-0.5 rounded">?ref={vendorProfile.slug}</span> para que las ventas se registren a tu nombre.
-      </p>
+      {links?.onboarding_link && (
+        <p className="text-[11px] text-muted-foreground">
+          El link de onboarding incluye tu identificador <span className="font-mono bg-secondary px-1.5 py-0.5 rounded">?ref={vendorProfile.slug}</span> para que las ventas se registren a tu nombre.
+        </p>
+      )}
     </div>
   );
 };

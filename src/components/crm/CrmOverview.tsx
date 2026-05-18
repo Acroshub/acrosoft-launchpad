@@ -1,16 +1,23 @@
 import { CalendarDays, Users, Clock, CheckCircle, DollarSign, GripVertical, Settings2, Plus, Loader2, Pencil, Trash2, TrendingUp, RefreshCcw } from "lucide-react";
+import OnboardingWizard from "@/components/crm/OnboardingWizard";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { useContacts, useAppointments, useServices, useSales, useCreateSale, useUpdateSale, useDeleteSale, useClientAccounts, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
+import { useContacts, useAppointments, useServices, useProducts, useProductVariants, useSales, useCreateSale, useUpdateSale, useDeleteSale, useClientAccounts, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmSale } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
 const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
+
+const CURRENCY_SYMBOLS: Record<string, string> = { USD: "$", BOB: "Bs.", PEN: "S/", EUR: "€", GBP: "£", MXN: "MX$", COP: "COP$" };
+const fmtSaleAmt = (amount: number, currency?: string | null, decimals = 2) => {
+  const cur = (currency ?? "USD").toUpperCase();
+  return `${CURRENCY_SYMBOLS[cur] ?? `${cur} `}${amount.toFixed(decimals)}`;
+};
 
 const initialMetrics = [
   // Métricas de Admin
@@ -30,7 +37,13 @@ const INTERVAL_LABELS: Record<string, string> = {
   semiannual: "Semestral",
 };
 
-const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?: boolean; isVendor?: boolean }) => {
+type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline"
+  | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "vendor_links"
+  | "vendors" | "agente_ia";
+
+const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
+  isSuperAdmin?: boolean; isVendor?: boolean; onNavigate?: (view: View, tab?: string) => void;
+}) => {
   // ─── Supabase hooks ───
   const { user } = useCurrentUser();
   const { data: contacts = [] } = useContacts();
@@ -130,11 +143,32 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
   const [currentPage, setCurrentPage] = useState(1);
   const salesPerPage = 10;
 
+  const { data: products = [] } = useProducts();
+  const activeProducts = useMemo(() => products.filter(p => p.is_active), [products]);
+
   const [selectedContact, setSelectedContact] = useState("");
+  const [saleItemType, setSaleItemType]       = useState<"service" | "product">("service");
   const [selectedService, setSelectedService] = useState("");
-  const [saleNotes, setSaleNotes] = useState("");
-  const [saleAmount, setSaleAmount] = useState<number | "">("");
-  const [saleType, setSaleType] = useState<"initial" | "recurring">("initial");
+  const [selectedProduct, setSelectedProduct] = useState("");
+  const [selectedVariant, setSelectedVariant] = useState("");
+  const [saleNotes, setSaleNotes]             = useState("");
+  const [saleAmount, setSaleAmount]           = useState<number | "">("");
+  const [saleType, setSaleType]               = useState<"initial" | "recurring">("initial");
+
+  const { data: productVariants = [] } = useProductVariants(
+    saleItemType === "product" && selectedProduct ? selectedProduct : null
+  );
+  const selectedProductObj = useMemo(() => activeProducts.find(p => p.id === selectedProduct), [activeProducts, selectedProduct]);
+
+  const calcProductPrice = (prod: typeof activeProducts[0], variant?: typeof productVariants[0]) => {
+    if (variant) {
+      const base = variant.price_override != null ? variant.price_override : prod.price;
+      const disc = (variant.discount_pct ?? 0) > 0 ? variant.discount_pct : (variant.price_override == null ? prod.discount_pct ?? 0 : 0);
+      return disc > 0 ? +(base * (1 - disc / 100)).toFixed(2) : base;
+    }
+    const disc = prod.discount_pct ?? 0;
+    return disc > 0 ? +(prod.price * (1 - disc / 100)).toFixed(2) : prod.price;
+  };
 
   // ─── Compute metrics from real data ───
   const todayKey = useMemo(() => {
@@ -166,6 +200,12 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
 
   const totalVendido = useMemo(() => {
     return salesData.reduce((sum, s) => sum + s.amount, 0);
+  }, [salesData]);
+
+  const totalPorMoneda = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of salesData) { const c = s.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount); }
+    return [...map.entries()];
   }, [salesData]);
 
   const salesThisMonth = useMemo(() => {
@@ -224,7 +264,9 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
         const mm = String(nextAppointment.minute ?? 0).padStart(2, "0");
         return `${dy} de ${MONTHS_ES[mo - 1]} a las ${hh}:${mm}`;
       }
-      case "total-vendido": return `$${totalVendido.toFixed(0)}`;
+      case "total-vendido":
+        if (totalPorMoneda.length === 0) return "$0";
+        return totalPorMoneda.map(([c, t]) => fmtSaleAmt(t, c, 0)).join(" · ");
       case "conversion": return conversionRate !== null ? `${conversionRate}%` : "—";
       case "ventas-mes": return String(salesThisMonth);
       default: return "—";
@@ -240,67 +282,78 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
     const sId = e.target.value;
     setSelectedService(sId);
     setSaleType("initial");
-
     const s = services.find(x => x.id === sId);
-    if (s) {
-      setSaleAmount(calcDiscounted(s.price, s.discount_pct));
-    } else {
-      setSaleAmount("");
-    }
+    setSaleAmount(s ? calcDiscounted(s.price, s.discount_pct) : "");
+  };
+
+  const handleProductChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const pId = e.target.value; setSelectedProduct(pId); setSelectedVariant(""); setSaleAmount("");
+    const p = activeProducts.find(x => x.id === pId);
+    if (!p) return;
+    if (!p.has_variants) setSaleAmount(calcProductPrice(p));
+  };
+
+  const handleVariantChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const vId = e.target.value; setSelectedVariant(vId);
+    if (!vId || !selectedProductObj) { setSaleAmount(""); return; }
+    const v = productVariants.find(x => x.id === vId);
+    if (v) setSaleAmount(calcProductPrice(selectedProductObj, v));
+  };
+
+  const resetSaleForm = () => {
+    setSelectedContact(""); setSelectedService(""); setSelectedProduct(""); setSelectedVariant("");
+    setSaleNotes(""); setSaleAmount(""); setSaleType("initial"); setCurrentPage(1);
   };
 
   const handleRegisterSale = async () => {
-    if (!selectedContact || !selectedService || saleAmount === "" || isNaN(Number(saleAmount))) return;
-
     const contact = contacts.find(c => c.id === selectedContact);
-    const service = services.find(s => s.id === selectedService);
-    if (!contact || !service) return;
+    if (!contact || saleAmount === "" || isNaN(Number(saleAmount))) return;
 
-    let finalNotes = saleNotes;
-    if (service.is_recurring) {
-      const typeLabel = saleType === "initial" ? "Pago Inicial" : "Pago Recurrente";
-      finalNotes = finalNotes ? `[${typeLabel}] ${finalNotes}` : `[${typeLabel}]`;
-    }
-
-    try {
-      await createSale.mutateAsync({
-        contact_id: contact.id,
-        contact_name: contact.name,
-        service_id: service.id,
-        service_name: service.name,
-        amount: Number(saleAmount),
-        currency: service.currency ?? "USD",
-        type: saleType,
-        notes: finalNotes || null,
-      });
-
-      // ── SaaS trigger: if this is a SaaS service and client has no account yet ──
-      const existingAccount = accountByContact[contact.id];
-      if ((service as any).is_saas && !existingAccount && user) {
-        try {
-          const { error } = await supabase.functions.invoke("create-saas-client", {
-            body: { contact_id: contact.id, admin_user_id: user.id },
-          });
-          if (error) throw error;
-          toast.success(`Venta registrada · Email de invitación enviado a ${contact.email ?? contact.name}`);
-        } catch (saasErr) {
-          // Sale succeeded — log SaaS error but don't block
-          console.error("create-saas-client failed:", saasErr);
-          toast.success("Venta registrada");
-          toast.error("No se pudo crear la cuenta SaaS del cliente. Inténtalo manualmente.");
-        }
-      } else {
-        toast.success("Venta registrada");
+    if (saleItemType === "service") {
+      const service = services.find(s => s.id === selectedService);
+      if (!service) return;
+      let finalNotes = saleNotes;
+      if (service.is_recurring) {
+        const typeLabel = saleType === "initial" ? "Pago Inicial" : "Pago Recurrente";
+        finalNotes = finalNotes ? `[${typeLabel}] ${finalNotes}` : `[${typeLabel}]`;
       }
+      try {
+        await createSale.mutateAsync({
+          contact_id: contact.id, contact_name: contact.name,
+          service_id: service.id, service_name: service.name,
+          amount: Number(saleAmount), currency: service.currency ?? "USD",
+          type: saleType, notes: finalNotes || null,
+        });
+        const existingAccount = accountByContact[contact.id];
+        if ((service as any).is_saas && !existingAccount && user) {
+          try {
+            const { error } = await supabase.functions.invoke("create-saas-client", { body: { contact_id: contact.id, admin_user_id: user.id } });
+            if (error) throw error;
+            toast.success(`Venta registrada · Email de invitación enviado a ${contact.email ?? contact.name}`);
+          } catch {
+            toast.success("Venta registrada");
+            toast.error("No se pudo crear la cuenta SaaS del cliente. Inténtalo manualmente.");
+          }
+        } else { toast.success("Venta registrada"); }
+        resetSaleForm();
+      } catch { toast.error("Error al registrar la venta"); }
 
-      setSelectedContact("");
-      setSelectedService("");
-      setSaleNotes("");
-      setSaleAmount("");
-      setSaleType("initial");
-      setCurrentPage(1);
-    } catch {
-      toast.error("Error al registrar la venta");
+    } else {
+      const product = activeProducts.find(p => p.id === selectedProduct);
+      if (!product) return;
+      const selectedVariantObj = selectedVariant ? productVariants.find(v => v.id === selectedVariant) : undefined;
+      const variantName = selectedVariantObj ? ` (${selectedVariantObj.name})` : "";
+      try {
+        await createSale.mutateAsync({
+          contact_id: contact.id, contact_name: contact.name,
+          product_id: product.id, product_name: product.name + variantName,
+          ...(selectedVariant ? { product_variant_id: selectedVariant } : {}),
+          amount: Number(saleAmount), currency: product.currency ?? "USD",
+          type: "initial", notes: saleNotes || null,
+        } as any);
+        toast.success("Venta registrada");
+        resetSaleForm();
+      } catch { toast.error("Error al registrar la venta"); }
     }
   };
 
@@ -359,7 +412,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
             <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1 text-sm">
               <p className="font-medium">{saleModal.sale.contact_name ?? "—"}</p>
               <p className="text-muted-foreground text-xs">{saleModal.sale.service_name ?? "—"}</p>
-              <p className="text-primary font-semibold">${saleModal.sale.amount.toFixed(2)}</p>
+              <p className="text-primary font-semibold">{fmtSaleAmt(saleModal.sale.amount, saleModal.sale.currency)}</p>
             </div>
 
             {saleModal.mode === "edit" && (
@@ -451,6 +504,11 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
         </Button>
       </div>
 
+      {/* Wizard de onboarding — solo para el dueño, no staff ni vendors */}
+      {!isVendor && onNavigate && (
+        <OnboardingWizard onNavigate={onNavigate} />
+      )}
+
       {/* Métricas Combinadas */}
       <div className={isEditing ? "p-4 border-2 border-dashed border-primary/20 rounded-3xl bg-primary/5" : ""}>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -481,7 +539,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
           {isSuperAdmin && recurringByInterval.map(({ interval, total }) => (
             <div key={`ire-${interval}`} className="bg-card border border-primary/20 rounded-2xl p-5 relative">
               <RefreshCcw size={16} className="mb-4 text-primary/60" />
-              <p className="text-2xl font-semibold text-foreground">${total.toFixed(0)}</p>
+              <p className="text-2xl font-semibold text-foreground">{fmtSaleAmt(total, null, 0)}</p>
               <p className="text-xs text-muted-foreground mt-1">
                 IRE {INTERVAL_LABELS[interval] ?? interval}
               </p>
@@ -570,49 +628,77 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
               ))}
             </select>
           </div>
+          {/* Toggle Servicio / Producto */}
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Servicio</label>
-            <select 
-              className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              value={selectedService}
-              onChange={handleServiceChange}
-            >
-              <option value="">Seleccionar...</option>
-              {services.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.name} — ${s.discount_pct > 0 ? calcDiscounted(s.price, s.discount_pct) : s.price}{s.discount_pct > 0 ? ` (-${s.discount_pct}%)` : ""}
-                </option>
-              ))}
-            </select>
+            <label className="text-xs font-medium text-muted-foreground">Tipo</label>
+            <div className="flex rounded-md border overflow-hidden h-10">
+              <button type="button" onClick={() => { setSaleItemType("service"); setSelectedProduct(""); setSaleAmount(""); }} className={`flex-1 text-sm font-medium transition-colors ${saleItemType === "service" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground"}`}>Servicio</button>
+              <button type="button" onClick={() => { setSaleItemType("product"); setSelectedService(""); setSaleAmount(""); setSaleType("initial"); }} className={`flex-1 text-sm font-medium transition-colors ${saleItemType === "product" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground"}`}>Producto</button>
+            </div>
           </div>
+
+          {saleItemType === "service" ? (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Servicio</label>
+              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={selectedService} onChange={handleServiceChange}>
+                <option value="">Seleccionar...</option>
+                {services.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} — {fmtSaleAmt(s.discount_pct > 0 ? calcDiscounted(s.price, s.discount_pct) : s.price, s.currency)}{s.discount_pct > 0 ? ` (-${s.discount_pct}%)` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Producto</label>
+              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={selectedProduct} onChange={handleProductChange}>
+                <option value="">Seleccionar...</option>
+                {activeProducts.map(p => {
+                  const disc = p.discount_pct ?? 0;
+                  const displayPrice = disc > 0 ? +(p.price * (1 - disc / 100)).toFixed(2) : p.price;
+                  return <option key={p.id} value={p.id}>{p.name} — {fmtSaleAmt(displayPrice, p.currency)}{disc > 0 ? ` (-${disc}%)` : ""}</option>;
+                })}
+              </select>
+            </div>
+          )}
+
+          {/* Variante — solo cuando el producto seleccionado tiene variantes */}
+          {saleItemType === "product" && selectedProductObj?.has_variants && productVariants.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Variante</label>
+              <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={selectedVariant} onChange={handleVariantChange}>
+                <option value="">Seleccionar variante...</option>
+                {productVariants.map(v => {
+                  const price = calcProductPrice(selectedProductObj, v);
+                  const base = v.price_override != null ? v.price_override : selectedProductObj.price;
+                  const hasDisc = price < base;
+                  return <option key={v.id} value={v.id}>{v.name} — {fmtSaleAmt(price, selectedProductObj.currency)}{hasDisc ? ` (-${v.discount_pct ?? selectedProductObj.discount_pct ?? 0}%)` : ""}</option>;
+                })}
+              </select>
+            </div>
+          )}
+
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Monto (USD)</label>
-            <Input
-              type="number"
-              value={saleAmount}
-              onChange={(e) => setSaleAmount(e.target.value as any)}
-              min={0}
-              placeholder="0.00"
-              className="h-10"
-            />
+            <label className="text-xs font-medium text-muted-foreground">
+              {saleItemType === "service"
+                ? `Monto${selectedService ? ` (${services.find(x => x.id === selectedService)?.currency ?? "USD"})` : ""}`
+                : `Monto${selectedProduct ? ` (${activeProducts.find(x => x.id === selectedProduct)?.currency ?? "USD"})` : ""}`}
+            </label>
+            <Input type="number" value={saleAmount} onChange={(e) => setSaleAmount(e.target.value as any)} min={0} placeholder="0.00" className="h-10" />
           </div>
-          <Button
-            onClick={handleRegisterSale}
-            className="h-10 w-full"
-            disabled={!selectedContact || !selectedService || saleAmount === "" || createSale.isPending}
-          >
+          <Button onClick={handleRegisterSale} className="h-10 w-full" disabled={!selectedContact || (saleItemType === "service" ? !selectedService : !selectedProduct || (selectedProductObj?.has_variants && productVariants.length > 0 && !selectedVariant)) || saleAmount === "" || createSale.isPending}>
             {createSale.isPending ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Plus size={16} className="mr-1.5" />}
             Registrar Venta
           </Button>
 
-          {(() => {
+          {saleItemType === "service" && (() => {
             const s = services.find(x => x.id === selectedService);
             if (!s) return null;
             const hasDiscount    = s.discount_pct > 0;
             const hasRecDiscount = (s.recurring_discount_pct ?? 0) > 0;
             const recBase  = s.recurring_price ?? s.price;
             const recLabel = s.recurring_label ? s.recurring_label.replace(/^[/\s]+/, "") : (s.recurring_interval ?? "mes");
-
             return (
               <>
                 {(hasDiscount || hasRecDiscount) && (
@@ -626,30 +712,18 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
                     <p className="text-xs font-medium text-muted-foreground mb-2">Tipo de cobro para este servicio</p>
                     <div className="flex flex-wrap gap-4">
                       <label className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input
-                          type="radio"
-                          name="saleType"
-                          checked={saleType === "initial"}
-                          onChange={() => { setSaleType("initial"); setSaleAmount(calcDiscounted(s.price, s.discount_pct)); }}
-                          className="h-4 w-4 accent-primary"
-                        />
+                        <input type="radio" name="saleType" checked={saleType === "initial"} onChange={() => { setSaleType("initial"); setSaleAmount(calcDiscounted(s.price, s.discount_pct)); }} className="h-4 w-4 accent-primary" />
                         <span>Pago Inicial</span>
                         {hasDiscount
-                          ? <span className="text-muted-foreground">(<span className="line-through">${s.price}</span> <span className="text-emerald-600 font-medium">${calcDiscounted(s.price, s.discount_pct)}</span>)</span>
-                          : <span className="text-muted-foreground">(${s.price})</span>}
+                          ? <span className="text-muted-foreground">(<span className="line-through">{fmtSaleAmt(s.price, s.currency)}</span> <span className="text-emerald-600 font-medium">{fmtSaleAmt(calcDiscounted(s.price, s.discount_pct), s.currency)}</span>)</span>
+                          : <span className="text-muted-foreground">({fmtSaleAmt(s.price, s.currency)})</span>}
                       </label>
                       <label className="flex items-center gap-2 text-sm cursor-pointer">
-                        <input
-                          type="radio"
-                          name="saleType"
-                          checked={saleType === "recurring"}
-                          onChange={() => { setSaleType("recurring"); setSaleAmount(calcDiscounted(recBase, s.recurring_discount_pct ?? 0)); }}
-                          className="h-4 w-4 accent-primary"
-                        />
+                        <input type="radio" name="saleType" checked={saleType === "recurring"} onChange={() => { setSaleType("recurring"); setSaleAmount(calcDiscounted(recBase, s.recurring_discount_pct ?? 0)); }} className="h-4 w-4 accent-primary" />
                         <span>Pago Recurrente</span>
                         {s.recurring_price && (hasRecDiscount
-                          ? <span className="text-muted-foreground">(<span className="line-through">${s.recurring_price}</span> <span className="text-emerald-600 font-medium">${calcDiscounted(s.recurring_price, s.recurring_discount_pct ?? 0)}</span> / {recLabel})</span>
-                          : <span className="text-muted-foreground">(${s.recurring_price} / {recLabel})</span>)}
+                          ? <span className="text-muted-foreground">(<span className="line-through">{fmtSaleAmt(s.recurring_price, s.currency)}</span> <span className="text-emerald-600 font-medium">{fmtSaleAmt(calcDiscounted(s.recurring_price, s.recurring_discount_pct ?? 0), s.currency)}</span> / {recLabel})</span>
+                          : <span className="text-muted-foreground">({fmtSaleAmt(s.recurring_price, s.currency)} / {recLabel})</span>)}
                       </label>
                     </div>
                   </div>
@@ -707,7 +781,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
                         <td className="px-6 py-3 whitespace-nowrap text-muted-foreground text-xs">{sale.date}</td>
                         <td className="px-6 py-3 font-medium">{sale.contactName}</td>
                         <td className="px-6 py-3">{sale.serviceName}</td>
-                        <td className="px-6 py-3 font-semibold text-primary text-right">${sale.amount.toFixed(2)}</td>
+                        <td className="px-6 py-3 font-semibold text-primary text-right">{fmtSaleAmt(raw.amount, raw.currency)}</td>
                         <td className="px-6 py-3 text-muted-foreground text-xs truncate max-w-[160px]">{sale.notes || "-"}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

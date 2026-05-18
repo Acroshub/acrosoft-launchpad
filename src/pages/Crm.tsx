@@ -56,7 +56,14 @@ const Crm = () => {
   const brandLogo = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
   const [view, setView]             = useState<View>("overview");
+  const [pendingBusinessTab, setPendingBusinessTab] = useState<string | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const navigateTo = (v: View, tab?: string) => {
+    setView(v);
+    if (v === "business" && tab) setPendingBusinessTab(tab);
+    else setPendingBusinessTab(undefined);
+  };
 
   const { data: vendorProfile, isLoading: vendorLoading } = useVendorProfile();
   const isVendor = !!vendorProfile && !isStaff;
@@ -115,8 +122,8 @@ const Crm = () => {
 
   const renderView = () => {
     switch (view) {
-      case "overview":  return <CrmOverview isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} />;
-      case "business":  return (!isStaff || can("mi_negocio_personal", "read") || can("mi_negocio_datos", "read") || can("servicios", "read")) ? <CrmBusiness /> : null;
+      case "overview":  return <CrmOverview isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} onNavigate={navigateTo} />;
+      case "business":  return (!isStaff || can("mi_negocio_personal", "read") || can("mi_negocio_datos", "read") || can("servicios", "read")) ? <CrmBusiness initialTab={pendingBusinessTab as any} /> : null;
       case "calendar":  return can("calendarios", "read")  ? <CrmCalendar />  : null;
       case "forms":     return can("formularios", "read")  ? <CrmForms />     : null;
       case "contacts":  return can("contactos", "read")    ? <CrmContacts isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} /> : null;

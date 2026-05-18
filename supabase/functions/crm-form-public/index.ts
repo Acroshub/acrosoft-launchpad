@@ -553,10 +553,20 @@ Deno.serve(async (req) => {
           const nowIso = new Date().toISOString();
           let queued = 0;
 
+          const ruleGetChannels = (rule: any) => {
+            if (rule.channels) return rule.channels as { email: boolean; whatsapp: boolean };
+            return { email: rule.channel === "email", whatsapp: rule.channel === "whatsapp" };
+          };
+
           for (const rule of submissionRules) {
+            const ruleChannels = ruleGetChannels(rule);
+
             if (rule.recipient === "contact") {
-              const channelValue = rule.channel === "email" ? (email || null) : (phone || null);
-              if (!channelValue) continue;
+              const emailVal = ruleChannels.email ? (email || "") : "";
+              const phoneVal = ruleChannels.whatsapp ? (phone || "") : "";
+              const hasEmail = ruleChannels.email && !!emailVal;
+              const hasPhone = ruleChannels.whatsapp && !!phoneVal;
+              if (!hasEmail && !hasPhone) continue;
 
               const marker = `rule:${form_id}:${rule.id}:contact`;
               const { count: existing } = await supabase
@@ -569,8 +579,9 @@ Deno.serve(async (req) => {
               const { data: rem } = await supabase.from("crm_reminders").insert({
                 user_id: form.user_id, contact_id: contactId,
                 type: rule.channel,
-                recipient_email: rule.channel === "email" ? channelValue : null,
-                recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
+                channels: ruleChannels,
+                recipient_email: hasEmail ? emailVal : null,
+                recipient_phone: hasPhone ? phoneVal : null,
                 scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
                 business_target: marker,
               }).select("id").single();
@@ -588,35 +599,36 @@ Deno.serve(async (req) => {
                   .eq("contact_id", contactId).eq("business_target", marker);
                 if ((existing ?? 0) > 0) continue;
 
-                let channelValue = "";
+                let emailVal = "";
+                let phoneVal = "";
                 if (targetId === "admin") {
                   const { data: profile } = await supabase
                     .from("crm_business_profile").select("contact_email, contact_phone, whatsapp")
                     .eq("user_id", form.user_id).single();
-                  channelValue = rule.channel === "email"
-                    ? (profile?.contact_email ?? "")
-                    : (profile?.contact_phone ?? profile?.whatsapp ?? "");
-                  // Fallback: use auth email when contact_email is not configured
-                  if (!channelValue && rule.channel === "email") {
+                  emailVal = profile?.contact_email ?? "";
+                  phoneVal = profile?.contact_phone ?? profile?.whatsapp ?? "";
+                  if (!emailVal && ruleChannels.email) {
                     const { data: { user: authUser } } = await supabase.auth.admin.getUserById(form.user_id);
-                    channelValue = authUser?.email ?? "";
+                    emailVal = authUser?.email ?? "";
                   }
                 } else {
                   const { data: staffMember } = await supabase
                     .from("crm_staff").select("email, phone").eq("id", targetId).single();
-                  channelValue = rule.channel === "email"
-                    ? (staffMember?.email ?? "")
-                    : (staffMember?.phone ?? "");
+                  emailVal = staffMember?.email ?? "";
+                  phoneVal = staffMember?.phone ?? "";
                 }
-                if (!channelValue) continue;
+                const hasEmail = ruleChannels.email && !!emailVal;
+                const hasPhone = ruleChannels.whatsapp && !!phoneVal;
+                if (!hasEmail && !hasPhone) continue;
 
                 const msg = rule.content?.trim()
                   || `Nuevo formulario completado: ${name || email || "Contacto"}.`;
                 const { data: rem } = await supabase.from("crm_reminders").insert({
                   user_id: form.user_id, contact_id: contactId,
                   type: rule.channel,
-                  recipient_email: rule.channel === "email" ? channelValue : null,
-                  recipient_phone: rule.channel === "whatsapp" ? channelValue : null,
+                  channels: ruleChannels,
+                  recipient_email: hasEmail ? emailVal : null,
+                  recipient_phone: hasPhone ? phoneVal : null,
                   scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
                   business_target: marker,
                 }).select("id").single();

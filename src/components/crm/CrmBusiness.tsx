@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Pencil, User, Building2, Image as ImageIcon, Palette, Briefcase, Check, Loader2, Trash2, Upload } from "lucide-react";
+import { Pencil, User, Building2, Image as ImageIcon, Briefcase, ShoppingBag, Check, Loader2, Trash2, Upload } from "lucide-react";
 import PhoneInput from "@/components/shared/PhoneInput";
 import CrmServices from "./CrmServices";
+import CrmProductos from "./CrmProductos";
 import { useBusinessProfile, useUpsertBusinessProfile, useUpdateStaff } from "@/hooks/useCrmData";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
@@ -13,14 +14,14 @@ import { validateEmail, validatePhone, validateUrl } from "@/lib/validators";
 
 const LOGO_BUCKET = "form-uploads";
 
-type Tab = "personal" | "negocio" | "logo" | "colores" | "servicios";
+type Tab = "personal" | "negocio" | "logo" | "servicios" | "productos";
 
 const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
-  { id: "personal",  label: "Información Personal", icon: User       },
-  { id: "negocio",   label: "Negocio",               icon: Building2  },
-  { id: "logo",      label: "Logo",                  icon: ImageIcon  },
-  { id: "colores",   label: "Colores",               icon: Palette    },
-  { id: "servicios", label: "Servicios",             icon: Briefcase  },
+  { id: "personal",  label: "Información Personal", icon: User        },
+  { id: "negocio",   label: "Negocio",               icon: Building2   },
+  { id: "logo",      label: "Logo y Colores",         icon: ImageIcon   },
+  { id: "servicios", label: "Servicios",             icon: Briefcase   },
+  { id: "productos", label: "Productos",             icon: ShoppingBag },
 ];
 
 // ─── Editable field ──────────────────────────────────────────────────────────
@@ -313,9 +314,10 @@ const NegocioTab = ({ profile, update, readOnly = false }: { profile: CrmBusines
     );
 };
 
-const LogoTab = ({ profile, update }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void> }) => {
+const LogoColoresTab = ({ profile, update }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void> }) => {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const currentTheme = profile?.theme ?? "classic";
 
   const handleFile = async (file: File) => {
     if (!file) return;
@@ -345,55 +347,58 @@ const LogoTab = ({ profile, update }: { profile: CrmBusinessProfile | null, upda
   };
 
   return (
-    <div className="bg-card border rounded-2xl p-6 space-y-5 max-w-md">
-      <h2 className="text-sm font-semibold">Logo del negocio</h2>
-      <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+    <div className="space-y-5">
+      {/* Fila superior: Logo (izq) + Colores (der) */}
+      <div className="grid lg:grid-cols-2 gap-5">
+        {/* Logo */}
+        <div className="bg-card border rounded-2xl p-6 space-y-5">
+          <h2 className="text-sm font-semibold">Logo del negocio</h2>
+          <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp" className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={uploading}
+            className="w-full border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center py-10 gap-3 bg-secondary/20 hover:bg-secondary/40 hover:border-primary/30 transition-all disabled:opacity-60"
+          >
+            {uploading ? (
+              <Loader2 size={28} className="animate-spin text-primary" />
+            ) : profile?.logo_url ? (
+              <img src={profile.logo_url} alt="Logo" className="max-h-20 max-w-[200px] object-contain" />
+            ) : (
+              <>
+                <ImageIcon size={28} className="text-muted-foreground/30" />
+                <p className="text-sm text-muted-foreground">Haz clic para subir tu logo</p>
+                <p className="text-xs text-muted-foreground/60">PNG, SVG, WEBP o JPG — máx. 2 MB</p>
+              </>
+            )}
+          </button>
+          <div className="flex gap-2">
+            <Button variant="outline" className="flex-1 h-9 rounded-xl text-sm gap-2" onClick={() => fileRef.current?.click()} disabled={uploading}>
+              <Upload size={14} /> {profile?.logo_url ? "Cambiar logo" : "Subir logo"}
+            </Button>
+            {profile?.logo_url && (
+              <Button variant="ghost" className="h-9 px-3 rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleRemove} disabled={uploading}>
+                <Trash2 size={14} />
+              </Button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">El logo aparece en el sidebar del CRM y en tus páginas públicas cuando el tema "Branded" está activo.</p>
+        </div>
 
-      {/* Preview or drop zone */}
-      <button
-        type="button"
-        onClick={() => fileRef.current?.click()}
-        disabled={uploading}
-        className="w-full border-2 border-dashed border-border rounded-2xl flex flex-col items-center justify-center py-12 gap-3 bg-secondary/20 hover:bg-secondary/40 hover:border-primary/30 transition-all disabled:opacity-60"
-      >
-        {uploading ? (
-          <Loader2 size={28} className="animate-spin text-primary" />
-        ) : profile?.logo_url ? (
-          <img src={profile.logo_url} alt="Logo" className="max-h-20 max-w-[200px] object-contain" />
-        ) : (
-          <>
-            <ImageIcon size={28} className="text-muted-foreground/30" />
-            <p className="text-sm text-muted-foreground">Haz clic para subir tu logo</p>
-            <p className="text-xs text-muted-foreground/60">PNG, SVG, WEBP o JPG — máx. 2 MB</p>
-          </>
-        )}
-      </button>
-
-      <div className="flex gap-2">
-        <Button variant="outline" className="flex-1 h-9 rounded-xl text-sm gap-2" onClick={() => fileRef.current?.click()} disabled={uploading}>
-          <Upload size={14} /> {profile?.logo_url ? "Cambiar logo" : "Subir logo"}
-        </Button>
-        {profile?.logo_url && (
-          <Button variant="ghost" className="h-9 px-3 rounded-xl text-destructive hover:text-destructive hover:bg-destructive/10" onClick={handleRemove} disabled={uploading}>
-            <Trash2 size={14} />
-          </Button>
-        )}
+        {/* Colores */}
+        <div className="bg-card border rounded-2xl p-6 space-y-5">
+          <h2 className="text-sm font-semibold">Colores de marca</h2>
+          <ColorField label="Color primario"   value={profile?.color_primary   || "#3b82f6"} onSave={val => update({ color_primary: val })} />
+          <ColorField label="Color secundario" value={profile?.color_secondary || "#ffffff"}  onSave={val => update({ color_secondary: val })} />
+          <ColorField label="Color de acento"  value={profile?.color_accent    || "#f59e0b"} onSave={val => update({ color_accent: val })} />
+        </div>
       </div>
-      <p className="text-xs text-muted-foreground">El logo aparece en el sidebar del CRM y en tus páginas públicas cuando el tema "Branded" está activo.</p>
-    </div>
-  );
-};
 
-const ColoresTab = ({ profile, update }: { profile: CrmBusinessProfile | null, update: (data: Partial<CrmBusinessProfile>) => Promise<void> }) => {
-  const currentTheme = profile?.theme ?? "classic";
-
-  return (
-    <div className="space-y-5 max-w-sm">
-      {/* Theme selector */}
+      {/* Tema de apariencia — ancho completo */}
       <div className="bg-card border rounded-2xl p-6 space-y-4">
         <h2 className="text-sm font-semibold">Tema de apariencia</h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 max-w-sm">
           {(["classic", "branded"] as const).map((t) => {
             const active = currentTheme === t;
             return (
@@ -415,16 +420,8 @@ const ColoresTab = ({ profile, update }: { profile: CrmBusinessProfile | null, u
           })}
         </div>
         {currentTheme === "branded" && (
-          <p className="text-xs text-muted-foreground">Los colores definidos abajo se aplican al CRM y a tus páginas públicas.</p>
+          <p className="text-xs text-muted-foreground">Los colores definidos se aplican al CRM y a tus páginas públicas.</p>
         )}
-      </div>
-
-      {/* Color fields */}
-      <div className="bg-card border rounded-2xl p-6 space-y-5">
-        <h2 className="text-sm font-semibold">Colores de marca</h2>
-        <ColorField label="Color primario"   value={profile?.color_primary   || "#3b82f6"} onSave={val => update({ color_primary: val })} />
-        <ColorField label="Color secundario" value={profile?.color_secondary || "#ffffff"}  onSave={val => update({ color_secondary: val })} />
-        <ColorField label="Color de acento"  value={profile?.color_accent    || "#f59e0b"} onSave={val => update({ color_accent: val })} />
       </div>
     </div>
   );
@@ -433,7 +430,7 @@ const ColoresTab = ({ profile, update }: { profile: CrmBusinessProfile | null, u
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-const CrmBusiness = () => {
+const CrmBusiness = ({ initialTab }: { initialTab?: Tab }) => {
   const { user } = useCurrentUser();
   const { isStaff, staffRecord, can } = useStaffPermissions();
   const { data: profile, isLoading } = useBusinessProfile();
@@ -451,9 +448,12 @@ const CrmBusiness = () => {
       })
     : tabs;
 
-  const [tab, setTab] = useState<Tab>(() =>
-    visibleTabs.length > 0 ? visibleTabs[0].id : "personal"
-  );
+  const [tab, setTab] = useState<Tab>(() => {
+    // "colores" was merged into "logo" tab — treat as "logo"
+    const resolvedTab = initialTab === "colores" ? "logo" : initialTab;
+    if (resolvedTab && tabs.find(t => t.id === resolvedTab)) return resolvedTab;
+    return visibleTabs.length > 0 ? visibleTabs[0].id : "personal";
+  });
 
   // Si el tab actual ya no es visible (cambio de permisos), resetear
   const activeTab = visibleTabs.find(t => t.id === tab) ? tab : (visibleTabs[0]?.id ?? "personal");
@@ -523,8 +523,7 @@ const CrmBusiness = () => {
             : <PersonalTab profile={profile} update={handleUpdate} />
         )}
         {activeTab === "negocio"   && <NegocioTab   profile={profile} update={handleUpdate} readOnly={isStaff && !can("mi_negocio_datos", "edit")} />}
-        {activeTab === "logo"      && <LogoTab       profile={profile} update={handleUpdate} />}
-        {activeTab === "colores"   && <ColoresTab    profile={profile} update={handleUpdate} />}
+        {activeTab === "logo" && <LogoColoresTab profile={profile} update={handleUpdate} />}
         {activeTab === "servicios" && (
           <CrmServices
             isSuperAdmin={isSuperAdmin}
@@ -534,6 +533,7 @@ const CrmBusiness = () => {
             canReorder={!isStaff || can("servicios", "edit")}
           />
         )}
+        {activeTab === "productos" && <CrmProductos />}
       </div>
     </div>
   );
