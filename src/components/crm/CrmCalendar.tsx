@@ -411,7 +411,8 @@ const DayView = ({
   current, onSelect, selected, onSlotClick, onBlockClick, blocked, appointments, availability, interval,
 }: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; onBlockClick: (blk: BlockedSlot) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
   const key = dateKey(current);
-  const dayAppts = appointments.filter((a) => a.date === key);
+  // Excluir canceladas del slot view — el slot queda visualmente libre
+  const dayAppts = appointments.filter((a) => a.date === key && a.rawStatus !== "cancelled");
   const dow = current.getDay();
   const slots = buildSlots(interval, availability);
   const firstSlotMin = slots.length ? slots[0].hour * 60 + slots[0].minute : 0;
@@ -502,6 +503,7 @@ const DayView = ({
 
         {/* Appointment overlays — span exact duration */}
         {dayAppts.map((appt) => {
+          const isAI = appt.source === "ai_agent";
           const startMin    = appt.hour * 60 + (appt.minute ?? 0);
           const durationMin = appt.duration_min ?? interval;
           const top    = Math.max(0, (startMin - firstSlotMin) * pxPerMin);
@@ -518,12 +520,13 @@ const DayView = ({
                   : "bg-primary/20 border-primary/30 hover:bg-primary/30"
               }`}
             >
-              <p className="font-medium leading-tight">
-                <span className="font-mono opacity-70 mr-1.5">{appt.time}</span>
-                {appt.name}
+              <p className="font-medium leading-tight flex items-center gap-1.5">
+                <span className="font-mono opacity-70">{appt.time}</span>
+                <span className="truncate">{appt.name}</span>
+                {isAI && <span className="shrink-0 text-[8px] font-bold bg-primary/30 text-primary px-1 py-0.5 rounded">IA</span>}
               </p>
-              {height > 44 && appt.service && (
-                <p className="opacity-75 mt-0.5 truncate text-[11px]">{appt.service}</p>
+              {height > 44 && appt.notes && (
+                <p className="opacity-75 mt-0.5 truncate text-[11px]">{appt.notes}</p>
               )}
             </button>
           );
@@ -590,7 +593,8 @@ const WeekView = ({
         {/* Day columns */}
         {weekDays.map((day) => {
           const key = dateKey(day);
-          const dayAppts = appointments.filter((a) => a.date === key);
+          // Excluir canceladas del slot view — el slot queda visualmente libre
+          const dayAppts = appointments.filter((a) => a.date === key && a.rawStatus !== "cancelled");
           const dayBlk = isDayBlocked(blocked, key);
           const isToday = sameDay(day, new Date());
 
@@ -659,6 +663,7 @@ const WeekView = ({
 
               {/* Appointment overlays — span exact duration */}
               {dayAppts.map((appt) => {
+                const isAI = appt.source === "ai_agent";
                 const startMin    = appt.hour * 60 + (appt.minute ?? 0);
                 const durationMin = appt.duration_min ?? interval;
                 const top    = Math.max(0, (startMin - firstSlotMin) * pxPerMin);
@@ -675,7 +680,10 @@ const WeekView = ({
                         : "bg-primary/20 border-primary/30 text-primary hover:bg-primary/30"
                     }`}
                   >
-                    <p className="font-semibold truncate leading-tight">{appt.time}</p>
+                    <p className="font-semibold truncate leading-tight flex items-center gap-0.5">
+                      {appt.time}
+                      {isAI && <span className="text-[7px] font-bold bg-primary/40 px-0.5 rounded shrink-0">IA</span>}
+                    </p>
                     {height > 36 && <p className="truncate opacity-80 leading-tight">{appt.name}</p>}
                   </button>
                 );
@@ -911,6 +919,7 @@ const CrmCalendar = () => {
         rawStatus: a.status,
         duration_min: a.duration_min ?? null,
         contact_id: a.contact_id ?? null,
+        source: (a as any).source ?? null,
       };
     }), [rawAppointments, contacts, selectedCalendar]);
 
@@ -942,6 +951,7 @@ const CrmCalendar = () => {
   const [editDate, setEditDate]           = useState("");
   const [editHour, setEditHour]           = useState(10);
   const [editMinute, setEditMinute]       = useState(0);
+  const [editNotes, setEditNotes]         = useState("");
   const [deleteApptTarget, setDeleteApptTarget] = useState<{ id: string; name: string } | null>(null);
   const [selectedBlockId, setSelectedBlockId]   = useState<string | null>(null);
   const [deleteBlockTarget, setDeleteBlockTarget] = useState<{ id: string; name: string } | null>(null);
@@ -1442,7 +1452,7 @@ const CrmCalendar = () => {
                   {canEditCalendar && (
                     <div className="flex items-center gap-0.5 mt-0.5 shrink-0">
                       <button
-                        onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); }}
+                        onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); setEditNotes(detail.notes ?? ""); }}
                         className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                         title="Editar cita (fecha y hora)"
                       >
@@ -1465,13 +1475,19 @@ const CrmCalendar = () => {
                         ["Fecha",    detail.date],
                         ["Hora",     detail.time],
                         ["Duración", `${detail.duration_min} min`],
-                        detail.service ? ["Servicio", detail.service] : null,
                       ] as (readonly [string, string] | null)[]).filter((v): v is readonly [string, string] => !!v && !!v[1]).map(([label, value]) => (
                         <div key={label}>
                           <p className="text-[10px] text-muted-foreground/70">{label}</p>
                           <p className="font-medium text-xs">{value}</p>
                         </div>
                       ))}
+                      {(detail as any).source === "ai_agent" && (
+                        <div>
+                          <span className="inline-flex items-center gap-1 text-[10px] font-semibold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                            Agendado por IA
+                          </span>
+                        </div>
+                      )}
                       {detail.google_event_id && (
                         <div className="pt-1">
                           <p className="text-[10px] text-green-600 flex items-center gap-1">
@@ -1479,10 +1495,10 @@ const CrmCalendar = () => {
                           </p>
                         </div>
                       )}
-                      {detail.notes && (
+                      {(detail.notes || detail.service) && (
                         <div className="pt-1 border-t">
                           <p className="text-[10px] text-muted-foreground/70">Notas</p>
-                          <p className="text-xs mt-1">{detail.notes}</p>
+                          <p className="text-xs mt-1">{detail.notes || detail.service}</p>
                         </div>
                       )}
                     </div>
@@ -1599,7 +1615,7 @@ const CrmCalendar = () => {
                       {canEditCalendar && (
                         <div className="flex items-center gap-0.5 mt-0.5 shrink-0">
                           <button
-                            onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); }}
+                            onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); setEditNotes(detail.notes ?? ""); }}
                             className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                             title="Editar cita"
                           >
@@ -1718,7 +1734,7 @@ const CrmCalendar = () => {
                 {canEditCalendar && (
                   <div className="flex items-center gap-1 sm:border-l sm:pl-3 border-border/40">
                     <button
-                      onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); }}
+                      onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); setEditNotes(detail.notes ?? ""); }}
                       className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
                       title="Editar cita (fecha y hora)"
                     >
@@ -1957,6 +1973,16 @@ const CrmCalendar = () => {
                 </div>
               </div>
             </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Notas</label>
+              <textarea
+                value={editNotes}
+                onChange={(e) => setEditNotes(e.target.value)}
+                rows={3}
+                placeholder="Motivo de la cita, indicaciones..."
+                className="w-full rounded-lg border bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setEditingApptId(null)} className="h-9">Cancelar</Button>
@@ -1998,6 +2024,7 @@ const CrmCalendar = () => {
                     date: editDate,
                     hour: editHour,
                     minute: editMinute,
+                    notes: editNotes || null,
                   });
                   toast.success("Cita actualizada");
                   setEditingApptId(null);

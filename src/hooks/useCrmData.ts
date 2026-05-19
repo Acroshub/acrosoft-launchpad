@@ -543,11 +543,44 @@ export const useCreateSale = () => {
         .select()
         .single();
       if (error) throw error;
+
+      // Decrementar stock — la alerta de poco stock se dispara automáticamente
+      // vía trigger de Postgres (trg_stock_alert_variants / trg_stock_alert_products)
+      if (sale.product_id) {
+        supabase.rpc("decrement_sale_stock", {
+          p_product_id: sale.product_id,
+          p_variant_id: sale.product_variant_id ?? null,
+        }).catch(() => {});
+      }
+
       return data as CrmSale;
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_sales"] });
     },
+  });
+};
+
+export const useAiPendingSales = () => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  return useQuery({
+    queryKey: ["ai_pending_sales", ownerUserId ?? user?.id],
+    queryFn: async () => {
+      const uid = ownerUserId ?? user?.id;
+      if (!uid) return [];
+      const { data, error } = await supabase
+        .from("crm_sales")
+        .select("id, amount, currency, product_name, service_name, wa_conversation_id, created_at, product_id, is_ai_sale, status")
+        .eq("user_id", uid)
+        .eq("is_ai_sale", true)
+        .eq("status", "pending_review")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CrmSale[];
+    },
+    enabled: !!(ownerUserId ?? user?.id),
+    refetchInterval: 30_000,
   });
 };
 
@@ -566,6 +599,7 @@ export const useUpdateSale = () => {
     },
     onSuccess: ({ sale, justification }) => {
       qc.invalidateQueries({ queryKey: ["crm_sales"] });
+      qc.invalidateQueries({ queryKey: ["ai_pending_sales"] });
     },
   });
 };
@@ -2713,6 +2747,29 @@ export const useProducts = (userId?: string) => {
   });
 };
 
+// Carga todas las variantes del tenant en una sola query — para mostrar stock total en lista de productos
+export const useAllProductVariants = (userId?: string) => {
+  const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
+  return useQuery({
+    queryKey: ["crm_all_product_variants", effectiveId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_product_variants")
+        .select("id, product_id, stock, crm_products!inner(user_id, has_variants)")
+        .eq("crm_products.user_id", effectiveId!)
+        .eq("crm_products.has_variants", true);
+      if (error) throw error;
+      return (data ?? []).map((r: any) => ({
+        id: r.id as string,
+        product_id: r.product_id as string,
+        stock: r.stock as number | null,
+      }));
+    },
+    enabled: !!effectiveId,
+  });
+};
+
 export const useCatalogProducts = (catalogId: string | null) => {
   return useQuery({
     queryKey: ["crm_catalog_products", catalogId],
@@ -2751,6 +2808,13 @@ export const useUpsertProduct = () => {
     mutationFn: async (product: Partial<CrmProduct> & { name: string; price: number }) => {
       if (product.id) {
         const { id, user_id, created_at, updated_at, ...updates } = product as any;
+        // Resetear flags de notificación según umbral correcto:
+        // notified_low_stock → solo cuando sube POR ENCIMA de 5 (ya no está en zona baja)
+        // notified_out_of_stock → cuando sube por encima de 0
+        if (typeof updates.stock === "number") {
+          if (updates.stock > 5) updates.notified_low_stock = false;
+          if (updates.stock > 0) updates.notified_out_of_stock = false;
+        }
         const { data, error } = await supabase
           .from("crm_products")
           .update({ ...updates, updated_at: new Date().toISOString() })
@@ -2837,9 +2901,17 @@ export const useUpsertProductVariant = () => {
   return useMutation({
     mutationFn: async (variant: Partial<CrmProductVariant> & { product_id: string; name: string }) => {
       if (variant.id) {
+        // Resetear flags de notificación según umbral correcto:
+        // notified_low_stock → solo cuando sube POR ENCIMA de 5
+        // notified_out_of_stock → cuando sube por encima de 0
+        const stockResetFields: Record<string, boolean> = {};
+        if (typeof variant.stock === "number") {
+          if (variant.stock > 5) stockResetFields.notified_low_stock = false;
+          if (variant.stock > 0) stockResetFields.notified_out_of_stock = false;
+        }
         const { data, error } = await supabase
           .from("crm_product_variants")
-          .update({ name: variant.name, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0 })
+          .update({ name: variant.name, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0, ...stockResetFields })
           .eq("id", variant.id).select().single();
         if (error) throw error;
         return data as CrmProductVariant;
@@ -2852,7 +2924,10 @@ export const useUpsertProductVariant = () => {
         return data as CrmProductVariant;
       }
     },
-    onSuccess: (_d, vars) => qc.invalidateQueries({ queryKey: ["crm_product_variants", vars.product_id ?? vars.id] }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["crm_product_variants", vars.product_id ?? vars.id] });
+      qc.invalidateQueries({ queryKey: ["crm_all_product_variants"] });
+    },
   });
 };
 

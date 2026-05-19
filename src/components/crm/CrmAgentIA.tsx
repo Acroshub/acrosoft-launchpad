@@ -3,7 +3,7 @@ import {
   Bot, Settings, Send, Wifi, WifiOff, MessageSquare, Loader2,
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, ChevronLeft, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
-  User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip,
+  User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,9 +21,11 @@ import {
   useBusinessProfile,
   useProducts, useServices,
   useCatalogs, useCatalogProductsMap,
+  useCalendars,
+  useAiPendingSales, useUpdateSale,
 } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
-import type { CrmWaConversation, CrmWaMessage, CrmStaff } from "@/lib/supabase";
+import type { CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -112,6 +114,16 @@ function formatTime(iso: string | null): string {
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 }
 
+const CURRENCY_SYMBOLS_UI: Record<string, string> = {
+  USD: "$", EUR: "€", GBP: "£", BOB: "Bs.", PEN: "S/", COP: "COP$",
+  MXN: "MX$", ARS: "ARS$", CLP: "CLP$", BRL: "R$",
+};
+function formatSaleAmount(amount: number, currency: string | null): string {
+  const cur = (currency ?? "USD").toUpperCase();
+  const sym = CURRENCY_SYMBOLS_UI[cur] ?? `${cur} `;
+  return `${sym}${Number(amount).toFixed(2)}`;
+}
+
 function copyToClipboard(text: string, label: string) {
   navigator.clipboard.writeText(text).then(() => toast.success(`${label} copiado`));
 }
@@ -164,6 +176,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const { data: allServices = [] } = useServices();
   const { data: catalogs = [] } = useCatalogs();
   const { data: catalogProductsMap = new Map() } = useCatalogProductsMap();
+  const { data: calendars = [] } = useCalendars();
 
   const [step, setStep]         = useState(1);
   const [testing, setTesting]   = useState(false);
@@ -199,8 +212,9 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const [customDataFieldWiz, setCustomDataFieldWiz]   = useState("");
 
   // Step 3 — Capacidades
-  const [canBook, setCanBook]                 = useState(existingConfig?.can_book_appointments ?? false);
-  const [canContacts, setCanContacts]         = useState(existingConfig?.can_create_contacts ?? true);
+  const [canBook, setCanBook]                       = useState(existingConfig?.can_book_appointments ?? false);
+  const [schedulingCalendarIdWiz, setSchedulingCalendarIdWiz] = useState<string>(existingConfig?.scheduling_calendar_id ?? "");
+  const [canContacts, setCanContacts]               = useState(existingConfig?.can_create_contacts ?? true);
   const [canServices, setCanServices]         = useState(existingConfig?.can_answer_services ?? true);
   const [canTransfer, setCanTransfer]         = useState(existingConfig?.can_transfer_human ?? false);
   const [autoDetectPayments, setAutoDetectPayments] = useState(existingConfig?.auto_detect_payments ?? false);
@@ -312,6 +326,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const handleSaveStep3 = async () => {
     await upsert.mutateAsync({
       can_book_appointments: canBook,
+      scheduling_calendar_id: canBook && schedulingCalendarIdWiz ? schedulingCalendarIdWiz : null,
       can_create_contacts: canContacts,
       can_answer_services: canServices,
       can_transfer_human: canTransfer,
@@ -647,15 +662,42 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             </div>
             <div className="divide-y">
               {/* Agendar citas */}
-              <div className="flex items-center justify-between gap-4 py-3">
-                <div>
-                  <p className="text-sm font-medium">Agendar citas</p>
-                  <p className="text-xs text-muted-foreground">Crea citas en el calendario del CRM</p>
+              <div className="py-3 space-y-2">
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium">Agendar citas</p>
+                    <p className="text-xs text-muted-foreground">Detecta intención de agendar y crea citas en el calendario</p>
+                  </div>
+                  <button
+                    onClick={() => { if (schedulingCalendarIdWiz) setCanBook(v => !v); }}
+                    disabled={!schedulingCalendarIdWiz}
+                    className={`relative shrink-0 rounded-full transition-opacity ${!schedulingCalendarIdWiz ? "opacity-40 cursor-not-allowed" : ""}`}
+                    style={{ width: 40, height: 22 }}
+                  >
+                    <span className={`absolute inset-0 rounded-full transition-colors ${canBook && schedulingCalendarIdWiz ? "bg-primary" : "bg-secondary border"}`} />
+                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${canBook && schedulingCalendarIdWiz ? "left-[22px]" : "left-0.5"}`} />
+                  </button>
                 </div>
-                <button onClick={() => setCanBook(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                  <span className={`absolute inset-0 rounded-full transition-colors ${canBook ? "bg-primary" : "bg-secondary border"}`} />
-                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${canBook ? "left-[22px]" : "left-0.5"}`} />
-                </button>
+                {/* Selector de calendario — siempre visible en esta fila */}
+                <div className="pl-0">
+                  <select
+                    value={schedulingCalendarIdWiz}
+                    onChange={e => {
+                      const val = e.target.value;
+                      setSchedulingCalendarIdWiz(val);
+                      if (!val) setCanBook(false);
+                    }}
+                    className="w-full text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="">— Selecciona un calendario —</option>
+                    {calendars.map(cal => (
+                      <option key={cal.id} value={cal.id}>{cal.name ?? cal.slug ?? cal.id}</option>
+                    ))}
+                  </select>
+                  {!schedulingCalendarIdWiz && (
+                    <p className="text-[10px] text-muted-foreground mt-1">Selecciona un calendario para activar el agendamiento.</p>
+                  )}
+                </div>
               </div>
               {/* Crear contactos + datos a recopilar */}
               <div className="py-3">
@@ -1049,6 +1091,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const { data: allServices = [] } = useServices();
   const { data: catalogs = [] } = useCatalogs();
   const { data: catalogProductsMap = new Map() } = useCatalogProductsMap();
+  const { data: calendars = [] } = useCalendars();
   const [saving, setSaving]         = useState(false);
   const [testing, setTesting]       = useState(false);
   const [testResult, setTestResult] = useState<string | null>(null);
@@ -1072,6 +1115,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [systemPrompt, setSystemPrompt]   = useState("");
   const [isActive, setIsActive]           = useState(false);
   const [canBook, setCanBook]                         = useState(false);
+  const [schedulingCalendarId, setSchedulingCalendarId] = useState("");
   const [canContacts, setCanContacts]                 = useState(true);
   const [canServices, setCanServices]                 = useState(true);
   const [canTransfer, setCanTransfer]                 = useState(false);
@@ -1128,6 +1172,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setSystemPrompt(config.system_prompt ?? "");
     setIsActive(config.is_active ?? false);
     setCanBook(config.can_book_appointments ?? false);
+    setSchedulingCalendarId(config.scheduling_calendar_id ?? "");
     setCanContacts(config.can_create_contacts ?? true);
     setCanServices(config.can_answer_services ?? true);
     setCanTransfer(config.can_transfer_human ?? false);
@@ -1208,6 +1253,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         system_prompt: systemPrompt || null,
         is_active: isActive,
         can_book_appointments: canBook,
+        scheduling_calendar_id: canBook && schedulingCalendarId ? schedulingCalendarId : null,
         can_create_contacts: canContacts,
         can_answer_services: canServices,
         can_transfer_human: canTransfer,
@@ -1698,21 +1744,41 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
           {section === "capacidades" && (
             <>
             <div className="divide-y">
-              {/* Toggles simples: Agendar */}
-              {[
-                { label: "Agendar citas",             sub: "Crea citas en el calendario",             val: canBook,              set: setCanBook },
-              ].map(item => (
-                <div key={item.label} className="flex items-center justify-between py-3">
+              {/* Agendar citas — requiere calendario seleccionado */}
+              <div className="py-3 space-y-2">
+                <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm font-medium">{item.label}</p>
-                    <p className="text-xs text-muted-foreground">{item.sub}</p>
+                    <p className="text-sm font-medium">Agendar citas</p>
+                    <p className="text-xs text-muted-foreground">Detecta intención de agendar y crea citas en el calendario</p>
                   </div>
-                  <button onClick={() => item.set(!item.val)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                    <span className={`absolute inset-0 rounded-full transition-colors ${item.val ? "bg-primary" : "bg-secondary border"}`} />
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${item.val ? "left-[22px]" : "left-0.5"}`} />
+                  <button
+                    onClick={() => { if (schedulingCalendarId) setCanBook(v => !v); }}
+                    disabled={!schedulingCalendarId}
+                    className={`relative shrink-0 rounded-full transition-opacity ${!schedulingCalendarId ? "opacity-40 cursor-not-allowed" : ""}`}
+                    style={{ width: 40, height: 22 }}
+                  >
+                    <span className={`absolute inset-0 rounded-full transition-colors ${canBook && schedulingCalendarId ? "bg-primary" : "bg-secondary border"}`} />
+                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${canBook && schedulingCalendarId ? "left-[22px]" : "left-0.5"}`} />
                   </button>
                 </div>
-              ))}
+                <select
+                  value={schedulingCalendarId}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setSchedulingCalendarId(val);
+                    if (!val) setCanBook(false);
+                  }}
+                  className="w-full text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="">— Selecciona un calendario —</option>
+                  {calendars.map(cal => (
+                    <option key={cal.id} value={cal.id}>{cal.name ?? cal.slug ?? cal.id}</option>
+                  ))}
+                </select>
+                {!schedulingCalendarId && (
+                  <p className="text-[10px] text-muted-foreground">Selecciona un calendario para activar el agendamiento.</p>
+                )}
+              </div>
               {/* Crear contactos + datos a recopilar */}
               <div className="py-3">
                 <div className="flex items-center justify-between gap-4">
@@ -2263,7 +2329,7 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
 
 // ─── Chat Panel ───────────────────────────────────────────────────────────────
 const ChatPanel = ({
-  conv, onBack, onDelete, staffList, staffMap, highlightMessageId, onHighlightClear,
+  conv, onBack, onDelete, staffList, staffMap, highlightMessageId, onHighlightClear, pendingSale, onSaleConfirmed,
 }: {
   conv: CrmWaConversation;
   onBack?: () => void;
@@ -2272,6 +2338,8 @@ const ChatPanel = ({
   staffMap: Record<string, CrmStaff>;
   highlightMessageId?: string | null;
   onHighlightClear?: () => void;
+  pendingSale?: CrmSale | null;
+  onSaleConfirmed?: () => void;
 }) => {
   const { data: messages = [], isLoading } = useWaMessages(conv.id);
   const { data: allLabels = [] }           = useWaLabels();
@@ -2279,6 +2347,7 @@ const ChatPanel = ({
   const toggleLabel                        = useToggleConversationLabel();
   const assignConv                         = useAssignConversation();
   const setMode = useSetWaConversationMode();
+  const updateSale                         = useUpdateSale();
   const [text, setText]             = useState("");
   const [sending, setSending]       = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
@@ -2286,8 +2355,49 @@ const ChatPanel = ({
   const [showMenu, setShowMenu]     = useState(false);
   const [showLabels, setShowLabels] = useState(false);
   const [showAssign, setShowAssign] = useState(false);
+  const [paymentAction, setPaymentAction] = useState<"confirm" | "reject" | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<"confirm" | "reject" | null>(null);
   const bottomRef    = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleConfirmPayment = async () => {
+    if (!pendingSale || paymentAction !== null) return;
+    setPendingConfirm(null);
+    setPaymentAction("confirm");
+    try {
+      await updateSale.mutateAsync({
+        id: pendingSale.id,
+        status: "confirmed" as any,
+        is_paid: true as any,
+        paid_at: new Date().toISOString() as any,
+        justification: "Confirmado manualmente desde Agente IA",
+      });
+      if (pendingSale.product_id) {
+        supabase.functions.invoke("send-deliverable", {
+          body: { sale_id: pendingSale.id },
+        }).catch(() => {});
+      }
+      toast.success("Pago confirmado y venta registrada");
+      onSaleConfirmed?.();
+    } catch { toast.error("Error al confirmar el pago"); }
+    finally { setPaymentAction(null); }
+  };
+
+  const handleRejectPayment = async () => {
+    if (!pendingSale || paymentAction !== null) return;
+    setPendingConfirm(null);
+    setPaymentAction("reject");
+    try {
+      await updateSale.mutateAsync({
+        id: pendingSale.id,
+        status: "rejected" as any,
+        justification: "Rechazado manualmente desde Agente IA",
+      });
+      toast.success("Pago rechazado");
+      onSaleConfirmed?.();
+    } catch { toast.error("Error al rechazar el pago"); }
+    finally { setPaymentAction(null); }
+  };
 
   useEffect(() => {
     if (highlightMessageId) return; // el scroll al mensaje resaltado toma prioridad
@@ -2509,6 +2619,94 @@ const ChatPanel = ({
         </div>
       </div>
 
+      {/* Banner de pago pendiente */}
+      {pendingSale && (
+        <div className={`mx-3 mt-2 mb-0 rounded-xl border px-4 py-3 flex items-center gap-3 shrink-0 transition-colors ${
+          pendingConfirm === "reject"
+            ? "border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/20"
+            : "border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20"
+        }`}>
+          {pendingConfirm === "reject"
+            ? <XCircle size={18} className="text-red-500 dark:text-red-400 shrink-0" />
+            : <CreditCard size={18} className="text-amber-600 dark:text-amber-400 shrink-0" />
+          }
+          <div className="flex-1 min-w-0">
+            {pendingConfirm === "confirm" && (
+              <>
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">¿Confirmar este pago?</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 truncate">
+                  {pendingSale.product_name ?? pendingSale.service_name ?? "Comprobante recibido"} ·{" "}
+                  <span className="font-bold">{formatSaleAmount(Number(pendingSale.amount), pendingSale.currency)}</span>
+                </p>
+              </>
+            )}
+            {pendingConfirm === "reject" && (
+              <>
+                <p className="text-sm font-semibold text-red-700 dark:text-red-300">¿Rechazar este pago?</p>
+                <p className="text-xs text-red-600 dark:text-red-400">Esta acción no se puede deshacer.</p>
+              </>
+            )}
+            {pendingConfirm === null && (
+              <>
+                <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">Pago pendiente de revisión</p>
+                <p className="text-xs text-amber-700 dark:text-amber-400 truncate">
+                  {pendingSale.product_name ?? pendingSale.service_name ?? "Comprobante recibido"} ·{" "}
+                  <span className="font-bold">{formatSaleAmount(Number(pendingSale.amount), pendingSale.currency)}</span>
+                </p>
+              </>
+            )}
+          </div>
+          <div className="flex gap-1.5 shrink-0">
+            {pendingConfirm === null ? (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2.5 text-xs border-red-300 text-red-600 hover:bg-red-50 dark:border-red-700 dark:text-red-400"
+                  onClick={() => setPendingConfirm("reject")}
+                >
+                  <XCircle size={13} className="mr-1" />Rechazar
+                </Button>
+                <Button
+                  size="sm"
+                  className="h-7 px-2.5 text-xs bg-emerald-600 hover:bg-emerald-700 text-white"
+                  onClick={() => setPendingConfirm("confirm")}
+                >
+                  <BadgeCheck size={13} className="mr-1" />Confirmar pago
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-7 px-2.5 text-xs"
+                  disabled={paymentAction !== null}
+                  onClick={() => setPendingConfirm(null)}
+                >
+                  Cancelar
+                </Button>
+                <Button
+                  size="sm"
+                  className={`h-7 px-2.5 text-xs text-white ${
+                    pendingConfirm === "reject"
+                      ? "bg-red-600 hover:bg-red-700"
+                      : "bg-emerald-600 hover:bg-emerald-700"
+                  }`}
+                  disabled={paymentAction !== null}
+                  onClick={pendingConfirm === "confirm" ? handleConfirmPayment : handleRejectPayment}
+                >
+                  {paymentAction !== null
+                    ? <Loader2 size={13} className="animate-spin mr-1" />
+                    : null}
+                  {pendingConfirm === "reject" ? "Sí, rechazar" : "Sí, confirmar"}
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {isLoading ? (
@@ -2595,6 +2793,8 @@ const CrmAgentIA = ({
   const principalId = isStaff ? (ownerUserId ?? undefined) : undefined;
   const { data: config, isLoading } = useAIAgentConfig(principalId);
   const { data: conversations = [] } = useWaConversations(principalId);
+  const { data: pendingSales = [] }  = useAiPendingSales();
+  const updateSaleStatus             = useUpdateSale();
   const deleteConv = useDeleteWaConversation();
   const { data: labels = [] }        = useWaLabels(principalId);
   const { data: convLabelsMap = {} } = useAllConversationLabels(principalId);
@@ -2633,6 +2833,17 @@ const CrmAgentIA = ({
     [conversations, selectedId]
   );
 
+  // Set de conversation IDs con pago pendiente — para lookup O(1)
+  const pendingSaleConvIds = useMemo(
+    () => new Set(pendingSales.map(s => s.wa_conversation_id).filter(Boolean)),
+    [pendingSales],
+  );
+  // Map convId → sale (para el banner en el chat)
+  const pendingSaleByConvId = useMemo(
+    () => Object.fromEntries(pendingSales.filter(s => s.wa_conversation_id).map(s => [s.wa_conversation_id!, s])),
+    [pendingSales],
+  );
+
   const filteredConvs = useMemo(() => {
     let result = conversations.filter(c =>
       !search || (c.contact_name ?? c.phone).toLowerCase().includes(search.toLowerCase())
@@ -2645,8 +2856,13 @@ const CrmAgentIA = ({
     } else if (assignFilter === "mine" && staffRecord) {
       result = result.filter(c => c.assigned_to === staffRecord.id);
     }
-    return result;
-  }, [conversations, search, labelFilter, convLabelsMap, assignFilter, staffRecord]);
+    // Chats con pago pendiente al tope
+    return [...result].sort((a, b) => {
+      const ap = pendingSaleConvIds.has(a.id) ? 0 : 1;
+      const bp = pendingSaleConvIds.has(b.id) ? 0 : 1;
+      return ap - bp;
+    });
+  }, [conversations, search, labelFilter, convLabelsMap, assignFilter, staffRecord, pendingSaleConvIds]);
 
   // Debounce para búsqueda de mensajes
   useEffect(() => {
@@ -2841,25 +3057,39 @@ const CrmAgentIA = ({
                     <p className="text-xs">Sin conversaciones aún. Cuando alguien te escriba por WhatsApp, aparecerá aquí.</p>
                   </div>
                 ) : (
-                  filteredConvs.map(conv => (
+                  filteredConvs.map(conv => {
+                    const hasPendingPayment = pendingSaleConvIds.has(conv.id);
+                    const pendingSale = hasPendingPayment ? pendingSaleByConvId[conv.id] : null;
+                    return (
                     <button
                       key={conv.id}
                       onClick={() => { setSelectedId(conv.id); setMobileShowChat(true); setHighlightMessageId(null); }}
                       className={`w-full text-left px-4 py-3.5 border-b transition-colors ${
-                        selectedId === conv.id ? "bg-secondary" : "hover:bg-secondary/50 active:bg-secondary/80"
+                        selectedId === conv.id
+                          ? hasPendingPayment ? "bg-amber-100 dark:bg-amber-900/30" : "bg-secondary"
+                          : hasPendingPayment ? "bg-amber-50 dark:bg-amber-900/10 hover:bg-amber-100 dark:hover:bg-amber-900/20" : "hover:bg-secondary/50 active:bg-secondary/80"
                       }`}
                     >
                       <div className="flex items-center gap-3">
                         <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
+                          hasPendingPayment ? "bg-amber-200 dark:bg-amber-800/50" :
                           conv.mode === "AI" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
                         }`}>
-                          <span className={`text-sm font-bold ${conv.mode === "AI" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
-                            {(conv.contact_name ?? conv.phone)[0].toUpperCase()}
-                          </span>
+                          {hasPendingPayment
+                            ? <CreditCard size={16} className="text-amber-700 dark:text-amber-400" />
+                            : <span className={`text-sm font-bold ${conv.mode === "AI" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+                                {(conv.contact_name ?? conv.phone)[0].toUpperCase()}
+                              </span>
+                          }
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-semibold truncate">{conv.contact_name ?? `+${conv.phone}`}</p>
-                          <p className="text-[11px] text-muted-foreground truncate">{conv.contact_name ? `+${conv.phone}` : formatTime(conv.last_message_at)}</p>
+                          {hasPendingPayment
+                            ? <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium truncate">
+                                💳 {pendingSale?.product_name ?? pendingSale?.service_name ?? "Pago pendiente"} · {formatSaleAmount(Number(pendingSale?.amount), pendingSale?.currency ?? null)}
+                              </p>
+                            : <p className="text-[11px] text-muted-foreground truncate">{conv.contact_name ? `+${conv.phone}` : formatTime(conv.last_message_at)}</p>
+                          }
                           {(convLabelsMap[conv.id] ?? []).length > 0 && (
                             <div className="flex items-center gap-0.5 mt-0.5">
                               {(convLabelsMap[conv.id] ?? []).slice(0, 4).map(l => (
@@ -2872,12 +3102,15 @@ const CrmAgentIA = ({
                           )}
                         </div>
                         <div className="flex flex-col items-end gap-1 shrink-0">
-                          {conv.contact_name && <span className="text-[10px] text-muted-foreground">{formatTime(conv.last_message_at)}</span>}
-                          <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                            conv.mode === "AI"
-                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                              : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                          }`}>{conv.mode === "AI" ? "IA" : "Manual"}</span>
+                          <span className="text-[10px] text-muted-foreground">{formatTime(conv.last_message_at)}</span>
+                          {hasPendingPayment
+                            ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-800 dark:bg-amber-800/50 dark:text-amber-300">Pago</span>
+                            : <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                conv.mode === "AI"
+                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                              }`}>{conv.mode === "AI" ? "IA" : "Manual"}</span>
+                          }
                           {conv.assigned_to && staffMap[conv.assigned_to] && (
                             <span className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0" style={{ backgroundColor: "#6366f1" }} title={staffMap[conv.assigned_to].name}>
                               {staffMap[conv.assigned_to].name.charAt(0).toUpperCase()}
@@ -2886,7 +3119,8 @@ const CrmAgentIA = ({
                         </div>
                       </div>
                     </button>
-                  ))
+                    );
+                  })
                 )
               ) : (
                 /* ── Búsqueda unificada (≥3 chars) ── */
@@ -3016,7 +3250,17 @@ const CrmAgentIA = ({
             ${mobileShowChat ? "flex w-full lg:flex-1" : "hidden lg:flex lg:flex-1"}
           `}>
             {selectedConv ? (
-              <ChatPanel conv={selectedConv} onBack={() => setMobileShowChat(false)} onDelete={isStaff ? undefined : () => setDeleteModalId(selectedConv.id)} staffList={staffList} staffMap={staffMap} highlightMessageId={highlightMessageId} onHighlightClear={() => setHighlightMessageId(null)} />
+              <ChatPanel
+                conv={selectedConv}
+                onBack={() => setMobileShowChat(false)}
+                onDelete={isStaff ? undefined : () => setDeleteModalId(selectedConv.id)}
+                staffList={staffList}
+                staffMap={staffMap}
+                highlightMessageId={highlightMessageId}
+                onHighlightClear={() => setHighlightMessageId(null)}
+                pendingSale={pendingSaleByConvId[selectedConv.id] ?? null}
+                onSaleConfirmed={() => {/* react-query auto-refetches */}}
+              />
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">
                 <MessageSquare size={32} className="opacity-20" />

@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Trash2, Loader2, Package, ImageIcon,
@@ -18,6 +18,7 @@ import {
   useUpsertProduct, useDeleteProduct, useToggleCatalogProduct,
   useProductVariants, useUpsertProductVariant, useDeleteProductVariant,
   useOrphanProducts, useBusinessProfile, useAIAgentConfig,
+  useAllProductVariants,
 } from "@/hooks/useCrmData";
 import type { CrmCatalog, CrmProduct, CrmProductVariant } from "@/lib/supabase";
 
@@ -30,17 +31,20 @@ const CUR_SYM: Record<string, string> = { USD: "$", BOB: "Bs.", PEN: "S/" };
 const fmtProd = (amount: number, cur: string) => `${CUR_SYM[cur] ?? cur} ${amount.toFixed(2)}`;
 
 // ─── Stock badge con tres niveles de color ────────────────────────────────────
-const StockBadge = ({ stock, stockEnabled }: { stock: number | null; stockEnabled: boolean }) => {
-  if (!stockEnabled) return null;
-  const s = stock ?? 0;
+// variantTotal: suma de stocks de variantes (solo para has_variants=true); null = usar product.stock
+const StockBadge = ({ stock, stockEnabled, variantTotal }: { stock: number | null; stockEnabled: boolean; variantTotal?: number | null }) => {
+  const effectiveTracking = stockEnabled || variantTotal !== undefined && variantTotal !== null;
+  if (!effectiveTracking) return null;
+  const s = variantTotal !== undefined && variantTotal !== null ? variantTotal : (stock ?? 0);
+  const label = variantTotal !== undefined && variantTotal !== null ? `${s} u. total` : `${s} u.`;
   if (s === 0) return (
     <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive font-medium">Sin stock</span>
   );
   if (s <= 5) return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-medium">{s} u. ⚠️</span>
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 font-medium">{label} ⚠️</span>
   );
   return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 font-medium">{s} u.</span>
+    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 font-medium">{label}</span>
   );
 };
 
@@ -66,6 +70,7 @@ const StockAdjuster = ({ productId, variantId, currentStock, onDone }: {
           .eq("id", variantId);
         if (error) throw error;
         qc.invalidateQueries({ queryKey: ["crm_product_variants", productId] });
+        qc.invalidateQueries({ queryKey: ["crm_all_product_variants"] });
       } else {
         await upsertProduct.mutateAsync({ id: productId, stock: val } as any);
       }
@@ -796,8 +801,8 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
 }
 
 // ─── Catalog View ─────────────────────────────────────────────────────────────
-function CatalogView({ catalog, allProducts, onBack, onEditProduct, onCreateProduct }: {
-  catalog: CrmCatalog; allProducts: CrmProduct[];
+function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProduct, onCreateProduct }: {
+  catalog: CrmCatalog; allProducts: CrmProduct[]; variantStockMap: Map<string, number>;
   onBack: () => void;
   onEditProduct: (p: CrmProduct) => void;
   onCreateProduct: (catalogId: string) => void;
@@ -920,11 +925,11 @@ function CatalogView({ catalog, allProducts, onBack, onEditProduct, onCreateProd
                 </p>
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {!p.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Oculto</span>}
-                  <StockBadge stock={p.stock} stockEnabled={p.stock_enabled} />
+                  <StockBadge stock={p.stock} stockEnabled={p.stock_enabled} variantTotal={p.has_variants ? (variantStockMap.get(p.id) ?? null) : undefined} />
                   {p.deliverable_type && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30">Digital</span>}
                   {p.has_variants && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Variantes</span>}
                 </div>
-                {p.stock_enabled && (
+                {p.stock_enabled && !p.has_variants && (
                   <div className="pt-1" onClick={e => e.stopPropagation()}>
                     <StockAdjuster productId={p.id} currentStock={p.stock ?? 0} />
                   </div>
@@ -1104,11 +1109,23 @@ export default function CrmProductos() {
   const { data: orphanProducts = [] }      = useOrphanProducts();
   const { data: businessProfile }          = useBusinessProfile();
   const { data: agentConfig }              = useAIAgentConfig();
+  const { data: allVariants = [] }         = useAllProductVariants();
   const upsertCatalog = useUpsertCatalog();
   const deleteCatalog = useDeleteCatalog();
 
   const businessSlug = businessProfile?.slug ?? null;
   const agentPhone   = agentConfig?.verified_phone ?? null;
+
+  // Mapa productId → suma total de stocks de variantes (solo variantes con tracking: stock !== null)
+  const variantStockMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const v of allVariants) {
+      if (v.stock !== null) {
+        map.set(v.product_id, (map.get(v.product_id) ?? 0) + v.stock);
+      }
+    }
+    return map;
+  }, [allVariants]);
 
   const [view, setView]                       = useState<"catalogs"|"catalog"|"product">("catalogs");
   const [selectedCatalog, setSelectedCatalog] = useState<CrmCatalog | null>(null);
@@ -1142,6 +1159,7 @@ export default function CrmProductos() {
     <CatalogView
       catalog={selectedCatalog}
       allProducts={allProducts}
+      variantStockMap={variantStockMap}
       onBack={() => setView("catalogs")}
       onEditProduct={p => { setSelectedProduct(p); setFromCatalogId(selectedCatalog.id); setView("product"); }}
       onCreateProduct={catalogId => { setSelectedProduct(null); setFromCatalogId(catalogId); setView("product"); }}
@@ -1152,9 +1170,18 @@ export default function CrmProductos() {
     <div className="flex items-center justify-center h-40"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
   );
 
-  // Productos con stock agotado (stock_enabled y stock = 0)
-  const outOfStockProducts = allProducts.filter(p => p.stock_enabled && (p.stock ?? 0) === 0);
-  const lowStockProducts   = allProducts.filter(p => p.stock_enabled && (p.stock ?? 0) > 0 && (p.stock ?? 0) <= 5);
+  // Alertas de stock — para productos con variantes usa la suma; para el resto usa product.stock
+  const getEffectiveStock = (p: CrmProduct) =>
+    p.has_variants ? (variantStockMap.get(p.id) ?? null) : (p.stock_enabled ? (p.stock ?? 0) : null);
+
+  const outOfStockProducts = allProducts.filter(p => {
+    const s = getEffectiveStock(p);
+    return s !== null && s === 0;
+  });
+  const lowStockProducts = allProducts.filter(p => {
+    const s = getEffectiveStock(p);
+    return s !== null && s > 0 && s <= 5;
+  });
 
   return (
     <div className="space-y-5">
@@ -1185,7 +1212,10 @@ export default function CrmProductos() {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-amber-700 dark:text-amber-400">Stock bajo (≤5 unidades)</p>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {lowStockProducts.map(p => `${p.name} (${p.stock} u.)`).join(", ")}
+              {lowStockProducts.map(p => {
+                const s = p.has_variants ? (variantStockMap.get(p.id) ?? 0) : (p.stock ?? 0);
+                return `${p.name} (${s} u.)`;
+              }).join(", ")}
             </p>
           </div>
         </div>
@@ -1281,10 +1311,10 @@ export default function CrmProductos() {
                   </p>
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {!p.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Oculto</span>}
-                    <StockBadge stock={p.stock} stockEnabled={p.stock_enabled} />
+                    <StockBadge stock={p.stock} stockEnabled={p.stock_enabled} variantTotal={p.has_variants ? (variantStockMap.get(p.id) ?? null) : undefined} />
                     {p.has_variants && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Variantes</span>}
                   </div>
-                  {p.stock_enabled && (
+                  {p.stock_enabled && !p.has_variants && (
                     <div onClick={e => e.stopPropagation()}>
                       <StockAdjuster productId={p.id} currentStock={p.stock ?? 0} />
                     </div>

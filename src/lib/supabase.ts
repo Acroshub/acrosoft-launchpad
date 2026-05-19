@@ -79,6 +79,7 @@ export type CrmAppointment = {
   notes: string | null
   google_event_id: string | null
   terms_accepted_at?: string | null
+  source: string | null
 }
 
 export type CrmBlockedSlot = {
@@ -507,6 +508,7 @@ export type CrmAIAgentConfig = {
   confirm_summary: boolean
   agent_faq: Array<{ q: string; a: string }> | null
   agent_extra_prompt: string | null
+  scheduling_calendar_id: string | null
 }
 
 // ─── Productos ────────────────────────────────────────────────────────────────
@@ -532,6 +534,8 @@ export type CrmProduct = {
   is_active: boolean
   sort_order: number
   discount_pct: number
+  notified_low_stock: boolean
+  notified_out_of_stock: boolean
 }
 
 export type CrmProductVariant = {
@@ -543,6 +547,8 @@ export type CrmProductVariant = {
   stock: number | null
   sort_order: number
   discount_pct: number
+  notified_low_stock: boolean
+  notified_out_of_stock: boolean
 }
 
 export type CrmPaymentMethod = {

@@ -16,6 +16,35 @@ const formatPrice = (price: number, currency: string) => {
 
 const cleanPhone = (phone: string) => phone.replace(/\D/g, "");
 
+const LOW_STOCK_THRESHOLD = 5;
+
+function isVariantOutOfStock(v: CrmProductVariant): boolean {
+  return v.stock !== null && v.stock <= 0;
+}
+
+// Retorna null = sin badge; number = "Solo quedan N unidades"
+// Variantes: badge se muestra por variante individual en el modal, nunca en la tarjeta
+function getProductLowStockCount(product: CrmProduct, variants: CrmProductVariant[]): number | null {
+  if (product.has_variants) return null;
+  if (!product.stock_enabled) return null;
+  const stock = product.stock ?? 0;
+  return stock > 0 && stock <= LOW_STOCK_THRESHOLD ? stock : null;
+}
+
+// true = ocultar del catálogo
+// Para productos con variantes: tracking por variante (v.stock !== null), ignorar product.stock_enabled
+// Para productos sin variantes: tracking por product.stock_enabled + product.stock
+function isProductHidden(product: CrmProduct, variants: CrmProductVariant[]): boolean {
+  if (product.has_variants) {
+    if (variants.length === 0) return false;
+    const trackedVariants = variants.filter(v => v.stock !== null);
+    if (trackedVariants.length === 0) return false; // ninguna variante con tracking → siempre visible
+    return trackedVariants.every(v => (v.stock ?? 0) <= 0);
+  }
+  if (!product.stock_enabled) return false;
+  return (product.stock ?? 0) <= 0;
+}
+
 // ─── Product Modal ─────────────────────────────────────────────────────────────
 function ProductModal({
   product,
@@ -31,11 +60,23 @@ function ProductModal({
   onClose: () => void;
 }) {
   const [activeImage, setActiveImage] = useState(0);
+  // Auto-seleccionar primera variante disponible (no agotada)
   const [selectedVariant, setSelectedVariant] = useState<CrmProductVariant | null>(
-    variants.length > 0 ? variants[0] : null
+    variants.find(v => !isVariantOutOfStock(v)) ?? (variants.length > 0 ? variants[0] : null)
   );
 
   const images = product.images.filter(Boolean);
+
+  // Sin stock: variante seleccionada agotada, o producto sin variantes agotado
+  const outOfStock = selectedVariant
+    ? isVariantOutOfStock(selectedVariant)
+    : product.stock_enabled && (product.stock ?? 0) <= 0;
+
+  // Badge de poco stock
+  const modalLowStock = selectedVariant
+    ? (selectedVariant.stock !== null && selectedVariant.stock > 0 && selectedVariant.stock <= LOW_STOCK_THRESHOLD ? selectedVariant.stock : null)
+    : getProductLowStockCount(product, variants);
+
   const productDisc = product.discount_pct ?? 0;
   const baseAmount = selectedVariant?.price_override != null ? selectedVariant.price_override : product.price;
   // Misma lógica que calcProductPrice: descuento propio de variante > herencia de producto > 0
@@ -55,8 +96,6 @@ function ProductModal({
     `Hola! Me interesa el producto: ${product.name}${selectedVariant ? ` (${selectedVariant.name})` : ""}`
   );
   const waUrl = phone ? `https://wa.me/${phone}?text=${waText}` : null;
-
-  const outOfStock = product.stock_enabled && (product.stock ?? 0) === 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
@@ -143,6 +182,11 @@ function ProductModal({
                   Sin stock disponible
                 </span>
               )}
+              {!outOfStock && modalLowStock !== null && (
+                <span className="inline-block text-[11px] px-2 py-0.5 rounded-full bg-orange-100 text-orange-600 font-semibold">
+                  Solo quedan {modalLowStock} unidad{modalLowStock !== 1 ? "es" : ""}
+                </span>
+              )}
             </div>
 
             {product.description && (
@@ -154,30 +198,40 @@ function ProductModal({
               <div className="space-y-2">
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Opciones</p>
                 <div className="flex flex-wrap gap-2">
-                  {variants.map(v => (
-                    <button
-                      key={v.id}
-                      onClick={() => setSelectedVariant(v)}
-                      className={`px-3 py-1.5 rounded-lg text-sm border font-medium transition-all ${
-                        selectedVariant?.id === v.id
-                          ? "bg-primary text-primary-foreground border-primary"
-                          : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
-                      }`}
-                    >
-                      {v.name}
-                      {v.price_override != null && (
-                        <span className="ml-1.5 text-xs opacity-75">
-                          — {formatPrice(
-                              (v.discount_pct ?? 0) > 0
-                                ? v.price_override * (1 - (v.discount_pct ?? 0) / 100)
-                                : v.price_override,
-                              product.currency
-                            )}
-                          {(v.discount_pct ?? 0) > 0 && ` (-${v.discount_pct}%)`}
-                        </span>
-                      )}
-                    </button>
-                  ))}
+                  {variants.map(v => {
+                    const vOut = isVariantOutOfStock(v);
+                    const vLow = !vOut && v.stock !== null && v.stock > 0 && v.stock <= LOW_STOCK_THRESHOLD;
+                    return (
+                      <button
+                        key={v.id}
+                        onClick={() => setSelectedVariant(v)}
+                        disabled={vOut}
+                        className={`relative px-3 py-1.5 rounded-lg text-sm border font-medium transition-all ${
+                          vOut
+                            ? "bg-gray-50 text-gray-300 border-gray-100 cursor-not-allowed line-through"
+                            : selectedVariant?.id === v.id
+                              ? "bg-primary text-primary-foreground border-primary"
+                              : "bg-white text-gray-700 border-gray-200 hover:border-gray-400"
+                        }`}
+                      >
+                        {v.name}
+                        {v.price_override != null && !vOut && (
+                          <span className="ml-1.5 text-xs opacity-75">
+                            — {formatPrice(
+                                (v.discount_pct ?? 0) > 0
+                                  ? v.price_override * (1 - (v.discount_pct ?? 0) / 100)
+                                  : v.price_override,
+                                product.currency
+                              )}
+                            {(v.discount_pct ?? 0) > 0 && ` (-${v.discount_pct}%)`}
+                          </span>
+                        )}
+                        {vLow && (
+                          <span className="ml-1 text-[10px] text-orange-500 font-semibold">({v.stock})</span>
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             )}
@@ -213,8 +267,7 @@ function ProductModal({
 }
 
 // ─── Product Card ─────────────────────────────────────────────────────────────
-function ProductCard({ product, onClick }: { product: CrmProduct; onClick: () => void }) {
-  const outOfStock = product.stock_enabled && (product.stock ?? 0) === 0;
+function ProductCard({ product, lowStockCount, onClick }: { product: CrmProduct; lowStockCount: number | null; onClick: () => void }) {
 
   return (
     <button
@@ -254,8 +307,10 @@ function ProductCard({ product, onClick }: { product: CrmProduct; onClick: () =>
             )}
           </div>
           <div className="flex gap-1 flex-wrap">
-            {outOfStock && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-red-100 text-red-500">Sin stock</span>
+            {lowStockCount !== null && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600 font-semibold">
+                Solo quedan {lowStockCount}
+              </span>
             )}
             {product.deliverable_type && (
               <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">Digital</span>
@@ -274,16 +329,15 @@ function ProductCard({ product, onClick }: { product: CrmProduct; onClick: () =>
 export default function CatalogPublic() {
   const { businessSlug, catalogSlug } = useParams<{ businessSlug: string; catalogSlug: string }>();
 
-  const [catalog, setCatalog]   = useState<CrmCatalog | null>(null);
-  const [products, setProducts] = useState<CrmProduct[]>([]);
-  const [business, setBusiness] = useState<BusinessInfo | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [notFound, setNotFound] = useState(false);
+  const [catalog, setCatalog]         = useState<CrmCatalog | null>(null);
+  const [products, setProducts]       = useState<CrmProduct[]>([]);
+  const [variantMap, setVariantMap]   = useState<Map<string, CrmProductVariant[]>>(new Map());
+  const [business, setBusiness]       = useState<BusinessInfo | null>(null);
+  const [loading, setLoading]         = useState(true);
+  const [notFound, setNotFound]       = useState(false);
 
   // Modal
   const [selectedProduct, setSelectedProduct] = useState<CrmProduct | null>(null);
-  const [variants, setVariants]               = useState<CrmProductVariant[]>([]);
-  const [loadingModal, setLoadingModal]       = useState(false);
 
   useEffect(() => {
     if (!businessSlug || !catalogSlug) return;
@@ -319,15 +373,26 @@ export default function CatalogPublic() {
 
         if (catProds && catProds.length > 0) {
           const productIds = catProds.map((r: any) => r.product_id as string);
-          const { data: prods } = await supabasePublic
-            .from("crm_products")
-            .select("*")
-            .in("id", productIds)
-            .eq("is_active", true);
+
+          // Cargar productos y variantes en paralelo
+          const [{ data: prods }, { data: allVariants }] = await Promise.all([
+            supabasePublic.from("crm_products").select("*").in("id", productIds).eq("is_active", true),
+            supabasePublic.from("crm_product_variants").select("*").in("product_id", productIds).order("sort_order"),
+          ]);
+
+          // Construir mapa de variantes por producto
+          const vMap = new Map<string, CrmProductVariant[]>();
+          for (const v of (allVariants ?? []) as CrmProductVariant[]) {
+            if (!vMap.has(v.product_id)) vMap.set(v.product_id, []);
+            vMap.get(v.product_id)!.push(v);
+          }
+          setVariantMap(vMap);
+
+          // Ordenar y filtrar productos agotados
           const sortMap = new Map(catProds.map((r: any) => [r.product_id, r.sort_order as number]));
-          const sorted = ((prods ?? []) as CrmProduct[]).sort(
-            (a, b) => (sortMap.get(a.id) ?? 999) - (sortMap.get(b.id) ?? 999)
-          );
+          const sorted = ((prods ?? []) as CrmProduct[])
+            .sort((a, b) => (sortMap.get(a.id) ?? 999) - (sortMap.get(b.id) ?? 999))
+            .filter(p => !isProductHidden(p, vMap.get(p.id) ?? []));
           setProducts(sorted);
         }
       } finally {
@@ -336,20 +401,8 @@ export default function CatalogPublic() {
     })();
   }, [businessSlug, catalogSlug]);
 
-  const openProduct = async (product: CrmProduct) => {
+  const openProduct = (product: CrmProduct) => {
     setSelectedProduct(product);
-    setVariants([]);
-    setLoadingModal(true);
-    try {
-      const { data, error } = await supabasePublic
-        .from("crm_product_variants")
-        .select("*")
-        .eq("product_id", product.id)
-        .order("sort_order", { ascending: true });
-      if (!error) setVariants((data ?? []) as CrmProductVariant[]);
-    } finally {
-      setLoadingModal(false);
-    }
   };
 
   if (loading) {
@@ -437,7 +490,12 @@ export default function CatalogPublic() {
             </p>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
               {products.map(p => (
-                <ProductCard key={p.id} product={p} onClick={() => openProduct(p)} />
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  lowStockCount={getProductLowStockCount(p, variantMap.get(p.id) ?? [])}
+                  onClick={() => openProduct(p)}
+                />
               ))}
             </div>
           </>
@@ -453,19 +511,13 @@ export default function CatalogPublic() {
 
       {/* Product modal */}
       {selectedProduct && (
-        loadingModal ? (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-            <div className="w-8 h-8 rounded-full border-2 border-white border-t-transparent animate-spin" />
-          </div>
-        ) : (
-          <ProductModal
-            product={selectedProduct}
-            variants={variants}
-            catalog={catalog}
-            business={business}
-            onClose={() => setSelectedProduct(null)}
-          />
-        )
+        <ProductModal
+          product={selectedProduct}
+          variants={variantMap.get(selectedProduct.id) ?? []}
+          catalog={catalog}
+          business={business}
+          onClose={() => setSelectedProduct(null)}
+        />
       )}
     </div>
   );

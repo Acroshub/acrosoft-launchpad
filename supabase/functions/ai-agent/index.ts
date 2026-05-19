@@ -22,6 +22,8 @@ interface AgentConfig {
   can_transfer_human: boolean;
   can_answer_services: boolean;
   can_create_contacts: boolean;
+  can_book_appointments: boolean;
+  scheduling_calendar_id: string | null;
   notify_on_transfer: boolean;
   notify_email: string | null;
   products_mode: "all" | "selected";
@@ -96,6 +98,425 @@ function isWithinSchedule(schedule: AgentConfig["schedule"], timezone: string): 
   }
 
   return false;
+}
+
+// ─── Helpers de disponibilidad de calendario (portados desde CalendarRenderer) ──
+
+const CALENDAR_DAY_KEYS = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+
+function amPmToMinutes(t: string): number {
+  const [timePart, period] = t.split(" ");
+  const [h, m] = timePart.split(":").map(Number);
+  const h24 = period?.toUpperCase() === "AM" ? (h === 12 ? 0 : h) : (h === 12 ? 12 : h + 12);
+  return h24 * 60 + (m || 0);
+}
+
+function isSlotInSchedule(
+  avail: Record<string, any> | null,
+  dayOfWeek: number,
+  hour: number,
+  minute: number,
+  duration: number,
+): boolean {
+  if (!avail) return true;
+  const day = avail[CALENDAR_DAY_KEYS[dayOfWeek]];
+  if (!day?.open) return false;
+  const totalMin = hour * 60 + minute;
+  return (day.slots as { from: string; to: string }[]).some(
+    s => totalMin >= amPmToMinutes(s.from) && totalMin + duration <= amPmToMinutes(s.to),
+  );
+}
+
+function isDayOpenInSchedule(avail: Record<string, any> | null, dayOfWeek: number): boolean {
+  if (!avail) return true;
+  return !!avail[CALENDAR_DAY_KEYS[dayOfWeek]]?.open;
+}
+
+function isSlotManuallyBlocked(blocked: any[], dayKey: string, hour: number, minute: number): boolean {
+  return blocked.some(b => {
+    if (b.type === "hours" && b.date === dayKey && b.start_hour != null && b.end_hour != null) {
+      const slotStart = hour * 60 + minute;
+      return slotStart >= b.start_hour * 60 + (b.start_minute ?? 0) &&
+             slotStart < b.end_hour * 60 + (b.end_minute ?? 0);
+    }
+    if (b.type === "fullday" && b.date === dayKey) return true;
+    if (b.type === "range" && b.range_start && b.range_end)
+      return dayKey >= b.range_start && dayKey <= b.range_end;
+    return false;
+  });
+}
+
+function isDayFullyBlocked(blocked: any[], dayKey: string): boolean {
+  return blocked.some(b =>
+    (b.type === "fullday" && b.date === dayKey) ||
+    (b.type === "range" && b.range_start && b.range_end && dayKey >= b.range_start && dayKey <= b.range_end),
+  );
+}
+
+function wallClockToUtcMsCal(
+  year: number, month: number, day: number,
+  hour: number, minute: number, tz: string,
+): number {
+  const fmt = new Intl.DateTimeFormat("en", {
+    timeZone: tz, year: "numeric", month: "numeric", day: "numeric",
+    hour: "numeric", minute: "numeric", hour12: false,
+  });
+  let utcMs = Date.UTC(year, month - 1, day, hour, minute);
+  for (let i = 0; i < 2; i++) {
+    const parts = fmt.formatToParts(new Date(utcMs));
+    const get = (t: string) => Number(parts.find(p => p.type === t)?.value ?? 0);
+    const h = get("hour") % 24;
+    const displayedMs = Date.UTC(get("year"), get("month") - 1, get("day"), h, get("minute"));
+    utcMs += Date.UTC(year, month - 1, day, hour, minute) - displayedMs;
+  }
+  return utcMs;
+}
+
+function formatSlotLabel(dateKey: string, hour: number, minute: number, timezone: string): string {
+  const [y, m, d] = dateKey.split("-").map(Number);
+  // Usar mediodía UTC (12:00) para evitar que medianoche UTC caiga en el día anterior
+  // en timezones con offset negativo (UTC-N), lo que causaría nombres de día incorrectos
+  const dt = new Date(Date.UTC(y, m - 1, d, 12));
+  const dayName = dt.toLocaleDateString("es-ES", { timeZone: timezone, weekday: "long" });
+  const dayNum  = dt.toLocaleDateString("es-ES", { timeZone: timezone, day: "numeric", month: "long" });
+  const mm = String(minute).padStart(2, "0");
+  const period = hour < 12 ? "AM" : "PM";
+  const h12 = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  return `${dayName.charAt(0).toUpperCase() + dayName.slice(1)} ${dayNum}, ${h12}:${mm} ${period}`;
+}
+
+interface AvailableSlot { date: string; hour: number; minute: number; label: string }
+interface SlotsResult { slots: AvailableSlot[]; scheduleDesc: string; minAdvHours: number }
+
+// Construye la descripción de horario para que Claude pueda razonar sobre fechas adicionales
+function buildScheduleDesc(avail: Record<string, any> | null, slotStep: number, minAdvHours: number, maxFutureDays: number): string {
+  const dayMap: Record<string, string> = {
+    "Dom": "Domingo", "Lun": "Lunes", "Mar": "Martes", "Mié": "Miércoles",
+    "Jue": "Jueves", "Vie": "Viernes", "Sáb": "Sábado",
+  };
+  const lines: string[] = [
+    `Configuración: citas de ${slotStep} min, anticipación mínima ${minAdvHours}h, máximo ${maxFutureDays} días a futuro`,
+  ];
+  if (avail) {
+    for (const [key, val] of Object.entries(avail)) {
+      if (val?.open && val.slots?.length > 0) {
+        const ranges = (val.slots as { from: string; to: string }[]).map(s => `${s.from}–${s.to}`).join(", ");
+        lines.push(`${dayMap[key] ?? key}: ${ranges}`);
+      }
+    }
+  }
+  return lines.join("\n");
+}
+
+async function getAvailableSlots(calendarId: string, fromDateStr?: string): Promise<SlotsResult> {
+  const { data: cal } = await supabase
+    .from("crm_calendar_config")
+    .select("duration_min, buffer_min, min_advance_hours, max_future_days, availability, timezone, schedule_interval")
+    .eq("id", calendarId)
+    .single();
+
+  if (!cal) return { slots: [], scheduleDesc: "", minAdvHours: 1 };
+
+  const timezone        = (cal.timezone          as string) ?? "America/Mexico_City";
+  const durationMin     = (cal.duration_min       as number) ?? 60;
+  // schedule_interval = paso entre inicio de slots (ej. cada 30 min aunque la cita dure 60)
+  // Si no está definido, usar duration_min como fallback
+  const slotStep        = (cal.schedule_interval  as number) ?? durationMin;
+  const bufferMin       = (cal.buffer_min         as number) ?? 0;
+  const minAdvHours     = (cal.min_advance_hours  as number) ?? 1;
+  const maxFutureDays   = (cal.max_future_days    as number) ?? 60;
+  const avail           = cal.availability as Record<string, any> | null;
+
+  const now           = new Date();
+  const minBookableMs = now.getTime() + minAdvHours * 3600 * 1000;
+  const todayKey      = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
+  const [cty, ctm, ctd] = todayKey.split("-").map(Number);
+
+  const toUtcDateKey = (y: number, m: number, d: number): string => {
+    const dt = new Date(Date.UTC(y, m - 1, d));
+    return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+  };
+
+  // Si se pasa una fecha hint, empezar la búsqueda desde ahí (respetando min advance)
+  let startKey = todayKey;
+  if (fromDateStr && fromDateStr >= todayKey) startKey = fromDateStr;
+  const [sty, stm, std] = startKey.split("-").map(Number);
+
+  const searchDays = Math.min(30, maxFutureDays);
+  const endDateKey = toUtcDateKey(sty, stm, std + searchDays);
+  const maxDateKey = toUtcDateKey(cty, ctm, ctd + maxFutureDays);
+
+  const [{ data: appts }, { data: blocked }] = await Promise.all([
+    supabase.from("crm_appointments")
+      .select("date, hour, minute, duration_min")
+      .eq("calendar_id", calendarId)
+      .gte("date", todayKey)
+      .lte("date", endDateKey)
+      .neq("status", "cancelled"),
+    supabase.from("crm_blocked_slots")
+      .select("*")
+      .eq("calendar_id", calendarId),
+  ]);
+
+  const apptsByDate: Record<string, { startMin: number; endMin: number }[]> = {};
+  for (const a of appts ?? []) {
+    if (!apptsByDate[a.date]) apptsByDate[a.date] = [];
+    const start = a.hour * 60 + (a.minute ?? 0);
+    apptsByDate[a.date].push({ startMin: start, endMin: start + (a.duration_min ?? durationMin) });
+  }
+
+  const isBufferBlocked = (dateKey: string, candidateStart: number): boolean => {
+    const existing = apptsByDate[dateKey];
+    if (!existing) return false;
+    const end = candidateStart + durationMin;
+    return existing.some(({ startMin, endMin }) =>
+      end + bufferMin > startMin && endMin + bufferMin > candidateStart,
+    );
+  };
+
+  const slots: AvailableSlot[] = [];
+
+  for (let d = 0; d <= searchDays && slots.length < 15; d++) {
+    const dateKey = toUtcDateKey(sty, stm, std + d);
+    const dow = new Date(Date.UTC(sty, stm - 1, std + d)).getUTCDay();
+
+    if (dateKey < todayKey) continue;
+    if (dateKey > maxDateKey) break;
+    if (isDayFullyBlocked(blocked ?? [], dateKey)) continue;
+    if (!isDayOpenInSchedule(avail, dow)) continue;
+
+    // Loop de 0:00 a 23:59 usando schedule_interval como paso
+    // (24*60 = 1440 para cubrir slots nocturnos como 9PM-10PM)
+    for (let totalMin = 0; totalMin < 24 * 60; totalMin += slotStep) {
+      if (slots.length >= 15) break;
+      const h = Math.floor(totalMin / 60);
+      const m = totalMin % 60;
+      const [y, mo, dy] = dateKey.split("-").map(Number);
+      if (wallClockToUtcMsCal(y, mo, dy, h, m, timezone) < minBookableMs) continue;
+      if (!isSlotInSchedule(avail, dow, h, m, durationMin)) continue;
+      if (isBufferBlocked(dateKey, totalMin)) continue;
+      if (isSlotManuallyBlocked(blocked ?? [], dateKey, h, m)) continue;
+      slots.push({ date: dateKey, hour: h, minute: m, label: formatSlotLabel(dateKey, h, m, timezone) });
+    }
+  }
+
+  return { slots, scheduleDesc: buildScheduleDesc(avail, slotStep, minAdvHours, maxFutureDays), minAdvHours };
+}
+
+// ─── Validar que un slot pedido por el cliente realmente está disponible ───────
+// Claude puede confirmar horarios incorrectos (no sabe de conflictos con otras
+// citas ni bloqueos manuales). Esta función valida en el backend antes de insertar.
+async function validateSlot(
+  calendarId: string,
+  date: string,
+  hour: number,
+  minute: number,
+  excludeAppointmentId?: string | null,
+): Promise<{ valid: boolean; reason: string }> {
+  const { data: cal } = await supabase
+    .from("crm_calendar_config")
+    .select("duration_min, buffer_min, min_advance_hours, max_future_days, availability, timezone")
+    .eq("id", calendarId)
+    .single();
+
+  if (!cal) return { valid: false, reason: "calendar_not_found" };
+
+  const timezone      = (cal.timezone as string) ?? "UTC";
+  const slotStep      = (cal.duration_min    as number) ?? 30;
+  const bufferMin     = (cal.buffer_min      as number) ?? 0;
+  const minAdvHours   = (cal.min_advance_hours as number) ?? 1;
+  const maxFutureDays = (cal.max_future_days  as number) ?? 60;
+  const avail         = cal.availability as Record<string, any> | null;
+
+  const now           = new Date();
+  const minBookableMs = now.getTime() + minAdvHours * 3600 * 1000;
+  const todayKey      = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(now);
+  const maxDateKey    = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(
+    new Date(now.getTime() + maxFutureDays * 86400 * 1000),
+  );
+
+  if (date < todayKey)   return { valid: false, reason: "past_date" };
+  if (date > maxDateKey) return { valid: false, reason: "too_far" };
+
+  const [y, m, d] = date.split("-").map(Number);
+  if (wallClockToUtcMsCal(y, m, d, hour, minute, timezone) < minBookableMs) {
+    return { valid: false, reason: "advance_notice" };
+  }
+
+  const dow = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay();
+  if (!isDayOpenInSchedule(avail, dow))                       return { valid: false, reason: "day_closed" };
+  if (!isSlotInSchedule(avail, dow, hour, minute, slotStep)) return { valid: false, reason: "outside_hours" };
+
+  const [{ data: blocked }, { data: appts }] = await Promise.all([
+    supabase.from("crm_blocked_slots").select("*").eq("calendar_id", calendarId),
+    supabase.from("crm_appointments").select("id, date, hour, minute, duration_min")
+      .eq("calendar_id", calendarId).eq("date", date).neq("status", "cancelled"),
+  ]);
+
+  if (isDayFullyBlocked(blocked ?? [], date))              return { valid: false, reason: "day_blocked" };
+  if (isSlotManuallyBlocked(blocked ?? [], date, hour, minute)) return { valid: false, reason: "slot_blocked" };
+
+  const totalMin = hour * 60 + minute;
+  const end      = totalMin + slotStep;
+  const conflict = (appts ?? []).some(a => {
+    if (excludeAppointmentId && (a as any).id === excludeAppointmentId) return false;
+    const aStart = a.hour * 60 + (a.minute ?? 0);
+    const aEnd   = aStart + (a.duration_min ?? slotStep);
+    return end + bufferMin > aStart && aEnd + bufferMin > totalMin;
+  });
+
+  if (conflict) return { valid: false, reason: "conflict" };
+
+  return { valid: true, reason: "ok" };
+}
+
+// ─── Formatear número WA a E.164 legible: +591 701234567 ─────────────────────
+// Meta Cloud API devuelve números sin "+" (ej: 591701234567).
+// Usamos una tabla de prefijos de 1 y 2 dígitos; el resto se trata como 3 dígitos.
+function formatPhoneForCrm(waPhone: string): string {
+  const digits = waPhone.replace(/\D/g, "");
+  if (!digits) return waPhone;
+  const p1 = ["1", "7"];
+  const p2 = ["20","27","30","31","32","33","34","35","36","37","38","39",
+               "40","41","42","43","44","45","46","47","48","49",
+               "51","52","53","54","55","56","57","58",
+               "60","61","62","63","64","65","66","81","82","84","86",
+               "90","91","92","93","94","95","96","98","99"];
+  if (p1.includes(digits[0]))            return `+${digits[0]} ${digits.slice(1)}`;
+  if (p2.includes(digits.slice(0, 2)))   return `+${digits.slice(0, 2)} ${digits.slice(2)}`;
+  return `+${digits.slice(0, 3)} ${digits.slice(3)}`;
+}
+
+// ─── Crear cita desde el agente IA ───────────────────────────────────────────
+// El contacto siempre se crea/busca al agendar una cita, independientemente
+// del toggle "crear contactos". Una cita sin contacto no tiene sentido.
+async function bookAppointmentFromAgent(
+  calendarId: string,
+  userId: string,
+  conversationId: string,
+  contactName: string,
+  contactPhone: string,
+  date: string,
+  hour: number,
+  minute: number,
+  notes: string | null,
+  rescheduleId: string | null,
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    // Si hay rescheduleId → modificar cita existente en lugar de crear una nueva
+    if (rescheduleId) {
+      const { error } = await supabase
+        .from("crm_appointments")
+        .update({ date, hour, minute: minute ?? 0, notes: notes ?? null })
+        .eq("id", rescheduleId)
+        .eq("user_id", userId);
+      if (error) return { ok: false, error: error.message };
+      return { ok: true };
+    }
+
+    let contactId: string | null = null;
+
+    // Formatear teléfono WA a E.164 legible: +591 701234567
+    const formattedPhone = formatPhoneForCrm(contactPhone);
+
+    // Buscar contacto por teléfono formateado O por número raw (para no duplicar)
+    const { data: existing } = await supabase
+      .from("crm_contacts")
+      .select("id, name")
+      .eq("user_id", userId)
+      .or(`phone.eq.${formattedPhone},phone.eq.${contactPhone}`)
+      .maybeSingle();
+
+    // Nombre válido = no vacío, no es el teléfono, no es un placeholder genérico
+    const PLACEHOLDER_NAMES = ["pendiente", "n/a", "unknown", "desconocido", "cliente", "sin nombre", "nombre"];
+    const isValidName = (n: string) =>
+      n.length > 1 && n !== formattedPhone && n !== contactPhone &&
+      !PLACEHOLDER_NAMES.includes(n.toLowerCase().trim());
+
+    if (existing) {
+      contactId = existing.id;
+      // Actualizar nombre si el actual es un placeholder y ahora tenemos uno real
+      if (contactName && isValidName(contactName) && !isValidName(existing.name ?? "")) {
+        await supabase.from("crm_contacts").update({ name: contactName }).eq("id", contactId).eq("user_id", userId);
+      }
+    } else if (contactName || contactPhone) {
+      const { data: newC } = await supabase
+        .from("crm_contacts")
+        .insert({ user_id: userId, name: contactName || formattedPhone, phone: formattedPhone })
+        .select("id")
+        .single();
+      if (newC) contactId = newC.id;
+    }
+
+    const { data: cal } = await supabase
+      .from("crm_calendar_config")
+      .select("duration_min")
+      .eq("id", calendarId)
+      .single();
+
+    const durationMin = (cal?.duration_min as number | null) ?? 30;
+
+    const { error } = await supabase.from("crm_appointments").insert({
+      calendar_id: calendarId,
+      user_id: userId,
+      contact_id: contactId,
+      date,
+      hour,
+      minute: minute ?? 0,
+      duration_min: durationMin,
+      notes: notes ?? null,
+      status: "confirmed",
+      source: "ai_agent",
+    });
+
+    if (error) return { ok: false, error: error.message };
+
+    // Vincular contacto a la conversación si se creó ahora
+    if (contactId) {
+      await supabase
+        .from("crm_wa_conversations")
+        .update({ contact_id: contactId })
+        .eq("id", conversationId)
+        .is("contact_id", null);
+    }
+
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// ─── Parser del marcador [SCHEDULE|...] ──────────────────────────────────────
+function parseAndStripSchedule(text: string): {
+  text: string;
+  schedule: { date: string; hour: number; minute: number; contactName: string; contactPhone: string; notes: string | null; rescheduleId: string | null } | null;
+} {
+  const match = text.match(/\[SCHEDULE\|([^\]]+)\]/i);
+  if (!match) return { text, schedule: null };
+
+  const data: Record<string, string> = {};
+  for (const pair of match[1].split("|")) {
+    const colonIdx = pair.indexOf(":");
+    if (colonIdx === -1) continue;
+    data[pair.slice(0, colonIdx).trim()] = pair.slice(colonIdx + 1).trim();
+  }
+
+  const hour   = parseInt(data["hour"]   ?? "0");
+  const minute = parseInt(data["minute"] ?? "0");
+  if (!data["date"] || isNaN(hour)) return { text, schedule: null };
+
+  return {
+    text: text.replace(match[0], "").trim(),
+    schedule: {
+      date:         data["date"],
+      hour,
+      minute:       isNaN(minute) ? 0 : minute,
+      contactName:  data["contact_name"]  ?? data["name"]  ?? "",
+      contactPhone: data["contact_phone"] ?? data["phone"] ?? "",
+      notes:        data["notes"] || null,
+      rescheduleId: data["reschedule_id"] || null,
+    },
+  };
 }
 
 // Convierte formato Markdown a WhatsApp (garantizado en backend, no dependemos de Claude)
@@ -246,7 +667,7 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
 
   let productsQuery = supabase
     .from("crm_products")
-    .select("id, name, price, discount_pct, currency, description, has_variants, deliverable_type")
+    .select("id, name, price, discount_pct, currency, description, has_variants, deliverable_type, stock_enabled, stock")
     .eq("user_id", config.user_id)
     .eq("is_active", true)
     .order("name");
@@ -255,22 +676,22 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
     productsQuery = productsQuery.in("id", config.selected_product_ids);
   }
 
-  const { data: products } = await productsQuery;
-  if (!products?.length) return "";
+  const { data: allProducts } = await productsQuery;
+  if (!allProducts?.length) return "";
 
-  const productIds = products.map(p => p.id);
+  const allProductIds = allProducts.map(p => p.id);
 
-  // Cargar variantes y métodos de pago en paralelo
+  // Cargar variantes y métodos de pago en paralelo (variantes necesarias ANTES del filtro — B16-4)
   const [variantsRes, paymentMethodsRes] = await Promise.all([
     supabase
       .from("crm_product_variants")
-      .select("id, product_id, name, price_override, discount_pct, sort_order")
-      .in("product_id", productIds)
+      .select("id, product_id, name, price_override, discount_pct, sort_order, stock")
+      .in("product_id", allProductIds)
       .order("sort_order"),
     supabase
       .from("crm_payment_methods")
       .select("id, entity_id, entity_type, type, label, content, sort_order")
-      .in("entity_id", productIds)
+      .in("entity_id", allProductIds)
       .eq("entity_type", "product")
       .order("sort_order"),
   ]);
@@ -278,12 +699,26 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
   const variants = variantsRes.data ?? [];
   const paymentMethods = paymentMethodsRes.data ?? [];
 
-  // Agrupar por product_id
+  // Agrupar variantes por product_id
   const variantsByProduct = new Map<string, typeof variants>();
   for (const v of variants) {
     if (!variantsByProduct.has(v.product_id)) variantsByProduct.set(v.product_id, []);
     variantsByProduct.get(v.product_id)!.push(v);
   }
+
+  // Filtrar productos sin stock — modelo B16-4:
+  // has_variants=true → tracking por variante (v.stock !== null), ignorar product.stock_enabled
+  // has_variants=false → tracking por product.stock_enabled + product.stock
+  const products = allProducts.filter(p => {
+    if (p.has_variants) {
+      const pvs = variantsByProduct.get(p.id) ?? [];
+      const tracked = pvs.filter((v: any) => v.stock !== null);
+      if (tracked.length === 0) return true; // sin tracking → siempre visible
+      return tracked.some((v: any) => v.stock > 0); // al menos una variante con stock
+    }
+    return !(p.stock_enabled && p.stock !== null && p.stock <= 0);
+  });
+  if (!products.length) return "";
 
   const pmByProduct = new Map<string, PaymentMethodRow[]>();
   for (const pm of paymentMethods) {
@@ -299,16 +734,30 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
     const price = disc > 0
       ? `${formatPrice(finalPrice, p.currency)} (antes ${formatPrice(p.price, p.currency)}, ${disc}% de descuento)`
       : formatPrice(p.price, p.currency);
-    lines.push(`- ${p.name}: ${price} [product_id:${p.id}]`);
+
+    // Nota de stock bajo — modelo B16-4
+    let stockNote = "";
+    if (p.has_variants) {
+      const pvs = variantsByProduct.get(p.id) ?? [];
+      const lowVariants = pvs.filter((v: any) => v.stock !== null && v.stock > 0 && v.stock <= 5);
+      if (lowVariants.length > 0) stockNote = ` ⚠️ Pocas unidades disponibles en algunas variantes`;
+    } else if (p.stock_enabled && p.stock !== null && p.stock <= 5) {
+      stockNote = ` ⚠️ Últimas ${p.stock} unidades`;
+    }
+
+    lines.push(`- ${p.name}: ${price}${stockNote} [product_id:${p.id}]`);
 
     if (p.description) {
       lines.push(`  Descripción: ${p.description}`);
     }
 
-    // Variantes
-    const productVariants = variantsByProduct.get(p.id) ?? [];
+    // Variantes — solo mostrar las que tienen stock disponible
+    const allVariants = variantsByProduct.get(p.id) ?? [];
+    const productVariants = allVariants.filter((v: any) =>
+      !(v.stock !== null && v.stock <= 0)
+    );
     if (p.has_variants && productVariants.length > 0) {
-      const variantList = productVariants.map(v => {
+      const variantList = productVariants.map((v: any) => {
         // Misma lógica que calcProductPrice en el frontend:
         // Si tiene price_override → usa ese como base; si no → usa precio del producto
         const base = v.price_override != null ? v.price_override : p.price;
@@ -320,7 +769,8 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
         const priceLabel = disc > 0
           ? `${formatPrice(finalVPrice, p.currency)} (antes ${formatPrice(base, p.currency)}, ${disc}% de descuento)`
           : (v.price_override != null ? formatPrice(finalVPrice, p.currency) : `igual al base ${formatPrice(p.discount_pct && p.discount_pct > 0 ? +(p.price * (1 - p.discount_pct / 100)).toFixed(2) : p.price, p.currency)}`);
-        return `${v.name} (${priceLabel}) [variant_id:${v.id}]`;
+        const variantStock = v.stock !== null && v.stock <= 5 ? ` ⚠️ ${v.stock} u.` : "";
+        return `${v.name} (${priceLabel}${variantStock}) [variant_id:${v.id}]`;
       }).join(", ");
       lines.push(`  Variantes: ${variantList}`);
     }
@@ -535,23 +985,49 @@ function buildStrategicInstructions(config: AgentConfig): string {
 }
 
 // ─── Compilar system prompt con variables dinámicas ───────────────────────────
-async function buildSystemPrompt(config: AgentConfig, phone: string, canTransfer = false): Promise<string> {
+async function buildSystemPrompt(
+  config: AgentConfig,
+  phone: string,
+  canTransfer = false,
+): Promise<{ prompt: string; contactId: string | null; contactName: string | null; availableSlots: AvailableSlot[] }> {
   const strategicInstructions = buildStrategicInstructions(config);
   const hasStrategicConfig = strategicInstructions.length > 0;
 
-  const [businessRes, servicesRes, convRes, labelsRes, productsCatalog, servicesCatalog] = await Promise.all([
+  const canSchedule = !!(config.can_book_appointments && config.scheduling_calendar_id);
+
+  const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: config.timezone ?? "UTC" }).format(new Date());
+
+  const [businessRes, servicesRes, convRes, labelsRes, productsCatalog, servicesCatalog, slotsResult] = await Promise.all([
     supabase.from("crm_business_profile").select("business_name, description").eq("user_id", config.user_id).maybeSingle(),
     supabase.from("crm_services").select("name, price, currency, description, discount_pct, is_recurring, recurring_price, recurring_interval, recurring_label, recurring_discount_pct").eq("user_id", config.user_id).eq("active", true).order("sort_order", { ascending: true }),
-    supabase.from("crm_wa_conversations").select("contact_name").eq("user_id", config.user_id).eq("phone", phone).maybeSingle(),
+    supabase.from("crm_wa_conversations").select("contact_name, contact_id").eq("user_id", config.user_id).eq("phone", phone).maybeSingle(),
     supabase.from("crm_wa_labels").select("id, name, hint").eq("user_id", config.user_id).not("hint", "is", null),
     buildProductsCatalog(config),
     buildServicesCatalog(config),
+    canSchedule ? getAvailableSlots(config.scheduling_calendar_id!) : Promise.resolve({ slots: [], scheduleDesc: "", minAdvHours: 1 } as SlotsResult),
   ]);
 
   const business = businessRes.data;
   const services = servicesRes.data;
   const conv = convRes.data;
-  const labelsWithHints = (labelsRes.data ?? []) as WaLabel[];
+  const contactId = conv?.contact_id ?? null;
+  const slotsRes = slotsResult as SlotsResult;
+  const availableSlots = slotsRes.slots;
+
+  // Citas próximas del contacto — en paralelo con slots (ya tenemos contact_id del batch anterior)
+  let existingAppts: Array<{ id: string; date: string; hour: number; minute: number; notes: string | null }> = [];
+  if (canSchedule && contactId) {
+    const { data: appts } = await supabase
+      .from("crm_appointments")
+      .select("id, date, hour, minute, notes")
+      .eq("calendar_id", config.scheduling_calendar_id!)
+      .eq("contact_id", contactId)
+      .eq("status", "confirmed")
+      .gte("date", todayKey)
+      .order("date").order("hour")
+      .limit(5);
+    existingAppts = (appts ?? []) as typeof existingAppts;
+  }
 
   const now = new Date().toLocaleDateString("es-ES", {
     timeZone: config.timezone,
@@ -585,7 +1061,7 @@ async function buildSystemPrompt(config: AgentConfig, phone: string, canTransfer
 
   // Instrucción de etiquetas automáticas
   let labelInstruction = "";
-  const activeLabels = labelsWithHints.filter(l => l.hint?.trim());
+  const activeLabels = (labelsRes.data ?? []).filter((l: WaLabel) => l.hint?.trim());
   if (activeLabels.length > 0) {
     const labelList = activeLabels.map(l => `- ${l.name}: ${l.hint}`).join("\n");
     labelInstruction = `\n\nETIQUETADO AUTOMÁTICO: Si la conversación actual encaja claramente en alguna de las siguientes categorías, añade al FINAL de tu respuesta (después del mensaje al usuario) la marca: |LABELS|NombreEtiqueta\nSi aplica más de una, sepáralas con coma: |LABELS|Etiqueta1,Etiqueta2\nSolo añade la marca si hay una coincidencia clara. Si no aplica ninguna, no añadas nada.\n\nCategorías disponibles:\n${labelList}`;
@@ -617,7 +1093,7 @@ Si ambos requisitos se cumplen:
 - Responde brevemente (1-2 líneas): «¡Gracias! Comprobante recibido y verificado. Tu compra de [nombre_producto] está confirmada 🎉»
 - Al FINAL añade EXACTAMENTE (sin espacios extra): [PAYMENT_DETECTED|product_id:{id}|variant_id:{variant_id_o_none}|amount:{monto_numerico}|method_type:{tipo}]
   · product_id: copia el valor exacto de [product_id:...] o [service_id:...] que aparece en el catálogo junto al producto/servicio identificado
-  · variant_id: copia el valor exacto de [variant_id:...] si aplica una variante, o escribe "none"
+  · variant_id: si el producto tiene variantes listadas (ves [variant_id:...] en el catálogo), DEBES poner el variant_id de la variante que compró el cliente. Si el producto tiene una sola variante, usa siempre ese variant_id. Solo escribe "none" si el producto NO tiene variantes en absoluto.
   · amount: el número exacto visible en el comprobante, sin símbolo de moneda (ej: 25.00)
   · method_type: "transfer" | "qr" | "cash" | "card" | "other"
 
@@ -640,7 +1116,41 @@ Si algún requisito NO se cumple:
       `Eres ${config.agent_name}, un asistente virtual amable. Responde en español neutro, en mensajes breves de 2 a 4 líneas.`;
   }
 
-  return base
+  // Instrucción de agendamiento: slots frescos en prompt + tool para validar/agendar
+  let schedulingInstruction = "";
+  if (canSchedule) {
+    if (availableSlots.length > 0) {
+      const slotList = availableSlots
+        .map((s, i) => `${i + 1}. ${s.label} [date:${s.date}|hour:${s.hour}|minute:${s.minute}]`)
+        .join("\n");
+
+      let existingSection = "";
+      if (existingAppts.length > 0) {
+        const lines = existingAppts.map(a => {
+          const lbl = formatSlotLabel(a.date, a.hour, a.minute, config.timezone);
+          return `- ${lbl}${a.notes ? ` — ${a.notes}` : ""} [appointment_id:${a.id}]`;
+        }).join("\n");
+        existingSection = `\n\nCITAS YA AGENDADAS DE ESTE CLIENTE:\n${lines}`;
+      }
+
+      schedulingInstruction = `\n\nAGENDAMIENTO DE CITAS:
+${existingSection}
+Los siguientes horarios están disponibles según el sistema (consultados en tiempo real desde el calendario de este negocio, verificados contra citas existentes, bloqueos y anticipación mínima):
+
+${slotList}
+
+REGLAS:
+- Presenta hasta 5 opciones cuando el cliente pida disponibilidad.
+- Si el cliente pide un día específico, muestra las opciones de ese día. Si no hay ese día, díselo y ofrece las más próximas.
+- NUNCA ofrezcas un horario que no esté en la lista.
+- Para CONFIRMAR una cita: usa la herramienta check_and_book_slot. Si retorna booked:true, confirma al cliente. Si retorna booked:false, presenta las alternativas que retorna.
+- Para MOVER una cita existente: usa check_and_book_slot con reschedule_id del appointment_id de arriba.`;
+    } else {
+      schedulingInstruction = `\n\nAGENDAMIENTO: No hay horarios disponibles en los próximos días según la configuración actual del calendario. Si el cliente quiere agendar, sugiérele contactar directamente al negocio.`;
+    }
+  }
+
+  const prompt = base
     .replace(/\{\{negocio\.nombre\}\}/g, business?.business_name ?? "el negocio")
     .replace(/\{\{negocio\.descripcion\}\}/g, business?.description ?? "")
     .replace(/\{\{negocio\.servicios\}\}/g, servicesList)
@@ -651,7 +1161,11 @@ Si algún requisito NO se cumple:
     + catalogInstruction
     + paymentInstruction
     + transferInstruction
+    + schedulingInstruction
     + labelInstruction;
+
+  const contactName = conv?.contact_name ?? null;
+  return { prompt, contactId, contactName, availableSlots };
 }
 
 // ─── Enviar mensaje de texto por Graph API ────────────────────────────────────
@@ -828,6 +1342,168 @@ async function callClaude(
   };
 }
 
+// ─── Herramientas de agendamiento (tool use dinámico) ────────────────────────
+// Solo check_and_book_slot como tool — los slots disponibles se inyectan en el system prompt
+// (frescos en cada mensaje, consultados desde BD con todas las restricciones reales)
+const SCHEDULING_TOOLS = [
+  {
+    name: "check_and_book_slot",
+    description: "Verifica si un horario específico está disponible y lo agenda. Si NO está disponible, retorna horarios alternativos cercanos. Debes llamar a esta herramienta SIEMPRE antes de confirmar una cita al cliente.",
+    input_schema: {
+      type: "object",
+      properties: {
+        date:         { type: "string",  description: "Fecha en formato YYYY-MM-DD (copia exacta de la lista de horarios disponibles)" },
+        hour:         { type: "integer", description: "Hora en formato 24h (0-23)" },
+        minute:       { type: "integer", description: "Minuto (normalmente 0)" },
+        contact_name: { type: "string",  description: "Nombre completo del cliente" },
+        notes:        { type: "string",  description: "Motivo o notas de la cita (puede estar vacío)" },
+        reschedule_id:{ type: "string",  description: "ID de la cita a modificar (solo para reagendamiento)" },
+      },
+      required: ["date", "hour", "minute", "contact_name"],
+    },
+  },
+];
+
+function makeSchedulingToolExecutor(
+  calendarId: string,
+  userId: string,
+  conversationId: string,
+  clientPhone: string,
+  contactId: string | null,
+  timezone: string,
+  preloadedSlots: AvailableSlot[],
+  convContactName: string | null,
+) {
+  return async (name: string, input: any): Promise<string> => {
+    if (name === "check_and_book_slot") {
+      const { date, hour, minute, notes, reschedule_id } = input;
+      const rescheduleId = reschedule_id || null;
+      // Filtrar nombres placeholder que Claude podría poner cuando aún no tiene el nombre
+      const PLACEHOLDER_NAMES_TOOL = ["pendiente", "n/a", "unknown", "desconocido", "cliente", "sin nombre", "nombre", "por confirmar", "a confirmar"];
+      const isPlaceholder = (n: string) => !n || PLACEHOLDER_NAMES_TOOL.includes(n.toLowerCase().trim());
+      const rawName: string = input.contact_name ?? "";
+      // Si Claude no tiene nombre real → usar el nombre ya guardado en la conversación (si es válido)
+      const contact_name = !isPlaceholder(rawName) ? rawName
+        : (convContactName && !isPlaceholder(convContactName) ? convContactName : "");
+
+      const validation = await validateSlot(calendarId, date, hour, minute, rescheduleId);
+
+      if (!validation.valid) {
+        // Reusar los slots ya cargados en el system prompt para evitar una query extra
+        const alts = preloadedSlots.length > 0
+          ? preloadedSlots.slice(0, 5)
+          : (await getAvailableSlots(calendarId, date)).slots.slice(0, 5);
+        return JSON.stringify({
+          booked: false,
+          reason: validation.reason,
+          alternatives: alts.map(s => ({ date: s.date, hour: s.hour, minute: s.minute, label: s.label })),
+          message: "El horario solicitado no está disponible. Presenta las alternativas al cliente.",
+        });
+      }
+
+      const bookResult = await bookAppointmentFromAgent(
+        calendarId, userId, conversationId,
+        contact_name || clientPhone,
+        clientPhone,
+        date, hour, minute,
+        notes || null,
+        rescheduleId,
+      );
+
+      if (!bookResult.ok) {
+        return JSON.stringify({ booked: false, reason: bookResult.error, message: "Error al agendar." });
+      }
+
+      return JSON.stringify({
+        booked: true,
+        date, hour, minute,
+        label: formatSlotLabel(date, hour, minute, timezone),
+        message: `Cita ${rescheduleId ? "modificada" : "agendada"} correctamente. Confirma al cliente.`,
+      });
+    }
+
+    return JSON.stringify({ error: "Tool desconocida" });
+  };
+}
+
+// ─── Llamada a Claude con soporte de tool use (loop agéntico) ─────────────────
+async function callClaudeAgentLoop(
+  systemPrompt: string,
+  history: WaMessage[],
+  model: string,
+  tools: any[],
+  toolExecutor: (name: string, input: any) => Promise<string>,
+  media?: { base64: string; mimeType: string; type: "image" | "document" } | null,
+): Promise<{ text: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }> {
+  const messages: any[] = history.slice(0, -1).map(m => ({
+    role: m.role === "user" ? "user" : "assistant",
+    content: m.content,
+  }));
+
+  const lastMsg = history[history.length - 1];
+  if (lastMsg) {
+    if (media) {
+      const mediaBlock = media.type === "image"
+        ? { type: "image", source: { type: "base64", media_type: media.mimeType, data: media.base64 } }
+        : { type: "document", source: { type: "base64", media_type: "application/pdf", data: media.base64 } };
+      messages.push({ role: "user", content: [mediaBlock, { type: "text", text: lastMsg.content || "¿Qué ves?" }] });
+    } else {
+      messages.push({ role: "user", content: lastMsg.content });
+    }
+  }
+
+  let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheCreation = 0;
+
+  for (let iteration = 0; iteration < 6; iteration++) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "anthropic-beta": "prompt-caching-2024-07-31",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 512,
+        system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+        tools,
+        messages,
+      }),
+    });
+
+    if (!res.ok) throw new Error(`Claude API ${res.status}: ${await res.text()}`);
+
+    const json = await res.json();
+    totalInput        += json.usage?.input_tokens               ?? 0;
+    totalOutput       += json.usage?.output_tokens              ?? 0;
+    totalCacheRead    += json.usage?.cache_read_input_tokens    ?? 0;
+    totalCacheCreation+= json.usage?.cache_creation_input_tokens ?? 0;
+
+    if (json.stop_reason === "end_turn") {
+      const textBlock = json.content?.find((b: any) => b.type === "text");
+      if (!textBlock?.text) throw new Error("Claude no devolvió texto");
+      return { text: textBlock.text, inputTokens: totalInput, outputTokens: totalOutput, cacheReadTokens: totalCacheRead, cacheCreationTokens: totalCacheCreation };
+    }
+
+    if (json.stop_reason === "tool_use") {
+      const toolBlocks = (json.content as any[]).filter(b => b.type === "tool_use");
+      messages.push({ role: "assistant", content: json.content });
+      const toolResults = await Promise.all(toolBlocks.map(async (block: any) => ({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: await toolExecutor(block.name, block.input),
+      })));
+      messages.push({ role: "user", content: toolResults });
+      continue;
+    }
+
+    throw new Error(`stop_reason inesperado: ${json.stop_reason}`);
+  }
+
+  throw new Error("Máximo de iteraciones de tool use alcanzado");
+}
+
 // ─── Entry point ───────────────────────────────────────────────────────────────
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") {
@@ -899,29 +1575,37 @@ Deno.serve(async (req: Request) => {
 
     // 4. Construir system prompt con catálogo, variables y etiquetas
     const t0 = Date.now();
-    const systemPrompt = await buildSystemPrompt(config as AgentConfig, phone, config.can_transfer_human ?? false);
+    const { prompt: systemPrompt, contactId: convContactId, contactName: convContactName, availableSlots: preloadedSlots } =
+      await buildSystemPrompt(config as AgentConfig, phone, config.can_transfer_human ?? false);
 
-    // 5. Llamar a Claude
+    // 5. Llamar a Claude — con tool use para agendamiento, sin tools para el resto
     const model = "claude-haiku-4-5-20251001";
-    const { text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens } = await callClaude(systemPrompt, history, model, media);
+    const canSchedule = !!(config.can_book_appointments && config.scheduling_calendar_id);
+
+    let rawReply: string;
+    let inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheCreationTokens: number;
+
+    if (canSchedule) {
+      // contactId ya viene del buildSystemPrompt — no hay query duplicada
+      const toolExecutor = makeSchedulingToolExecutor(
+        config.scheduling_calendar_id!, tenant_user_id, conversation_id,
+        phone, convContactId, config.timezone ?? "UTC",
+        preloadedSlots, convContactName,
+      );
+      ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens } =
+        await callClaudeAgentLoop(systemPrompt, history, model, SCHEDULING_TOOLS, toolExecutor, media));
+    } else {
+      ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens } =
+        await callClaude(systemPrompt, history, model, media));
+    }
+
     console.log(`[ai-agent] Claude respondió en ${Date.now() - t0}ms tokens:${inputTokens}in/${outputTokens}out cacheRead:${cacheReadTokens} cacheWrite:${cacheCreationTokens}`);
 
-    // Log de uso de tokens con costo real (incluye cache write/read a sus precios correctos)
     const _prices = MODEL_PRICES[model] ?? { input: 0.25, output: 1.25, cacheWrite: 0.30, cacheRead: 0.03 };
-    const _costUsd = (
-      inputTokens         * _prices.input      +
-      outputTokens        * _prices.output     +
-      cacheCreationTokens * _prices.cacheWrite +
-      cacheReadTokens     * _prices.cacheRead
-    ) / 1_000_000;
-    supabase.from("crm_ai_usage_log").insert({
-      user_id: tenant_user_id, conversation_id, model,
-      input_tokens: inputTokens, output_tokens: outputTokens,
-      cache_read_tokens: cacheReadTokens, cache_creation_tokens: cacheCreationTokens,
-      cost_usd: _costUsd,
-    }).then(() => {}).catch(() => {});
+    const _costUsd = (inputTokens * _prices.input + outputTokens * _prices.output + cacheCreationTokens * _prices.cacheWrite + cacheReadTokens * _prices.cacheRead) / 1_000_000;
+    supabase.from("crm_ai_usage_log").insert({ user_id: tenant_user_id, conversation_id, model, input_tokens: inputTokens, output_tokens: outputTokens, cache_read_tokens: cacheReadTokens, cache_creation_tokens: cacheCreationTokens, cost_usd: _costUsd }).then(() => {}).catch(() => {});
 
-    // 6. Extraer todos los marcadores del reply (antes de cualquier decisión)
+    // 6. Extraer marcadores del reply (agendamiento ya fue procesado por tool use)
     const { text: withoutPayment, payment } = parseAndStripPayment(rawReply);
     const { text: withoutNoPayment, hasNoPayment } = parseAndStripNoPayment(withoutPayment);
     const { text: withoutQr, qrIds } = parseAndStripQrMarkers(withoutNoPayment);
@@ -974,14 +1658,14 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 10. Etiquetas automáticas (fire & forget)
+    // 10b. Etiquetas automáticas (fire & forget)
     if (labelNames.length > 0) {
       applyAutoLabels(tenant_user_id, conversation_id, labelNames).catch(err =>
         console.error("[ai-agent] error labels:", err.message)
       );
     }
 
-    // 10b. Si Claude recopiló datos del prospecto → guardar en crm_contacts
+    // 10c. Si Claude recopiló datos del prospecto → guardar en crm_contacts
     if (contactData && Object.keys(contactData).length > 0 && config.can_create_contacts) {
       try {
         const { data: convRow } = await supabase
@@ -1036,7 +1720,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 10c. Si Claude detectó un comprobante de pago → crear venta en CRM
+    // 10d. Si Claude detectó un comprobante de pago → crear venta en CRM
     if (payment && !isNaN(payment.amount) && payment.product_id) {
       console.log(`[ai-agent] pago detectado → item_id:${payment.product_id} amount:${payment.amount} auto:${config.auto_detect_payments}`);
       try {
@@ -1046,50 +1730,144 @@ Deno.serve(async (req: Request) => {
           .eq("id", conversation_id)
           .single();
 
-        // Resolver si el UUID es un producto o un servicio
+        // Resolver si el UUID es un producto o un servicio — incluir precio y stock para validación
         const itemId = payment.product_id;
         const { data: productRow } = await supabase
           .from("crm_products")
-          .select("id, name, currency")
+          .select("id, name, currency, price, discount_pct, stock_enabled, stock")
           .eq("id", itemId)
           .eq("user_id", config.user_id)
+          .eq("is_active", true)
           .maybeSingle();
 
-        let serviceRow: { id: string; name: string; currency: string | null } | null = null;
+        let serviceRow: { id: string; name: string; currency: string | null; price: number; discount_pct: number | null } | null = null;
         if (!productRow) {
           const { data } = await supabase
             .from("crm_services")
-            .select("id, name, currency")
+            .select("id, name, currency, price, discount_pct")
             .eq("id", itemId)
             .eq("user_id", config.user_id)
+            .eq("active", true)
             .maybeSingle();
           serviceRow = data;
         }
 
         if (!productRow && !serviceRow) {
-          console.error(`[ai-agent] item_id ${itemId} no existe en productos ni servicios — venta no registrada`);
+          console.error(`[ai-agent] item_id ${itemId} no existe/no está activo — venta no registrada`);
         } else {
           const isProduct = !!productRow;
           const itemInfo = productRow ?? serviceRow!;
 
-          // Resolver nombre de variante si aplica
+          // Resolver variante con precio y stock reales
           let variantName = "";
-          if (isProduct && payment.variant_id) {
-            const { data: vRow } = await supabase
-              .from("crm_product_variants")
-              .select("name")
-              .eq("id", payment.variant_id)
-              .single();
-            if (vRow?.name) variantName = ` (${vRow.name})`;
+          let variantPrice: number | null = null;
+          let variantStock: number | null = null;
+          if (isProduct) {
+            // Si Claude no detectó variante pero el producto tiene variantes, consultar todas
+            // y auto-seleccionar si hay solo una (caso común: 1 variante sin que el cliente la mencione)
+            let resolvedVariantId = payment.variant_id || null;
+
+            if (!resolvedVariantId) {
+              const { data: allVariants } = await supabase
+                .from("crm_product_variants")
+                .select("id, name, price_override, discount_pct, stock")
+                .eq("product_id", itemId)
+                .order("sort_order");
+
+              if (allVariants?.length === 1) {
+                // Único variante disponible → auto-seleccionar
+                resolvedVariantId = allVariants[0].id;
+                console.log(`[ai-agent] variante auto-seleccionada: ${resolvedVariantId} (única del producto)`);
+              }
+              // Si hay múltiples variantes y Claude no indicó cuál → variant_id queda null
+            }
+
+            if (resolvedVariantId) {
+              // Actualizar payment.variant_id para que el stock se decremente correctamente
+              payment.variant_id = resolvedVariantId;
+
+              const { data: vRow } = await supabase
+                .from("crm_product_variants")
+                .select("name, price_override, discount_pct, stock")
+                .eq("id", resolvedVariantId)
+                .single();
+              if (vRow) {
+                variantName = ` (${vRow.name})`;
+                // Precio final de la variante (misma lógica que el frontend)
+                const vBase = vRow.price_override != null ? vRow.price_override : (itemInfo as any).price;
+                const vDisc = (vRow.discount_pct ?? 0) > 0 ? (vRow.discount_pct ?? 0)
+                  : (vRow.price_override == null ? ((itemInfo as any).discount_pct ?? 0) : 0);
+                variantPrice = vDisc > 0 ? +(vBase * (1 - vDisc / 100)).toFixed(2) : vBase;
+                variantStock = vRow.stock ?? null;
+              }
+            }
           }
 
-          // auto_detect_payments ON → confirma automáticamente; OFF → requiere revisión manual
+          // Precio esperado del ítem (producto base o variante)
+          const disc = (itemInfo as any).discount_pct ?? 0;
+          const basePrice = (itemInfo as any).price ?? 0;
+          const expectedPrice = variantPrice ?? (disc > 0 ? +(basePrice * (1 - disc / 100)).toFixed(2) : basePrice);
+
+          // Validar stock antes de crear la venta (modelo B16-4)
+          // has_variants=true → tracking por variante, ignorar product.stock_enabled
+          // has_variants=false → tracking por product.stock_enabled + product.stock
+          if (isProduct) {
+            const hasVariants = !!(productRow as any).has_variants;
+            let outOfStock = false;
+
+            if (hasVariants) {
+              // Variante resuelta y sin stock → bloquear
+              if (payment.variant_id && variantStock !== null && variantStock <= 0) {
+                outOfStock = true;
+              }
+              // Si no hay variante resuelta (múltiples variantes) → no bloqueamos aquí;
+              // el agente debería haber pedido al cliente que elija variante
+            } else {
+              const pStockEnabled = (productRow as any).stock_enabled;
+              const pStock = (productRow as any).stock;
+              if (pStockEnabled && pStock !== null && pStock <= 0) {
+                outOfStock = true;
+              }
+            }
+
+            if (outOfStock) {
+              console.warn(`[ai-agent] producto/variante sin stock — venta no registrada: ${itemId} variant:${payment.variant_id}`);
+              try {
+                const noStockMsg = toWhatsAppFormat("Lo sentimos, ese producto ya no está disponible en este momento.");
+                await sendWhatsAppMessage(phone, noStockMsg, config as AgentConfig);
+                await supabase.from("crm_wa_messages").insert({ conversation_id, role: "assistant", content: noStockMsg });
+              } catch {}
+              return new Response(JSON.stringify({ ok: true, reason: "out_of_stock" }), { status: 200 });
+            }
+          }
+
+          // Validar que el monto reportado por Claude sea razonable (≥ 90% del precio esperado)
+          // Solo cuando auto_detect_payments está ON — si está OFF el admin lo revisa manualmente
           const autoConfirm = config.auto_detect_payments ?? false;
-          const saleStatus = autoConfirm ? "confirmed" : "pending_review";
+          if (autoConfirm && expectedPrice > 0) {
+            const ratio = payment.amount / expectedPrice;
+            if (ratio < 0.9) {
+              console.warn(`[ai-agent] monto sospechoso: reportado=${payment.amount} esperado=${expectedPrice} ratio=${ratio.toFixed(2)} → forzando revisión manual`);
+              (payment as any)._forceReview = true;
+            }
+          }
+
+          const saleStatus = (autoConfirm && !(payment as any)._forceReview) ? "confirmed" : "pending_review";
           const now = new Date().toISOString();
+
+          // Re-consultar conversación para obtener contact_id más actualizado
+          // (puede haber sido actualizado en pasos anteriores del mismo ciclo)
+          const { data: freshConv } = await supabase
+            .from("crm_wa_conversations")
+            .select("contact_id, contact_name")
+            .eq("id", conversation_id)
+            .single();
+          const resolvedContactId = freshConv?.contact_id ?? convData?.contact_id ?? null;
+          const resolvedContactName = freshConv?.contact_name ?? convData?.contact_name ?? null;
 
           const salePayload: Record<string, unknown> = {
             user_id: config.user_id,
+            type: "initial",                                          // campo requerido, siempre "initial" para ventas IA
             product_id: isProduct ? itemId : null,
             product_variant_id: isProduct ? (payment.variant_id ?? null) : null,
             product_name: isProduct ? (itemInfo.name + variantName) : null,
@@ -1100,11 +1878,12 @@ Deno.serve(async (req: Request) => {
             currency: itemInfo.currency ?? "USD",
             status: saleStatus,
             is_ai_sale: true,
-            is_paid: autoConfirm,
-            paid_at: autoConfirm ? now : null,
-            contact_id: convData?.contact_id ?? null,
-            contact_name: convData?.contact_name ?? null,
+            is_paid: autoConfirm && !(payment as any)._forceReview,
+            paid_at: (autoConfirm && !(payment as any)._forceReview) ? now : null,
+            contact_id: resolvedContactId,
+            contact_name: resolvedContactName,
             payment_method_type: payment.method_type,
+            commission_pct: 0,                                        // ventas IA no aplican comisión por defecto
           };
 
           const { data: newSale, error: saleErr } = await supabase
@@ -1124,12 +1903,13 @@ Deno.serve(async (req: Request) => {
             const itemName = itemInfo.name ?? (isProduct ? "producto" : "servicio");
             const amountFormatted = formatPrice(payment.amount, itemInfo.currency ?? null);
 
-            const emailSubject = autoConfirm
-              ? `Venta IA Realizada - ${itemName}`
-              : `Comprobante de pago recibido - ${itemName}`;
-            const emailHtml = autoConfirm
+            const isConfirmed = saleStatus === "confirmed";
+            const emailSubject = isConfirmed
+              ? `Venta confirmada por Agente IA: ${itemName}`
+              : `Acción requerida: pago pendiente de confirmación – ${itemName}`;
+            const emailHtml = isConfirmed
               ? `<p>El agente IA confirmó una venta de <strong>${itemName}</strong> por <strong>${amountFormatted}</strong>.</p><p>El entregable (si aplica) ya fue enviado al cliente por WhatsApp.</p>`
-              : `<p>El agente IA recibió un comprobante de pago para <strong>${itemName}</strong> por <strong>${amountFormatted}</strong>. Pendiente de revisión en el CRM.</p>`;
+              : `<p>El agente IA recibió un comprobante de pago para <strong>${itemName}</strong> por <strong>${amountFormatted}</strong>.</p><p>Entra al CRM y revisa los chats del Agente IA para confirmar o rechazar este pago.</p>`;
 
             // Query fresca y explícita para email — bypassa cualquier problema de schema cache
             const { data: emailRow } = await supabase
@@ -1159,8 +1939,8 @@ Deno.serve(async (req: Request) => {
 
             // Ejecutar en paralelo: entregable + stock
             await Promise.allSettled([
-              // Entregable (solo para productos con auto-confirm)
-              ...(autoConfirm && isProduct ? [
+              // Entregable solo si la venta quedó confirmed (no pending_review por monto sospechoso)
+              ...(isConfirmed && isProduct ? [
                 supabase.functions.invoke("send-deliverable", {
                   body: { sale_id: newSale.id },
                   headers: { "x-internal-key": SERVICE_ROLE_KEY },
@@ -1170,8 +1950,9 @@ Deno.serve(async (req: Request) => {
                 }),
               ] : []),
 
-              // Decrement stock
-              ...(autoConfirm && isProduct ? [
+              // Decrementar stock siempre que sea un producto con stock habilitado
+              // (tanto auto-confirm como pending_review — evita vender lo mismo dos veces)
+              ...(isProduct ? [
                 supabase.rpc("decrement_sale_stock", {
                   p_product_id: itemId,
                   p_variant_id: payment.variant_id ?? null,
@@ -1185,7 +1966,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // 10d. Si Claude detectó que no hay métodos de pago → transferir a HUMAN
+    // 10e. Si Claude detectó que no hay métodos de pago → transferir a HUMAN
     if (hasNoPayment) {
       console.log(`[ai-agent] sin método de pago detectado → HUMAN para ${phone}`);
       await supabase

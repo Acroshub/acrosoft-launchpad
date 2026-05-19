@@ -3297,3 +3297,212 @@ Cada fila es clickeable y navega al módulo correspondiente (`Mi Negocio` con el
 | Bloquear bot en grupos WA | B15-10 | 🔴 Alta | Baja | Pendiente |
 | UX stock en productos | B15-11 | 🟡 Media | Baja | Pendiente |
 | Wizard onboarding en Resumen | B15-12 | 🔴 Alta | Media | Pendiente |
+
+---
+
+## BLOQUE 16 — Calendario IA, Stock Inteligente y Catálogo Dinámico
+
+> Fecha de planificación: Mayo 2026
+
+---
+
+### B16-1 · Agendamientos reales del Agente IA con el Calendario
+
+**Estado:** ✅ COMPLETADO
+
+**Contexto:**
+El agente IA puede detectar intención de agendar (cita, reunión, estimado, recogida, etc.) pero actualmente no consulta la disponibilidad real ni crea eventos. El toggle "Agendar citas" en Capacidades existe pero no tiene lógica de backend completa.
+
+**Comportamiento esperado:**
+1. El agente detecta intención de agendar en el mensaje del contacto.
+2. Si el toggle "Agendar citas" está **ON** y hay un calendario configurado en el agente:
+   - Consulta los slots disponibles del calendario seleccionado (respetando horarios, duración, bloqueos y citas ya existentes).
+   - Presenta al contacto **3–5 slots disponibles próximos** en lenguaje natural (ej: "Puedo ofrecerte estos horarios: Lunes 26 a las 10:00, Martes 27 a las 14:00, Miércoles 28 a las 09:00. ¿Cuál prefieres?").
+3. El contacto elige un slot respondiendo al chat.
+4. El agente confirma y crea el evento en el calendario:
+   - Si no existe contacto → lo crea en `crm_contacts` con los datos recopilados.
+   - Crea la cita en `crm_appointments` vinculada al contacto y al calendario.
+5. Envía confirmación en el chat con resumen: fecha, hora, servicio/motivo y nombre del negocio.
+
+**Configuración:**
+- En **Capacidades** del Agente IA (wizard Step 2 y Settings): agregar selector de calendario ("¿Qué calendario usar para agendar?") — dropdown con los calendarios activos del tenant.
+- Este campo se guarda en `crm_ai_agent_config.scheduling_calendar_id`.
+- Si el toggle "Agendar citas" está ON pero no hay calendario seleccionado → el agente responde que no tiene disponibilidad configurada y sugiere contactar directamente.
+
+**DB — Columna nueva:**
+```sql
+ALTER TABLE crm_ai_agent_config
+  ADD COLUMN IF NOT EXISTS scheduling_calendar_id uuid REFERENCES crm_calendar_config(id) ON DELETE SET NULL;
+```
+
+**Lógica de slots disponibles (en `ai-agent/index.ts`):**
+```
+1. Cargar crm_calendar_config (horarios, duración de slot, timezone)
+2. Cargar crm_blocked_slots del calendario (fechas/horas bloqueadas)
+3. Cargar crm_appointments del calendario (citas ya agendadas)
+4. Generar grid de slots libres para los próximos N días (recomendado: 7 días)
+5. Excluir slots bloqueados y ocupados
+6. Devolver los primeros 3–5 slots libres al agente como lista para presentar
+```
+
+**Tool nueva en el agente:**
+```typescript
+{
+  name: "get_available_slots",
+  description: "Consulta los próximos slots disponibles del calendario del negocio",
+  input_schema: {
+    type: "object",
+    properties: {
+      days_ahead: { type: "number", description: "Cuántos días hacia adelante buscar (default 7)" }
+    }
+  }
+}
+
+{
+  name: "book_appointment",
+  description: "Agenda una cita en el calendario del negocio",
+  input_schema: {
+    type: "object",
+    properties: {
+      contact_name:  { type: "string" },
+      contact_phone: { type: "string" },
+      date:          { type: "string", description: "YYYY-MM-DD" },
+      hour:          { type: "number" },
+      minute:        { type: "number" },
+      notes:         { type: "string", description: "Motivo o descripción de la cita" }
+    },
+    required: ["contact_name", "contact_phone", "date", "hour", "minute"]
+  }
+}
+```
+
+**Archivos a modificar:**
+- `supabase/migrations/` — columna `scheduling_calendar_id` en `crm_ai_agent_config`
+- `supabase/functions/ai-agent/index.ts` — tools `get_available_slots` y `book_appointment`, lógica de detección de intención de agendamiento
+- `src/lib/supabase.ts` — actualizar tipo `CrmAIAgentConfig` con `scheduling_calendar_id`
+- `src/components/crm/CrmAgentIA.tsx` — selector de calendario en Wizard Step 2 y SettingsPanel (tab Capacidades)
+- `src/hooks/useCrmData.ts` — si es necesario, hook para calendario del agente
+
+---
+
+### B16-2 · Notificaciones de poco inventario por email
+
+**Estado:** ✅ COMPLETADO
+
+**Comportamiento:**
+- Cuando el stock de un producto **o una variante individual** llega exactamente a **5 unidades**, se envía un email de alerta al `contact_email` del perfil "Mi Negocio" del tenant.
+- Cuando el stock llega a **0 unidades**, se envía un segundo email indicando que el producto está agotado.
+- **No es configurable** — siempre activo para todos los tenants.
+- Una sola notificación por umbral: si ya se notificó que llegó a 5, no se vuelve a notificar hasta que el stock suba y vuelva a bajar.
+- Las notificaciones se disparan **en tiempo real** al momento en que se registra la venta que baja el stock (no hay cron).
+
+**Umbrales:**
+
+| Umbral | Asunto del email | Cuerpo |
+|--------|-----------------|--------|
+| Stock = 5 | ⚠️ Poco stock: {nombre producto/variante} | "El producto {nombre} tiene solo 5 unidades disponibles. Considera reabastecer pronto." |
+| Stock = 0 | 🚨 Producto agotado: {nombre producto/variante} | "El producto {nombre} ha llegado a 0 unidades. Ya no aparece en tu catálogo público." |
+
+**Control de duplicados:**
+Añadir dos columnas booleanas en `crm_products` y `crm_product_variants`:
+```sql
+ALTER TABLE crm_products
+  ADD COLUMN IF NOT EXISTS notified_low_stock    boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS notified_out_of_stock boolean NOT NULL DEFAULT false;
+
+ALTER TABLE crm_product_variants
+  ADD COLUMN IF NOT EXISTS notified_low_stock    boolean NOT NULL DEFAULT false,
+  ADD COLUMN IF NOT EXISTS notified_out_of_stock boolean NOT NULL DEFAULT false;
+```
+- Cuando el stock sube por encima de 5 → resetear `notified_low_stock = false`.
+- Cuando el stock sube por encima de 0 → resetear ambos flags a `false`.
+
+**Flujo de envío:**
+El envío ocurre dentro de la lógica que decrementa el stock al registrar una venta (actualmente en el hook de ventas o en la edge function correspondiente). Después de actualizar el stock:
+1. Consultar el nuevo stock.
+2. Si stock == 5 y `notified_low_stock = false` → enviar email + marcar flag.
+3. Si stock == 0 y `notified_out_of_stock = false` → enviar email + marcar flag.
+4. Si stock > 5 → resetear flags.
+
+**Envío de email:** Vía Resend (mismo patrón que notificaciones de venta del Agente IA). Usar el `contact_email` de `crm_business_profile` del tenant dueño del producto.
+
+**Archivos a modificar:**
+- `supabase/migrations/` — columnas `notified_low_stock` y `notified_out_of_stock` en ambas tablas
+- El hook/función que registra ventas y decrementa stock — agregar lógica de chequeo y envío
+- `src/lib/supabase.ts` — actualizar tipos `CrmProduct` y `CrmProductVariant`
+
+---
+
+### B16-3 · Catálogo público según stock
+
+**Estado:** ✅ COMPLETADO
+
+**Comportamiento esperado:**
+
+| Situación | Comportamiento en catálogo público |
+|-----------|-----------------------------------|
+| Producto sin stock configurado (`has_stock = false`) | Siempre visible, sin indicadores de cantidad |
+| Producto con stock > 5 | Visible, sin alerta de cantidad |
+| Producto con stock ≤ 5 y > 0 | Visible con badge **"Solo quedan X unidades"** (texto urgente en rojo/naranja) |
+| Producto con stock = 0 | **Oculto del catálogo** — no se muestra |
+
+**Para productos con variantes:**
+- Una variante con `stock = 0` (y `has_stock = true`) **no aparece** como opción seleccionable (se muestra tachada o directamente oculta).
+- Un producto se oculta del catálogo completo solo cuando **todas** sus variantes activas tienen `stock = 0`.
+- Si al menos una variante tiene stock > 0 (o no tiene stock configurado), el producto se sigue mostrando.
+- El badge "Solo quedan X unidades" en variantes aplica por variante individual, no al producto completo.
+
+**Umbral para el badge de urgencia:** ≤ 5 unidades (consistente con B16-2).
+
+**Archivos a modificar:**
+- La página/componente de catálogo público — filtrar productos agotados y mostrar badges de stock bajo
+- La query pública de productos — incluir `stock`, `has_stock` y stock de variantes en la respuesta
+- `src/lib/supabase.ts` — asegurarse de que el tipo público incluya campos de stock
+
+---
+
+### B16-4 · Clarificación y corrección del modelo de stock (productos con variantes)
+
+**Estado:** ✅ COMPLETADO
+
+**Problema detectado:**
+Actualmente `crm_products.stock` y `crm_product_variants.stock` son campos independientes. Cuando un producto tiene variantes (`has_variants = true`), mantener un stock propio en el producto principal genera inconsistencias: el stock del producto no refleja la realidad de lo que queda en sus variantes.
+
+**Definición correcta del modelo:**
+
+| Situación | Stock gestionado en |
+|-----------|-------------------|
+| `has_variants = false` | `crm_products.stock` (campo directo) |
+| `has_variants = true` | `crm_product_variants.stock` (por variante) |
+
+Cuando `has_variants = true`:
+- El campo `crm_products.stock` **se ignora** en toda la lógica del sistema (CRM, catálogo, notificaciones, agente IA).
+- El "stock total" del producto que se muestra en el CRM es `SUM(variant.stock)` de las variantes que tienen `has_stock = true`.
+- Las notificaciones de B16-2 se disparan por **variante individual**, no por el total del producto.
+- El catálogo público oculta variantes agotadas individualmente; oculta el producto solo si todas sus variantes están agotadas.
+
+**Cambios en UI del CRM:**
+- En la lista de productos: cuando `has_variants = true`, mostrar el stock como suma de variantes (calculado al cargar) en vez del `product.stock`.
+- El `StockAdjuster` del producto principal se oculta cuando `has_variants = true` (el stock se gestiona desde el panel de variantes).
+- Esta corrección elimina la confusión reportada anteriormente donde el producto mostraba stock inconsistente con sus variantes.
+
+**No requiere migración SQL** — es un cambio de lógica en frontend y en las queries/funciones que leen stock. El campo `crm_products.stock` puede dejarse en la DB para compatibilidad; simplemente se ignora cuando `has_variants = true`.
+
+**Archivos a modificar:**
+- `src/components/crm/CrmProductos.tsx` — ocultar `StockAdjuster` del producto cuando tiene variantes; mostrar suma de stocks de variantes
+- `src/hooks/useCrmData.ts` — actualizar queries que leen stock para incluir suma de variantes cuando corresponda
+- Catálogo público — misma lógica
+
+---
+
+### Resumen del Bloque 16
+
+| Feature | ID | Prioridad | Esfuerzo | Estado |
+|---|---|---|---|---|
+| Agendamientos reales Agente IA | B16-1 | ✅ | Alta | Completado |
+| Notificaciones de poco stock | B16-2 | ✅ | Media | Completado |
+| Catálogo público según stock | B16-3 | ✅ | Media | Completado |
+| Fix modelo stock productos+variantes | B16-4 | ✅ | Baja | Completado |
+
+**Orden de implementación recomendado:** B16-4 → B16-3 → B16-2 → B16-1
+(B16-4 es prerequisito para que B16-2 y B16-3 tengan lógica consistente. B16-1 es independiente pero más complejo.)

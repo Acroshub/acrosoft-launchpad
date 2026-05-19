@@ -10,6 +10,7 @@ import type { CrmSale } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import SalesTable from "@/components/crm/SalesTable";
 
 const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
@@ -140,8 +141,6 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
     }
   }, [businessProfile]);
 
-  const [currentPage, setCurrentPage] = useState(1);
-  const salesPerPage = 10;
 
   const { data: products = [] } = useProducts();
   const activeProducts = useMemo(() => products.filter(p => p.is_active), [products]);
@@ -198,23 +197,28 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
     return upcoming[0] ?? null;
   }, [appointments]);
 
+  const confirmedSales = useMemo(
+    () => salesData.filter(s => s.status !== "pending_review" && s.status !== "rejected"),
+    [salesData]
+  );
+
   const totalVendido = useMemo(() => {
-    return salesData.reduce((sum, s) => sum + s.amount, 0);
-  }, [salesData]);
+    return confirmedSales.reduce((sum, s) => sum + s.amount, 0);
+  }, [confirmedSales]);
 
   const totalPorMoneda = useMemo(() => {
     const map = new Map<string, number>();
-    for (const s of salesData) { const c = s.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount); }
+    for (const s of confirmedSales) { const c = s.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount); }
     return [...map.entries()];
-  }, [salesData]);
+  }, [confirmedSales]);
 
   const salesThisMonth = useMemo(() => {
     const now = new Date();
-    return salesData.filter(s => {
+    return confirmedSales.filter(s => {
       const d = new Date(s.created_at);
       return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
     }).length;
-  }, [salesData]);
+  }, [confirmedSales]);
 
   // Ingreso Recurrente Estimado: unique (contact, service) pairs grouped by recurring_interval
   const recurringByInterval = useMemo(() => {
@@ -229,7 +233,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
     }
     const seen = new Set<string>();
     const totals: Record<string, number> = {};
-    for (const sale of salesData) {
+    for (const sale of confirmedSales) {
       if (!sale.service_id || !sale.contact_id) continue;
       const info = serviceInfo[sale.service_id];
       if (!info) continue;
@@ -239,13 +243,13 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
       totals[info.interval] = (totals[info.interval] ?? 0) + info.recPrice;
     }
     return Object.entries(totals).map(([interval, total]) => ({ interval, total }));
-  }, [services, salesData]);
+  }, [services, confirmedSales]);
 
   const conversionRate = useMemo(() => {
     if (contacts.length === 0) return null;
-    const contactsWithSale = new Set(salesData.map(s => s.contact_id).filter(Boolean));
+    const contactsWithSale = new Set(confirmedSales.map(s => s.contact_id).filter(Boolean));
     return Math.round((contactsWithSale.size / contacts.length) * 100);
-  }, [contacts, salesData]);
+  }, [contacts, confirmedSales]);
 
   const newContactsThisWeek = useMemo(() => {
     const cutoff = new Date();
@@ -357,21 +361,16 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
     }
   };
 
-  // ─── Sales table ───
-  const sales = useMemo(() => salesData.map(s => ({
+  // ─── Sales table — solo confirmadas ───
+  const salesRows = useMemo(() => confirmedSales.map(s => ({
     id: s.id,
-    date: new Date(s.created_at).toLocaleDateString("es-ES"),
-    // contact_name es el snapshot guardado al crear la venta — sobrevive al borrado del contacto
+    raw: s,
+    dateStr: new Date(s.created_at).toLocaleDateString("es-ES"),
     contactName: s.contact_name ?? contacts.find(c => c.id === s.contact_id)?.name ?? "Contacto eliminado",
-    serviceName: s.service_name ?? "Servicio eliminado",
-    amount: s.amount,
+    serviceName: s.service_name ?? s.product_name ?? "Sin nombre",
     notes: s.notes ?? "",
-  })), [salesData, contacts]);
+  })), [confirmedSales, contacts]);
 
-  const indexOfLastSale = currentPage * salesPerPage;
-  const indexOfFirstSale = indexOfLastSale - salesPerPage;
-  const currentSales = sales.slice(indexOfFirstSale, indexOfLastSale);
-  const totalPages = Math.ceil(sales.length / salesPerPage);
 
   const visibleMetrics = metrics.filter(m => isSuperAdmin || !m.isAdmin);
 
@@ -749,110 +748,15 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
         <div className="px-6 py-4 border-b flex justify-between items-center">
           <h2 className="text-sm font-semibold">Historial de Ventas</h2>
         </div>
-        {loadingSales ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 size={24} className="animate-spin text-muted-foreground" />
-          </div>
-        ) : sales.length === 0 ? (
-          <div className="px-6 py-12 text-center text-muted-foreground">
-            <DollarSign size={24} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm font-medium">No hay ventas registradas.</p>
-            <p className="text-xs mt-1">Utiliza el formulario de arriba para registrar tu primera venta.</p>
-          </div>
-        ) : (
-          <div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm text-left">
-                <thead className="bg-secondary/50 text-muted-foreground text-xs uppercase">
-                  <tr>
-                    <th className="px-6 py-3 font-medium">Fecha</th>
-                    <th className="px-6 py-3 font-medium">Contacto</th>
-                    <th className="px-6 py-3 font-medium">Servicio</th>
-                    <th className="px-6 py-3 font-medium text-right">Monto</th>
-                    <th className="px-6 py-3 font-medium">Notas</th>
-                    <th className="px-4 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {currentSales.map((sale) => {
-                    const raw = salesData.find(s => s.id === sale.id)!;
-                    return (
-                      <tr key={sale.id} className="hover:bg-secondary/30 transition-colors group">
-                        <td className="px-6 py-3 whitespace-nowrap text-muted-foreground text-xs">{sale.date}</td>
-                        <td className="px-6 py-3 font-medium">{sale.contactName}</td>
-                        <td className="px-6 py-3">{sale.serviceName}</td>
-                        <td className="px-6 py-3 font-semibold text-primary text-right">{fmtSaleAmt(raw.amount, raw.currency)}</td>
-                        <td className="px-6 py-3 text-muted-foreground text-xs truncate max-w-[160px]">{sale.notes || "-"}</td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {canEditSale && <button
-                              onClick={() => openEditSale(raw)}
-                              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                              title="Editar transacción"
-                            >
-                              <Pencil size={13} />
-                            </button>}
-                            {canDeleteSale && <button
-                              onClick={() => openDeleteSale(raw)}
-                              className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                              title="Eliminar transacción"
-                            >
-                              <Trash2 size={13} />
-                            </button>}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            {/* Paginación */}
-            {totalPages > 1 && (
-              <div className="px-6 py-3 border-t flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">
-                  Mostrando {indexOfFirstSale + 1} a {Math.min(indexOfLastSale, sales.length)} de {sales.length}
-                </span>
-                <div className="flex items-center gap-1">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="h-7 px-2 text-xs"
-                    disabled={currentPage === 1}
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                  >
-                    Anterior
-                  </Button>
-                  <div className="flex items-center mx-1">
-                    {Array.from({ length: totalPages }).map((_, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setCurrentPage(i + 1)}
-                        className={`w-6 h-6 rounded flex items-center justify-center text-xs font-medium transition-colors ${
-                          currentPage === i + 1 
-                            ? "bg-primary text-primary-foreground" 
-                            : "hover:bg-secondary text-muted-foreground"
-                        }`}
-                      >
-                        {i + 1}
-                      </button>
-                    ))}
-                  </div>
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="h-7 px-2 text-xs"
-                    disabled={currentPage === totalPages}
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                  >
-                    Siguiente
-                  </Button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        <SalesTable
+          rows={salesRows}
+          isLoading={loadingSales}
+          canEdit={canEditSale}
+          canDelete={canDeleteSale}
+          emptyText="No hay ventas registradas."
+          onEdit={openEditSale}
+          onDelete={openDeleteSale}
+        />
       </div>}
     </div>
     </>

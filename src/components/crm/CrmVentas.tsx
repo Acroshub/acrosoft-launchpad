@@ -12,6 +12,7 @@ import { useStaffPermissions, useCurrentUser } from "@/hooks/useAuth";
 import type { CrmSale, CrmVendor } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
+import SalesTable from "@/components/crm/SalesTable";
 
 const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
@@ -574,14 +575,29 @@ const CrmVentas = ({
   // ─── AI sale confirm/reject ────────────────────────────────────────────────
   const [confirmingAiSale, setConfirmingAiSale] = useState<string | null>(null);
 
-  const handleConfirmAiSale = async (saleId: string, action: "confirm" | "reject") => {
-    setConfirmingAiSale(saleId + action);
+  const handleConfirmAiSale = async (sale: CrmSale, action: "confirm" | "reject") => {
+    setConfirmingAiSale(sale.id + action);
     try {
-      const { data, error } = await supabase.functions.invoke("confirm-ai-sale", {
-        body: { sale_id: saleId, action },
-      });
-      if (error || data?.error) throw new Error(data?.error ?? error?.message);
-      toast.success(action === "confirm" ? "Venta confirmada" : "Venta rechazada");
+      if (action === "confirm") {
+        await updateSale.mutateAsync({
+          id: sale.id,
+          status: "confirmed" as any,
+          is_paid: true as any,
+          paid_at: new Date().toISOString() as any,
+          justification: "Confirmado manualmente desde panel de Ventas",
+        });
+        if (sale.product_id) {
+          supabase.functions.invoke("send-deliverable", { body: { sale_id: sale.id } }).catch(() => {});
+        }
+        toast.success("Venta confirmada");
+      } else {
+        await updateSale.mutateAsync({
+          id: sale.id,
+          status: "rejected" as any,
+          justification: "Rechazado manualmente desde panel de Ventas",
+        });
+        toast.success("Venta rechazada");
+      }
     } catch (e: any) { toast.error(`Error: ${e.message}`); }
     finally { setConfirmingAiSale(null); }
   };
@@ -591,62 +607,68 @@ const CrmVentas = ({
     [salesData]
   );
 
-  // ─── KPIs ─────────────────────────────────────────────────────────────────
-  const totalVendido = useMemo(() => salesData.reduce((s, x) => s + x.amount, 0), [salesData]);
-  const totalComisiones = useMemo(
-    () => salesData.reduce((s, x) => s + (x.vendor_id ? x.amount * (x.commission_pct || 0) / 100 : 0), 0),
+  // Solo ventas confirmadas cuentan para KPIs (excluye pending_review y rejected)
+  const confirmedSales = useMemo(
+    () => salesData.filter(s => s.status !== "pending_review" && s.status !== "rejected"),
     [salesData]
+  );
+
+  // ─── KPIs ─────────────────────────────────────────────────────────────────
+  const totalVendido = useMemo(() => confirmedSales.reduce((s, x) => s + x.amount, 0), [confirmedSales]);
+  const totalComisiones = useMemo(
+    () => confirmedSales.reduce((s, x) => s + (x.vendor_id ? x.amount * (x.commission_pct || 0) / 100 : 0), 0),
+    [confirmedSales]
   );
   const gananciaAdmin = totalVendido - totalComisiones;
 
   const comisionesPorMoneda = useMemo(() => {
     const map = new Map<string, number>();
-    for (const s of salesData) {
+    for (const s of confirmedSales) {
       if (!s.vendor_id) continue;
       const c = s.currency ?? "USD";
       const comm = s.amount * (s.commission_pct > 0 ? s.commission_pct : 0) / 100;
       map.set(c, (map.get(c) ?? 0) + comm);
     }
     return [...map.entries()];
-  }, [salesData]);
+  }, [confirmedSales]);
 
   const gananciaPorMoneda = useMemo(() => {
     const map = new Map<string, number>();
-    for (const s of salesData) {
+    for (const s of confirmedSales) {
       const c = s.currency ?? "USD";
       const comm = s.vendor_id ? s.amount * (s.commission_pct > 0 ? s.commission_pct : 0) / 100 : 0;
       map.set(c, (map.get(c) ?? 0) + s.amount - comm);
     }
     return [...map.entries()];
-  }, [salesData]);
+  }, [confirmedSales]);
 
   const salesThisMonth = useMemo(() => {
     const now = new Date();
-    return salesData.filter(s => { const d = new Date(s.created_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).length;
-  }, [salesData]);
+    return confirmedSales.filter(s => { const d = new Date(s.created_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).length;
+  }, [confirmedSales]);
 
   const ingresoMesActual = useMemo(() => {
     const now = new Date();
-    return salesData.filter(s => { const d = new Date(s.created_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).reduce((s, x) => s + x.amount, 0);
-  }, [salesData]);
+    return confirmedSales.filter(s => { const d = new Date(s.created_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).reduce((s, x) => s + x.amount, 0);
+  }, [confirmedSales]);
 
   // Totales agrupados por moneda para KPIs
   const totalPorMoneda = useMemo(() => {
     const map = new Map<string, number>();
-    for (const s of salesData) { const c = s.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount); }
+    for (const s of confirmedSales) { const c = s.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount); }
     return [...map.entries()];
-  }, [salesData]);
+  }, [confirmedSales]);
 
   const ingresoMesPorMoneda = useMemo(() => {
     const now = new Date();
     const map = new Map<string, number>();
-    for (const s of salesData) {
+    for (const s of confirmedSales) {
       const d = new Date(s.created_at);
       if (d.getFullYear() !== now.getFullYear() || d.getMonth() !== now.getMonth()) continue;
       const c = s.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount);
     }
     return [...map.entries()];
-  }, [salesData]);
+  }, [confirmedSales]);
 
   const availableCurrencies = useMemo(() => {
     const s = new Set(salesData.map(x => x.currency ?? "USD"));
@@ -752,8 +774,6 @@ const CrmVentas = ({
   }, [isSuperAdmin, vendors, salesData, vendorMap, maintPayments, lastMonthStr, firstRecurringSaleIds]);
 
   // ─── History with filters ─────────────────────────────────────────────────
-  const [currentPage, setCurrentPage] = useState(1);
-  const salesPerPage = 15;
 
   const allSales = useMemo(() => salesData.map(s => ({
     id: s.id, raw: s,
@@ -784,11 +804,9 @@ const CrmVentas = ({
     return r;
   }, [allSales, filterDateFrom, filterDateTo, filterService, filterContact, filterVip, filterVendor, filterCurrency]);
 
-  const totalPages    = Math.ceil(filteredSales.length / salesPerPage);
-  const pageSales     = filteredSales.slice((currentPage - 1) * salesPerPage, currentPage * salesPerPage);
-  const filteredTotal = useMemo(() => filteredSales.reduce((s, x) => s + x.amount, 0), [filteredSales]);
+  const filteredTotal = useMemo(() => filteredSales.filter(s => s.raw.status !== "pending_review" && s.raw.status !== "rejected").reduce((s, x) => s + x.amount, 0), [filteredSales]);
 
-  const applyFilter = (fn: () => void) => { fn(); setCurrentPage(1); };
+  const applyFilter = (fn: () => void) => { fn(); };
 
   const salesContactIds  = useMemo(() => new Set(salesData.map(s => s.contact_id).filter(Boolean)), [salesData]);
   const salesServiceIds  = useMemo(() => new Set(salesData.map(s => s.service_id).filter(Boolean)), [salesData]);
@@ -987,7 +1005,7 @@ const CrmVentas = ({
                       size="sm"
                       className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
                       disabled={!!confirmingAiSale}
-                      onClick={() => handleConfirmAiSale(sale.id, "confirm")}
+                      onClick={() => handleConfirmAiSale(sale, "confirm")}
                     >
                       {confirmingAiSale === sale.id + "confirm"
                         ? <Loader2 size={12} className="animate-spin" />
@@ -999,7 +1017,7 @@ const CrmVentas = ({
                       variant="outline"
                       className="h-8 gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
                       disabled={!!confirmingAiSale}
-                      onClick={() => handleConfirmAiSale(sale.id, "reject")}
+                      onClick={() => handleConfirmAiSale(sale, "reject")}
                     >
                       {confirmingAiSale === sale.id + "reject"
                         ? <Loader2 size={12} className="animate-spin" />
@@ -1327,142 +1345,26 @@ const CrmVentas = ({
             </div>
           </div>
 
-          {loadingSales ? (
-            <div className="flex items-center justify-center py-12"><Loader2 size={24} className="animate-spin text-muted-foreground" /></div>
-          ) : filteredSales.length === 0 ? (
-            <div className="px-6 py-12 text-center text-muted-foreground">
-              <DollarSign size={24} className="mx-auto mb-3 opacity-30" />
-              <p className="text-sm font-medium">{hasFilters ? "Sin ventas con los filtros aplicados." : "No hay ventas registradas."}</p>
-              {hasFilters && <button onClick={clearFilters} className="text-xs text-primary mt-2 hover:underline">Limpiar filtros</button>}
-            </div>
-          ) : (
-            <div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-secondary/50 text-muted-foreground text-xs uppercase">
-                    <tr>
-                      <th className="px-6 py-3 font-medium">Fecha</th>
-                      <th className="px-6 py-3 font-medium">Contacto</th>
-                      <th className="px-6 py-3 font-medium">Servicio / Producto</th>
-                      <th className="px-6 py-3 font-medium text-right">Monto</th>
-                      {isSuperAdmin && <th className="px-6 py-3 font-medium">Vendedor</th>}
-                      {isSuperAdmin && <th className="px-6 py-3 font-medium text-right">Comisión</th>}
-                      {isSuperAdmin && <th className="px-6 py-3 font-medium text-center">Pagado</th>}
-                      <th className="px-6 py-3 font-medium">Notas</th>
-                      <th className="px-4 py-3"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    {pageSales.map((sale) => (
-                      <tr key={sale.id} className={`transition-colors group ${sale.vendorId && sale.commission > 0 && !sale.raw.is_paid ? "bg-amber-50/70 dark:bg-amber-900/15 hover:bg-amber-100/60 dark:hover:bg-amber-900/25" : "hover:bg-secondary/30"}`}>
-                        <td className="px-6 py-3 whitespace-nowrap text-muted-foreground text-xs">{sale.dateStr}</td>
-                        <td className="px-6 py-3 font-medium">
-                          <span className="flex items-center gap-2">
-                            {sale.contactName}
-                            {sale.raw.is_vip && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-700 shrink-0">
-                                <Crown size={9} /> VIP
-                              </span>
-                            )}
-                            {sale.raw.is_ai_sale && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-700 shrink-0" title="Venta detectada por el Agente IA">
-                                <Bot size={9} /> IA
-                              </span>
-                            )}
-                          </span>
-                        </td>
-                        <td className="px-6 py-3">{sale.serviceName}</td>
-                        <td className="px-6 py-3 font-semibold text-primary text-right">{fmtSaleAmt(sale.amount, sale.raw.currency)}</td>
-                        {isSuperAdmin && (
-                          <td className="px-6 py-3">
-                            {sale.vendorName ? (
-                              <span className="text-xs font-medium text-muted-foreground">{sale.vendorName}</span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground/50">Directo</span>
-                            )}
-                          </td>
-                        )}
-                        {isSuperAdmin && (
-                          <td className="px-6 py-3 text-right">
-                            {sale.commission > 0 ? (
-                              <span className="text-xs font-medium text-emerald-600">{fmtSaleAmt(sale.commission, sale.raw.currency)}</span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground/50">—</span>
-                            )}
-                          </td>
-                        )}
-                        {isSuperAdmin && (
-                          <td className="px-6 py-3 text-center">
-                            {sale.vendorId && sale.commission > 0 ? (
-                              sale.raw.is_paid ? (
-                                <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                                  <CheckCircle2 size={11} /> Pagado
-                                </span>
-                              ) : (
-                                <button
-                                  onClick={() => openPayModal(sale.raw)}
-                                  className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline font-semibold"
-                                >
-                                  Marcar pagado
-                                </button>
-                              )
-                            ) : (
-                              <span className="text-[11px] text-muted-foreground/40">—</span>
-                            )}
-                          </td>
-                        )}
-                        <td className="px-6 py-3 text-muted-foreground text-xs truncate max-w-[160px]">{sale.notes || "—"}</td>
-                        <td className="px-4 py-3 text-right">
-                          <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            {isSuperAdmin && (
-                              <button onClick={() => handleToggleVip(sale.raw)} className={`p-1.5 rounded-lg transition-colors ${sale.raw.is_vip ? "text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-900/30" : "text-muted-foreground hover:text-amber-500 hover:bg-secondary"}`} title={sale.raw.is_vip ? "Quitar VIP" : "Marcar como VIP"}>
-                                <Crown size={13} />
-                              </button>
-                            )}
-                            {canEditSale && (
-                              <button onClick={() => openEditSale(sale.raw)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" title="Editar transacción">
-                                <Pencil size={13} />
-                              </button>
-                            )}
-                            {canDeleteSale && (
-                              <button onClick={() => openDeleteSale(sale.raw)} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Eliminar transacción">
-                                <Trash2 size={13} />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="px-6 py-3 border-t flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2">
-                <div className="flex items-center gap-4">
-                  <span className="text-xs text-muted-foreground">
-                    {filteredSales.length === allSales.length ? `${allSales.length} venta${allSales.length !== 1 ? "s" : ""}` : `${filteredSales.length} de ${allSales.length} ventas`}
-                  </span>
-                  {hasFilters && <span className="text-xs font-semibold text-primary">Total filtrado: ${filteredTotal.toFixed(2)}</span>}
-                </div>
-                {totalPages > 1 && (
-                  <div className="flex items-center gap-1">
-                    <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>Anterior</Button>
-                    <div className="flex items-center mx-1">
-                      {Array.from({ length: Math.min(totalPages, 7) }).map((_, i) => {
-                        const page = i + 1;
-                        return (
-                          <button key={page} onClick={() => setCurrentPage(page)} className={`w-6 h-6 rounded flex items-center justify-center text-xs font-medium transition-colors ${currentPage === page ? "bg-primary text-primary-foreground" : "hover:bg-secondary text-muted-foreground"}`}>
-                            {page}
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <Button variant="outline" size="sm" className="h-7 px-2 text-xs" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>Siguiente</Button>
-                  </div>
-                )}
-              </div>
+          {hasFilters && filteredSales.length === 0 && !loadingSales && (
+            <div className="px-6 py-4 text-center">
+              <button onClick={clearFilters} className="text-xs text-primary hover:underline">Sin resultados — limpiar filtros</button>
             </div>
           )}
+          <SalesTable
+            rows={filteredSales}
+            isLoading={loadingSales}
+            isSuperAdmin={isSuperAdmin}
+            canEdit={canEditSale}
+            canDelete={canDeleteSale}
+            emptyText="No hay ventas registradas."
+            totalCount={allSales.length}
+            filteredTotal={filteredTotal}
+            hasFilters={hasFilters}
+            onEdit={openEditSale}
+            onDelete={openDeleteSale}
+            onToggleVip={handleToggleVip}
+            onMarkPaid={openPayModal}
+          />
         </div>
       </div>
     </>
