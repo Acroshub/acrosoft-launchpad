@@ -17,6 +17,7 @@ import {
   useAllConversationLabels, useConversationLabels, useToggleConversationLabel,
   useSetWaConversationMode, useDeleteWaConversation,
   useAssignConversation, useStaff,
+  useMarkConversationRead,
   useSearchWaMessages,
   useBusinessProfile,
   useProducts, useServices,
@@ -170,6 +171,7 @@ const StepIndicator = ({ current, total }: { current: number; total: number }) =
 // ─── Setup Wizard ─────────────────────────────────────────────────────────────
 const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const upsert = useUpsertAIAgentConfig();
+  const { user: wizardUser } = useCurrentUser();
   const { data: existingConfig } = useAIAgentConfig();
   const { data: businessProfile } = useBusinessProfile();
   const { data: allProducts = [] } = useProducts();
@@ -352,7 +354,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
       }).then(r => r.json()).then(d => {
         if (d.data?.[0]) {
           setBio(d.data[0].about ?? "");
-          setProfilePicUrl(d.data[0].profile_picture_url ?? null);
+          // Solo cargar foto de Meta si no hay URL guardado en DB (Supabase Storage es fuente de verdad)
+          if (!profilePicUrl) setProfilePicUrl(d.data[0].profile_picture_url ?? null);
         }
       }).catch(() => {});
     }
@@ -360,21 +363,41 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   };
 
   const handleWizardPhotoUpload = async (file: File) => {
-    if (!phoneNumberId || !accessToken || !wabaId) return;
+    if (!phoneNumberId || !accessToken || !wabaId || !wizardUser?.id) return;
     setUploadingPhoto(true);
     try {
+      // 1. Subir a Supabase Storage → URL permanente inmediata (fuente de verdad del CRM)
+      const ext = file.type === "image/png" ? "png" : "jpg";
+      const storagePath = `agent-photos/${wizardUser.id}/profile.${ext}`;
+      const { error: storageErr } = await supabase.storage
+        .from("form-uploads")
+        .upload(storagePath, file, { upsert: true, contentType: file.type });
+      if (storageErr) throw new Error(`Error al guardar foto: ${storageErr.message}`);
+
+      const { data: { publicUrl } } = supabase.storage.from("form-uploads").getPublicUrl(storagePath);
+      const urlWithBust = `${publicUrl}?t=${Date.now()}`;
+
+      // 2. Guardar en DB y mostrar en UI al instante
+      await upsert.mutateAsync({ profile_picture_url: urlWithBust });
+      setProfilePicUrl(urlWithBust);
+
+      // 3. Subir a Meta (awaited — necesitamos saber si realmente llegó)
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve((reader.result as string).split(",")[1]);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-      const { data, error } = await supabase.functions.invoke("upload-wa-profile-photo", {
+      const { data: metaData, error: metaError } = await supabase.functions.invoke("upload-wa-profile-photo", {
         body: { base64, mime_type: file.type },
       });
-      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? "Error desconocido");
-      setProfilePicUrl(URL.createObjectURL(file));
-      toast.success("Foto de perfil actualizada");
+
+      if (metaError || metaData?.error) {
+        const msg = metaData?.error ?? metaError?.message ?? "Error desconocido";
+        toast.warning(`Foto guardada en el CRM, pero falló en WhatsApp: ${msg}`);
+      } else {
+        toast.success("Foto actualizada en el CRM y en WhatsApp Business");
+      }
     } catch (e: any) {
       toast.error(e.message?.slice(0, 160) ?? "Error al subir foto");
     } finally { setUploadingPhoto(false); }
@@ -976,11 +999,18 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             <div className="space-y-3">
               <label className="text-xs font-medium text-muted-foreground">Foto de perfil</label>
               <div className="flex items-center gap-4">
-                <div className="w-16 h-16 rounded-full overflow-hidden bg-secondary flex items-center justify-center shrink-0 border">
-                  {profilePicUrl
-                    ? <img src={profilePicUrl} alt="Perfil WA" className="w-full h-full object-cover" />
-                    : <User size={26} className="text-muted-foreground" />
-                  }
+                <div className="relative w-16 h-16 shrink-0">
+                  <div className="w-16 h-16 rounded-full overflow-hidden bg-secondary flex items-center justify-center border">
+                    {profilePicUrl
+                      ? <img src={profilePicUrl} alt="Perfil WA" className={`w-full h-full object-cover transition-opacity duration-300 ${uploadingPhoto ? "opacity-40" : "opacity-100"}`} />
+                      : <User size={26} className="text-muted-foreground" />
+                    }
+                  </div>
+                  {uploadingPhoto && (
+                    <div className="absolute inset-0 rounded-full flex items-center justify-center bg-background/60">
+                      <Loader2 size={20} className="animate-spin text-primary" />
+                    </div>
+                  )}
                 </div>
                 <div className="space-y-1.5">
                   <input
@@ -1198,6 +1228,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setDoUpsell(config.do_upsell ?? false);
     setConfirmSummary(config.confirm_summary ?? true);
     setAgentDataCollect(config.agent_data_collect ?? []);
+    setProfilePicUrl(config.profile_picture_url ?? null);
+    if (config.agent_about) setBio(config.agent_about);
   }, [config]);
 
   // Rellenar emails de notificación con el del perfil si no hay uno guardado
@@ -1293,7 +1325,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     finally { setSaving(false); }
   };
 
-  // Cargar perfil de WhatsApp al abrir el tab
+  // Cargar perfil de WhatsApp al abrir el tab y sincronizar URL con DB
   useEffect(() => {
     if (section !== "perfil") return;
     const pid = config?.phone_number_id;
@@ -1306,11 +1338,20 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
       .then(r => r.json())
       .then(json => {
         const d = json.data?.[0] ?? {};
-        setBio(d.about ?? "");
-        setProfilePicUrl(d.profile_picture_url ?? null);
+        // Bio: Meta es la fuente de verdad; guardar en DB como backup
+        const metaBio: string = d.about ?? "";
+        setBio(metaBio || config?.agent_about || "");
+        if (metaBio && metaBio !== config?.agent_about) {
+          upsert.mutateAsync({ agent_about: metaBio }).catch(() => {});
+        }
+        // Foto: Supabase Storage es la fuente de verdad; Meta solo como fallback
+        if (!config?.profile_picture_url) {
+          setProfilePicUrl(d.profile_picture_url ?? null);
+        }
       })
       .catch(() => {})
       .finally(() => setLoadingProfile(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, config?.phone_number_id, config?.access_token]);
 
   const handleSaveBio = async () => {
@@ -1325,31 +1366,53 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         body: JSON.stringify({ messaging_product: "whatsapp", about: bio }),
       });
       if (!res.ok) throw new Error(await res.text());
-      toast.success("Bio actualizada");
+      // Guardar también en DB para persistencia local
+      await upsert.mutateAsync({ agent_about: bio });
+      toast.success("Bio actualizada en WhatsApp Business");
     } catch (err: any) { toast.error(err.message?.slice(0, 100)); }
     finally { setSavingBio(false); }
   };
 
   const handlePhotoUpload = async (file: File) => {
-    if (!config?.phone_number_id || !config?.access_token) return;
+    if (!config?.phone_number_id || !config?.access_token || !user?.id) return;
     if (!config?.waba_id) {
       toast.error("Configura el WABA ID en el tab Conexión para poder subir la foto de perfil");
       return;
     }
     setUploadingPhoto(true);
     try {
+      // 1. Subir a Supabase Storage → URL permanente inmediata (fuente de verdad del CRM)
+      const ext = file.type === "image/png" ? "png" : "jpg";
+      const storagePath = `agent-photos/${user.id}/profile.${ext}`;
+      const { error: storageErr } = await supabase.storage
+        .from("form-uploads")
+        .upload(storagePath, file, { upsert: true, contentType: file.type });
+      if (storageErr) throw new Error(`Error al guardar foto: ${storageErr.message}`);
+
+      const { data: { publicUrl } } = supabase.storage.from("form-uploads").getPublicUrl(storagePath);
+      const urlWithBust = `${publicUrl}?t=${Date.now()}`;
+
+      // 2. Guardar en DB y mostrar en UI al instante
+      await upsert.mutateAsync({ profile_picture_url: urlWithBust });
+      setProfilePicUrl(urlWithBust);
+
+      // 3. Subir a Meta (awaited — necesitamos saber si realmente llegó)
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve((reader.result as string).split(",")[1]);
         reader.onerror = reject;
         reader.readAsDataURL(file);
       });
-      const { data, error } = await supabase.functions.invoke("upload-wa-profile-photo", {
+      const { data: metaData, error: metaError } = await supabase.functions.invoke("upload-wa-profile-photo", {
         body: { base64, mime_type: file.type },
       });
-      if (error || data?.error) throw new Error(data?.error ?? error?.message ?? "Error desconocido");
-      setProfilePicUrl(URL.createObjectURL(file));
-      toast.success("Foto de perfil actualizada");
+
+      if (metaError || metaData?.error) {
+        const msg = metaData?.error ?? metaError?.message ?? "Error desconocido";
+        toast.warning(`Foto guardada en el CRM, pero falló en WhatsApp: ${msg}`);
+      } else {
+        toast.success("Foto actualizada en el CRM y en WhatsApp Business");
+      }
     } catch (err: any) { toast.error(err.message?.slice(0, 160) ?? "Error al subir la foto"); }
     finally { setUploadingPhoto(false); }
   };
@@ -2071,11 +2134,18 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   <div className="space-y-3">
                     <label className="text-xs font-medium text-muted-foreground">Foto de perfil</label>
                     <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 rounded-full overflow-hidden bg-secondary flex items-center justify-center shrink-0 border">
-                        {profilePicUrl ? (
-                          <img src={profilePicUrl} alt="Perfil WA" className="w-full h-full object-cover" />
-                        ) : (
-                          <User size={26} className="text-muted-foreground" />
+                      <div className="relative w-16 h-16 shrink-0">
+                        <div className="w-16 h-16 rounded-full overflow-hidden bg-secondary flex items-center justify-center border">
+                          {profilePicUrl ? (
+                            <img src={profilePicUrl} alt="Perfil WA" className={`w-full h-full object-cover transition-opacity duration-300 ${uploadingPhoto ? "opacity-40" : "opacity-100"}`} />
+                          ) : (
+                            <User size={26} className="text-muted-foreground" />
+                          )}
+                        </div>
+                        {uploadingPhoto && (
+                          <div className="absolute inset-0 rounded-full flex items-center justify-center bg-background/60">
+                            <Loader2 size={20} className="animate-spin text-primary" />
+                          </div>
                         )}
                       </div>
                       <div className="space-y-1.5">
@@ -2796,6 +2866,7 @@ const CrmAgentIA = ({
   const { data: pendingSales = [] }  = useAiPendingSales();
   const updateSaleStatus             = useUpdateSale();
   const deleteConv = useDeleteWaConversation();
+  const markRead   = useMarkConversationRead();
   const { data: labels = [] }        = useWaLabels(principalId);
   const { data: convLabelsMap = {} } = useAllConversationLabels(principalId);
   const { data: staffList = [] }     = useStaff();
@@ -3002,6 +3073,13 @@ const CrmAgentIA = ({
             ${mobileShowChat ? "hidden lg:flex lg:w-72 lg:shrink-0" : "flex w-full lg:w-72 lg:shrink-0"}
           `}>
             <div className="p-3 border-b space-y-2">
+              {/* Total unread badge */}
+              {(() => { const unreadChats = conversations.filter(c => (c.unread_count ?? 0) > 0).length; return unreadChats > 0 ? (
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-primary/10 border border-primary/20">
+                  <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />
+                  <span className="text-xs font-medium text-primary">{unreadChats} chat{unreadChats !== 1 ? "s" : ""} sin leer</span>
+                </div>
+              ) : null; })()}
               <div className="relative">
                 <Search size={13} className="absolute left-2.5 top-2.5 text-muted-foreground pointer-events-none" />
                 <Input
@@ -3060,35 +3138,50 @@ const CrmAgentIA = ({
                   filteredConvs.map(conv => {
                     const hasPendingPayment = pendingSaleConvIds.has(conv.id);
                     const pendingSale = hasPendingPayment ? pendingSaleByConvId[conv.id] : null;
+                    const unread = conv.unread_count ?? 0;
+                    const isUnread = unread > 0 && selectedId !== conv.id;
                     return (
                     <button
                       key={conv.id}
-                      onClick={() => { setSelectedId(conv.id); setMobileShowChat(true); setHighlightMessageId(null); }}
+                      onClick={() => { setSelectedId(conv.id); setMobileShowChat(true); setHighlightMessageId(null); if (unread > 0) markRead.mutate(conv.id); }}
                       className={`w-full text-left px-4 py-3.5 border-b transition-colors ${
                         selectedId === conv.id
                           ? hasPendingPayment ? "bg-amber-100 dark:bg-amber-900/30" : "bg-secondary"
-                          : hasPendingPayment ? "bg-amber-50 dark:bg-amber-900/10 hover:bg-amber-100 dark:hover:bg-amber-900/20" : "hover:bg-secondary/50 active:bg-secondary/80"
+                          : isUnread ? "bg-primary/5 hover:bg-primary/10"
+                          : hasPendingPayment ? "bg-amber-50 dark:bg-amber-900/10 hover:bg-amber-100 dark:hover:bg-amber-900/20" : "bg-background hover:bg-secondary/50"
                       }`}
                     >
                       <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${
-                          hasPendingPayment ? "bg-amber-200 dark:bg-amber-800/50" :
-                          conv.mode === "AI" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
-                        }`}>
-                          {hasPendingPayment
-                            ? <CreditCard size={16} className="text-amber-700 dark:text-amber-400" />
-                            : <span className={`text-sm font-bold ${conv.mode === "AI" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
-                                {(conv.contact_name ?? conv.phone)[0].toUpperCase()}
-                              </span>
-                          }
+                        <div className="relative shrink-0">
+                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
+                            hasPendingPayment ? "bg-amber-200 dark:bg-amber-800/50" :
+                            conv.mode === "AI" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
+                          }`}>
+                            {hasPendingPayment
+                              ? <CreditCard size={16} className="text-amber-700 dark:text-amber-400" />
+                              : <span className={`text-sm font-bold ${conv.mode === "AI" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
+                                  {(conv.contact_name ?? conv.phone)[0].toUpperCase()}
+                                </span>
+                            }
+                          </div>
+                          {isUnread && (
+                            <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-primary border-2 border-background" />
+                          )}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold truncate">{conv.contact_name ?? `+${conv.phone}`}</p>
+                          <div className="flex items-center gap-1.5">
+                            <p className={`text-sm truncate ${isUnread ? "font-bold" : "font-semibold"}`}>{conv.contact_name ?? `+${conv.phone}`}</p>
+                            {isUnread && (
+                              <span className="shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                                {unread > 99 ? "99+" : unread}
+                              </span>
+                            )}
+                          </div>
                           {hasPendingPayment
                             ? <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium truncate">
                                 💳 {pendingSale?.product_name ?? pendingSale?.service_name ?? "Pago pendiente"} · {formatSaleAmount(Number(pendingSale?.amount), pendingSale?.currency ?? null)}
                               </p>
-                            : <p className="text-[11px] text-muted-foreground truncate">{conv.contact_name ? `+${conv.phone}` : formatTime(conv.last_message_at)}</p>
+                            : <p className={`text-[11px] truncate ${isUnread ? "text-foreground font-medium" : "text-muted-foreground"}`}>{conv.contact_name ? `+${conv.phone}` : formatTime(conv.last_message_at)}</p>
                           }
                           {(convLabelsMap[conv.id] ?? []).length > 0 && (
                             <div className="flex items-center gap-0.5 mt-0.5">
@@ -3104,12 +3197,12 @@ const CrmAgentIA = ({
                         <div className="flex flex-col items-end gap-1 shrink-0">
                           <span className="text-[10px] text-muted-foreground">{formatTime(conv.last_message_at)}</span>
                           {hasPendingPayment
-                            ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-800 dark:bg-amber-800/50 dark:text-amber-300">Pago</span>
-                            : <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                                conv.mode === "AI"
-                                  ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                                  : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                              }`}>{conv.mode === "AI" ? "IA" : "Manual"}</span>
+                              ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-800 dark:bg-amber-800/50 dark:text-amber-300">Pago</span>
+                              : <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                                  conv.mode === "AI"
+                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                                }`}>{conv.mode === "AI" ? "IA" : "Manual"}</span>
                           }
                           {conv.assigned_to && staffMap[conv.assigned_to] && (
                             <span className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0" style={{ backgroundColor: "#6366f1" }} title={staffMap[conv.assigned_to].name}>

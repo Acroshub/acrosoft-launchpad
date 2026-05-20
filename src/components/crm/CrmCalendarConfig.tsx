@@ -270,19 +270,27 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
   const isConnected = !!(existingCalendar?.google_token);
   const googleCalendarId = existingCalendar?.google_calendar_id as string | undefined;
   const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  const [connecting, setConnecting] = useState(false);
+
+  // Reset connecting once the parent actualiza el calendario con el token
+  useEffect(() => {
+    if (isConnected) setConnecting(false);
+  }, [isConnected]);
 
   const handleConnect = () => {
     if (!calendarUid || !clientId) {
       toast.error("Configura VITE_GOOGLE_CLIENT_ID en las variables de entorno.");
       return;
     }
-    const redirectUri = `${window.location.origin}/oauth/google-calendar`;
+    const canonicalOrigin = window.location.origin.replace(/^(https?:\/\/)www\./, "$1");
+    const redirectUri = `${canonicalOrigin}/oauth/google-calendar`;
     const scope = "https://www.googleapis.com/auth/calendar.events https://www.googleapis.com/auth/calendar.readonly";
     const csrf = crypto.randomUUID();
     localStorage.setItem("google_oauth_csrf", csrf);
     const state = `${csrf}:${calendarUid}`;
     const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${encodeURIComponent(state)}`;
     const popup = window.open(url, "google-oauth", "width=500,height=750,scrollbars=yes");
+    setConnecting(true);
     const timer = setInterval(() => {
       if (popup?.closed) { clearInterval(timer); onGoogleConnected?.(); }
     }, 800);
@@ -594,14 +602,20 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                   <div className="flex gap-2 sm:shrink-0">
                     {isConnected ? (
                       <>
-                        <Button onClick={handleConnect} variant="outline" size="sm" className="text-xs flex-1 sm:flex-none">Cambiar</Button>
-                        <Button variant="outline" size="sm" onClick={handleDisconnect} className="text-xs text-muted-foreground gap-1.5 flex-1 sm:flex-none">
+                        <Button onClick={handleConnect} disabled={connecting} variant="outline" size="sm" className="text-xs flex-1 sm:flex-none gap-1.5">
+                          {connecting && <Loader2 size={11} className="animate-spin" />}
+                          Cambiar
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={handleDisconnect} disabled={connecting} className="text-xs text-muted-foreground gap-1.5 flex-1 sm:flex-none">
                           <Unlink size={13} /> Desconectar
                         </Button>
                       </>
                     ) : (
-                      <Button onClick={handleConnect} className="w-full sm:w-auto h-10 px-6 rounded-lg text-sm font-bold bg-primary hover:bg-primary/90 text-white shadow-md">
-                        Conectar cuenta
+                      <Button onClick={handleConnect} disabled={connecting} className="w-full sm:w-auto h-10 px-6 rounded-lg text-sm font-bold bg-primary hover:bg-primary/90 text-white shadow-md gap-2">
+                        {connecting
+                          ? <><Loader2 size={14} className="animate-spin" /> Conectando…</>
+                          : "Conectar cuenta"
+                        }
                       </Button>
                     )}
                   </div>

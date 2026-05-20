@@ -153,12 +153,12 @@ const StepLabel = ({
 }) => (
   <div className="flex items-center gap-2.5 mb-3 md:mb-2">
     <span
-      className="w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+      className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
       style={{ backgroundColor: primaryColor }}
     >
       {number}
     </span>
-    <span className="text-sm font-semibold text-gray-700">{label}</span>
+    <span className="text-sm font-bold text-gray-800">{label}</span>
   </div>
 );
 
@@ -456,7 +456,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
   const isBranded   = branding?.theme === "branded";
   const brandLogo   = isBranded ? (branding?.logo_url ?? null) : null;
 
-  const primaryColor = branding?.color_primary ?? "#3b82f6";
+  const primaryColor = branding?.color_primary ?? "#1877F2";
 
   const pixelId = (calendar as any)?.facebook_pixel_id as string | null ?? null;
 
@@ -588,7 +588,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
   // ── Loading ─────────────────────────────────────────────────────────────────
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-16">
+      <div className="flex items-center justify-center min-h-[280px]">
         <Loader2 size={20} className="animate-spin" style={{ color: primaryColor }} />
       </div>
     );
@@ -641,14 +641,14 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
 
   // ── Calendar picker ─────────────────────────────────────────────────────────
   return (
-    <div className="font-sans space-y-0" style={{ borderTop: `3px solid ${primaryColor}` }}>
+    <div className="font-sans">
 
       {/* ── Service header ── */}
       <div className="pt-5 pb-4 md:pt-4 md:pb-3 space-y-2.5">
         {brandLogo && (
           <img src={brandLogo} alt="Logo" className="h-8 max-w-[160px] object-contain mb-1" />
         )}
-        <h2 className="text-xl font-bold text-gray-900 leading-tight">
+        <h2 className="text-2xl font-bold text-gray-900 leading-tight">
           {calendar.name ?? T.bookingTitle}
         </h2>
         {calendar.description && (
@@ -657,7 +657,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
         {/* Duration + timezone badges */}
         <div className="flex items-center gap-2 flex-wrap">
           <span
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-full"
+            className="inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full"
             style={{ backgroundColor: `${primaryColor}12`, color: primaryColor }}
           >
             <Clock size={11} strokeWidth={2.5} />
@@ -697,7 +697,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
 
             {/* Month nav */}
             <div className="flex items-center justify-between mb-3 md:mb-2">
-              <span className="text-sm font-semibold text-gray-800">
+              <span className="text-base font-bold text-gray-800">
                 {T.months[viewMonth]} {viewYear}
               </span>
               <div className="flex items-center gap-0.5">
@@ -705,10 +705,10 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
                   onClick={prevMonth}
                   disabled={isCurrentMonth}
                   className={[
-                    "w-9 h-9 sm:w-7 sm:h-7 flex items-center justify-center rounded-md transition-colors",
+                    "w-8 h-8 flex items-center justify-center rounded-md transition-colors",
                     isCurrentMonth
                       ? "text-gray-200 cursor-not-allowed"
-                      : "text-gray-400 hover:bg-gray-100 hover:text-gray-700",
+                      : "text-gray-400 hover:bg-blue-50 hover:text-blue-600",
                   ].join(" ")}
                 >
                   <ChevronLeft size={15} />
@@ -717,10 +717,10 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
                   onClick={nextMonth}
                   disabled={isLastAllowedMonth}
                   className={[
-                    "w-9 h-9 sm:w-7 sm:h-7 flex items-center justify-center rounded-md transition-colors",
+                    "w-8 h-8 flex items-center justify-center rounded-md transition-colors",
                     isLastAllowedMonth
                       ? "text-gray-200 cursor-not-allowed"
-                      : "text-gray-400 hover:bg-gray-100 hover:text-gray-700",
+                      : "text-gray-400 hover:bg-blue-50 hover:text-blue-600",
                   ].join(" ")}
                 >
                   <ChevronRight size={15} />
@@ -731,7 +731,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
             {/* Day headers */}
             <div className="grid grid-cols-7 mb-1.5">
               {T.days.map((d) => (
-                <div key={d} className="text-center text-[10px] text-gray-300 uppercase tracking-widest py-1 font-semibold">
+                <div key={d} className="text-center text-xs font-semibold text-gray-400 uppercase tracking-wider py-1">
                   {d}
                 </div>
               ))}
@@ -739,7 +739,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
 
             {/* Days grid */}
             <div className="grid grid-cols-7 gap-y-0.5 justify-items-center">
-              {Array.from({ length: firstDay }).map((_, i) => <div key={`e-${i}`} className="w-10 h-10 sm:w-9 sm:h-9" />)}
+              {Array.from({ length: firstDay }).map((_, i) => <div key={`e-${i}`} className="w-9 h-9" />)}
               {Array.from({ length: daysInMonth }).map((_, i) => {
                 const day     = i + 1;
                 const key     = toDateKey(viewYear, viewMonth, day);
@@ -755,20 +755,20 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
                     disabled={!avbl}
                     style={
                       sel
-                        ? { backgroundColor: primaryColor }
+                        ? { backgroundColor: primaryColor, boxShadow: `0 4px 12px ${primaryColor}50` }
                         : isToday && avbl
                         ? { boxShadow: `inset 0 0 0 1.5px ${primaryColor}`, color: primaryColor }
                         : avbl
-                        ? { backgroundColor: `${primaryColor}18` }
+                        ? { backgroundColor: `${primaryColor}15` }
                         : undefined
                     }
                     className={[
-                      "w-10 h-10 sm:w-9 sm:h-9 flex items-center justify-center text-xs rounded-full transition-all",
-                      sel                      ? "text-white font-bold shadow-sm"         : "",
+                      "w-9 h-9 flex items-center justify-center text-xs rounded-xl transition-all",
+                      sel                      ? "text-white font-bold"                                      : "",
                       !sel && avbl && !isToday ? "text-gray-800 hover:opacity-80 cursor-pointer font-medium" : "",
                       !sel && avbl && isToday  ? "font-bold cursor-pointer hover:opacity-80"                 : "",
-                      isPast                   ? "text-gray-200 cursor-not-allowed"       : "",
-                      !avbl && !isPast         ? "text-gray-200 cursor-not-allowed"       : "",
+                      isPast                   ? "text-gray-200 cursor-not-allowed"                          : "",
+                      !avbl && !isPast         ? "text-gray-200 cursor-not-allowed"                          : "",
                     ].join(" ")}
                   >
                     {day}
@@ -807,9 +807,9 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
                     <button
                       key={`${h}:${m}`}
                       onClick={() => setSelectedSlot({ hour: h, minute: m })}
-                      style={isSelected ? { backgroundColor: primaryColor, borderColor: primaryColor } : undefined}
+                      style={isSelected ? { backgroundColor: primaryColor, borderColor: primaryColor, boxShadow: `0 2px 8px ${primaryColor}50` } : undefined}
                       className={[
-                        "w-full text-center py-2 rounded-lg text-xs font-medium transition-all border shrink-0",
+                        "w-full text-center py-2.5 rounded-lg text-xs font-semibold transition-all border shrink-0",
                         isSelected
                           ? "text-white"
                           : "border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 bg-white",
@@ -843,9 +843,9 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
                     <button
                       key={`${h}:${m}-mobile`}
                       onClick={() => setSelectedSlot({ hour: h, minute: m })}
-                      style={isSelected ? { backgroundColor: primaryColor, borderColor: primaryColor } : undefined}
+                      style={isSelected ? { backgroundColor: primaryColor, borderColor: primaryColor, boxShadow: `0 2px 8px ${primaryColor}50` } : undefined}
                       className={[
-                        "w-full text-center py-3 rounded-lg text-xs font-medium transition-all border",
+                        "w-full text-center py-3.5 rounded-lg text-xs font-semibold transition-all border",
                         isSelected
                           ? "text-white"
                           : "border-gray-200 text-gray-600 hover:border-gray-400 hover:text-gray-900 bg-white",
@@ -867,7 +867,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
           <button
             onClick={() => setStep("form")}
             style={{ backgroundColor: primaryColor }}
-            className="w-full text-white rounded-lg py-3.5 sm:py-3 text-sm font-semibold transition-all hover:opacity-90 flex items-center justify-center gap-2"
+            className="w-full text-white rounded-lg py-3.5 text-sm font-bold transition-all hover:opacity-90 flex items-center justify-center gap-2"
           >
             {T.continueWith} {selectedDate ? formatSlotInTz(selectedDate, selectedSlot.hour, selectedSlot.minute, calendarTz, visitorTz) : formatSlot(selectedSlot.hour, selectedSlot.minute)}
             <ChevronRight size={15} strokeWidth={2.5} />

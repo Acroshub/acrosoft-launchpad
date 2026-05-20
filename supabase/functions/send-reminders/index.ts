@@ -176,10 +176,12 @@ Deno.serve(async (req) => {
         ? resolveVariables(reminder.subject, vars)
         : "Tienes una notificación";
 
-      // Determinar canales activos (soporta campo channels nuevo + type legacy)
+      // WhatsApp deshabilitado. Reglas legacy con solo WhatsApp se tratan como email.
       const channels = reminder.channels as { email?: boolean; whatsapp?: boolean } | null;
-      const sendEmail     = channels ? !!channels.email     : reminder.type === "email";
-      const sendWhatsapp  = channels ? !!channels.whatsapp  : reminder.type === "whatsapp";
+      const sendEmail    = channels
+        ? (!!channels.email || !!channels.whatsapp) // WA-only legacy → fallback a email
+        : reminder.type === "email" || reminder.type === "whatsapp";
+      const sendWhatsapp = false;
 
       const errors: string[] = [];
 
@@ -211,101 +213,12 @@ Deno.serve(async (req) => {
         }
       }
 
-      // ── Canal: WhatsApp (Meta Cloud API) ────────────────────────────────────
-      if (sendWhatsapp) {
-        if (!reminder.recipient_phone) {
-          errors.push("No recipient phone on reminder");
-        } else {
-          // Cargar credenciales del agente del tenant
-          const { data: agentCfg } = await supabase
-            .from("crm_ai_agent_config")
-            .select("phone_number_id, access_token")
-            .eq("user_id", reminder.user_id)
-            .maybeSingle();
-
-          if (!agentCfg?.phone_number_id || !agentCfg?.access_token) {
-            errors.push("WhatsApp agent not configured for this tenant");
-          } else {
-            const phone = reminder.recipient_phone.replace(/\D/g, "");
-            const waRes = await fetch(
-              `https://graph.facebook.com/v21.0/${agentCfg.phone_number_id}/messages`,
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Bearer ${agentCfg.access_token}`,
-                  "Content-Type": "application/json",
-                },
-                body: JSON.stringify({
-                  messaging_product: "whatsapp",
-                  recipient_type: "individual",
-                  to: phone,
-                  type: "text",
-                  text: { preview_url: false, body: resolvedMessage },
-                }),
-              }
-            );
-
-            let sendError: string | null = null;
-            if (!waRes.ok) {
-              const errText = await waRes.text().catch(() => "");
-              const is24h = errText.includes("131047");
-              sendError = is24h ? "whatsapp_window_expired" : "send_failed";
-              errors.push(sendError);
-            }
-
-            // Registrar en conversaciones del Agente IA (tanto éxito como error)
-            try {
-              const { data: conv } = await supabase
-                .from("crm_wa_conversations")
-                .select("id")
-                .eq("user_id", reminder.user_id)
-                .eq("phone", phone)
-                .maybeSingle();
-
-              let convId: string | null = conv?.id ?? null;
-
-              if (!convId) {
-                const { data: newConv } = await supabase
-                  .from("crm_wa_conversations")
-                  .insert({
-                    user_id: reminder.user_id,
-                    phone,
-                    contact_name: vars.contact_name ?? null,
-                    mode: "AI",
-                    last_message_at: now.toISOString(),
-                  })
-                  .select("id")
-                  .single();
-                convId = newConv?.id ?? null;
-              } else {
-                await supabase
-                  .from("crm_wa_conversations")
-                  .update({ last_message_at: now.toISOString() })
-                  .eq("id", convId);
-              }
-
-              if (convId) {
-                await supabase.from("crm_wa_messages").insert({
-                  conversation_id: convId,
-                  role: "assistant",
-                  content: `[notif]${resolvedMessage}`,
-                  wa_message_id: null,
-                  send_error: sendError,
-                });
-              }
-            } catch (e) {
-              console.error("wa conversation record (non-fatal):", e);
-            }
-          }
-        }
-      }
-
-      if (!sendEmail && !sendWhatsapp) {
+      if (!sendEmail) {
         throw new Error(`No active channels in reminder ${reminder.id}`);
       }
 
-      if (errors.length > 0 && errors.length === (sendEmail ? 1 : 0) + (sendWhatsapp ? 1 : 0)) {
-        // Todos los canales fallaron
+      if (errors.length > 0) {
+        // Canal email falló
         throw new Error(errors.join(" | "));
       }
 

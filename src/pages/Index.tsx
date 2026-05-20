@@ -36,7 +36,7 @@ const Index = () => {
 
   const { data: adminProfile } = useLandingProfile();
   const { data: calendarId }   = useLandingCalendar(adminProfile);
-  const { data: services = [] } = useLandingServices(adminProfile?.user_id);
+  const { data: services = [] } = useLandingServices();
 
   return <LandingContent calendarId={calendarId} services={services} />;
 };

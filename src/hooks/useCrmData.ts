@@ -36,6 +36,7 @@ import type {
   CrmWaMessage,
   CrmWaLabel,
   CrmPaymentMethod,
+  CrmGoogleEvent,
 } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "./useAuth";
 
@@ -640,6 +641,26 @@ export const useCalendars = () => {
   });
 };
 
+export const useGoogleEvents = (calendarConfigId: string | null | undefined) => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_google_events", calendarConfigId],
+    queryFn: async () => {
+      const now = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("crm_google_events")
+        .select("*")
+        .eq("calendar_config_id", calendarConfigId!)
+        .gte("end_at", now)
+        .order("start_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmGoogleEvent[];
+    },
+    enabled: !!(user?.id && calendarConfigId),
+    refetchInterval: 5 * 60 * 1000, // refetch every 5 min
+  });
+};
+
 
 export const useCreateCalendarConfig = () => {
   const qc = useQueryClient();
@@ -1218,6 +1239,7 @@ export const usePublicServices = (userId?: string | null, allowedIds?: string[])
 export const useLandingProfile = () =>
   useQuery({
     queryKey: ["landing_profile"],
+    staleTime: 10 * 60 * 1000, // 10 min — keeps data during page navigation
     queryFn: async () => {
       const { data, error } = await supabasePublic
         .from("crm_business_profile")
@@ -1230,21 +1252,29 @@ export const useLandingProfile = () =>
     },
   });
 
-export const useLandingServices = (userId?: string | null) =>
+// Self-contained: resolves admin user_id internally so it never depends on
+// a parent query completing first. Always fires immediately on mount.
+export const useLandingServices = () =>
   useQuery({
-    queryKey: ["landing_services", userId],
+    queryKey: ["landing_services"],
+    staleTime: 10 * 60 * 1000,
     queryFn: async () => {
-      if (!userId) return [];
+      const { data: profile } = await supabasePublic
+        .from("crm_business_profile")
+        .select("user_id")
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      if (!profile?.user_id) return [];
       const { data, error } = await supabasePublic
         .from("crm_services")
         .select("*")
-        .eq("user_id", userId)
+        .eq("user_id", profile.user_id)
         .eq("active", true)
         .order("sort_order", { ascending: true });
       if (error) throw error;
       return (data ?? []) as CrmService[];
     },
-    enabled: !!userId,
   });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -2390,6 +2420,20 @@ export const useWaConversations = (userId?: string) => {
     },
     enabled: !!effectiveId,
     refetchInterval: 3000,
+  });
+};
+
+export const useMarkConversationRead = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (conversationId: string) => {
+      const { error } = await supabase
+        .from("crm_wa_conversations")
+        .update({ unread_count: 0 })
+        .eq("id", conversationId);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
   });
 };
 

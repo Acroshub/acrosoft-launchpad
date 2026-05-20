@@ -19,7 +19,7 @@ const VendorLanding = () => {
   const [loading, setLoading]   = useState(true);
 
   const { data: adminProfile }  = useLandingProfile();
-  const { data: services = [] } = useLandingServices(adminProfile?.user_id);
+  const { data: services = [] } = useLandingServices();
 
   useEffect(() => {
     if (!vendorSlug) { navigate("/", { replace: true }); return; }

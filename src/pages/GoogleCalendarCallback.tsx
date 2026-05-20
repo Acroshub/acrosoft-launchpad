@@ -47,11 +47,11 @@ const GoogleCalendarCallback = () => {
       body: {
         code,
         calendar_id:  calId,
-        redirect_uri: `${window.location.origin}/oauth/google-calendar`,
+        redirect_uri: `${window.location.origin.replace(/^(https?:\/\/)www\./, "$1")}/oauth/google-calendar`,
       },
     }).then(({ data, error: fnError }) => {
-      if (fnError) {
-        setErrorMsg("Error al conectar con Google Calendar. Intenta de nuevo.");
+      if (fnError || data?.error) {
+        setErrorMsg(data?.error ?? "Error al conectar con Google Calendar. Intenta de nuevo.");
         setStatus("error");
       } else {
         const cals = data?.calendars ?? [];

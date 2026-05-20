@@ -7,35 +7,50 @@ const supabase = createClient(
 
 const GRAPH_VERSION = "v21.0";
 
-const corsHeaders = {
+const jsonHeaders = {
+  "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const ok  = (data: Record<string, unknown> = {}) =>
-  new Response(JSON.stringify({ ok: true,  ...data }), { status: 200, headers: corsHeaders });
+function respond(body: Record<string, unknown>, status = 200) {
+  return new Response(JSON.stringify(body), { status, headers: jsonHeaders });
+}
 
-const err = (msg: string) =>
-  new Response(JSON.stringify({ ok: false, error: msg }), { status: 200, headers: corsHeaders });
+function metaErrMsg(body: string): string {
+  try {
+    const j = JSON.parse(body);
+    const e = j.error ?? j;
+    const code = e.code;
+    if (code === 100) {
+      return `Token sin permiso 'whatsapp_business_management'. Ve a Meta Developer Portal → tu App → Permisos → agrega whatsapp_business_management al System User, luego regenera el token. (Meta: ${e.message})`;
+    }
+    if (code === 190) {
+      return `Token expirado o inválido. Regenera el Access Token en Meta Business Suite → Configuración → Usuarios del sistema. (Meta: ${e.message})`;
+    }
+    return e.message ?? body;
+  } catch {
+    return body;
+  }
+}
 
 Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { headers: jsonHeaders });
+  if (req.method !== "POST") return respond({ ok: false, error: "method not allowed" }, 405);
 
   const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return err("no auth");
+  if (!authHeader) return respond({ ok: false, error: "no auth" }, 401);
 
   const { data: { user }, error: authErr } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
-  if (authErr || !user) return err("unauthorized");
+  if (authErr || !user) return respond({ ok: false, error: "unauthorized" }, 401);
 
   let body: { base64: string; mime_type: string };
   try { body = await req.json(); }
-  catch { return err("bad json"); }
+  catch { return respond({ ok: false, error: "bad json" }, 400); }
 
   const { base64, mime_type } = body;
-  if (!base64 || !mime_type) return err("missing base64 or mime_type");
+  if (!base64 || !mime_type) return respond({ ok: false, error: "missing base64 or mime_type" }, 400);
 
-  // Cargar credenciales del tenant
   const { data: config, error: configErr } = await supabase
     .from("crm_ai_agent_config")
     .select("phone_number_id, access_token, waba_id")
@@ -43,37 +58,41 @@ Deno.serve(async (req: Request) => {
     .single();
 
   if (configErr || !config?.access_token || !config?.waba_id || !config?.phone_number_id) {
-    return err("Configura WABA ID, Phone Number ID y Access Token primero");
+    return respond({ ok: false, error: "Configura WABA ID, Phone Number ID y Access Token primero" });
   }
 
   const { phone_number_id, access_token, waba_id } = config;
 
   try {
-    // Decodificar base64 a binario
     const binaryStr = atob(base64);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
     const fileSize = bytes.length;
 
-    // Step 1: Crear sesión de upload en Meta Resumable Upload API
-    const sessionRes = await fetch(
-      `https://graph.facebook.com/${GRAPH_VERSION}/${waba_id}/uploads?file_name=profile.jpg&file_length=${fileSize}&file_type=${encodeURIComponent(mime_type)}`,
+    // Obtener App ID desde el token (el upload session requiere app-id, no waba-id)
+    const appRes = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/app`,
+      { headers: { Authorization: `Bearer ${access_token}` } }
+    );
+    const appBody = await appRes.text();
+    if (!appRes.ok) return respond({ ok: false, error: `No se pudo obtener App ID: ${appBody}` });
+    const appJson = JSON.parse(appBody);
+    const appId: string = appJson.id;
+    if (!appId) return respond({ ok: false, error: `Meta no devolvió App ID: ${appBody}` });
+
+    // Step 1: Upload session usando app-id (no waba-id)
+    const s1Res = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${appId}/uploads?file_name=profile.jpg&file_length=${fileSize}&file_type=${encodeURIComponent(mime_type)}`,
       { method: "POST", headers: { Authorization: `Bearer ${access_token}` } }
     );
-    if (!sessionRes.ok) {
-      const txt = await sessionRes.text();
-      console.error("[upload-wa-profile-photo] step1:", txt);
-      return err(`Error al crear sesión de upload: ${txt}`);
-    }
-    const sessionJson = await sessionRes.json();
-    const uploadSessionId: string = sessionJson.id;
-    if (!uploadSessionId) {
-      console.error("[upload-wa-profile-photo] step1 no id:", JSON.stringify(sessionJson));
-      return err(`Meta no devolvió session ID: ${JSON.stringify(sessionJson)}`);
-    }
+    const s1Body = await s1Res.text();
+    if (!s1Res.ok) return respond({ ok: false, error: metaErrMsg(s1Body) });
+    const s1Json = JSON.parse(s1Body);
+    const uploadSessionId: string = s1Json.id;
+    if (!uploadSessionId) return respond({ ok: false, error: `No session ID: ${s1Body}` });
 
-    // Step 2: Subir el binario (Content-Type: application/octet-stream requerido por Meta)
-    const uploadRes = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${uploadSessionId}`, {
+    // Step 2: Upload binary
+    const s2Res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${uploadSessionId}`, {
       method: "POST",
       headers: {
         Authorization: `OAuth ${access_token}`,
@@ -82,20 +101,14 @@ Deno.serve(async (req: Request) => {
       },
       body: bytes,
     });
-    if (!uploadRes.ok) {
-      const txt = await uploadRes.text();
-      console.error("[upload-wa-profile-photo] step2:", txt);
-      return err(`Error al subir imagen: ${txt}`);
-    }
-    const uploadJson = await uploadRes.json();
-    const fileHandle: string = uploadJson.h;
-    if (!fileHandle) {
-      console.error("[upload-wa-profile-photo] step2 no handle:", JSON.stringify(uploadJson));
-      return err(`Meta no devolvió handle de archivo: ${JSON.stringify(uploadJson)}`);
-    }
+    const s2Body = await s2Res.text();
+    if (!s2Res.ok) return respond({ ok: false, error: metaErrMsg(s2Body) });
+    const s2Json = JSON.parse(s2Body);
+    const fileHandle: string = s2Json.h;
+    if (!fileHandle) return respond({ ok: false, error: `No handle: ${s2Body}` });
 
-    // Step 3: Actualizar foto de perfil de WhatsApp Business
-    const profileRes = await fetch(
+    // Step 3: Set profile photo
+    const s3Res = await fetch(
       `https://graph.facebook.com/${GRAPH_VERSION}/${phone_number_id}/whatsapp_business_profile`,
       {
         method: "POST",
@@ -103,16 +116,17 @@ Deno.serve(async (req: Request) => {
         body: JSON.stringify({ messaging_product: "whatsapp", profile_picture_handle: fileHandle }),
       }
     );
-    if (!profileRes.ok) {
-      const txt = await profileRes.text();
-      console.error("[upload-wa-profile-photo] step3:", txt);
-      return err(`Error al actualizar foto de perfil: ${txt}`);
+    const s3Body = await s3Res.text();
+    let s3Json: Record<string, unknown> = {};
+    try { s3Json = JSON.parse(s3Body); } catch { /**/ }
+
+    if (!s3Res.ok || s3Json.error) {
+      return respond({ ok: false, error: metaErrMsg(s3Body) });
     }
 
-    return ok();
+    return respond({ ok: true });
 
   } catch (e: any) {
-    console.error("[upload-wa-profile-photo] unexpected:", e.message);
-    return err(e.message);
+    return respond({ ok: false, error: `Error inesperado: ${e.message}` });
   }
 });

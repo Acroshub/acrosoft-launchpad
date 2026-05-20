@@ -40,17 +40,10 @@ Deno.serve(async (req) => {
 
     const clientId     = Deno.env.get("GOOGLE_CLIENT_ID")!;
     const clientSecret = Deno.env.get("GOOGLE_CLIENT_SECRET")!;
-    const siteUrl      = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
 
-    // Only allow redirect_uri from our own origin
-    let redirectUri = `${siteUrl}/oauth/google-calendar`;
-    if (redirect_uri) {
-      try {
-        const parsed = new URL(redirect_uri);
-        const site   = new URL(siteUrl);
-        if (parsed.origin === site.origin) redirectUri = redirect_uri;
-      } catch { /* invalid URL — use default */ }
-    }
+    // Usar el redirect_uri que envía el cliente (ya normalizado sin www en el frontend)
+    if (!redirect_uri) return respond({ error: "Missing redirect_uri" }, 400);
+    const redirectUri = redirect_uri;
 
     // Exchange authorization code for tokens
     const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
@@ -68,7 +61,7 @@ Deno.serve(async (req) => {
     const tokenData = await tokenRes.json();
     if (tokenData.error) {
       console.error("google-calendar-oauth token exchange error:", tokenData.error, tokenData.error_description);
-      return respond({ error: "Error al conectar con Google Calendar" }, 400);
+      return respond({ error: `Google: ${tokenData.error} — ${tokenData.error_description ?? "sin descripción"}` }, 400);
     }
 
     const googleToken = {

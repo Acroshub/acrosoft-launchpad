@@ -165,6 +165,17 @@ export type CrmCalendarConfig = {
   facebook_pixel_id?: string | null
 }
 
+export type CrmGoogleEvent = {
+  id: string
+  user_id: string
+  calendar_config_id: string | null
+  google_event_id: string
+  title: string | null
+  start_at: string
+  end_at: string
+  synced_at: string
+}
+
 export type CrmService = {
   id: string
   created_at: string
@@ -509,6 +520,8 @@ export type CrmAIAgentConfig = {
   agent_faq: Array<{ q: string; a: string }> | null
   agent_extra_prompt: string | null
   scheduling_calendar_id: string | null
+  profile_picture_url: string | null
+  agent_about: string | null
 }
 
 // ─── Productos ────────────────────────────────────────────────────────────────
@@ -599,6 +612,7 @@ export type CrmWaConversation = {
   assigned_to: string | null
   last_message_at: string | null
   created_at: string
+  unread_count: number
 }
 
 export type CrmWaMessage = {

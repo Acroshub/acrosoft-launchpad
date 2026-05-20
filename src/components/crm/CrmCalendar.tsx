@@ -5,7 +5,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import CrmCalendarConfig from "./CrmCalendarConfig";
-import { useAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment, useBlockedSlots, useCreateBlockedSlot, useUpdateBlockedSlot, useDeleteBlockedSlot, useContacts, useCalendars, useForms, useCreateForm, useUpdateCalendarConfig } from "@/hooks/useCrmData";
+import { useAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment, useBlockedSlots, useCreateBlockedSlot, useUpdateBlockedSlot, useDeleteBlockedSlot, useContacts, useCalendars, useForms, useCreateForm, useUpdateCalendarConfig, useGoogleEvents } from "@/hooks/useCrmData";
+import { supabase } from "@/lib/supabase";
+import type { CrmGoogleEvent } from "@/lib/supabase";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import type { CrmCalendarConfig as CalendarData } from "@/lib/supabase";
 import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
@@ -408,8 +410,8 @@ const EmptySlot = () => (
 const ROW_HEIGHT_DAY = 56;
 
 const DayView = ({
-  current, onSelect, selected, onSlotClick, onBlockClick, blocked, appointments, availability, interval,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; onBlockClick: (blk: BlockedSlot) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
+  current, onSelect, selected, onSlotClick, onBlockClick, blocked, appointments, availability, interval, googleEvents = [], onGoogleEventClick,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; onBlockClick: (blk: BlockedSlot) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number; googleEvents?: CrmGoogleEvent[]; onGoogleEventClick?: (evt: CrmGoogleEvent) => void }) => {
   const key = dateKey(current);
   // Excluir canceladas del slot view — el slot queda visualmente libre
   const dayAppts = appointments.filter((a) => a.date === key && a.rawStatus !== "cancelled");
@@ -424,6 +426,15 @@ const DayView = ({
   const OVERLAY_RIGHT = 20;
 
   const dayBlockedSlot = isDayBlocked(blocked, key);
+  const gridEndMin = slots.length ? slots[slots.length - 1].hour * 60 + slots[slots.length - 1].minute + interval : 24 * 60;
+  // Google events for this day — filter by LOCAL date, show only those that overlap the visible grid
+  const dayGoogleEvents = googleEvents.filter(e => {
+    const d = new Date(e.start_at);
+    if (`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` !== key) return false;
+    const eStartMin = d.getHours() * 60 + d.getMinutes();
+    const eEndMin   = new Date(e.end_at).getHours() * 60 + new Date(e.end_at).getMinutes();
+    return eEndMin > firstSlotMin && eStartMin < gridEndMin;
+  });
 
   return (
     <div className="bg-card border rounded-2xl overflow-hidden">
@@ -437,8 +448,15 @@ const DayView = ({
             return slotMin >= aStart && slotMin < aStart + (a.duration_min ?? interval);
           });
           const isBlockedHere = isSlotBlockedAt(blocked, key, hour, minute);
-          const unavailable = !isOccupied && !isBlockedHere && !isSlotAvailable(availability, dow, hour, minute, interval);
-          const canClick = !isOccupied && !isBlockedHere && !unavailable && !dayBlockedSlot;
+          const isGoogleBlocked = dayGoogleEvents.some(e => {
+            const eStart = new Date(e.start_at);
+            const eEnd   = new Date(e.end_at);
+            const eStartMin = eStart.getHours() * 60 + eStart.getMinutes();
+            const eEndMin   = eEnd.getHours()   * 60 + eEnd.getMinutes();
+            return slotMin + interval > eStartMin && slotMin < eEndMin;
+          });
+          const unavailable = !isOccupied && !isBlockedHere && !isGoogleBlocked && !isSlotAvailable(availability, dow, hour, minute, interval);
+          const canClick = !isOccupied && !isBlockedHere && !isGoogleBlocked && !unavailable && !dayBlockedSlot;
           const label = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 
           return (
@@ -446,7 +464,7 @@ const DayView = ({
               key={`${hour}-${minute}`}
               style={{ top: idx * ROW_HEIGHT_DAY, height: ROW_HEIGHT_DAY }}
               className={`absolute left-0 right-0 flex items-start gap-4 px-5 pt-2 border-b ${
-                unavailable ? "bg-slate-100 dark:bg-slate-800/70" : ""
+                unavailable ? "bg-slate-200/80 dark:bg-slate-700/60" : ""
               } ${canClick ? "cursor-pointer hover:bg-primary/5 group" : ""}`}
               onClick={canClick ? () => onSlotClick(key, hour, minute) : undefined}
             >
@@ -501,6 +519,31 @@ const DayView = ({
             );
           })}
 
+        {/* Google Calendar event overlays — clickable, clipped to visible grid */}
+        {dayGoogleEvents.map((evt) => {
+          const eStart = new Date(evt.start_at);
+          const eEnd   = new Date(evt.end_at);
+          const startMin = eStart.getHours() * 60 + eStart.getMinutes();
+          const endMin   = eEnd.getHours()   * 60 + eEnd.getMinutes();
+          const visStart = Math.max(startMin, firstSlotMin);
+          const visEnd   = Math.min(endMin, gridEndMin);
+          const top    = (visStart - firstSlotMin) * pxPerMin;
+          const height = Math.max((visEnd - visStart) * pxPerMin, 28);
+          return (
+            <button
+              key={evt.id}
+              type="button"
+              onClick={(e) => { e.stopPropagation(); onGoogleEventClick?.(evt); }}
+              style={{ top, height, left: OVERLAY_LEFT, right: OVERLAY_RIGHT }}
+              className="absolute rounded-xl px-3 py-1 bg-slate-100 dark:bg-slate-800/70 border border-slate-300 dark:border-slate-600 flex items-center gap-2 text-xs z-10 overflow-hidden cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors text-left"
+              title={evt.title ?? "Evento de Google Calendar"}
+            >
+              <img src="https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_16dp.png" alt="GCal" className="w-3.5 h-3.5 shrink-0" />
+              <span className="font-medium text-slate-600 dark:text-slate-300 truncate">{evt.title ?? "Evento"}</span>
+            </button>
+          );
+        })}
+
         {/* Appointment overlays — span exact duration */}
         {dayAppts.map((appt) => {
           const isAI = appt.source === "ai_agent";
@@ -540,8 +583,8 @@ const DayView = ({
 const ROW_HEIGHT_WEEK = 52;
 
 const WeekView = ({
-  current, onSelect, selected, onSlotClick, onBlockClick, blocked, appointments, availability, interval,
-}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; onBlockClick: (blk: BlockedSlot) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number }) => {
+  current, onSelect, selected, onSlotClick, onBlockClick, blocked, appointments, availability, interval, googleEvents = [], onGoogleEventClick,
+}: { current: Date; onSelect: (id: string) => void; selected: string | null; onSlotClick: (date: string, hour: number, minute: number) => void; onBlockClick: (blk: BlockedSlot) => void; blocked: BlockedSlot[]; appointments: any[]; availability?: WeeklySchedule | null; interval: number; googleEvents?: CrmGoogleEvent[]; onGoogleEventClick?: (evt: CrmGoogleEvent) => void }) => {
   const monday = startOfWeek(current);
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(monday);
@@ -550,6 +593,7 @@ const WeekView = ({
   });
   const slots = buildSlots(interval, availability);
   const firstSlotMin = slots.length ? slots[0].hour * 60 + slots[0].minute : 0;
+  const gridEndMinW = slots.length ? slots[slots.length - 1].hour * 60 + slots[slots.length - 1].minute + interval : 24 * 60;
   const pxPerMin = ROW_HEIGHT_WEEK / interval;
   const totalHeight = slots.length * ROW_HEIGHT_WEEK;
 
@@ -564,7 +608,7 @@ const WeekView = ({
           return (
             <div
               key={day.toISOString()}
-              className={`flex-1 min-w-[90px] px-2 py-3 text-center border-r last:border-r-0 ${dayBlk ? "bg-amber-100/60 dark:bg-amber-900/30" : isToday ? "bg-primary/10" : ""}`}
+              className={`flex-1 min-w-[90px] px-2 py-3 text-center border-r last:border-r-0 ${dayBlk ? "bg-amber-100/60 dark:bg-amber-900/30" : isToday ? "bg-primary/20 dark:bg-primary/15" : ""}`}
             >
               <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{DAYS_ES[day.getDay()]}</p>
               <p className={`text-sm font-semibold mt-0.5 ${isToday ? "text-primary" : ""}`}>{day.getDate()}</p>
@@ -602,7 +646,7 @@ const WeekView = ({
             <div
               key={key}
               className={`flex-1 min-w-[90px] border-r last:border-r-0 relative ${
-                dayBlk ? "bg-amber-50/60 dark:bg-amber-900/20" : isToday ? "bg-primary/5" : ""
+                dayBlk ? "bg-amber-50/60 dark:bg-amber-900/20" : isToday ? "bg-primary/10" : ""
               }`}
               style={{ height: totalHeight }}
             >
@@ -614,15 +658,25 @@ const WeekView = ({
                   return slotMin >= aStart && slotMin < aStart + (a.duration_min ?? interval);
                 });
                 const isBlockedHere = isSlotBlockedAt(blocked, key, hour, minute);
-                const unavailable = !isOccupied && !isBlockedHere && !isSlotAvailable(availability, day.getDay(), hour, minute, interval);
-                const canClick = !isOccupied && !isBlockedHere && !unavailable && !dayBlk;
+                const slotMin2 = hour * 60 + minute;
+                const isGoogleBlocked = googleEvents.some(e => {
+                  const eStart = new Date(e.start_at);
+                  const localKey2 = `${eStart.getFullYear()}-${String(eStart.getMonth()+1).padStart(2,"0")}-${String(eStart.getDate()).padStart(2,"0")}`;
+                  if (localKey2 !== key) return false;
+                  const eEnd = new Date(e.end_at);
+                  const eStartMin = eStart.getHours() * 60 + eStart.getMinutes();
+                  const eEndMin   = eEnd.getHours()   * 60 + eEnd.getMinutes();
+                  return slotMin2 + interval > eStartMin && slotMin2 < eEndMin;
+                });
+                const unavailable = !isOccupied && !isBlockedHere && !isGoogleBlocked && !isSlotAvailable(availability, day.getDay(), hour, minute, interval);
+                const canClick = !isOccupied && !isBlockedHere && !isGoogleBlocked && !unavailable && !dayBlk;
 
                 return (
                   <div
                     key={`${hour}-${minute}`}
                     style={{ top: idx * ROW_HEIGHT_WEEK, height: ROW_HEIGHT_WEEK }}
                     className={`absolute left-0 right-0 border-b ${
-                      unavailable ? "bg-slate-100 dark:bg-slate-800/70" : ""
+                      unavailable ? "bg-slate-200/80 dark:bg-slate-700/60" : ""
                     } ${canClick ? "hover:bg-primary/5 cursor-pointer group" : ""}`}
                     onClick={canClick ? () => onSlotClick(key, hour, minute) : undefined}
                   >
@@ -656,6 +710,41 @@ const WeekView = ({
                       <Coffee size={10} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
                       {height > 28 && (
                         <span className="text-[10px] font-semibold leading-tight truncate">{blk.reason || "Reservado"}</span>
+                      )}
+                    </button>
+                  );
+                })}
+
+              {/* Google Calendar event overlays — clickable, clipped to visible grid */}
+              {googleEvents
+                .filter(e => {
+                  const d = new Date(e.start_at);
+                  if (`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}` !== key) return false;
+                  const eStartMin = d.getHours() * 60 + d.getMinutes();
+                  const eEndMin   = new Date(e.end_at).getHours() * 60 + new Date(e.end_at).getMinutes();
+                  return eEndMin > firstSlotMin && eStartMin < gridEndMinW;
+                })
+                .map(evt => {
+                  const eStart = new Date(evt.start_at);
+                  const eEnd   = new Date(evt.end_at);
+                  const startMin = eStart.getHours() * 60 + eStart.getMinutes();
+                  const endMin   = eEnd.getHours()   * 60 + eEnd.getMinutes();
+                  const visStart = Math.max(startMin, firstSlotMin);
+                  const visEnd   = Math.min(endMin, gridEndMinW);
+                  const top    = (visStart - firstSlotMin) * pxPerMin;
+                  const height = Math.max((visEnd - visStart) * pxPerMin, 20);
+                  return (
+                    <button
+                      key={evt.id}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); onGoogleEventClick?.(evt); }}
+                      style={{ top, height, left: 2, right: 2 }}
+                      className="absolute rounded-lg flex items-start gap-1 px-1.5 py-1 bg-slate-100 dark:bg-slate-800/70 border border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 z-10 overflow-hidden cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors text-left w-full"
+                      title={evt.title ?? "Evento de Google Calendar"}
+                    >
+                      <img src="https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_16dp.png" alt="" className="w-3 h-3 shrink-0 mt-0.5" />
+                      {height > 28 && (
+                        <span className="text-[10px] font-medium leading-tight truncate">{evt.title ?? "Evento"}</span>
                       )}
                     </button>
                   );
@@ -889,6 +978,7 @@ const CrmCalendar = () => {
 
   const { data: rawAppointments = [], isLoading: loadingAppts } = useAppointments(selectedCalendar?.id);
   const { data: rawBlocked = [], isLoading: loadingBlocked } = useBlockedSlots(selectedCalendar?.id);
+  const { data: googleEvents = [] } = useGoogleEvents(selectedCalendar?.id);
   const createAppointment = useCreateAppointment();
   const updateAppointment = useUpdateAppointment();
   const deleteAppointment = useDeleteAppointment();
@@ -946,6 +1036,7 @@ const CrmCalendar = () => {
   }, []);
   const [current, setCurrent] = useState(new Date());
   const [selected, setSelected] = useState<string | null>(null);
+  const [selectedGoogleEvent, setSelectedGoogleEvent] = useState<CrmGoogleEvent | null>(null);
   const [dropdownOpen, setDropdownOpen]   = useState(false);
   const [editingApptId, setEditingApptId] = useState<string | null>(null);
   const [editDate, setEditDate]           = useState("");
@@ -1052,8 +1143,14 @@ const CrmCalendar = () => {
     }
   };
 
-  // null = new calendar form; CalendarData = edit form; undefined = not in config mode
-  const [editingCalendar, setEditingCalendar] = useState<CalendarData | null | undefined>(undefined);
+  // null = new calendar form; string = edit by ID; undefined = not in config mode
+  const [editingCalendarId, setEditingCalendarId] = useState<string | null | undefined>(undefined);
+  // Derive always-fresh calendar object from live query data
+  const editingCalendar = editingCalendarId === undefined
+    ? undefined
+    : editingCalendarId === null
+      ? null
+      : (allCalendars.find(c => c.id === editingCalendarId) ?? null);
 
   const availability = selectedCalendar?.availability as WeeklySchedule | null | undefined;
   const calendarInterval = selectedCalendar?.duration_min ?? 30;
@@ -1127,9 +1224,17 @@ const CrmCalendar = () => {
     return (
       <CrmCalendarConfig
         existingCalendar={editingCalendar}
-        onBack={() => setEditingCalendar(undefined)}
+        onBack={() => setEditingCalendarId(undefined)}
         onCreated={(id) => handleSelectCalendar(id)}
-        onGoogleConnected={() => refetchCalendars()}
+        onGoogleConnected={() => {
+          refetchCalendars();
+          // Sync immediately and register push notification watch
+          if (editingCalendarId) {
+            supabase.functions.invoke("sync-google-calendar", {
+              body: { calendar_config_id: editingCalendarId, register_watch: true },
+            }).catch(() => {});
+          }
+        }}
       />
     );
   }
@@ -1143,7 +1248,7 @@ const CrmCalendar = () => {
         <p className="text-xs text-muted-foreground mb-5">
           Crea y vincula un calendario a un formulario para comenzar a recibir citas
         </p>
-        <Button onClick={() => setEditingCalendar(null)} className="h-9 rounded-xl text-sm font-medium px-5 gap-2">
+        <Button onClick={() => setEditingCalendarId(null)} className="h-9 rounded-xl text-sm font-medium px-5 gap-2">
           <Plus size={16} /> Crear Calendario
         </Button>
       </div>
@@ -1316,7 +1421,7 @@ const CrmCalendar = () => {
                   })}
                   <div className="border-t my-2 mx-3" />
                   <button
-                    onClick={() => { setDropdownOpen(false); setEditingCalendar(null); }}
+                    onClick={() => { setDropdownOpen(false); setEditingCalendarId(null); }}
                     className="w-full text-left px-4 py-3 text-sm flex items-center gap-3 text-primary font-medium hover:bg-primary/5 transition-colors"
                   >
                     <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
@@ -1368,7 +1473,7 @@ const CrmCalendar = () => {
             variant="outline"
             size="icon"
             className="rounded-xl h-[38px] w-[38px] bg-card shadow-sm border-border hover:bg-secondary text-muted-foreground hover:text-foreground"
-            onClick={() => setEditingCalendar(selectedCalendar)}
+            onClick={() => setEditingCalendarId(selectedCalendar?.id ?? null)}
             title="Configurar calendario"
           >
             <Settings size={16} />
@@ -1406,15 +1511,59 @@ const CrmCalendar = () => {
       <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6 overflow-hidden" : ""}`}>
         {/* Calendar view */}
         <div className="min-w-0 overflow-hidden">
-          {view === "day"   && <DayView   current={current} onSelect={handleSelectAppt} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
-          {view === "week"  && <WeekView  current={current} onSelect={handleSelectAppt} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} />}
+          {view === "day"   && <DayView   current={current} onSelect={(id) => { setSelectedGoogleEvent(null); handleSelectAppt(id); }} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} googleEvents={googleEvents} onGoogleEventClick={(evt) => { setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(evt); }} />}
+          {view === "week"  && <WeekView  current={current} onSelect={(id) => { setSelectedGoogleEvent(null); handleSelectAppt(id); }} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} googleEvents={googleEvents} onGoogleEventClick={(evt) => { setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(evt); }} />}
           {view === "month" && <MonthView current={current} onSelect={handleSelectAppt} selected={selected} onBlockClick={handleSelectBlock} selectedBlockId={selectedBlockId} blocked={blockedSlots} appointments={appointments} />}
         </div>
 
         {/* Detail panel — day & week only (desktop) */}
         {view !== "month" && (
           <div className="hidden lg:block bg-card border rounded-2xl p-5 h-fit">
-            {blockDetail ? (
+            {selectedGoogleEvent ? (
+              <div className="space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                    <img src="https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_16dp.png" alt="Google Calendar" className="w-6 h-6" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">{selectedGoogleEvent.title ?? "Evento de Google Calendar"}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Google Calendar</p>
+                  </div>
+                  <button onClick={() => setSelectedGoogleEvent(null)} className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0">
+                    <X size={14} />
+                  </button>
+                </div>
+                <div className="space-y-3 text-sm">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Detalles del evento</p>
+                  {(() => {
+                    const s = new Date(selectedGoogleEvent.start_at);
+                    const e = new Date(selectedGoogleEvent.end_at);
+                    const pad = (n: number) => String(n).padStart(2, "0");
+                    const dateStr = `${s.getFullYear()}-${pad(s.getMonth()+1)}-${pad(s.getDate())}`;
+                    const startStr = `${pad(s.getHours())}:${pad(s.getMinutes())}`;
+                    const endStr   = `${pad(e.getHours())}:${pad(e.getMinutes())}`;
+                    const durMin = Math.round((e.getTime() - s.getTime()) / 60000);
+                    const durStr = durMin >= 60 ? `${Math.floor(durMin/60)}h ${durMin%60>0?durMin%60+"min":""}`.trim() : `${durMin} min`;
+                    return (
+                      <div className="space-y-2.5">
+                        {([["Fecha", dateStr], ["Hora", `${startStr} – ${endStr}`], ["Duración", durStr]] as [string,string][]).map(([label, value]) => (
+                          <div key={label}>
+                            <p className="text-[10px] text-muted-foreground/70">{label}</p>
+                            <p className="font-medium text-xs">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                  <div className="pt-1">
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2.5 py-1 rounded-full">
+                      <img src="https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_16dp.png" alt="" className="w-3 h-3" />
+                      Importado de Google Calendar
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : blockDetail ? (
               <BlockDetailPanel
                 block={blockDetail}
                 canEdit={canEditCalendar}

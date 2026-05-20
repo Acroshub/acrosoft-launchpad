@@ -176,7 +176,7 @@ async function handleIncomingMessage(
       media_type: "audio",
       wa_message_id: waMessageId,
     });
-    await supabase.from("crm_wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conv.id);
+    await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
     if (isActive) {
       const autoReply = "Hola, lamentablemente no puedo escuchar mensajes de voz. Por favor escríbeme tu mensaje y con gusto te ayudo 🙏";
@@ -200,7 +200,7 @@ async function handleIncomingMessage(
     await supabase.from("crm_wa_messages").insert({
       conversation_id: conv.id, role: "user", content: text, wa_message_id: waMessageId,
     });
-    await supabase.from("crm_wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conv.id);
+    await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
     await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {});
     return;
@@ -242,7 +242,7 @@ async function handleIncomingMessage(
       media_url: mediaUrl,
       wa_message_id: waMessageId,
     });
-    await supabase.from("crm_wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conv.id);
+    await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
     await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {
       media_base64: mediaBase64,
@@ -289,7 +289,7 @@ async function handleIncomingMessage(
       media_url: mediaUrl,
       wa_message_id: waMessageId,
     });
-    await supabase.from("crm_wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conv.id);
+    await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
     await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {
       media_base64: mediaBase64,

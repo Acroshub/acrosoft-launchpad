@@ -2,15 +2,14 @@ import { useState } from "react";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import {
   Bell, CalendarDays, ClipboardList, User, ChevronRight, ArrowLeft,
-  Loader2, Plus, Clock, CheckCircle2, AlertCircle, BellOff, Mail, MessageSquare, Send, Trash2,
+  Loader2, Plus, Clock, CheckCircle2, AlertCircle, BellOff, Mail, Send, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import PhoneInput from "@/components/shared/PhoneInput";
 import {
   useCalendars, useForms, useUpdateForm, useStaff, useBusinessProfile,
-  usePersonalReminders, useCreateReminder, useAIAgentConfig,
-  useUpsertBusinessProfile, useDeleteReminder, useVendorProfile,
+  usePersonalReminders, useCreateReminder,
+  useDeleteReminder, useVendorProfile,
 } from "@/hooks/useCrmData";
 import ReminderRulesEditor, { ReminderRule } from "@/components/shared/ReminderRulesEditor";
 import CrmCalendarConfig from "./CrmCalendarConfig";
@@ -201,12 +200,9 @@ const pill = (active: boolean) =>
 const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSaved: () => void }) => {
   const { data: staffList = [] }   = useStaff();
   const { data: profile }          = useBusinessProfile();
-  const { data: agentConfig }      = useAIAgentConfig();
   const { data: vendorProfile }    = useVendorProfile();
   const isVendor                   = !!vendorProfile;
   const createReminder             = useCreateReminder();
-  const upsertProfile              = useUpsertBusinessProfile();
-  const agentWaEnabled             = !!agentConfig?.phone_number_id;
 
   const adminLabel = (() => {
     const name = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ");
@@ -219,31 +215,7 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
   const [dateStr, setDateStr]       = useState("");
   const [timeStr, setTimeStr]       = useState("");
   const [targets, setTargets]       = useState<string[]>(["admin"]);
-  const [channels, setChannels]     = useState({ email: true, whatsapp: false });
-  const [adminPhoneOverride, setAdminPhoneOverride] = useState("");
-  const [savingPhone, setSavingPhone]               = useState(false);
   const [sending, setSending]                       = useState(false);
-
-  const profPhone  = (profile?.contact_phone ?? profile?.whatsapp ?? "").replace(/\D/g, "");
-  const agentPhone = (agentConfig?.verified_phone ?? "").replace(/\D/g, "");
-
-  // El número del agente IA no puede ser el destinatario (no puede mensajearse a sí mismo)
-  const adminAgentConflict =
-    channels.whatsapp &&
-    targets.includes("admin") &&
-    !!agentPhone && !!profPhone &&
-    agentPhone === profPhone;
-
-  // Mostrar input de teléfono si WA seleccionado y admin no tiene teléfono registrado
-  const showAdminPhoneInput =
-    channels.whatsapp &&
-    targets.includes("admin") &&
-    !profPhone &&
-    !adminAgentConflict;
-
-  const effectiveAdminPhone = showAdminPhoneInput
-    ? adminPhoneOverride.replace(/\D/g, "")
-    : profPhone;
 
   const resolveEmail = (targetId: string): string => {
     if (isVendor) return vendorProfile?.email ?? "";
@@ -251,72 +223,26 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     return staffList.find(s => s.id === targetId)?.email ?? "";
   };
 
-  const resolvePhone = (targetId: string): string => {
-    if (isVendor) return "";
-    if (targetId === "admin") return showAdminPhoneInput ? adminPhoneOverride.replace(/\D/g, "") : profPhone;
-    return (staffList.find(s => s.id === targetId)?.phone ?? "").replace(/\D/g, "");
-  };
-
   const toggleTarget = (id: string) => {
     setTargets(prev => {
       if (prev.includes(id)) {
-        // Don't allow deselecting the last target
         if (prev.length === 1) return prev;
-        const next = prev.filter(t => t !== id);
-        // If WhatsApp is active and no remaining target has a phone, disable WhatsApp
-        if (channels.whatsapp) {
-          const anyHasWa = next.some(t => {
-            if (t === "admin") return !!profPhone;
-            const s = staffList.find(st => st.id === t);
-            return !!s?.phone;
-          });
-          if (!anyHasWa) setChannels(ch => ({ ...ch, whatsapp: false }));
-        }
-        return next;
+        return prev.filter(t => t !== id);
       }
       return [...prev, id];
     });
   };
 
-  // Disable WA only if none of the selected targets have a phone
-  const noWaDestinations = targets.every(t => !resolvePhone(t));
-
-  const toggleChannel = (ch: "email" | "whatsapp") => {
-    setChannels(prev => {
-      const next = { ...prev, [ch]: !prev[ch] };
-      // Al menos uno debe quedar activo
-      if (!next.email && !next.whatsapp) return prev;
-      return next;
-    });
-  };
-
-  // Save new phone to profile inline then schedule
-  const handleSavePhoneAndSchedule = async () => {
-    const digits = adminPhoneOverride.replace(/\D/g, "");
-    if (!digits) { toast.error("Ingresa un número válido"); return; }
-    setSavingPhone(true);
-    try {
-      await upsertProfile.mutateAsync({ contact_phone: digits } as any);
-    } catch {
-      toast.error("No se pudo guardar el número");
-      setSavingPhone(false);
-      return;
-    }
-    setSavingPhone(false);
-    await doSchedule();
-  };
-
   const buildReminderPayloads = (scheduledAt: string, msg: string) =>
     targets.map((targetId) => {
       const email = resolveEmail(targetId);
-      const phone = resolvePhone(targetId);
       return createReminder.mutateAsync({
         contact_id:      null,
         appointment_id:  null,
-        type:            channels.email ? "email" : "whatsapp",
-        channels:        channels,
-        recipient_email: channels.email ? (email || null) : null,
-        recipient_phone: channels.whatsapp ? (phone || null) : null,
+        type:            "email",
+        channels:        { email: true, whatsapp: false },
+        recipient_email: email || null,
+        recipient_phone: null,
         scheduled_at:    scheduledAt,
         subject:         subject.trim() || null,
         message:         msg,
@@ -363,29 +289,8 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     }
   };
 
-  const handleSchedule = async () => {
-    if (showAdminPhoneInput && targets.includes("admin")) {
-      await handleSavePhoneAndSchedule();
-      return;
-    }
-    await doSchedule();
-  };
-
-  const canSchedule = (() => {
-    if (!note.trim() || !dateStr || !timeStr || targets.length === 0) return false;
-    if (showAdminPhoneInput && targets.includes("admin")) {
-      return effectiveAdminPhone.length >= 10;
-    }
-    return true;
-  })();
-
-  const canSendNow = (() => {
-    if (!note.trim() || targets.length === 0) return false;
-    if (showAdminPhoneInput && targets.includes("admin")) {
-      return effectiveAdminPhone.length >= 10;
-    }
-    return true;
-  })();
+  const canSchedule = !!note.trim() && !!dateStr && !!timeStr && targets.length > 0;
+  const canSendNow  = !!note.trim() && targets.length > 0;
 
   return (
     <div className="space-y-6">
@@ -410,18 +315,16 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
           />
         </div>
 
-        {/* Subject (only shown when email channel is active) */}
-        {channels.email && (
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Asunto del email <span className="text-muted-foreground/60">(opcional)</span></label>
-            <Input
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="Tienes una notificación"
-              className="rounded-xl text-sm"
-            />
-          </div>
-        )}
+        {/* Subject */}
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground">Asunto del email <span className="text-muted-foreground/60">(opcional)</span></label>
+          <Input
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Tienes una notificación"
+            className="rounded-xl text-sm"
+          />
+        </div>
 
         {/* Destination */}
         <div className="space-y-1.5">
@@ -478,81 +381,16 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
           )}
         </div>
 
-        {/* Channel */}
-        <div className="space-y-1.5">
+        {/* Canal: solo Email */}
+        <div className="space-y-1">
           <p className="text-xs font-medium text-muted-foreground">Canal de envío</p>
-          <div className="flex gap-2 flex-wrap">
-            <button type="button" onClick={() => toggleChannel("email")} className={pill(channels.email)}>
-              <Mail size={11} /> Email
-            </button>
-            {agentWaEnabled && (
-              <button
-                type="button"
-                onClick={() => toggleChannel("whatsapp")}
-                disabled={noWaDestinations}
-                className={`${pill(channels.whatsapp)} disabled:opacity-40 disabled:cursor-not-allowed`}
-                title={noWaDestinations ? "Ningún destinatario tiene número registrado" : undefined}
-              >
-                <MessageSquare size={11} /> WhatsApp
-              </button>
-            )}
-          </div>
-          {/* Destinos */}
-          <div className="space-y-0.5">
-            {channels.email && (() => {
-              const dests = targets.map(t => resolveEmail(t)).filter(Boolean);
-              return dests.length ? (
-                <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                  <Mail size={9} className="shrink-0 text-muted-foreground/50" />
-                  <span className="truncate">{dests.join(", ")}</span>
-                </p>
-              ) : null;
-            })()}
-            {channels.whatsapp && (() => {
-              const dests = targets.map(t => resolvePhone(t)).filter(Boolean);
-              return dests.length ? (
-                <p className="text-[11px] text-muted-foreground flex items-center gap-1">
-                  <MessageSquare size={9} className="shrink-0 text-muted-foreground/50" />
-                  <span className="truncate">{dests.map(p => `+${p}`).join(", ")}</span>
-                </p>
-              ) : null;
-            })()}
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <Mail size={11} className="shrink-0" />
+            <span className="truncate">
+              {targets.map(t => resolveEmail(t)).filter(Boolean).join(", ") || "—"}
+            </span>
           </div>
         </div>
-
-        {/* ── Conflicto: número del perfil = número del agente IA ─────────── */}
-        {adminAgentConflict && (
-          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3.5 space-y-1">
-            <p className="text-xs font-semibold text-destructive">Número en conflicto</p>
-            <p className="text-[11px] text-destructive/80 leading-relaxed">
-              El número registrado en tu perfil (<strong>+{profPhone}</strong>) es el mismo que el número del Agente IA.
-              Un número no puede enviarse mensajes a sí mismo.
-            </p>
-            <p className="text-[11px] text-destructive/80">
-              Ve a <strong>Mi Negocio → Datos del negocio</strong> y actualiza el teléfono de contacto con tu número personal.
-            </p>
-          </div>
-        )}
-
-        {/* ── Inline phone input cuando admin no tiene teléfono registrado ── */}
-        {showAdminPhoneInput && (
-          <div className="rounded-xl border border-amber-200 dark:border-amber-900/40 bg-amber-50 dark:bg-amber-950/20 p-3.5 space-y-3">
-            <p className="text-[11px] text-amber-900 dark:text-amber-200 leading-relaxed">
-              <strong>No hay número de teléfono registrado en tu perfil.</strong>{" "}
-              Ingresa el número personal al que enviar la notificación por WhatsApp (se guardará en tu perfil).
-            </p>
-            <PhoneInput
-              value={adminPhoneOverride}
-              onChange={setAdminPhoneOverride}
-              placeholder="71234567"
-            />
-            {adminPhoneOverride.replace(/\D/g, "").length >= 10 && (
-              <p className="text-[10px] text-muted-foreground">
-                Este número se guardará en tu perfil de negocio.
-              </p>
-            )}
-          </div>
-        )}
 
         {/* Date + Time */}
         <div className="space-y-1.5">
@@ -590,18 +428,18 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
             type="button"
             variant="outline"
             onClick={handleSendNow}
-            disabled={!canSendNow || sending || createReminder.isPending || savingPhone || adminAgentConflict}
+            disabled={!canSendNow || sending || createReminder.isPending}
             className="flex-1 rounded-xl h-10 font-medium text-sm gap-1.5"
           >
             {sending ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}
             {sending ? "Enviando..." : "Enviar Ahora"}
           </Button>
           <Button
-            onClick={handleSchedule}
-            disabled={!canSchedule || createReminder.isPending || savingPhone || adminAgentConflict}
+            onClick={doSchedule}
+            disabled={!canSchedule || createReminder.isPending}
             className="flex-1 rounded-xl h-10 font-medium text-sm gap-1.5"
           >
-            {(createReminder.isPending || savingPhone) ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}
+            {createReminder.isPending ? <Loader2 size={13} className="animate-spin" /> : <Clock size={13} />}
             Programar
           </Button>
         </div>
@@ -665,13 +503,8 @@ const PersonalReminderPanel = ({ onBack }: { onBack: () => void }) => {
                 </div>
               </div>
               <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                <div className="flex items-center gap-1 shrink-0">
-                  {(r.channels?.email ?? r.type === "email") && <Mail size={10} />}
-                  {(r.channels?.whatsapp ?? r.type === "whatsapp") && <MessageSquare size={10} />}
-                </div>
-                <span className="truncate">
-                  {[r.recipient_email, r.recipient_phone ? `+${r.recipient_phone}` : null].filter(Boolean).join(" · ") || "—"}
-                </span>
+                <Mail size={10} className="shrink-0" />
+                <span className="truncate">{r.recipient_email || "—"}</span>
               </div>
               <div className="mt-auto pt-1 flex items-center justify-between">
                 <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${

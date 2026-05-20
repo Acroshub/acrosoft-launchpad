@@ -3506,3 +3506,231 @@ Cuando `has_variants = true`:
 
 **Orden de implementación recomendado:** B16-4 → B16-3 → B16-2 → B16-1
 (B16-4 es prerequisito para que B16-2 y B16-3 tengan lógica consistente. B16-1 es independiente pero más complejo.)
+
+---
+
+## BLOQUE 17 — Pulido, Bugs Críticos y UX
+> Correcciones de bugs en producción, limpieza de canales de notificación, Google Calendar real-time y mejoras de UI/UX en áreas clave del sistema.
+> Items ordenados por dependencias y facilidad: primero quick wins sin dependencias, luego features encadenadas.
+
+---
+
+### B17-1 · Eliminar canal WhatsApp de la UI de notificaciones
+
+**Estado:** ✅ COMPLETADO
+
+**Contexto:**
+En los módulos de notificaciones (recordatorios de calendarios, formularios, notificaciones personalizadas) existe una opción de canal "WhatsApp" que está incompleta y nunca funcionó de forma estable. La decisión es **eliminarla completamente de la UI** — dejar únicamente el canal Email como opción de envío para todos los módulos de notificaciones.
+
+**Módulos afectados:**
+- Recordatorios de citas (`CrmReminders.tsx`) — selector de canal email/WhatsApp
+- Notificaciones de formularios — si existe opción WhatsApp en las acciones post-submit
+- Notificaciones personalizadas (`crm_reminders` con type = 'whatsapp')
+
+**Cambios requeridos:**
+- Eliminar el checkbox/radio de "WhatsApp" en el formulario de creación de recordatorios
+- Si existen recordatorios guardados con `type = 'whatsapp'` en DB → no se deben enviar ni dar error; simplemente se ignoran con un guard en `send-reminders`
+- No se requiere migración SQL — solo limpieza de UI
+
+**Archivos a modificar:**
+- `src/components/crm/CrmReminders.tsx` — eliminar opción WhatsApp del selector de canal
+- `supabase/functions/send-reminders/index.ts` — si `type === 'whatsapp'` → `console.log("Skipped: whatsapp not enabled")` + `continue` en lugar de `throw`
+
+---
+
+### B17-2 · Fix foto de perfil del Agente IA — URL temporal vs persistente
+
+**Estado:** ✅ COMPLETADO
+
+**Bug:**
+La foto se sube correctamente a Meta (WhatsApp Business) vía la edge function `upload-wa-profile-photo`. Sin embargo, después del upload el código hace `setProfilePicUrl(URL.createObjectURL(file))` — una URL de blob temporal que se destruye al recargar o desde otro dispositivo. Al recargar, intenta cargar la URL desde la API de Meta (`whatsapp_business_profile`), pero esa URL también puede expirar o no estar disponible consistentemente.
+
+**Síntoma confirmado:** La foto no persiste al recargar ni se ve desde otros dispositivos.
+
+**Causa raíz:**
+La URL de la foto de perfil de WhatsApp (en Meta) nunca se guarda en `crm_ai_agent_config` en Supabase. Cada vez que se recarga, el fetch a Meta puede fallar o retornar una URL expirada, y no hay respaldo en DB.
+
+**Fix correcto:**
+1. Después de subir la foto a Meta exitosamente, hacer un fetch a `whatsapp_business_profile` para obtener la URL actual de la foto (la real que Meta asigna)
+2. Guardar esa URL en `crm_ai_agent_config.profile_picture_url` en Supabase
+3. En el estado local, usar la URL de DB (no `createObjectURL`)
+4. Al cargar la configuración del agente (en `useEffect` al montar), leer `profile_picture_url` desde DB como fuente de verdad
+
+**Flujo corregido:**
+```typescript
+// Después de upload exitoso a Meta:
+const profileRes = await fetch(
+  `https://graph.facebook.com/v21.0/${phoneNumberId}/whatsapp_business_profile?fields=profile_picture_url`,
+  { headers: { Authorization: `Bearer ${accessToken}` } }
+)
+const profileData = await profileRes.json()
+const metaUrl = profileData.data?.[0]?.profile_picture_url ?? null
+// Guardar en DB
+await supabase.from("crm_ai_agent_config")
+  .update({ profile_picture_url: metaUrl })
+  .eq("user_id", userId)
+// Estado local con URL real (no blob)
+setProfilePicUrl(metaUrl)
+```
+
+**Consideraciones:**
+- Agregar columna `profile_picture_url text` a `crm_ai_agent_config` si no existe
+- Al inicializar el componente, leer `config.profile_picture_url` desde DB y setearlo en estado
+- Si Meta no retorna URL tras el upload (demora de procesamiento), guardar `null` y mostrar un mensaje "Foto actualizada — puede tardar unos minutos en reflejarse"
+
+**Archivos a modificar:**
+- `src/components/crm/CrmAgentIA.tsx` — corregir `handleWizardPhotoUpload` y su equivalente en SettingsPanel; inicializar `profilePicUrl` desde `config.profile_picture_url`
+- `supabase/migrations/` — `ALTER TABLE crm_ai_agent_config ADD COLUMN IF NOT EXISTS profile_picture_url text;`
+
+---
+
+### B17-3 · Fix Google Calendar OAuth — redirect_uri www vs non-www
+
+**Estado:** ✅ COMPLETADO
+
+**Bug en producción:**
+La función `google-calendar-oauth` construye el `redirect_uri` a partir de la variable de entorno `SITE_URL`, que apunta a `https://acrosoftlabs.com` (sin `www`). Sin embargo, el callback de Google llega a `https://www.acrosoftlabs.com` (con `www`), lo que genera un error `redirect_uri_mismatch` — Google rechaza el intercambio de código porque el URI registrado en Google Cloud Console no coincide con el URI enviado en la request.
+
+**Causa raíz (líneas ~46-71 en `google-calendar-oauth/index.ts`):**
+```
+const redirect_uri = `${SITE_URL}/crm?tab=calendar&oauth=google`
+```
+Si `SITE_URL = "https://acrosoftlabs.com"` pero el usuario navega desde `www.acrosoftlabs.com`, Google devuelve el código al dominio con `www` — ese URI no está registrado en Google Cloud Console ni coincide con el `redirect_uri` que se envió al inicio.
+
+**Fix (usando `acrosoftlabs.com` sin www como canónico):**
+La solución es garantizar que el `redirect_uri` sea siempre el mismo, independientemente de si el usuario llegó con o sin `www`. La URL sin `www` es la canónica:
+1. Fijar `SITE_URL=https://acrosoftlabs.com` en los secrets de Supabase
+2. En la función NO construir el redirect_uri desde el header `origin` (que varía entre www y no-www) — usar siempre `SITE_URL`
+3. Registrar en Google Cloud Console únicamente `https://acrosoftlabs.com/crm?tab=calendar&oauth=google`
+4. El DNS/CDN (Cloudflare) debe tener una regla de redirect `www → no-www` (301 permanente). Así, si el usuario entra a `www.acrosoftlabs.com`, es redirigido a `acrosoftlabs.com` antes de iniciar el OAuth — y el redirect_uri siempre coincidirá.
+
+**Acción requerida por el usuario (fuera del código):**
+- Verificar que Cloudflare tenga redirect `www → no-www` activo
+- En Google Cloud Console → Credenciales → agregar `https://acrosoftlabs.com/crm?tab=calendar&oauth=google` como Authorized Redirect URI (y eliminar la variante con www si existe)
+- Actualizar secret `SITE_URL` en Supabase Dashboard si actualmente tiene `www`
+
+**Archivos a modificar:**
+- `supabase/functions/google-calendar-oauth/index.ts` — usar `SITE_URL` de variable de entorno para construir `redirect_uri`, nunca el header `origin`
+
+---
+
+### B17-4 · Sincronización de eventos de Google Calendar como slots bloqueados (readonly)
+
+**Estado:** ✅ COMPLETADO
+
+**Prerequisito:** B17-3 debe estar completado y funcionando en producción antes de implementar esto.
+
+**Contexto:**
+El tenant conecta su Google Calendar a través de B17-3. Una vez conectado, los eventos existentes en Google Calendar deben aparecer en el calendario del CRM como **slots bloqueados** — de esta forma, el agente IA y el sistema de citas no ofrecen horarios que ya están ocupados por eventos de Google.
+
+**Comportamiento deseado:**
+- Los eventos de Google Calendar se muestran en el calendario del CRM con estilo diferente (ej: fondo gris, icono de Google) para distinguirlos de las citas del CRM
+- Son **solo lectura** — no se pueden editar ni eliminar desde el CRM
+- Sincronización cada 5 minutos — si el tenant agrega un evento en Google Calendar, se refleja en el CRM en los próximos 5 minutos
+- Solo se sincronizan eventos del **calendario principal** del tenant (el que conectó con OAuth)
+- Rango de sincronización: eventos desde hoy hasta 60 días en el futuro
+
+**Implementación técnica:**
+- Usar Google Calendar API `events.list` con `timeMin` y `timeMax` para cargar eventos del rango activo
+- Guardar access_token + refresh_token en `crm_google_calendar_config` (tabla existente o nueva)
+- Crear edge function `sync-google-calendar` que:
+  1. Lee eventos del tenant desde Google Calendar API (con refresh automático del token si expiró)
+  2. Upsert en tabla `crm_google_events` (id de Google como clave única)
+  3. Elimina de `crm_google_events` los eventos que ya no existen en Google
+- Disparar `sync-google-calendar` mediante:
+  - Cron de Supabase cada **5 minutos** (para todos los tenants que tienen Google Calendar conectado)
+  - También al conectar por primera vez (sincronización inicial inmediata)
+- En el frontend, cargar `crm_google_events` junto con las citas y mostrarlos en el calendario
+
+**DB — nueva tabla:**
+```sql
+CREATE TABLE crm_google_events (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  google_event_id text NOT NULL,
+  title text,
+  start_at timestamptz NOT NULL,
+  end_at timestamptz NOT NULL,
+  synced_at timestamptz DEFAULT now(),
+  UNIQUE(user_id, google_event_id)
+);
+ALTER TABLE crm_google_events ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner" ON crm_google_events USING (user_id = auth.uid());
+```
+
+**Archivos a crear/modificar:**
+- `supabase/migrations/` — tabla `crm_google_events`
+- `supabase/functions/sync-google-calendar/index.ts` — nueva edge function
+- `src/components/crm/CrmCalendar.tsx` — renderizar eventos de Google como slots bloqueados
+- `src/hooks/useCrmData.ts` — hook `useGoogleEvents(userId)` para cargar `crm_google_events`
+- `src/lib/supabase.ts` — tipo `CrmGoogleEvent`
+
+---
+
+### B17-5 · Mejora de landing page acrosoftlabs.com
+
+**Estado:** ✅ COMPLETADO
+
+**Contexto:**
+La landing page actual en `acrosoftlabs.com` muestra la información del negocio (descripción, servicios, planes). Se quiere mejorar el diseño y la experiencia visual para aumentar conversiones. Implementar cuando se comparta imagen de referencia de diseño.
+
+**Scope:**
+- Mejorar el diseño visual de la landing page existente (no rediseño completo, sino refinamiento)
+- Aplicar mejores prácticas de UX: jerarquía visual, CTA más claros, secciones bien separadas
+- Asegurar que los servicios cargados dinámicamente (QW-5) se muestren de forma atractiva
+- Responsive correcto en mobile
+
+**Archivos a modificar:**
+- `src/pages/Index.tsx` (o equivalente — landing page principal)
+- Componentes de secciones de la landing si están separados
+
+---
+
+### B17-6 · Mejoras de UX en la interfaz de chat del Agente IA
+
+**Estado:** ⏳ PENDIENTE
+
+**Contexto:**
+La interfaz actual del chat del Agente IA en el CRM es funcional pero tiene oportunidades de mejora en UX. El objetivo es refinar lo existente y agregar elementos que mejoren la experiencia de trabajo de los agentes humanos. Implementar cuando se comparta imagen de referencia de diseño.
+
+**Mejoras propuestas:**
+- **Burbuja de mensaje mejorada**: mejor distinción visual entre mensajes del bot, del contacto y del staff humano (colores diferenciados, avatares)
+- **Estado de mensaje**: indicadores de "enviado", "entregado", "leído" (si la API lo soporta)
+- **Timestamp más legible**: agrupar mensajes por día ("Hoy", "Ayer", "Lunes 12 de mayo")
+- **Input de respuesta mejorado**: área de texto expandible, contador de caracteres, shortcut Ctrl+Enter para enviar
+- **Barra lateral de conversaciones**: mostrar última vez activo, preview del último mensaje truncado a 2 líneas
+- **Indicador de modo** (IA / HUMANO) más prominente en el header del chat
+- **Acciones rápidas**: botones de acción contextual (confirmar pago, ver contacto, crear cita) visibles en el chat sin tener que cambiar de vista
+
+**Archivos a modificar:**
+- `src/components/crm/CrmAgentIA.tsx` — componentes de burbuja, input, lista de conversaciones, header de chat
+
+---
+
+### Resumen del Bloque 17
+
+| # | Feature | Dependencias | Esfuerzo | Estado |
+|---|---|---|---|---|
+| B17-1 | Eliminar WhatsApp de notificaciones UI | Ninguna | Baja | ✅ Completado |
+| B17-2 | Fix foto de perfil Agente IA | Ninguna | Media | ✅ Completado |
+| B17-3 | Fix OAuth Google Calendar www/non-www | Ninguna | Baja | ✅ Completado |
+| B17-4 | Sync Google Calendar → slots bloqueados | B17-3 | Alta | ✅ Completado |
+| B17-5 | Mejora landing page acrosoftlabs.com | Ninguna (espera imagen) | Media | ⏳ Pendiente |
+| B17-6 | Mejoras UX chat Agente IA | Ninguna (espera imagen) | Alta | ⏳ Pendiente |
+
+nueva idea para bloque 18: Añadir la opción de configurar mensajes masivos como campañas de mensajes. Y hacer una selección de contactos filtros por tags, pero que tenga una pequeña IA a la que se le puede dar indicaciones de a quienes enviar estas plantillas predefinidas que aprueba Facebook. POr ejemplo: se le puede decir a la IA, que envie ese mensaje a todos los que compraron en la ultima semana. Esto debee estar dentro de la UI de Agente IA en una sección de Marketing Masivo. Ahi se debe poder configurar "Campañas" donde se podrá pedir la revisión de Facebook para los mensajes masivos y luego usarlos de forma automática con alguna regla que prepare el usuario con IA. Que se pueda repetir cada cierto tiempo o de una sola vez. Hay que pulir mejor esta idea.
+
+Detección de agente IA por pais, para mandar diferentes metodos de pago. Añadir campo al metodo de pago. 
+
+Poder Settear secuencia de mensajes para cada producto. Texto e imagen enviados juntos. Toggle para permitir a la IA mejorar esos textos. 
+
+Añadir más espacios para imagenes en los productos. 
+
+Añadir la opción de cursos. Cada curso con un slug /negocio/nombre_curso. La vista de "Tutoriales y Cursos" puede reutilizarse para el multitennat. Que tengan el mismo panel que un admin. Donde puedan crear cursos. Ponerles precio por moneda, montos fijos, recurrencias mensuales o anuales, y que se de acceso para "todos" los contactos de esa cuenta o solo algunos seleccionados (Solo lee de los contactos). 
+
+Soporte para restaurantes y salones de belleza o barberias con varios agentes
+
+Soporte para varios numeros de agentes IA
+
+Yo como superadmin debo poder tener un número de Prueba (Para mostrar demos a los clientes) donde pueda configurar templates de IA (Para tiendas de ropa, para salones de belleza, etc, etc, etc)
+
