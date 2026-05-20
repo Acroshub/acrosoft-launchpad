@@ -4122,3 +4122,595 @@ ALTER TABLE crm_course_lessons
 | B18-7 | Cursos — acceso por magic link | Ninguna | Alta | ⏳ Pendiente |
 | B18-8 | Videos en cursos via Bunny.net | B18-7, BUNNY_API_KEY | Media | ⏳ Pendiente |
 
+---
+
+---
+
+## BLOQUE 19 — Agente IA: Experiencia WhatsApp Nativa
+
+> Objetivo: hacer que el panel de Agente IA se sienta como usar WhatsApp nativo — conversaciones fluidas, acciones contextuales, y herramientas de equipo integradas.
+>
+> **Nota:** El ítem "adjuntar archivos desde el CRM" ya está implementado (botón Paperclip funcional en el input con soporte para imágenes y PDFs). No forma parte de este bloque.
+
+---
+
+### B19-1 · Reorganización UI del Área de Input
+
+**Prioridad: PRIMERO — fundación visual de B19-3, B19-8, B19-9, B19-11**
+
+Actualmente el input tiene: `[Paperclip] [Textarea] [Send]` en una sola fila. Se reorganiza para que quede como las apps de mensajería modernas:
+
+```
+┌────────────────────────────────────────────────────┐
+│ [💬 Nota interna]  ← botón encima del textarea     │
+├────────────────────────────────────────────────────┤
+│                                                     │
+│   Escribe un mensaje...                             │
+│                                                     │
+├─────────────────────────────────────┬──────────────┤
+│  [📎] [😊] [🏷️ Tags]               │  [Enviar →]  │
+└─────────────────────────────────────┴──────────────┘
+```
+
+- **Encima del textarea:** botón "Nota interna" (visible solo en modo HUMAN). Al activarse, el textarea cambia de fondo (amarillo suave) y el mensaje se envía como nota interna en lugar de al contacto.
+- **Debajo del textarea (toolbar izquierda):** Paperclip (ya existe), Emoji picker (B19-8), botón de etiquetas de conversación (AI-27 ya implementado, se mueve aquí).
+- **Derecha:** botón Send (ya existe).
+
+**Archivos a modificar:**
+- `src/components/crm/CrmAgentIA.tsx` — ChatPanel input area (líneas ~2930–2985)
+
+**No requiere cambios de backend.**
+
+---
+
+### B19-2 · Estado de Mensajes (Ticks)
+
+**Dependencias: Ninguna · Esfuerzo: Medio**
+
+Muestra el estado de cada mensaje enviado desde el CRM directamente en la burbuja, igual que WhatsApp:
+- `✓` gris — enviado a Meta API
+- `✓✓` gris — entregado al dispositivo del contacto
+- `✓✓` azul (`#1877F2`) — leído por el contacto
+
+### Cómo funciona
+
+El webhook de Meta ya recibe eventos `statuses` con campos `status: "sent" | "delivered" | "read"` y `id` (el `wa_message_id`). Actualmente se loguean pero no se persisten.
+
+**DB:**
+```sql
+ALTER TABLE crm_wa_messages
+  ADD COLUMN IF NOT EXISTS delivery_status text DEFAULT 'pending';
+  -- 'pending' | 'sent' | 'delivered' | 'read' | 'failed'
+```
+
+**`whatsapp-webhook/index.ts`** — en `processPayload`, ya hay un loop sobre `value.statuses`. Reemplazar el `console.log` por:
+```ts
+for (const status of value.statuses ?? []) {
+  const newStatus =
+    status.status === "read"      ? "read"      :
+    status.status === "delivered" ? "delivered" :
+    status.status === "sent"      ? "sent"      :
+    status.status === "failed"    ? "failed"    : null;
+
+  if (newStatus) {
+    await supabase
+      .from("crm_wa_messages")
+      .update({ delivery_status: newStatus })
+      .eq("wa_message_id", status.id);
+  }
+}
+```
+
+**Frontend — `MessageBubble`:**
+Solo mostrar ticks en mensajes outbound (`role !== "user"`). Agregar en la esquina inferior derecha de la burbuja, junto al timestamp:
+```tsx
+{!isUser && (
+  <DeliveryTick status={msg.delivery_status} />
+)}
+```
+
+Componente `DeliveryTick`:
+```tsx
+function DeliveryTick({ status }: { status?: string | null }) {
+  if (!status || status === "pending") return <Clock size={10} className="text-white/50" />;
+  if (status === "sent")      return <Check size={10} className="text-white/60" />;
+  if (status === "failed")    return <AlertTriangle size={10} className="text-red-300" />;
+  const blue = status === "read";
+  return (
+    <CheckCheck size={10} className={blue ? "text-[#53bdeb]" : "text-white/60"} />
+  );
+}
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — columna `delivery_status` en `crm_wa_messages`
+- `supabase/functions/whatsapp-webhook/index.ts` — guardar status en lugar de solo loguear
+- `src/lib/supabase.ts` — agregar `delivery_status?: string | null` a `CrmWaMessage`
+- `src/components/crm/CrmAgentIA.tsx` — componente `DeliveryTick` + uso en `MessageBubble`
+
+---
+
+### B19-3 · Notas Internas
+
+**Dependencias: B19-1 (layout del input) · Esfuerzo: Bajo**
+
+Mensajes visibles únicamente para el staff en el CRM, **nunca enviados al contacto**. Fondo amarillo suave para distinguirlos visualmente. Útil para coordinar equipo: "este cliente ya tuvo un problema antes", "ofrecerle descuento del 10%".
+
+**DB:**
+```sql
+ALTER TABLE crm_wa_messages
+  ADD COLUMN IF NOT EXISTS is_internal boolean NOT NULL DEFAULT false;
+```
+
+**Frontend:**
+- Botón "Nota interna" encima del textarea (definido en B19-1)
+- Estado local `isInternalMode: boolean` en ChatPanel
+- Cuando `isInternalMode`:
+  - El textarea tiene fondo `bg-amber-50 dark:bg-amber-950/30` y placeholder "Escribe una nota interna..."
+  - Al enviar: `supabase.from("crm_wa_messages").insert({ ..., is_internal: true })` — **NO** llama a `sendWhatsAppMessage`
+  - El botón "Nota interna" queda activo/resaltado en ámbar
+
+**`MessageBubble` — render de notas internas:**
+```tsx
+if (msg.is_internal) {
+  return (
+    <div className="flex justify-end mb-1.5 px-3">
+      <div className="max-w-[78%] bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-2xl rounded-tr-sm px-3 py-2">
+        <div className="flex items-center gap-1 mb-1">
+          <Lock size={9} className="text-amber-600" />
+          <span className="text-[9px] font-semibold text-amber-600 uppercase tracking-wider">Nota interna</span>
+        </div>
+        <p className="text-sm text-foreground leading-relaxed">{msg.content}</p>
+        <p className="text-[10px] text-amber-600/70 text-right mt-1">{time}</p>
+      </div>
+    </div>
+  );
+}
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — columna `is_internal` en `crm_wa_messages`
+- `src/lib/supabase.ts` — agregar `is_internal?: boolean` a `CrmWaMessage`
+- `src/components/crm/CrmAgentIA.tsx` — estado `isInternalMode`, lógica de envío, render en `MessageBubble`
+
+---
+
+### B19-4 · Favoritos de Conversación
+
+**Dependencias: Ninguna · Esfuerzo: Bajo**
+
+Permite "pinear" conversaciones importantes. Aparece una nueva pestaña "⭐ Favoritos" junto a "Sin leer" en la barra de tabs.
+
+**DB:**
+```sql
+ALTER TABLE crm_wa_conversations
+  ADD COLUMN IF NOT EXISTS is_favorite boolean NOT NULL DEFAULT false;
+```
+
+**Frontend:**
+
+*Tab nuevo en la barra de filtros:*
+```tsx
+{ id: "favorites", label: "Favoritos", icon: "⭐" }
+```
+
+*Filtro en `filteredConvs`:*
+```tsx
+if (readFilter === "favorites") result = result.filter(c => c.is_favorite);
+```
+
+*Botón estrella en cada conversación (hover desktop / visible mobile):*
+- En el item de la lista: estrella en la esquina cuando la conversación está seleccionada o en hover
+- En el header del chat: icono estrella al lado del nombre del contacto
+
+*Hook:*
+```ts
+export const useToggleFavorite = () => useMutation({
+  mutationFn: async ({ id, value }: { id: string; value: boolean }) =>
+    supabase.from("crm_wa_conversations").update({ is_favorite: value }).eq("id", id),
+  onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+});
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — columna `is_favorite` en `crm_wa_conversations`
+- `src/lib/supabase.ts` — agregar `is_favorite?: boolean` a `CrmWaConversation`
+- `src/hooks/useCrmData.ts` — `useToggleFavorite`
+- `src/components/crm/CrmAgentIA.tsx` — tab Favoritos, filtro, botón estrella en lista y en header
+
+---
+
+### B19-5 · Archivar Conversación
+
+**Dependencias: B19-4 (patrón de estado de conversación) · Esfuerzo: Bajo**
+
+Un botón explícito para archivar conversaciones cerradas. Las conversaciones archivadas desaparecen de la lista principal y van a una sección "Archivadas" accesible desde un botón al fondo de la lista.
+
+**DB:**
+```sql
+ALTER TABLE crm_wa_conversations
+  ADD COLUMN IF NOT EXISTS is_archived boolean NOT NULL DEFAULT false;
+```
+
+**Frontend:**
+- La query `useWaConversations` agrega `.eq("is_archived", false)` por defecto
+- Botón "Archivar" en el menú de 3 puntos del header del chat (MoreVertical → dropdown)
+- Al fondo de la lista de conversaciones: link "Ver archivadas (N)" que activa un modo `showArchived` que hace una segunda query sin el filtro
+- Conversaciones archivadas muestran un badge gris "Archivada" y botón "Desarchivar"
+
+*Hook:*
+```ts
+export const useArchiveConversation = () => useMutation({
+  mutationFn: async ({ id, value }: { id: string; value: boolean }) =>
+    supabase.from("crm_wa_conversations").update({ is_archived: value }).eq("id", id),
+  onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+});
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — columna `is_archived` en `crm_wa_conversations`
+- `src/lib/supabase.ts` — agregar `is_archived?: boolean` a `CrmWaConversation`
+- `src/hooks/useCrmData.ts` — `useArchiveConversation`, filtro `.eq("is_archived", false)` en `useWaConversations`
+- `src/components/crm/CrmAgentIA.tsx` — botón archivar en menú, sección "Archivadas"
+
+---
+
+### B19-6 · Marcar como No Leído
+
+**Dependencias: B19-5 (patrón de acciones en conversación) · Esfuerzo: Muy bajo**
+
+Permite volver a marcar una conversación como no leída para recordar responderla más tarde. Se agrega al mismo menú de 3 puntos del header donde irá "Archivar" (B19-5), o como botón directo en el item de la lista al hacer swipe (mobile) o hover (desktop).
+
+**Implementación:**
+- Al activar "Marcar como no leído": `UPDATE crm_wa_conversations SET unread_count = 1 WHERE id = ?`
+- Si la conversación estaba seleccionada → deseleccionar y volver a la lista
+
+*Hook:*
+```ts
+export const useMarkConversationUnread = () => useMutation({
+  mutationFn: async (id: string) =>
+    supabase.from("crm_wa_conversations").update({ unread_count: 1 }).eq("id", id),
+  onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+});
+```
+
+**Archivos a modificar/crear:**
+- `src/hooks/useCrmData.ts` — `useMarkConversationUnread`
+- `src/components/crm/CrmAgentIA.tsx` — opción en menú de conversación + deselección
+
+---
+
+### B19-7 · Indicador "Escribiendo..." de la IA
+
+**Dependencias: Ninguna · Esfuerzo: Bajo**
+
+Mientras el agente IA está procesando una respuesta, el contacto no ve nada. En el CRM, el staff tampoco sabe si la IA ya respondió o está tardando. Se agrega un indicador visual en el chat (lado izquierdo, burbuja animada) mientras `ai-agent` trabaja.
+
+**DB:**
+```sql
+ALTER TABLE crm_wa_conversations
+  ADD COLUMN IF NOT EXISTS ai_typing boolean NOT NULL DEFAULT false;
+```
+
+**`ai-agent/index.ts`** — al inicio del procesamiento, marcar `ai_typing = true`; al terminar (éxito o error), `ai_typing = false`:
+```ts
+// Al inicio de la función principal
+await supabase.from("crm_wa_conversations").update({ ai_typing: true }).eq("id", conversation_id);
+// ... procesamiento ...
+// Al final (en try/finally)
+await supabase.from("crm_wa_conversations").update({ ai_typing: false }).eq("id", conversation_id);
+```
+
+**Frontend:**
+- El hook `useWaConversations` ya hace polling cada 3s — `ai_typing` llega automáticamente
+- En el área de mensajes del chat activo, si `selectedConv?.ai_typing && selectedConv?.mode === "AI"`:
+```tsx
+<div className="flex justify-start mb-1.5 px-3">
+  <div className="bg-white dark:bg-zinc-800 border border-border/40 rounded-2xl rounded-tl-sm px-4 py-3 shadow-sm">
+    <div className="flex gap-1 items-center h-4">
+      {[0, 150, 300].map(delay => (
+        <span key={delay} className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 animate-bounce"
+          style={{ animationDelay: `${delay}ms` }} />
+      ))}
+    </div>
+  </div>
+</div>
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — columna `ai_typing` en `crm_wa_conversations`
+- `src/lib/supabase.ts` — `ai_typing?: boolean` en `CrmWaConversation`
+- `supabase/functions/ai-agent/index.ts` — setear `ai_typing` al inicio y en finally
+- `src/components/crm/CrmAgentIA.tsx` — burbuja de typing animada en el chat
+
+---
+
+### B19-8 · Emoji Picker (Desktop · Modo HUMAN)
+
+**Dependencias: B19-1 (toolbar debajo del textarea) · Esfuerzo: Muy bajo**
+
+Botón 😊 en la toolbar inferior del input, **visible únicamente en desktop y cuando la conversación está en modo HUMAN**. Al hacer clic abre un popover con el picker de emojis.
+
+**Librería:**
+```bash
+npm install @emoji-mart/react @emoji-mart/data
+```
+
+**Implementación:**
+```tsx
+import Picker from "@emoji-mart/react";
+import data from "@emoji-mart/data";
+
+// En la toolbar inferior:
+{!isMobile && conv.mode === "HUMAN" && (
+  <Popover>
+    <PopoverTrigger asChild>
+      <button className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary transition-colors">
+        <Smile size={16} />
+      </button>
+    </PopoverTrigger>
+    <PopoverContent className="p-0 w-auto border-0 shadow-xl" side="top" align="start">
+      <Picker data={data} onEmojiSelect={(e: any) => setText(t => t + e.native)}
+        locale="es" theme="light" previewPosition="none" skinTonePosition="none" />
+    </PopoverContent>
+  </Popover>
+)}
+```
+
+**Detección mobile:** `const isMobile = window.innerWidth < 1024` (o usar el hook `useMediaQuery`).
+
+**Archivos a modificar/crear:**
+- `package.json` — dependencias `@emoji-mart/react`, `@emoji-mart/data`
+- `src/components/crm/CrmAgentIA.tsx` — botón + Picker en toolbar (B19-1 layout)
+
+---
+
+### B19-9 · Respuestas Rápidas con "/"
+
+**Dependencias: B19-1 (layout input) · Esfuerzo: Medio**
+
+Al escribir `/` en el input, aparece un popover encima del textarea con una lista de respuestas guardadas. Seleccionar una la inserta en el input. Las respuestas se gestionan en Settings → nuevo tab "Respuestas".
+
+**DB:**
+```sql
+CREATE TABLE IF NOT EXISTS crm_quick_replies (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  shortcut text NOT NULL,   -- ej: "saludo", "precio", "cita"
+  content text NOT NULL,    -- el texto completo a insertar
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE crm_quick_replies ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner" ON crm_quick_replies USING (user_id = auth.uid());
+```
+
+**Frontend — lógica de activación:**
+```tsx
+// En el onChange del textarea:
+if (value === "/" || value.startsWith("/")) {
+  const query = value.slice(1).toLowerCase();
+  const matches = quickReplies.filter(r =>
+    r.shortcut.includes(query) || r.content.toLowerCase().includes(query)
+  );
+  setQuickReplySuggestions(matches);
+  setShowQuickReplies(true);
+} else {
+  setShowQuickReplies(false);
+}
+```
+
+**Popover de sugerencias** (aparece encima del textarea):
+- Lista de items: `[shortcut] → preview del contenido (truncado a 60 chars)`
+- Click o Enter selecciona → reemplaza el texto del input
+- Escape cierra el popover
+
+**Settings — tab "Respuestas":** CRUD sencillo en el SettingsPanel (nueva sección). Mismo patrón que el tab "Etiquetas": lista + formulario inline para crear/editar/borrar.
+
+**Hooks:**
+```ts
+export const useQuickReplies = () => { /* query crm_quick_replies */ }
+export const useUpsertQuickReply = () => { /* insert/update */ }
+export const useDeleteQuickReply = () => { /* delete */ }
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — tabla `crm_quick_replies` + RLS
+- `src/lib/supabase.ts` — tipo `CrmQuickReply`
+- `src/hooks/useCrmData.ts` — 3 hooks
+- `src/components/crm/CrmAgentIA.tsx` — lógica "/" + popover + nueva sección "Respuestas" en SettingsPanel
+- Nueva sección `SECTIONS` en `SettingsPanel`: `{ id: "respuestas", label: "Respuestas rápidas", icon: Zap, desc: "/" + shortcuts` }`
+
+---
+
+### B19-10 · Galería de Medios por Conversación
+
+**Dependencias: Ninguna · Esfuerzo: Bajo**
+
+Un botón en el header del chat que abre un panel lateral (o modal) con todas las imágenes y PDFs enviados y recibidos en esa conversación, en grid.
+
+**Frontend:**
+- Botón con icono `Images` o `Grid` en el header del chat (en el menú de 3 puntos `MoreVertical`)
+- Estado `showMediaGallery: boolean` en ChatPanel
+- Panel lateral (o modal sheet) con dos tabs: "Fotos" y "Documentos"
+- Los medios ya están en `crm_wa_messages.media_url` — filtrar por `media_type === "image"` y `media_type === "document"`
+
+**Query en el hook existente:**
+```ts
+export const useConversationMedia = (conversationId: string) =>
+  useQuery({
+    queryKey: ["wa_media", conversationId],
+    queryFn: async () => supabase
+      .from("crm_wa_messages")
+      .select("id, media_url, media_type, created_at, role, content")
+      .eq("conversation_id", conversationId)
+      .not("media_url", "is", null)
+      .order("created_at", { ascending: false }),
+  });
+```
+
+**UI:**
+- Imágenes: grid de miniaturas 3 columnas, click abre lightbox (o nueva pestaña)
+- PDFs: lista con nombre del archivo (extraído del `content`: `[PDF: nombre.pdf]`) + ícono + fecha + botón abrir
+
+**No requiere cambios de backend ni migración.**
+
+**Archivos a modificar/crear:**
+- `src/hooks/useCrmData.ts` — `useConversationMedia`
+- `src/components/crm/CrmAgentIA.tsx` — botón galería en header, panel/modal de galería
+
+---
+
+### B19-11 · Buscar dentro de una Conversación
+
+**Dependencias: Ninguna · Esfuerzo: Bajo**
+
+Buscador de mensajes dentro del hilo actual. Cuando el chat tiene muchos mensajes, permite encontrar rápido un mensaje específico. Se activa desde un botón en el header del chat.
+
+**Comportamiento:**
+- Icono de búsqueda en el header → expande un input encima del área de mensajes
+- Mientras se escribe (debounce 300ms), los mensajes que coinciden quedan resaltados (fondo amarillo en la burbuja)
+- Contador "3 de 7" con flechas ↑↓ para navegar entre resultados
+- Hacer scroll automático al resultado activo
+- Presionar Escape cierra la búsqueda
+
+**Implementación:**
+- Estado `inChatSearch: string` y `inChatSearchActive: boolean` en ChatPanel
+- Los mensajes ya están en memoria (el hook `useWaMessages` los trae todos)
+- Filtrar `messages.filter(m => m.content.toLowerCase().includes(query))` → array de IDs que coinciden
+- En `MessageBubble`: prop `isSearchMatch` → aplica `bg-yellow-100 dark:bg-yellow-900/20` al contenedor
+
+**No requiere cambios de backend.**
+
+**Archivos a modificar/crear:**
+- `src/components/crm/CrmAgentIA.tsx` — estado + input + highlighting + navegación en ChatPanel
+
+---
+
+### B19-12 · Menú Contextual en Mensajes (Desktop · Clic Derecho)
+
+**Dependencias: B19-3, B19-6, B19-11 (para tener acciones útiles en el menú) · Esfuerzo: Medio**
+
+En desktop, clic derecho sobre cualquier mensaje despliega un menú contextual nativo con acciones relevantes según el tipo de mensaje.
+
+**Opciones del menú:**
+| Acción | Condición |
+|---|---|
+| Responder | Siempre (dispara B19-13) |
+| Copiar texto | Solo mensajes de texto |
+| Marcar conversación como no leída | Siempre (B19-6) |
+| Eliminar mensaje | Solo mensajes propios (role = "assistant" o "human") |
+
+**Implementación:**
+```tsx
+// En MessageBubble, agregar:
+const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
+
+<div
+  onContextMenu={e => { e.preventDefault(); setMenuPos({ x: e.clientX, y: e.clientY }); }}
+  ...
+>
+  {/* contenido del mensaje */}
+</div>
+
+{menuPos && (
+  <ContextMenu pos={menuPos} onClose={() => setMenuPos(null)}
+    onReply={() => { onReply(msg); setMenuPos(null); }}
+    onCopy={() => { copyToClipboard(msg.content, "Mensaje"); setMenuPos(null); }}
+    onMarkUnread={() => { markUnread.mutate(msg.conversation_id); setMenuPos(null); }}
+    onDelete={canDelete ? () => { deleteMsg.mutate(msg.id); setMenuPos(null); } : undefined}
+  />
+)}
+```
+
+**Componente `ContextMenu`:** posicionado con `position: fixed` en `{ x, y }`, con `useEffect` para cerrar al hacer click fuera o presionar Escape. `border rounded-2xl shadow-xl bg-card` para consistencia visual.
+
+**Hook `useDeleteWaMessage`:**
+```ts
+export const useDeleteWaMessage = () => useMutation({
+  mutationFn: async (id: string) =>
+    supabase.from("crm_wa_messages").delete().eq("id", id),
+  onSuccess: (_, id) => /* optimistic remove from cache */,
+});
+```
+
+**Archivos a modificar/crear:**
+- `src/hooks/useCrmData.ts` — `useDeleteWaMessage`
+- `src/components/crm/CrmAgentIA.tsx` — `ContextMenu` component, `onContextMenu` en `MessageBubble`, props `onReply`/`onMarkUnread` propagados desde ChatPanel
+
+---
+
+### B19-13 · Responder a Mensaje Específico (Quote Reply)
+
+**Dependencias: B19-12 (menú contextual para dispararlo) · Esfuerzo: Alto**
+
+Al seleccionar "Responder" en el menú contextual (B19-12), aparece una preview del mensaje citado encima del textarea. Al enviar, el mensaje incluye la referencia al original tanto en la UI del CRM como en WhatsApp (vía `context.message_id`).
+
+**DB:**
+```sql
+ALTER TABLE crm_wa_messages
+  ADD COLUMN IF NOT EXISTS replied_to_id uuid REFERENCES crm_wa_messages(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS replied_to_preview text; -- snapshot del contenido en el momento de responder
+```
+
+**Frontend — preview de cita:**
+```tsx
+{replyTo && (
+  <div className="mx-3 mb-1 px-3 py-2 rounded-xl bg-secondary/80 border-l-2 border-[#1877F2] flex items-start justify-between gap-2">
+    <div className="min-w-0">
+      <p className="text-[11px] font-semibold text-[#1877F2]">
+        {replyTo.role === "user" ? (selectedConv?.contact_name ?? "Contacto") : "Tú"}
+      </p>
+      <p className="text-xs text-muted-foreground truncate">{replyTo.content}</p>
+    </div>
+    <button onClick={() => setReplyTo(null)}><X size={12} /></button>
+  </div>
+)}
+```
+
+**Frontend — estado:**
+```tsx
+const [replyTo, setReplyTo] = useState<CrmWaMessage | null>(null);
+```
+
+**Al enviar**, pasar `replied_to_id` al insert de `crm_wa_messages` y el `context: { message_id: replyTo.wa_message_id }` al llamar a la Meta Graph API.
+
+**Render en burbujas recibidas** (mensajes que son reply a algo):
+Si un mensaje tiene `replied_to_preview`, mostrar encima del contenido una mini-cita con fondo gris, igual que WhatsApp.
+
+**`send-wa-message/index.ts`** — agregar soporte para `context.message_id` opcional en el body de la llamada a Meta:
+```ts
+body: JSON.stringify({
+  messaging_product: "whatsapp",
+  to: phone,
+  type: "text",
+  text: { body: message },
+  ...(contextMessageId ? { context: { message_id: contextMessageId } } : {}),
+})
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — columnas `replied_to_id`, `replied_to_preview` en `crm_wa_messages`
+- `src/lib/supabase.ts` — campos en `CrmWaMessage`
+- `src/components/crm/CrmAgentIA.tsx` — estado `replyTo`, preview UI, paso de `replied_to_id` al enviar, render de cita en `MessageBubble`
+- `supabase/functions/send-wa-message/index.ts` — soporte para `context.message_id`
+
+---
+
+### Resumen del Bloque 19
+
+| # | Feature | Dependencias | Esfuerzo | Estado |
+|---|---|---|---|---|
+| B19-1 | Reorganización UI del input (toolbar inferior + nota interna encima) | Ninguna | Bajo | ⏳ Pendiente |
+| B19-2 | Estado de mensajes (ticks ✓ ✓✓ azul) | Ninguna | Medio | ⏳ Pendiente |
+| B19-3 | Notas internas (amarillo, no enviadas al contacto) | B19-1 | Bajo | ⏳ Pendiente |
+| B19-4 | Favoritos de conversación + tab "Favoritos" | Ninguna | Bajo | ⏳ Pendiente |
+| B19-5 | Archivar conversación (botón manual) | B19-4 | Bajo | ⏳ Pendiente |
+| B19-6 | Marcar conversación como no leída | B19-5 | Muy bajo | ⏳ Pendiente |
+| B19-7 | Indicador "escribiendo..." mientras la IA procesa | Ninguna | Bajo | ⏳ Pendiente |
+| B19-8 | Emoji picker (desktop · modo HUMAN) | B19-1 | Muy bajo | ⏳ Pendiente |
+| B19-9 | Respuestas rápidas con "/" | B19-1 | Medio | ⏳ Pendiente |
+| B19-10 | Galería de medios por conversación | Ninguna | Bajo | ⏳ Pendiente |
+| B19-11 | Buscar dentro de una conversación | Ninguna | Bajo | ⏳ Pendiente |
+| B19-12 | Menú contextual en mensajes (desktop · clic derecho) | B19-3, B19-6 | Medio | ⏳ Pendiente |
+| B19-13 | Responder a mensaje específico (quote reply) | B19-12 | Alto | ⏳ Pendiente |
+
