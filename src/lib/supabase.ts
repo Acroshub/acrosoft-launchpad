@@ -40,6 +40,7 @@ export type CrmContact = {
   master_doc_url?: string | null
   pipeline_position?: Record<string, number> | null
   ai_collected_data?: Record<string, string> | null
+  profile_pic_url?: string | null
 }
 
 export type CrmPipeline = {
@@ -608,6 +609,7 @@ export type CrmWaConversation = {
   user_id: string
   phone: string
   contact_name: string | null
+  contact_profile_pic: string | null
   mode: 'AI' | 'HUMAN'
   assigned_to: string | null
   last_message_at: string | null

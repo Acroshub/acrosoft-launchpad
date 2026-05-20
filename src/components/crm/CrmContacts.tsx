@@ -1884,8 +1884,12 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
                 <div className="p-5 border-b shrink-0 space-y-3">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
-                        {detail.name.substring(0, 2).toUpperCase()}
+                      <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0 overflow-hidden relative">
+                        {detail.profile_pic_url ? (
+                          <img src={detail.profile_pic_url} alt={detail.name} className="absolute inset-0 w-full h-full object-cover"
+                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                        ) : null}
+                        <span>{detail.name.substring(0, 2).toUpperCase()}</span>
                       </div>
                       <div>
                         <p className="font-semibold text-sm">{detail.name}</p>
@@ -2056,6 +2060,25 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
                     type="tel"
                     readOnly={!canEdit}
                     onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})}
+                  />
+                  <InlineEdit
+                    icon={ImageIcon}
+                    value={detail.profile_pic_url ?? null}
+                    placeholder="URL foto de perfil"
+                    type="url"
+                    readOnly={!canEdit}
+                    onSave={async (v) => {
+                      await updateContact.mutateAsync({ id: detail.id, profile_pic_url: v || null });
+                      // Propagar foto a conversaciones WhatsApp vinculadas con este teléfono
+                      if (detail.phone) {
+                        const normalized = detail.phone.replace(/\D/g, "");
+                        await supabase
+                          .from("crm_wa_conversations")
+                          .update({ contact_profile_pic: v || null })
+                          .eq("user_id", detail.user_id)
+                          .or(`phone.eq.${detail.phone},phone.eq.+${normalized},phone.eq.${normalized}`);
+                      }
+                    }}
                   />
                 </div>
 

@@ -304,9 +304,25 @@ async function handleIncomingMessage(
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 async function upsertConversation(userId: string, phone: string, contactName: string | null) {
+  // Normalizar teléfono: quitar "+" y espacios para comparación con crm_contacts
+  const normalizedPhone = phone.replace(/\D/g, "");
+
+  // Buscar foto de perfil del contacto (si el tenant tiene uno registrado con este teléfono)
+  const { data: contact } = await supabase
+    .from("crm_contacts")
+    .select("profile_pic_url")
+    .eq("user_id", userId)
+    .or(`phone.eq.${phone},phone.eq.+${normalizedPhone},phone.eq.${normalizedPhone}`)
+    .maybeSingle();
+
+  const profilePic: string | null = contact?.profile_pic_url ?? null;
+
   const { data, error } = await supabase
     .from("crm_wa_conversations")
-    .upsert({ user_id: userId, phone, contact_name: contactName }, { onConflict: "user_id,phone", ignoreDuplicates: false })
+    .upsert(
+      { user_id: userId, phone, contact_name: contactName, ...(profilePic ? { contact_profile_pic: profilePic } : {}) },
+      { onConflict: "user_id,phone", ignoreDuplicates: false }
+    )
     .select().single();
   if (error) { console.error("[webhook] error upsert conversación:", error); return null; }
   return data;

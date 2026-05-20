@@ -3,7 +3,7 @@ import {
   Bot, Settings, Send, Wifi, WifiOff, MessageSquare, Loader2,
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, ChevronLeft, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
-  User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle,
+  User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -127,6 +127,29 @@ function formatSaleAmount(amount: number, currency: string | null): string {
 
 function copyToClipboard(text: string, label: string) {
   navigator.clipboard.writeText(text).then(() => toast.success(`${label} copiado`));
+}
+
+function getDateLabel(iso: string): string {
+  const d = new Date(iso);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+  const msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  if (msgDay.getTime() === today.getTime()) return "Hoy";
+  if (msgDay.getTime() === yesterday.getTime()) return "Ayer";
+  return d.toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
+}
+
+function getAvatarColor(name: string): string {
+  const colors = [
+    "#1877F2", "#0a57d0", "#00a884", "#25D366",
+    "#FF6B6B", "#FF8C42", "#9B59B6", "#2ECC71",
+    "#E67E22", "#3498DB", "#E91E63", "#00BCD4",
+  ];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return colors[Math.abs(hash) % colors.length];
 }
 
 // ─── Próximamente (SaaS clients) ──────────────────────────────────────────────
@@ -1181,6 +1204,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [timezone, setTimezone]           = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [offHoursMsg, setOffHoursMsg]     = useState("");
   const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario"|"perfil"|"etiquetas">("conexion");
+  const [mobileShowSection, setMobileShowSection] = useState(false);
   const initialized                       = useRef(false);
 
   // Perfil de WhatsApp
@@ -1461,19 +1485,19 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
   const maskValue = (v: string) => v ? "•".repeat(Math.min(v.length || 16, 24)) : "No configurado";
 
-  const TABS = [
-    { id: "conexion" as const,    label: "Conexión",    icon: Wifi },
-    { id: "agente" as const,      label: "Agente",      icon: Sparkles },
-    { id: "capacidades" as const, label: "Capacidades", icon: Zap },
-    { id: "horario" as const,     label: "Horario",     icon: Clock },
-    { id: "perfil" as const,      label: "Perfil WA",   icon: User },
-    { id: "etiquetas" as const,   label: "Etiquetas",   icon: Tag },
+  const SECTIONS = [
+    { id: "conexion" as const,    label: "Conexión",    icon: Wifi,     desc: "Meta Cloud API" },
+    { id: "agente" as const,      label: "Agente IA",   icon: Sparkles, desc: "Nombre, prompt, idioma" },
+    { id: "capacidades" as const, label: "Capacidades", icon: Zap,      desc: "Herramientas del agente" },
+    { id: "horario" as const,     label: "Horario",     icon: Clock,    desc: "Disponibilidad y timezone" },
+    { id: "perfil" as const,      label: "Perfil WA",   icon: User,     desc: "Foto y bio de WhatsApp" },
+    { id: "etiquetas" as const,   label: "Etiquetas",   icon: Tag,      desc: "Gestionar etiquetas" },
   ];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-md bg-card h-full flex flex-col shadow-2xl border-l">
+      <div className="relative z-10 w-full sm:max-w-xl bg-card h-full flex shadow-2xl border-l overflow-hidden">
 
         {/* Password prompt modal */}
         {pwdPrompt && (
@@ -1522,39 +1546,91 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
           </div>
         )}
 
-        {/* Header */}
-        <div className="px-5 py-4 border-b flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className={`w-2 h-2 rounded-full ${config?.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
-            <div>
-              <h2 className="text-sm font-semibold">Configuración del Agente</h2>
-              <p className="text-[10px] text-muted-foreground">
-                {config?.is_active ? "Asistente activo" : "Asistente inactivo"}
-              </p>
+        {/* Nav column — full width on mobile (home), sidebar on sm+ */}
+        <div className={`flex-col bg-card border-r sm:w-52 sm:shrink-0 sm:flex
+          ${mobileShowSection ? "hidden" : "flex w-full"}
+        `}>
+          {/* Agent profile header */}
+          <div className="px-4 py-4 border-b shrink-0">
+            <div className="flex items-center gap-3">
+              <div className="relative shrink-0">
+                <div className="w-11 h-11 rounded-full overflow-hidden bg-[#1877F2] flex items-center justify-center text-white">
+                  {config?.profile_picture_url ? (
+                    <img src={config.profile_picture_url} alt={agentName || "Agente"} className="w-full h-full object-cover"
+                      onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                  ) : (
+                    <Bot size={20} />
+                  )}
+                </div>
+                <div className="absolute -bottom-0.5 -right-0.5 flex items-center gap-0.5 bg-[#00a884] rounded-full px-1 py-0.5 border border-background">
+                  <Bot size={8} className="text-white" />
+                  <span className="text-[7px] font-bold text-white leading-none">IA</span>
+                </div>
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold truncate">{agentName || "Asistente"}</p>
+                <div className="flex items-center gap-1.5 mt-0.5">
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                  <p className="text-[11px] text-muted-foreground">{config?.is_active ? "Activo" : "Inactivo"}</p>
+                </div>
+              </div>
+              <button onClick={onClose} className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-secondary transition-colors shrink-0">
+                <X size={16} className="text-muted-foreground" />
+              </button>
             </div>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
-            <X size={16} className="text-muted-foreground" />
-          </button>
+
+          {/* Section list */}
+          <div className="flex-1 overflow-y-auto py-2">
+            {SECTIONS.map(s => {
+              const Icon = s.icon;
+              const isActive = section === s.id;
+              return (
+                <button
+                  key={s.id}
+                  onClick={() => { setSection(s.id); setMobileShowSection(true); }}
+                  className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors ${
+                    isActive ? "bg-[#1877F2]/8 dark:bg-[#1877F2]/12" : "hover:bg-secondary/60"
+                  }`}
+                >
+                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                    isActive ? "bg-[#1877F2]/15" : "bg-secondary"
+                  }`}>
+                    <Icon size={15} className={isActive ? "text-[#1877F2]" : "text-muted-foreground"} />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-sm font-medium leading-tight ${isActive ? "text-[#1877F2]" : "text-foreground"}`}>{s.label}</p>
+                    <p className="text-[11px] text-muted-foreground truncate mt-0.5">{s.desc}</p>
+                  </div>
+                  <ChevronRight size={14} className={`shrink-0 sm:hidden ${isActive ? "text-[#1877F2]" : "text-muted-foreground/30"}`} />
+                </button>
+              );
+            })}
+          </div>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b shrink-0 px-2 overflow-x-auto">
-          {TABS.map(t => {
-            const Icon = t.icon;
-            return (
-              <button key={t.id} onClick={() => setSection(t.id)}
-                className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  section === t.id ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"
-                }`}>
-                <Icon size={12} />{t.label}
-              </button>
-            );
-          })}
-        </div>
+        {/* Content column */}
+        <div className={`flex-col flex-1 min-w-0 sm:flex
+          ${mobileShowSection ? "flex" : "hidden"}
+        `}>
+          {/* Section header */}
+          <div className="px-4 py-3 border-b flex items-center gap-1 shrink-0">
+            <button
+              onClick={() => setMobileShowSection(false)}
+              className="sm:hidden min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl hover:bg-secondary transition-colors -ml-1.5"
+            >
+              <ChevronLeft size={18} className="text-muted-foreground" />
+            </button>
+            <h2 className="text-sm font-semibold flex-1 truncate">
+              {SECTIONS.find(s => s.id === section)?.label ?? "Configuración"}
+            </h2>
+            <button onClick={onClose} className="hidden sm:flex min-w-[36px] min-h-[36px] items-center justify-center rounded-xl hover:bg-secondary transition-colors">
+              <X size={16} className="text-muted-foreground" />
+            </button>
+          </div>
 
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Content */}
+          <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {section === "conexion" && (
             <>
               {/* Webhook info */}
@@ -2314,6 +2390,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
             </Button>
           </div>
         )}
+        </div>{/* end content column */}
       </div>
     </div>
   );
@@ -2321,75 +2398,93 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: boolean }) => {
-  const isUser = msg.role === "user";
-  const isNotif = !isUser && msg.content.startsWith("[notif]");
+  const isUser    = msg.role === "user";
+  const isNotif   = !isUser && msg.content.startsWith("[notif]");
+  const isHuman   = msg.role === "human";
   const displayContent = isNotif ? msg.content.slice(7) : msg.content;
+  const time = new Date(msg.created_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 
-  const bubbleClass = isUser
-    ? "bg-secondary text-foreground rounded-tl-sm"
-    : isNotif
-      ? "bg-blue-500 text-white rounded-tr-sm"
-      : msg.role === "human"
-        ? "bg-amber-500 text-white rounded-tr-sm"
-        : "bg-emerald-500 text-white rounded-tr-sm";
+  // Notificación del sistema — centrada, tipo pill
+  if (isNotif) {
+    return (
+      <div id={`msg-${msg.id}`} className="flex justify-center my-3 px-4">
+        <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60">
+          <Bell size={10} className="text-blue-500 shrink-0" />
+          <span className="text-[11px] text-blue-700 dark:text-blue-400 text-center">{displayContent}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const isIncoming = isUser;
 
   return (
-    <div id={`msg-${msg.id}`} className={`flex ${isUser ? "justify-start" : "justify-end"} mb-2`}>
-      <div className={`max-w-[78%] rounded-2xl overflow-hidden text-sm relative ${bubbleClass} ${highlight ? "ring-2 ring-yellow-400 ring-offset-1" : ""}`}>
-        {/* Badge de notificación */}
-        {isNotif && (
-          <div className="flex items-center gap-1 px-3.5 pt-2 pb-0.5 text-[10px] font-semibold text-white/80 uppercase tracking-wide">
-            <Bell size={9} /> Notificación automática
-          </div>
-        )}
-        {/* Imagen */}
-        {msg.media_type === "image" && msg.media_url && (
-          <a href={msg.media_url} target="_blank" rel="noopener noreferrer">
-            <img
-              src={msg.media_url}
-              alt="Imagen"
-              className="w-full max-w-[260px] object-cover block"
-              style={{ maxHeight: 220 }}
-            />
-          </a>
-        )}
-        {/* PDF */}
-        {msg.media_type === "document" && msg.media_url && (
-          <a
-            href={msg.media_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-medium underline underline-offset-2 ${isUser ? "text-primary" : "text-white"}`}
-          >
-            <span>📄</span> {displayContent.replace(/^\[PDF: /, "").replace(/\]$/, "")}
-          </a>
-        )}
-        {/* Audio */}
-        {msg.media_type === "audio" && (
-          <div className={`flex items-center gap-2 px-3.5 py-2.5 text-xs ${isUser ? "text-muted-foreground" : "text-white/80"}`}>
-            🎤 Mensaje de voz
-          </div>
-        )}
-        {/* Texto (siempre, excepto si es solo placeholder de media) */}
-        {!(msg.media_type === "document" || msg.media_type === "audio") && (
-          <div className="px-3.5 py-2 leading-relaxed">
-            {displayContent !== "[Imagen]" ? displayContent : null}
-            {msg.send_error && (
-              <div className="flex items-center gap-1 mt-1.5 text-[10px] opacity-80">
-                <AlertTriangle size={10} />
-                {msg.send_error === "whatsapp_window_expired" || msg.send_error === "24h_window_expired"
-                  ? "No se pudo enviar: más de 24h sin interacción"
-                  : "Error al enviar"}
+    <div id={`msg-${msg.id}`} className={`flex ${isIncoming ? "justify-start" : "justify-end"} mb-1.5 px-3`}>
+      <div className={`max-w-[78%] sm:max-w-[65%] ${highlight ? "ring-2 ring-yellow-400 ring-offset-2 rounded-2xl" : ""}`}>
+        <div className={`rounded-2xl overflow-hidden text-sm ${
+          isIncoming
+            ? "bg-white dark:bg-zinc-800 text-foreground rounded-tl-sm border border-border/40 shadow-sm"
+            : isHuman
+              ? "bg-[#1877F2] text-white rounded-tr-sm shadow-sm"
+              : "bg-[#00a884] text-white rounded-tr-sm shadow-sm"
+        }`}>
+          {/* Imagen */}
+          {msg.media_type === "image" && msg.media_url && (
+            <a href={msg.media_url} target="_blank" rel="noopener noreferrer">
+              <img src={msg.media_url} alt="Imagen"
+                className="w-full max-w-[260px] object-cover block"
+                style={{ maxHeight: 200, borderRadius: "inherit" }} />
+            </a>
+          )}
+          {/* Documento */}
+          {msg.media_type === "document" && msg.media_url && (
+            <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+              className={`flex items-center gap-2.5 px-3.5 py-3 font-medium ${isIncoming ? "text-primary" : "text-white"}`}>
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base ${isIncoming ? "bg-primary/10" : "bg-white/20"}`}>
+                📄
               </div>
-            )}
-            <p className={`text-[10px] mt-1 ${isUser ? "text-muted-foreground" : "text-white/70"} text-right`}>
-              {new Date(msg.created_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
-            </p>
-          </div>
-        )}
-        {(msg.media_type === "document" || msg.media_type === "audio") && (
-          <p className={`text-[10px] px-3.5 pb-2 ${isUser ? "text-muted-foreground" : "text-white/70"} text-right`}>
-            {new Date(msg.created_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}
+              <span className="text-sm truncate">{displayContent.replace(/^\[PDF: /, "").replace(/\]$/, "")}</span>
+            </a>
+          )}
+          {/* Audio */}
+          {msg.media_type === "audio" && (
+            <div className={`flex items-center gap-2.5 px-3.5 py-3 ${isIncoming ? "text-muted-foreground" : "text-white/90"}`}>
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-base ${isIncoming ? "bg-secondary" : "bg-white/20"}`}>
+                🎤
+              </div>
+              <span className="text-sm">Mensaje de voz</span>
+            </div>
+          )}
+          {/* Texto */}
+          {!(msg.media_type === "document" || msg.media_type === "audio") && (
+            <div className="px-3.5 py-2.5 leading-relaxed">
+              {displayContent !== "[Imagen]" && (
+                <p className="whitespace-pre-wrap break-words">{displayContent}</p>
+              )}
+              {msg.send_error && (
+                <div className={`flex items-center gap-1 mt-1.5 text-[10px] ${isIncoming ? "text-destructive" : "text-white/80"}`}>
+                  <AlertTriangle size={9} />
+                  {msg.send_error === "whatsapp_window_expired" || msg.send_error === "24h_window_expired"
+                    ? "No se pudo enviar: más de 24h sin interacción"
+                    : "Error al enviar"}
+                </div>
+              )}
+              <div className={`flex items-center justify-end gap-1 mt-1 ${isIncoming ? "text-muted-foreground/60" : "text-white/60"}`}>
+                <span className="text-[10px]">{time}</span>
+                {!isIncoming && <Check size={10} className="opacity-80" />}
+              </div>
+            </div>
+          )}
+          {(msg.media_type === "document" || msg.media_type === "audio") && (
+            <div className={`flex justify-end px-3.5 pb-2 text-[10px] ${isIncoming ? "text-muted-foreground/60" : "text-white/60"}`}>
+              {time}
+            </div>
+          )}
+        </div>
+        {/* Etiqueta del emisor */}
+        {!isIncoming && (
+          <p className={`text-[10px] mt-0.5 pr-1 text-right font-medium ${isHuman ? "text-[#1877F2]/70" : "text-[#00a884]/70"}`}>
+            {isHuman ? "Tú" : "IA"}
           </p>
         )}
       </div>
@@ -2538,154 +2633,168 @@ const ChatPanel = ({
     toast.success(next === "AI" ? "Modo IA activado" : "Modo manual activado");
   };
 
+  const contactInitial = (conv.contact_name ?? conv.phone)[0].toUpperCase();
+  const avatarBg = getAvatarColor(conv.contact_name ?? conv.phone);
+
   return (
     <div className="flex flex-col h-full">
       {/* Chat header */}
-      <div className="px-3 sm:px-5 py-3 border-b flex items-center gap-2 sm:gap-3 shrink-0">
+      <div className="px-3 sm:px-4 py-2.5 border-b flex items-center gap-2 shrink-0 bg-card">
         {/* Back button — mobile only */}
         {onBack && (
-          <button onClick={onBack} className="lg:hidden p-1.5 rounded-lg hover:bg-secondary transition-colors shrink-0">
-            <ChevronLeft size={18} className="text-muted-foreground" />
+          <button onClick={onBack} className="lg:hidden min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl hover:bg-secondary transition-colors shrink-0 -ml-1">
+            <ChevronLeft size={20} className="text-muted-foreground" />
           </button>
         )}
-        <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center shrink-0 ${
-          conv.mode === "AI" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
-        }`}>
-          <span className={`text-sm font-bold ${conv.mode === "AI" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
-            {(conv.contact_name ?? conv.phone)[0].toUpperCase()}
-          </span>
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate">{conv.contact_name ?? `+${conv.phone}`}</p>
-          {conv.contact_name && <p className="text-[11px] text-muted-foreground truncate">+{conv.phone}</p>}
-        </div>
 
-        {/* Segmented mode toggle */}
-        <div className={`flex rounded-xl border overflow-hidden shrink-0 text-xs font-semibold transition-colors ${setMode.isPending ? "opacity-50 pointer-events-none" : ""}`}>
-          <button
-            onClick={() => conv.mode !== "AI" && handleToggleMode()}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 transition-colors ${
-              conv.mode === "AI" ? "bg-emerald-500 text-white" : "text-muted-foreground hover:bg-secondary"
-            }`}
-          >
-            <Bot size={11} /> IA
-          </button>
-          <div className="w-px bg-border shrink-0" />
-          <button
-            onClick={() => conv.mode !== "HUMAN" && handleToggleMode()}
-            className={`flex items-center gap-1.5 px-2.5 py-1.5 transition-colors ${
-              conv.mode === "HUMAN" ? "bg-amber-500 text-white" : "text-muted-foreground hover:bg-secondary"
-            }`}
-          >
-            <MessageSquare size={11} /> Manual
-          </button>
-        </div>
-
-        {/* Label selector */}
-        {allLabels.length > 0 && (
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setShowLabels(v => !v)}
-              className={`p-1.5 rounded-lg transition-colors ${showLabels ? "bg-secondary" : "hover:bg-secondary"} text-muted-foreground hover:text-foreground`}
-              title="Etiquetas"
-            >
-              <Tag size={15} />
-            </button>
-            {showLabels && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowLabels(false)} />
-                <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-xl shadow-lg py-1.5 min-w-[180px] overflow-hidden">
-                  <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wide px-3.5 pb-1">Etiquetas</p>
-                  {allLabels.map(l => {
-                    const active = convLabels.some(cl => cl.id === l.id);
-                    return (
-                      <button
-                        key={l.id}
-                        onClick={() => toggleLabel.mutate({ conversationId: conv.id, labelId: l.id, active: !active })}
-                        className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-secondary/60 transition-colors"
-                      >
-                        <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
-                        <span className="text-sm flex-1 text-left">{l.name}</span>
-                        {active && <Check size={12} className="text-primary shrink-0" />}
-                      </button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* Assignment selector */}
-        {staffList.length > 0 && (
-          <div className="relative shrink-0">
-            <button
-              onClick={() => setShowAssign(v => !v)}
-              className={`p-1.5 rounded-lg transition-colors ${showAssign ? "bg-secondary" : "hover:bg-secondary"} text-muted-foreground hover:text-foreground`}
-              title={conv.assigned_to ? `Asignado a ${staffMap[conv.assigned_to]?.name ?? ""}` : "Asignar a staff"}
-            >
-              {conv.assigned_to && staffMap[conv.assigned_to]
-                ? <span className="flex items-center justify-center w-5 h-5 rounded-full text-[9px] font-bold text-white" style={{ backgroundColor: "#6366f1" }}>
-                    {staffMap[conv.assigned_to].name.charAt(0).toUpperCase()}
-                  </span>
-                : <UserPlus size={15} />
-              }
-            </button>
-            {showAssign && (
-              <>
-                <div className="fixed inset-0 z-10" onClick={() => setShowAssign(false)} />
-                <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-xl shadow-lg py-1.5 min-w-[190px] overflow-hidden">
-                  <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wide px-3.5 pb-1">Asignar a</p>
-                  <button
-                    onClick={async () => { await assignConv.mutateAsync({ conversationId: conv.id, staffId: null }); setShowAssign(false); }}
-                    className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-secondary/60 transition-colors"
-                  >
-                    <span className="w-6 h-6 rounded-full border border-dashed border-border flex items-center justify-center text-muted-foreground">
-                      <X size={10} />
-                    </span>
-                    <span className="text-sm text-muted-foreground">Sin asignar</span>
-                    {!conv.assigned_to && <Check size={12} className="ml-auto text-primary shrink-0" />}
-                  </button>
-                  {staffList.filter(s => s.status === "active").map(s => (
-                    <button
-                      key={s.id}
-                      onClick={async () => { await assignConv.mutateAsync({ conversationId: conv.id, staffId: s.id }); setShowAssign(false); }}
-                      className="w-full flex items-center gap-2.5 px-3.5 py-2 hover:bg-secondary/60 transition-colors"
-                    >
-                      <span className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0" style={{ backgroundColor: "#6366f1" }}>
-                        {s.name.charAt(0).toUpperCase()}
-                      </span>
-                      <span className="text-sm flex-1 text-left truncate">{s.name}</span>
-                      {conv.assigned_to === s.id && <Check size={12} className="text-primary shrink-0" />}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* 3-dot menu */}
-        <div className="relative shrink-0">
-          <button
-            onClick={() => setShowMenu(v => !v)}
-            className={`p-1.5 rounded-lg transition-colors ${showMenu ? "bg-secondary" : "hover:bg-secondary"} text-muted-foreground hover:text-foreground`}
-          >
-            <MoreVertical size={16} />
-          </button>
-          {showMenu && (
-            <>
-              <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
-              <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-xl shadow-lg py-1 min-w-[180px] overflow-hidden">
-                <button
-                  onClick={() => { setShowMenu(false); onDelete?.(); }}
-                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                >
-                  <Trash2 size={14} /> Eliminar chat
-                </button>
-              </div>
-            </>
+        {/* Avatar */}
+        <div className="w-9 h-9 sm:w-10 sm:h-10 rounded-full overflow-hidden flex items-center justify-center shrink-0 text-white font-bold text-sm relative"
+          style={{ backgroundColor: avatarBg }}>
+          <span>{contactInitial}</span>
+          {conv.contact_profile_pic && (
+            <img
+              src={conv.contact_profile_pic}
+              alt={conv.contact_name ?? conv.phone}
+              className="absolute inset-0 w-full h-full object-cover"
+              onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+            />
           )}
+        </div>
+
+        {/* Name + phone */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold truncate leading-tight">{conv.contact_name ?? `+${conv.phone}`}</p>
+          <div className="flex items-center gap-1.5">
+            {conv.contact_name && <p className="text-[11px] text-muted-foreground truncate">+{conv.phone}</p>}
+            {conv.contact_name && <span className="text-muted-foreground/40">·</span>}
+            <span className={`text-[11px] font-medium ${conv.mode === "AI" ? "text-[#00a884]" : "text-amber-500"}`}>
+              {conv.mode === "AI" ? "IA activa" : "Manual"}
+            </span>
+          </div>
+        </div>
+
+        {/* Action icons — 44px touch targets */}
+        <div className="flex items-center gap-0.5 shrink-0">
+
+          {/* Mode toggle */}
+          <button
+            onClick={handleToggleMode}
+            disabled={setMode.isPending}
+            title={conv.mode === "AI" ? "Cambiar a modo Manual" : "Cambiar a modo IA"}
+            className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl transition-colors ${setMode.isPending ? "opacity-40" : "hover:bg-secondary"}`}
+          >
+            {conv.mode === "AI"
+              ? <Bot size={18} className="text-[#00a884]" />
+              : <MessageSquare size={18} className="text-amber-500" />
+            }
+          </button>
+
+          {/* Labels */}
+          {allLabels.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowLabels(v => !v)}
+                className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl transition-colors ${showLabels ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+                title="Etiquetas"
+              >
+                <Tag size={17} />
+              </button>
+              {showLabels && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowLabels(false)} />
+                  <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-2xl shadow-xl py-1.5 min-w-[200px] overflow-hidden">
+                    <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest px-4 py-2">Etiquetas</p>
+                    {allLabels.map(l => {
+                      const active = convLabels.some(cl => cl.id === l.id);
+                      return (
+                        <button
+                          key={l.id}
+                          onClick={() => toggleLabel.mutate({ conversationId: conv.id, labelId: l.id, active: !active })}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/60 transition-colors"
+                        >
+                          <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                          <span className="text-sm flex-1 text-left">{l.name}</span>
+                          {active && <Check size={13} className="text-primary shrink-0" />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Assign */}
+          {staffList.length > 0 && (
+            <div className="relative">
+              <button
+                onClick={() => setShowAssign(v => !v)}
+                className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl transition-colors ${showAssign ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+                title={conv.assigned_to ? `Asignado a ${staffMap[conv.assigned_to]?.name ?? ""}` : "Asignar a staff"}
+              >
+                {conv.assigned_to && staffMap[conv.assigned_to]
+                  ? <span className="flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: "#1877F2" }}>
+                      {staffMap[conv.assigned_to].name.charAt(0).toUpperCase()}
+                    </span>
+                  : <UserPlus size={17} />
+                }
+              </button>
+              {showAssign && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowAssign(false)} />
+                  <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-2xl shadow-xl py-1.5 min-w-[200px] overflow-hidden">
+                    <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest px-4 py-2">Asignar a</p>
+                    <button
+                      onClick={async () => { await assignConv.mutateAsync({ conversationId: conv.id, staffId: null }); setShowAssign(false); }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/60 transition-colors"
+                    >
+                      <span className="w-7 h-7 rounded-full border-2 border-dashed border-border flex items-center justify-center text-muted-foreground">
+                        <X size={11} />
+                      </span>
+                      <span className="text-sm text-muted-foreground flex-1 text-left">Sin asignar</span>
+                      {!conv.assigned_to && <Check size={13} className="text-primary shrink-0" />}
+                    </button>
+                    {staffList.filter(s => s.status === "active").map(s => (
+                      <button
+                        key={s.id}
+                        onClick={async () => { await assignConv.mutateAsync({ conversationId: conv.id, staffId: s.id }); setShowAssign(false); }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/60 transition-colors"
+                      >
+                        <span className="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold text-white shrink-0" style={{ backgroundColor: "#1877F2" }}>
+                          {s.name.charAt(0).toUpperCase()}
+                        </span>
+                        <span className="text-sm flex-1 text-left truncate">{s.name}</span>
+                        {conv.assigned_to === s.id && <Check size={13} className="text-primary shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Delete */}
+          <div className="relative">
+            <button
+              onClick={() => setShowMenu(v => !v)}
+              className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl transition-colors ${showMenu ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+            >
+              <MoreVertical size={17} />
+            </button>
+            {showMenu && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
+                <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-2xl shadow-xl py-1 min-w-[180px] overflow-hidden">
+                  <button
+                    onClick={() => { setShowMenu(false); onDelete?.(); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                  >
+                    <Trash2 size={14} /> Eliminar chat
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -2778,34 +2887,57 @@ const ChatPanel = ({
       )}
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto py-3 bg-[#F0F2F5] dark:bg-zinc-900/50" style={{ overscrollBehavior: "contain" }}>
         {isLoading ? (
-          <div className="flex justify-center pt-8"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+          <div className="flex justify-center pt-10"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
         ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-2 text-muted-foreground">
-            <MessageSquare size={24} className="opacity-30" />
-            <p className="text-xs">Sin mensajes aún</p>
+          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground px-6">
+            <div className="w-14 h-14 rounded-full bg-white dark:bg-zinc-800 border flex items-center justify-center shadow-sm">
+              <MessageSquare size={22} className="opacity-30" />
+            </div>
+            <p className="text-sm text-center">Sin mensajes aún.<br />Cuando el contacto escriba, aparecerán aquí.</p>
           </div>
         ) : (
-          messages.map(msg => <MessageBubble key={msg.id} msg={msg} highlight={msg.id === highlightMessageId} />)
+          messages.reduce<React.ReactNode[]>((acc, msg, i) => {
+            const prevMsg = messages[i - 1];
+            const showDate = !prevMsg || getDateLabel(msg.created_at) !== getDateLabel(prevMsg.created_at);
+            if (showDate) {
+              acc.push(
+                <div key={`date-${msg.id}`} className="flex justify-center my-3 px-4">
+                  <span className="text-[11px] text-muted-foreground bg-white dark:bg-zinc-800 border border-border/40 px-3 py-1 rounded-full shadow-sm font-medium capitalize">
+                    {getDateLabel(msg.created_at)}
+                  </span>
+                </div>
+              );
+            }
+            acc.push(<MessageBubble key={msg.id} msg={msg} highlight={msg.id === highlightMessageId} />);
+            return acc;
+          }, [])
         )}
-        <div ref={bottomRef} />
+        <div ref={bottomRef} className="h-2" />
       </div>
 
       {/* Input */}
-      <div className="px-4 py-3 border-t shrink-0 space-y-2">
+      <div className="px-3 pt-2 pb-3 border-t bg-card shrink-0 space-y-2">
         {windowError && (
           <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2">
-            <AlertTriangle size={13} /> Ventana de 24h expirada — no se pueden enviar mensajes de texto libre.
+            <AlertTriangle size={13} className="shrink-0" /> Ventana de 24h expirada — no se pueden enviar mensajes de texto libre.
           </div>
         )}
         {conv.mode === "AI" ? (
-          <div className="flex items-center gap-2 text-xs text-muted-foreground bg-secondary/50 rounded-xl px-4 py-3">
-            <Bot size={13} className="text-emerald-500" />
-            El agente IA responde automáticamente. Cambia a modo HUMAN para responder tú.
+          <div className="flex items-center gap-2.5 bg-[#00a884]/8 dark:bg-[#00a884]/10 border border-[#00a884]/20 rounded-2xl px-4 py-3">
+            <Bot size={16} className="text-[#00a884] shrink-0" />
+            <p className="text-xs text-muted-foreground">El agente IA responde automáticamente.</p>
+            <button
+              onClick={handleToggleMode}
+              disabled={setMode.isPending}
+              className="ml-auto text-xs font-semibold text-[#1877F2] hover:underline shrink-0"
+            >
+              Tomar control
+            </button>
           </div>
         ) : (
-          <div className="flex gap-2">
+          <div className="flex items-end gap-2">
             <input
               ref={fileInputRef}
               type="file"
@@ -2817,27 +2949,38 @@ const ChatPanel = ({
                 e.target.value = "";
               }}
             />
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-10 px-3 shrink-0"
+            {/* Attach */}
+            <button
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 cursor-pointer disabled:opacity-40"
               disabled={sending || uploadingMedia}
               onClick={() => fileInputRef.current?.click()}
-              title="Enviar imagen o archivo"
+              title="Adjuntar archivo"
             >
-              {uploadingMedia ? <Loader2 size={14} className="animate-spin" /> : <Paperclip size={14} />}
-            </Button>
-            <Input
-              value={text}
-              onChange={e => setText(e.target.value)}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-              placeholder="Escribe un mensaje..."
-              className="flex-1 h-10 text-sm"
-              disabled={sending || uploadingMedia}
-            />
-            <Button onClick={handleSend} disabled={sending || uploadingMedia || !text.trim()} size="sm" className="h-10 px-3 shrink-0">
-              {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-            </Button>
+              {uploadingMedia ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
+            </button>
+            {/* Textarea */}
+            <div className="flex-1 min-w-0 bg-secondary/60 rounded-2xl border border-border/50 focus-within:border-primary/40 focus-within:bg-background transition-colors">
+              <textarea
+                value={text}
+                onChange={e => { setText(e.target.value); e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`; }}
+                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                placeholder="Escribe un mensaje..."
+                rows={1}
+                className="w-full bg-transparent px-4 py-3 text-sm resize-none outline-none leading-relaxed placeholder:text-muted-foreground/60"
+                style={{ maxHeight: 120, touchAction: "manipulation" }}
+                disabled={sending || uploadingMedia}
+              />
+            </div>
+            {/* Send */}
+            <button
+              onClick={handleSend}
+              disabled={sending || uploadingMedia || !text.trim()}
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-white transition-all shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ backgroundColor: text.trim() ? "#1877F2" : undefined }}
+              title="Enviar"
+            >
+              {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+            </button>
           </div>
         )}
       </div>
@@ -2880,6 +3023,7 @@ const CrmAgentIA = ({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [labelFilter, setLabelFilter]         = useState<string | null>(null);
   const [assignFilter, setAssignFilter]       = useState<"all" | "mine" | "unassigned">("all");
+  const [readFilter, setReadFilter]           = useState<"all" | "unread">("all");
   const [wizardDone, setWizardDone]           = useState(false);
   const [forceWizard, setForceWizard]         = useState(false);
   const [deleteModalId, setDeleteModalId]     = useState<string | null>(null);
@@ -2927,13 +3071,16 @@ const CrmAgentIA = ({
     } else if (assignFilter === "mine" && staffRecord) {
       result = result.filter(c => c.assigned_to === staffRecord.id);
     }
+    if (readFilter === "unread") {
+      result = result.filter(c => (c.unread_count ?? 0) > 0);
+    }
     // Chats con pago pendiente al tope
     return [...result].sort((a, b) => {
       const ap = pendingSaleConvIds.has(a.id) ? 0 : 1;
       const bp = pendingSaleConvIds.has(b.id) ? 0 : 1;
       return ap - bp;
     });
-  }, [conversations, search, labelFilter, convLabelsMap, assignFilter, staffRecord, pendingSaleConvIds]);
+  }, [conversations, search, labelFilter, convLabelsMap, assignFilter, readFilter, staffRecord, pendingSaleConvIds]);
 
   // Debounce para búsqueda de mensajes
   useEffect(() => {
@@ -3042,15 +3189,27 @@ const CrmAgentIA = ({
 
         {/* Top bar — oculto en mobile cuando el chat está abierto */}
         <div className={`px-4 sm:px-5 py-3 border-b flex items-center gap-3 shrink-0 bg-card ${mobileShowChat ? "hidden lg:flex" : "flex"}`}>
-          <div className="flex items-center gap-2.5 flex-1 min-w-0">
-            <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-              <Bot size={16} className="text-primary" />
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            {/* Agent avatar — WA profile photo or Bot icon fallback, with IA badge */}
+            <div className="relative shrink-0">
+              <div className="w-9 h-9 rounded-xl overflow-hidden bg-[#1877F2] flex items-center justify-center text-white">
+                {config?.profile_picture_url ? (
+                  <img src={config.profile_picture_url} alt={config.agent_name ?? "Agente"} className="w-full h-full object-cover"
+                    onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                ) : (
+                  <Bot size={17} />
+                )}
+              </div>
+              <div className="absolute -bottom-1 -right-1 flex items-center gap-0.5 bg-[#00a884] rounded-full px-1 py-0.5 border border-background">
+                <Bot size={7} className="text-white" />
+                <span className="text-[7px] font-bold text-white leading-none">IA</span>
+              </div>
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold truncate">{config?.agent_name ?? "Agente IA"}</p>
               <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
-                <span className="text-[11px] text-muted-foreground">{config?.is_active ? "Activo" : "Inactivo"}</span>
+                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-[#00a884] animate-pulse" : "bg-muted-foreground/40"}`} />
+                <span className="text-[11px] text-muted-foreground">{config?.is_active ? "Conectado" : "Inactivo"}</span>
                 {config?.verified_phone && (
                   <span className="text-[11px] text-muted-foreground truncate hidden sm:inline">· {config.verified_phone}</span>
                 )}
@@ -3058,10 +3217,9 @@ const CrmAgentIA = ({
             </div>
           </div>
           {!isStaff && (
-            <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} className="h-8 gap-1.5 text-xs shrink-0">
-              <Settings size={13} />
-              <span className="hidden sm:inline">Configurar</span>
-            </Button>
+            <button onClick={() => setShowSettings(true)} className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors" title="Configurar">
+              <Settings size={18} />
+            </button>
           )}
         </div>
 
@@ -3069,61 +3227,94 @@ const CrmAgentIA = ({
         <div className="flex flex-1 overflow-hidden">
 
           {/* Conversation list — full screen on mobile, sidebar on desktop */}
-          <div className={`flex flex-col overflow-hidden border-r
+          <div className={`flex flex-col overflow-hidden border-r bg-card
             ${mobileShowChat ? "hidden lg:flex lg:w-72 lg:shrink-0" : "flex w-full lg:w-72 lg:shrink-0"}
           `}>
-            <div className="p-3 border-b space-y-2">
-              {/* Total unread badge */}
-              {(() => { const unreadChats = conversations.filter(c => (c.unread_count ?? 0) > 0).length; return unreadChats > 0 ? (
-                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-primary/10 border border-primary/20">
-                  <span className="w-2 h-2 rounded-full bg-primary animate-pulse shrink-0" />
-                  <span className="text-xs font-medium text-primary">{unreadChats} chat{unreadChats !== 1 ? "s" : ""} sin leer</span>
-                </div>
-              ) : null; })()}
-              <div className="relative">
-                <Search size={13} className="absolute left-2.5 top-2.5 text-muted-foreground pointer-events-none" />
+            {/* Tabs: Unread / All / Assignment filter */}
+            <div className="px-4 pt-3 pb-0 border-b space-y-2.5">
+              {/* Unread / All tabs */}
+              <div className="flex gap-0">
+                {[
+                  { id: "all", label: "Todos" },
+                  { id: "unread", label: "Sin leer", count: conversations.filter(c => (c.unread_count ?? 0) > 0).length },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setReadFilter(tab.id as "all" | "unread")}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                      readFilter === tab.id
+                        ? "border-[#1877F2] text-[#1877F2]"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {tab.label}
+                    {tab.count !== undefined && tab.count > 0 && (
+                      <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[#1877F2] text-[10px] font-bold text-white">
+                        {tab.count > 99 ? "99+" : tab.count}
+                      </span>
+                    )}
+                  </button>
+                ))}
+                {staffList.length > 0 && staffRecord && (
+                  <button
+                    onClick={() => setAssignFilter(f => f === "mine" ? "all" : "mine")}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ml-auto ${
+                      assignFilter === "mine"
+                        ? "border-[#1877F2] text-[#1877F2]"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Mías
+                  </button>
+                )}
+                {staffList.length > 0 && !staffRecord && (
+                  <button
+                    onClick={() => setAssignFilter(f => f === "unassigned" ? "all" : "unassigned")}
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ml-auto ${
+                      assignFilter === "unassigned"
+                        ? "border-[#1877F2] text-[#1877F2]"
+                        : "border-transparent text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    Sin asignar
+                  </button>
+                )}
+              </div>
+
+              {/* Search */}
+              <div className="relative pb-2.5">
+                <Search size={14} className="absolute left-3 top-2.5 text-muted-foreground pointer-events-none" />
                 <Input
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  placeholder="Buscar chats y mensajes..."
-                  className="h-9 text-sm pl-7"
+                  placeholder="Buscar conversaciones..."
+                  className="h-9 text-sm pl-8 bg-secondary/60 border-transparent focus:border-input rounded-xl"
                 />
+                {search && (
+                  <button onClick={() => setSearch("")} className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground">
+                    <X size={14} />
+                  </button>
+                )}
               </div>
-              {/* Filtros — solo visibles cuando no hay búsqueda activa */}
-              {search.length < 3 && (
-                <>
-                  {staffList.length > 0 && (
-                    <div className="flex rounded-lg border overflow-hidden text-[11px] font-medium">
-                      {(["all", "unassigned", ...(staffRecord ? ["mine"] : [])] as const).map(f => (
-                        <button
-                          key={f}
-                          onClick={() => setAssignFilter(f)}
-                          className={`flex-1 py-1 transition-colors ${assignFilter === f ? "bg-secondary font-semibold" : "text-muted-foreground hover:bg-secondary/50"}`}
-                        >
-                          {f === "all" ? "Todas" : f === "unassigned" ? "Sin asignar" : "Mías"}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                  {labels.length > 0 && (
-                    <div className="flex gap-1 flex-wrap">
-                      {labels.map(l => (
-                        <button
-                          key={l.id}
-                          onClick={() => setLabelFilter(f => f === l.id ? null : l.id)}
-                          className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium transition-all"
-                          style={labelFilter === l.id
-                            ? { backgroundColor: l.color, color: "#fff" }
-                            : { backgroundColor: `${l.color}20`, color: l.color, border: `1px solid ${l.color}40` }
-                          }
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: labelFilter === l.id ? "#fff" : l.color }} />
-                          {l.name}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </>
+
+              {/* Label pills */}
+              {search.length < 3 && labels.length > 0 && (
+                <div className="flex gap-1.5 flex-wrap pb-2">
+                  {labels.map(l => (
+                    <button
+                      key={l.id}
+                      onClick={() => setLabelFilter(f => f === l.id ? null : l.id)}
+                      className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
+                      style={labelFilter === l.id
+                        ? { backgroundColor: l.color, color: "#fff" }
+                        : { backgroundColor: `${l.color}18`, color: l.color, border: `1px solid ${l.color}30` }
+                      }
+                    >
+                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: labelFilter === l.id ? "#fff" : l.color }} />
+                      {l.name}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
             <div className="flex-1 overflow-y-auto">
@@ -3131,8 +3322,18 @@ const CrmAgentIA = ({
                 /* ── Lista normal ── */
                 filteredConvs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground px-6 text-center">
-                    <MessageSquare size={24} className="opacity-30" />
-                    <p className="text-xs">Sin conversaciones aún. Cuando alguien te escriba por WhatsApp, aparecerá aquí.</p>
+                    {readFilter === "unread" ? (
+                      <>
+                        <CheckCheck size={24} className="opacity-30" />
+                        <p className="text-xs font-medium">Todo leído</p>
+                        <p className="text-xs opacity-70">No hay conversaciones sin leer.</p>
+                      </>
+                    ) : (
+                      <>
+                        <MessageSquare size={24} className="opacity-30" />
+                        <p className="text-xs">Sin conversaciones aún. Cuando alguien te escriba por WhatsApp, aparecerá aquí.</p>
+                      </>
+                    )}
                   </div>
                 ) : (
                   filteredConvs.map(conv => {
@@ -3140,76 +3341,92 @@ const CrmAgentIA = ({
                     const pendingSale = hasPendingPayment ? pendingSaleByConvId[conv.id] : null;
                     const unread = conv.unread_count ?? 0;
                     const isUnread = unread > 0 && selectedId !== conv.id;
+                    const isSelected = selectedId === conv.id;
+                    const convName = conv.contact_name ?? `+${conv.phone}`;
+                    const convAvatarBg = getAvatarColor(convName);
                     return (
                     <button
                       key={conv.id}
                       onClick={() => { setSelectedId(conv.id); setMobileShowChat(true); setHighlightMessageId(null); if (unread > 0) markRead.mutate(conv.id); }}
-                      className={`w-full text-left px-4 py-3.5 border-b transition-colors ${
-                        selectedId === conv.id
-                          ? hasPendingPayment ? "bg-amber-100 dark:bg-amber-900/30" : "bg-secondary"
-                          : isUnread ? "bg-primary/5 hover:bg-primary/10"
-                          : hasPendingPayment ? "bg-amber-50 dark:bg-amber-900/10 hover:bg-amber-100 dark:hover:bg-amber-900/20" : "bg-background hover:bg-secondary/50"
+                      className={`w-full text-left px-4 py-3 border-b transition-colors cursor-pointer ${
+                        isSelected
+                          ? "bg-[#1877F2]/8 dark:bg-[#1877F2]/10 border-l-2 border-l-[#1877F2]"
+                          : isUnread
+                            ? "bg-primary/5 hover:bg-primary/8"
+                            : hasPendingPayment
+                              ? "bg-amber-50 dark:bg-amber-900/10 hover:bg-amber-100/80 dark:hover:bg-amber-900/20"
+                              : "hover:bg-secondary/60"
                       }`}
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 min-h-[52px]">
+                        {/* Avatar */}
                         <div className="relative shrink-0">
-                          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${
-                            hasPendingPayment ? "bg-amber-200 dark:bg-amber-800/50" :
-                            conv.mode === "AI" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
-                          }`}>
-                            {hasPendingPayment
-                              ? <CreditCard size={16} className="text-amber-700 dark:text-amber-400" />
-                              : <span className={`text-sm font-bold ${conv.mode === "AI" ? "text-emerald-700 dark:text-emerald-400" : "text-amber-700 dark:text-amber-400"}`}>
-                                  {(conv.contact_name ?? conv.phone)[0].toUpperCase()}
-                                </span>
-                            }
-                          </div>
-                          {isUnread && (
-                            <span className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-primary border-2 border-background" />
+                          {hasPendingPayment ? (
+                            <div className="w-11 h-11 rounded-full bg-amber-100 dark:bg-amber-800/40 flex items-center justify-center">
+                              <CreditCard size={18} className="text-amber-600 dark:text-amber-400" />
+                            </div>
+                          ) : (
+                            <div className="w-11 h-11 rounded-full overflow-hidden flex items-center justify-center text-white font-semibold text-base relative"
+                              style={{ backgroundColor: convAvatarBg }}>
+                              <span>{convName[0].toUpperCase()}</span>
+                              {conv.contact_profile_pic && (
+                                <img
+                                  src={conv.contact_profile_pic}
+                                  alt={convName}
+                                  className="absolute inset-0 w-full h-full object-cover"
+                                  onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
+                                />
+                              )}
+                            </div>
                           )}
+                          {/* Mode dot */}
+                          <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-background ${
+                            conv.mode === "AI" ? "bg-[#00a884]" : "bg-amber-400"
+                          }`} />
                         </div>
+
+                        {/* Content */}
                         <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-1.5">
-                            <p className={`text-sm truncate ${isUnread ? "font-bold" : "font-semibold"}`}>{conv.contact_name ?? `+${conv.phone}`}</p>
+                          <div className="flex items-center justify-between gap-2">
+                            <p className={`text-sm truncate ${isUnread ? "font-bold text-foreground" : "font-medium text-foreground"}`}>
+                              {convName}
+                            </p>
+                            <span className={`text-[11px] shrink-0 ${isUnread ? "text-[#1877F2] font-semibold" : "text-muted-foreground"}`}>
+                              {formatTime(conv.last_message_at)}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-2 mt-0.5">
+                            <p className={`text-[12px] truncate flex-1 ${isUnread ? "text-foreground/80 font-medium" : "text-muted-foreground"}`}>
+                              {hasPendingPayment
+                                ? `💳 ${pendingSale?.product_name ?? pendingSale?.service_name ?? "Pago pendiente"} · ${formatSaleAmount(Number(pendingSale?.amount), pendingSale?.currency ?? null)}`
+                                : conv.contact_name ? `+${conv.phone}` : formatTime(conv.last_message_at)
+                              }
+                            </p>
                             {isUnread && (
-                              <span className="shrink-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-primary text-[10px] font-bold text-primary-foreground">
+                              <span className="shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-[#1877F2] text-[11px] font-bold text-white">
                                 {unread > 99 ? "99+" : unread}
                               </span>
                             )}
                           </div>
-                          {hasPendingPayment
-                            ? <p className="text-[11px] text-amber-600 dark:text-amber-400 font-medium truncate">
-                                💳 {pendingSale?.product_name ?? pendingSale?.service_name ?? "Pago pendiente"} · {formatSaleAmount(Number(pendingSale?.amount), pendingSale?.currency ?? null)}
-                              </p>
-                            : <p className={`text-[11px] truncate ${isUnread ? "text-foreground font-medium" : "text-muted-foreground"}`}>{conv.contact_name ? `+${conv.phone}` : formatTime(conv.last_message_at)}</p>
-                          }
+                          {/* Labels */}
                           {(convLabelsMap[conv.id] ?? []).length > 0 && (
-                            <div className="flex items-center gap-0.5 mt-0.5">
-                              {(convLabelsMap[conv.id] ?? []).slice(0, 4).map(l => (
+                            <div className="flex items-center gap-1 mt-1">
+                              {(convLabelsMap[conv.id] ?? []).slice(0, 5).map(l => (
                                 <span key={l.id} className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: l.color }} title={l.name} />
                               ))}
-                              {(convLabelsMap[conv.id] ?? []).length > 4 && (
-                                <span className="text-[9px] text-muted-foreground ml-0.5">+{(convLabelsMap[conv.id] ?? []).length - 4}</span>
+                              {(convLabelsMap[conv.id] ?? []).length > 5 && (
+                                <span className="text-[9px] text-muted-foreground">+{(convLabelsMap[conv.id] ?? []).length - 5}</span>
                               )}
                             </div>
                           )}
                         </div>
-                        <div className="flex flex-col items-end gap-1 shrink-0">
-                          <span className="text-[10px] text-muted-foreground">{formatTime(conv.last_message_at)}</span>
-                          {hasPendingPayment
-                              ? <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-amber-200 text-amber-800 dark:bg-amber-800/50 dark:text-amber-300">Pago</span>
-                              : <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
-                                  conv.mode === "AI"
-                                    ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                                    : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                                }`}>{conv.mode === "AI" ? "IA" : "Manual"}</span>
-                          }
-                          {conv.assigned_to && staffMap[conv.assigned_to] && (
-                            <span className="w-4 h-4 rounded-full flex items-center justify-center text-[8px] font-bold text-white shrink-0" style={{ backgroundColor: "#6366f1" }} title={staffMap[conv.assigned_to].name}>
-                              {staffMap[conv.assigned_to].name.charAt(0).toUpperCase()}
-                            </span>
-                          )}
-                        </div>
+
+                        {/* Assigned staff avatar */}
+                        {conv.assigned_to && staffMap[conv.assigned_to] && (
+                          <span className="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white shrink-0" style={{ backgroundColor: "#1877F2" }} title={staffMap[conv.assigned_to].name}>
+                            {staffMap[conv.assigned_to].name.charAt(0).toUpperCase()}
+                          </span>
+                        )}
                       </div>
                     </button>
                     );
