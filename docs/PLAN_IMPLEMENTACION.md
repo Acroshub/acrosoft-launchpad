@@ -3718,19 +3718,407 @@ La interfaz actual del chat del Agente IA en el CRM es funcional pero tiene opor
 | B17-5 | Mejora landing page acrosoftlabs.com | Ninguna (espera imagen) | Media | ⏳ Pendiente |
 | B17-6 | Mejoras UX chat Agente IA | Ninguna (espera imagen) | Alta | ⏳ Pendiente |
 
-nueva idea para bloque 18: Añadir la opción de configurar mensajes masivos como campañas de mensajes. Y hacer una selección de contactos filtros por tags, pero que tenga una pequeña IA a la que se le puede dar indicaciones de a quienes enviar estas plantillas predefinidas que aprueba Facebook. POr ejemplo: se le puede decir a la IA, que envie ese mensaje a todos los que compraron en la ultima semana. Esto debee estar dentro de la UI de Agente IA en una sección de Marketing Masivo. Ahi se debe poder configurar "Campañas" donde se podrá pedir la revisión de Facebook para los mensajes masivos y luego usarlos de forma automática con alguna regla que prepare el usuario con IA. Que se pueda repetir cada cierto tiempo o de una sola vez. Hay que pulir mejor esta idea.
+---
 
-Detección de agente IA por pais, para mandar diferentes metodos de pago. Añadir campo al metodo de pago. 
+## BLOQUE 18 — Agente IA: Flujos, Voz, Cursos y Operaciones SaaS
+> Features de alto impacto que extienden el Agente IA con flujos conversacionales, transcripción de voz, gestión manual de clientes SaaS y una plataforma de cursos con acceso por magic link.
 
-Poder Settear secuencia de mensajes para cada producto. Texto e imagen enviados juntos. Toggle para permitir a la IA mejorar esos textos. 
+---
 
-Añadir más espacios para imagenes en los productos. 
+### B18-1 · Activación Manual de Clientes SaaS (Superadmin)
 
-Añadir la opción de cursos. Cada curso con un slug /negocio/nombre_curso. La vista de "Tutoriales y Cursos" puede reutilizarse para el multitennat. Que tengan el mismo panel que un admin. Donde puedan crear cursos. Ponerles precio por moneda, montos fijos, recurrencias mensuales o anuales, y que se de acceso para "todos" los contactos de esa cuenta o solo algunos seleccionados (Solo lee de los contactos). 
+**Estado:** ⏳ PENDIENTE
 
-Soporte para restaurantes y salones de belleza o barberias con varios agentes
+**Contexto:**
+El superadmin (`e.daniel.acero.r@gmail.com`) necesita poder activar acceso SaaS a cualquier contacto sin que ese contacto pase por el onboarding. Esto cubre casos como: ventas por WhatsApp, referidos, clientes que ya conocen el producto y prefieren que el superadmin los configure directamente.
 
-Soporte para varios numeros de agentes IA
+**Dónde vive en la UI:** CRM → Contactos → detalle del contacto → sección colapsable **"Acceso SaaS"** (solo visible para el superadmin)
 
-Yo como superadmin debo poder tener un número de Prueba (Para mostrar demos a los clientes) donde pueda configurar templates de IA (Para tiendas de ropa, para salones de belleza, etc, etc, etc)
+**Estados posibles:**
+- `Sin acceso` — el contacto no tiene cuenta SaaS
+- `Activo` — tiene acceso vigente (muestra plan, fechas)
+- `Suspendido` — tenía acceso pero fue suspendido manualmente
+- `Vencido` — la fecha de vencimiento pasó
+
+**Flujo de activación:**
+1. Superadmin abre el detalle de un contacto
+2. Ve la sección "Acceso SaaS" con estado actual
+3. Hace clic en "Activar acceso SaaS"
+4. Modal con:
+   - Plan (selector de `crm_services` donde `type = 'saas'`)
+   - Fecha de inicio (default: hoy)
+   - Fecha de vencimiento (datepicker o toggle "Sin vencimiento")
+   - Notas internas (opcional)
+5. Al confirmar:
+   - Se crea/actualiza registro en `crm_saas_access`
+   - Se llama a la Supabase Admin API para crear el usuario auth si no existe (con el email del contacto)
+   - Se envía email de bienvenida al contacto con sus credenciales de acceso
+
+**DB:**
+```sql
+CREATE TABLE crm_saas_access (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  contact_id uuid NOT NULL REFERENCES crm_contacts(id) ON DELETE CASCADE,
+  activated_by uuid NOT NULL REFERENCES auth.users(id), -- siempre el superadmin
+  plan_id uuid REFERENCES crm_services(id) ON DELETE SET NULL,
+  status text NOT NULL DEFAULT 'active', -- active | suspended | expired
+  starts_at date NOT NULL DEFAULT CURRENT_DATE,
+  expires_at date, -- null = sin vencimiento
+  notes text,
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now(),
+  UNIQUE(contact_id)
+);
+-- Sin RLS pública — solo accesible vía service_role desde edge function
+```
+
+**Edge function `activate-saas-client`:**
+- Recibe: `contact_id`, `plan_id`, `starts_at`, `expires_at`, `notes`
+- Verifica que el caller sea el superadmin
+- Busca el email del contacto en `crm_contacts`
+- Crea usuario en `auth.users` vía Admin API si no existe (password temporal + `email_confirm = true`)
+- Inserta/actualiza `crm_saas_access`
+- Envía email de bienvenida con credenciales
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — tabla `crm_saas_access`
+- `supabase/functions/activate-saas-client/index.ts` — edge function con Admin API
+- `src/components/crm/CrmContacts.tsx` — sección "Acceso SaaS" en detalle de contacto (solo visible si `isSuperAdmin`)
+- `src/hooks/useCrmData.ts` — hook `useSaasAccess(contactId)`, mutation `useActivateSaasClient`
+- `src/lib/supabase.ts` — tipo `CrmSaasAccess`
+
+---
+
+### B18-2 · Transcripción de mensajes de voz (Groq Whisper)
+
+**Estado:** ⏳ PENDIENTE
+
+**Contexto:**
+Los contactos frecuentemente envían notas de voz por WhatsApp en lugar de texto. El agente IA actualmente no puede procesarlos — los ignora o responde con un mensaje genérico. Con Groq Whisper Large v3 (tier gratuito) se transcribe el audio a texto antes de pasarlo al modelo, habilitando respuestas coherentes a mensajes de voz.
+
+**Flujo técnico:**
+1. Llega webhook de WhatsApp con mensaje tipo `audio`
+2. `ai-agent` edge function descarga el archivo de audio desde la URL de Meta Graph API
+3. Envía el buffer a `https://api.groq.com/openai/v1/audio/transcriptions` con modelo `whisper-large-v3`
+4. Recibe texto transcrito → lo trata como si fuera un mensaje de texto normal
+5. El agente responde al texto transcrito
+
+**Variables de entorno a agregar en Supabase:**
+- `GROQ_API_KEY` → obtenida desde console.groq.com (gratuito)
+
+**Comportamiento en UI:**
+- En el historial de chat del CRM, los mensajes de voz muestran un ícono de micrófono + el texto transcrito en cursiva debajo
+- Si la transcripción falla → mostrar "[Mensaje de voz — no se pudo transcribir]"
+
+**DB:**
+No requiere cambios de schema. Se puede añadir opcionalmente `transcription text` a `crm_wa_messages` para cachear las transcripciones y no volver a llamar a Groq si se recarga el historial.
+
+**Archivos a modificar/crear:**
+- `supabase/functions/ai-agent/index.ts` — detectar tipo `audio`, descargar, transcribir, inyectar texto
+- `src/components/crm/CrmAgentIA.tsx` — render de burbuja de mensaje de voz con transcripción
+- `src/lib/supabase.ts` — campo opcional `transcription` en `CrmWaMessage`
+- `supabase/migrations/` — `ALTER TABLE crm_wa_messages ADD COLUMN transcription text;`
+
+---
+
+### B18-3 · Reestructuración del Wizard del Agente IA
+
+**Estado:** ⏳ PENDIENTE
+
+**Contexto:**
+El wizard actual tiene un orden que no refleja la dependencia lógica entre pasos. Se reorganiza para preparar la llegada de los flujos conversacionales: primero conectas el canal, luego defines qué puede hacer el agente, luego configuras cómo se comporta (incluyendo los trigger-flows).
+
+**Nuevo orden del wizard:** Conexión → Capacidades → Agente IA
+
+**Paso 1 — Conexión:** igual que hoy (conectar número de WhatsApp via Meta Cloud API)
+
+**Paso 2 — Capacidades:** igual que hoy (checkboxes de funcionalidades: agendar citas, registrar ventas, transferir a humano, etc.)
+
+**Paso 3 — Agente IA:** (renombrado desde "Personalidad") — ahora incluye:
+- Nombre del agente, instrucciones de personalidad, idioma
+- **Nueva sección "Flujos de conversación"** (se activará con B18-5): lista de trigger-flows configurados
+  - Botón "Agregar flujo"
+  - Por cada flujo: prompt de intención en lenguaje natural + producto + flujo seleccionado + acciones post-flujo
+  - Las opciones de acciones post-flujo se derivan de las capacidades activadas en el Paso 2
+
+**Archivos a modificar:**
+- `src/components/crm/CrmAgentIA.tsx` — reordenar pasos del wizard, renombrar "Personalidad" → "Agente IA", añadir estructura de sección de flujos (vacía, lista para B18-5)
+
+---
+
+### B18-4 · Flow Builder — Crear y Editar Flujos
+
+**Estado:** ⏳ PENDIENTE
+
+**Contexto:**
+Los tenants que venden múltiples productos necesitan guiar al contacto por una secuencia de mensajes predefinida. Un flujo es solo contenido reutilizable — sin triggers ni acciones finales incorporadas. Los triggers y acciones se configuran desde el wizard (B18-5). Los flujos son independientes del agente: se crean, editan y reutilizan libremente.
+
+**Arquitectura general de la feature de flujos:**
+
+```
+Conversación → mode: 'AI' | 'HUMAN' | 'FLOW'
+                              + active_flow_id uuid
+                              + flow_step int
+```
+
+**Separación de responsabilidades:**
+- **`crm_wa_flows`** — define los pasos del flujo (solo contenido, sin triggers ni acciones)
+- **`crm_ai_agent_config.trigger_flows`** — conecta intenciones detectadas con flujos + acciones post-flujo (se configura en B18-5)
+- Los flujos son reutilizables: el mismo flujo puede dispararse desde distintas intenciones
+
+**Dónde vive en la UI:** CRM → Agente IA → tab "Flujos"
+
+Cada flujo tiene:
+- **Nombre** (interno, ej: "Presentación Paquete Premium")
+- **Producto asociado** (referencia a `crm_services`)
+- **Lista de pasos** (editables con drag-and-drop de orden)
+
+**Tipos de paso:**
+- **Mensaje** → solo envía texto al contacto, avanza automáticamente al siguiente paso
+- **Pregunta** → envía texto + hasta 3 opciones (se muestran como texto numerado en WhatsApp). Cada opción lleva a un paso distinto. Las bifurcaciones son opcionales.
+
+**Ejemplo de flujo "Presentación Paquete Gold":**
+```
+Paso 1 (Mensaje): "¡Hola! Te cuento sobre nuestro Paquete Gold 🎯"
+Paso 2 (Mensaje): "Incluye: acceso ilimitado, soporte 24/7 y onboarding personalizado."
+Paso 3 (Pregunta): "¿Te gustaría agendar una llamada para resolver tus dudas?"
+  → Opción 1 "Sí, me interesa" → Paso 4
+  → Opción 2 "No por ahora" → Paso 5
+Paso 4 (Mensaje): "Perfecto, te comparto el link para agendar: {calendar_link}"
+Paso 5 (Mensaje): "Sin problema. Si en algún momento quieres más info, con gusto te ayudo."
+```
+
+**DB:**
+```sql
+CREATE TABLE crm_wa_flows (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  name text NOT NULL,
+  product_id uuid REFERENCES crm_services(id) ON DELETE SET NULL,
+  steps jsonb NOT NULL DEFAULT '[]',
+  -- steps: [{ id, type: 'message'|'question', text, options?: [{label, next_step_id}] }]
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+ALTER TABLE crm_wa_flows ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "owner" ON crm_wa_flows USING (user_id = auth.uid());
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — tabla `crm_wa_flows`
+- `src/components/crm/CrmAgentIA.tsx` — tab "Flujos" con listado, creación y editor de pasos
+- `src/hooks/useCrmData.ts` — hooks `useWaFlows`, `useUpsertWaFlow`, `useDeleteWaFlow`
+- `src/lib/supabase.ts` — tipo `CrmWaFlow`
+
+---
+
+### B18-5 · Configuración de Trigger-Flows en el Wizard (Paso 3)
+
+**Estado:** ⏳ PENDIENTE
+
+**Dependencias:** B18-3, B18-4
+
+**Contexto:**
+Con el wizard reestructurado (B18-3) y los flujos creados (B18-4), se completa el Paso 3 "Agente IA" con la configuración de qué intención dispara qué flujo y qué acciones ejecutar al terminar. El trigger no es una keyword sino un prompt en lenguaje natural que Claude evalúa en runtime.
+
+**Configuración de cada trigger-flow (dentro del Paso 3 del Wizard):**
+1. **Prompt de intención** (lenguaje natural): `"Cuando el contacto pregunte por precios, quiera información sobre el paquete X, o muestre interés en contratar"`
+2. **Producto** (selector): elige un servicio del catálogo
+3. **Flujo** (selector): elige uno de los flujos creados para ese producto en B18-4
+4. **Acciones al completar el flujo** (checkboxes — solo aparecen si la capacidad fue activada en paso 2):
+   - ☐ Registrar como lead interesado
+   - ☐ Crear cita automáticamente (si "Agendar citas" está activo)
+   - ☐ Registrar venta (si "Registrar ventas" está activo)
+   - ☐ Notificar al staff asignado (si "Transferir a humano" está activo)
+
+**Evaluación del trigger en runtime:**
+Cuando llega un mensaje en modo AI, `ai-agent` evalúa contra todos los trigger-flows del tenant usando Claude:
+```
+"Dada esta lista de intenciones: [...], ¿el siguiente mensaje activa alguna?
+Mensaje: '{mensaje del contacto}'
+Responde solo con el ID del trigger activado o null."
+```
+Si retorna un ID → cambia a modo `FLOW`, guarda `active_flow_id` y `flow_step: 0`.
+
+**Columna a añadir en `crm_ai_agent_config`:**
+```sql
+ALTER TABLE crm_ai_agent_config
+  ADD COLUMN trigger_flows jsonb DEFAULT '[]';
+-- trigger_flows: [{intent_prompt, product_id, flow_id, post_flow_actions: string[]}]
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — columna `trigger_flows` en `crm_ai_agent_config`
+- `src/components/crm/CrmAgentIA.tsx` — UI de trigger-flows en wizard paso 3 (activar sección creada en B18-3)
+- `src/lib/supabase.ts` — actualizar tipo `CrmAIAgentConfig`
+
+---
+
+### B18-6 · Ejecución del Modo FLOW en ai-agent
+
+**Estado:** ⏳ PENDIENTE
+
+**Dependencias:** B18-4, B18-5
+
+**Contexto:**
+Con los flujos creados y los triggers configurados, se implementa la lógica de ejecución en la edge function `ai-agent`. Cuando un mensaje activa un trigger, la conversación entra en modo FLOW y el agente deja de llamar a Claude para responder libremente — en cambio ejecuta los pasos del flujo en secuencia hasta completarlo, y luego vuelve automáticamente a modo AI.
+
+**Lógica de ejecución en ai-agent:**
+```
+Llega mensaje en modo FLOW:
+1. Cargar crm_wa_flows donde id = active_flow_id
+2. Leer paso en posición flow_step
+3. Si tipo = 'message':
+   - Enviar texto (con variables: {nombre}, {calendar_link}, etc.)
+   - flow_step++
+   - Si era el último paso → ejecutar post_flow_actions + mode = 'AI'
+4. Si tipo = 'question':
+   - Enviar texto + opciones numeradas
+   - Esperar respuesta: parsear número/texto de la respuesta
+   - Resolver siguiente paso según la opción seleccionada
+   - flow_step = next_step_id
+   - Si el paso destino es el último → ejecutar post_flow_actions + mode = 'AI'
+5. Si el contacto envía algo inesperado en medio de un 'question' → reenviar las opciones
+```
+
+**Columnas a añadir en `crm_wa_conversations`:**
+```sql
+ALTER TABLE crm_wa_conversations
+  ADD COLUMN active_flow_id uuid REFERENCES crm_wa_flows(id) ON DELETE SET NULL,
+  ADD COLUMN flow_step int DEFAULT 0;
+```
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — columnas `active_flow_id`, `flow_step` en `crm_wa_conversations`
+- `supabase/functions/ai-agent/index.ts` — lógica de evaluación de triggers y ejecución de pasos de flujo
+- `src/lib/supabase.ts` — actualizar tipo `CrmWaConversation`
+
+---
+
+### B18-7 · Plataforma de Cursos — Acceso por Magic Link (sin cuenta)
+
+**Estado:** ⏳ PENDIENTE
+
+**Contexto:**
+Los tenants que venden cursos necesitan que sus alumnos accedan al contenido de forma simple, sin crear una cuenta en el CRM. Cada curso tiene un link público. El alumno solo ingresa su email y recibe un magic link. No hay contraseñas, no hay onboarding, no hay relación con la autenticación de Supabase.
+
+**Flujo del alumno:**
+1. Recibe el link del curso (ej: `acrosoftlabs.com/curso/slug-del-curso`)
+2. Ve una pantalla de acceso con solo un campo de email
+3. Ingresa su email → clic en "Acceder al curso"
+4. Si el email tiene acceso al curso: recibe magic link por email (válido 15 minutos)
+5. Hace clic en el link → accede directamente al contenido del curso
+6. Su sesión queda en localStorage por 30 días (token firmado)
+7. Próxima visita: si el token sigue válido, acceso directo sin email
+
+**Lo que NO tiene:**
+- Cuenta en Supabase Auth
+- Contraseña
+- Perfil editable
+- Acceso al CRM en ningún momento
+
+**DB:**
+```sql
+CREATE TABLE crm_course_access (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_id uuid NOT NULL REFERENCES crm_courses(id) ON DELETE CASCADE,
+  email text NOT NULL,
+  granted_by uuid REFERENCES auth.users(id), -- el tenant que dio acceso
+  access_token text UNIQUE, -- token JWT firmado, para sesiones activas
+  token_expires_at timestamptz,
+  granted_at timestamptz DEFAULT now(),
+  expires_at timestamptz, -- null = sin vencimiento
+  UNIQUE(course_id, email)
+);
+
+CREATE TABLE crm_course_magic_links (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  course_access_id uuid NOT NULL REFERENCES crm_course_access(id) ON DELETE CASCADE,
+  token text NOT NULL UNIQUE,
+  used_at timestamptz,
+  expires_at timestamptz NOT NULL
+);
+```
+
+**Edge functions:**
+- `request-course-access` — recibe email + course_id, verifica acceso en `crm_course_access`, genera magic link y envía email
+- `verify-course-magic-link` — recibe token, valida expiración y uso único, retorna JWT de sesión (30 días) para guardar en localStorage
+
+**Gestión de acceso desde el CRM (para el tenant):**
+- En CRM → Cursos → detalle del curso → tab "Alumnos": lista de emails con acceso, botón "Dar acceso" (ingresa email + fecha de vencimiento opcional), botón "Revocar"
+
+**Archivos a modificar/crear:**
+- `supabase/migrations/` — tablas `crm_course_access`, `crm_course_magic_links`
+- `supabase/functions/request-course-access/index.ts`
+- `supabase/functions/verify-course-magic-link/index.ts`
+- `src/pages/CourseAccess.tsx` — página pública de gate de acceso (solo email)
+- `src/pages/CoursePlayer.tsx` — página del curso con validación de token en localStorage
+- `src/components/crm/CrmCourses.tsx` — tab "Alumnos" en detalle de curso
+- `src/hooks/useCrmData.ts` — hooks de gestión de acceso de alumnos
+- `src/lib/supabase.ts` — tipos `CrmCourseAccess`, `CrmCourseMagicLink`
+
+**Rutas a añadir en el router:**
+```
+/curso/:courseSlug          → CourseAccess (gate de email, público)
+/curso/:courseSlug/ver      → CoursePlayer (requiere token válido en localStorage)
+```
+
+---
+
+### B18-8 · Videos en Cursos via Bunny.net
+
+**Estado:** ⏳ PENDIENTE
+
+**Dependencias:** B18-7
+
+**Contexto:**
+Los tenants que crean cursos necesitan subir videos directamente desde el CRM. Bunny.net ya está en uso para los tutoriales del superadmin, por lo que la integración existe. Cada lección de un curso puede tener un video subido a Bunny.net, que se reproduce desde el `CoursePlayer` embebido.
+
+**Flujo del tenant (creador del curso):**
+1. En CRM → Cursos → editor de lección
+2. Botón "Subir video"
+3. Selector de archivo → progreso de carga
+4. Al terminar: el video queda procesado en Bunny.net y la URL se guarda en la lección
+
+**Flujo técnico:**
+1. Frontend solicita URL de upload presignada llamando a edge function `get-bunny-upload-url`
+2. Edge function crea un video en la librería de Bunny.net via Bunny Stream API → retorna `videoId` + URL TUS de upload
+3. Frontend sube el archivo directamente a Bunny (cliente TUS o fetch chunked) — no pasa por Supabase
+4. Al completar: guarda `bunny_video_id` en la lección
+5. En `CoursePlayer`: embed con `<iframe src="https://iframe.mediadelivery.net/embed/{libraryId}/{videoId}">` o Bunny Player JS
+
+**Variables de entorno a añadir:**
+- `BUNNY_API_KEY` → API key de Bunny.net (ya disponible para tutoriales)
+- `BUNNY_STREAM_LIBRARY_ID` → ID de la librería de Bunny Stream para cursos
+
+**DB:**
+```sql
+-- Añadir a la tabla de lecciones existente (crm_course_lessons):
+ALTER TABLE crm_course_lessons
+  ADD COLUMN bunny_video_id text,
+  ADD COLUMN video_duration_seconds int,
+  ADD COLUMN video_status text DEFAULT 'none'; -- none | uploading | processing | ready | error
+```
+
+**Archivos a modificar/crear:**
+- `supabase/functions/get-bunny-upload-url/index.ts` — crea video en Bunny, retorna upload URL
+- `supabase/migrations/` — columnas `bunny_video_id`, `video_duration_seconds`, `video_status` en `crm_course_lessons`
+- `src/components/crm/CrmCourses.tsx` — UI de upload con barra de progreso en editor de lección
+- `src/pages/CoursePlayer.tsx` — embed del player de Bunny.net en la vista del alumno
+- `src/lib/supabase.ts` — actualizar tipo `CrmCourseLesson`
+
+---
+
+### Resumen del Bloque 18
+
+| # | Feature | Dependencias | Esfuerzo | Estado |
+|---|---|---|---|---|
+| B18-1 | Activación manual de clientes SaaS | Ninguna | Media | ⏳ Pendiente |
+| B18-2 | Transcripción de mensajes de voz (Groq Whisper) | GROQ_API_KEY en Supabase | Media | ⏳ Pendiente |
+| B18-3 | Reestructuración wizard Agente IA | Ninguna | Media | ⏳ Pendiente |
+| B18-4 | Flow Builder (crear y editar flujos) | Ninguna | Alta | ⏳ Pendiente |
+| B18-5 | Configuración de trigger-flows en wizard | B18-3, B18-4 | Alta | ⏳ Pendiente |
+| B18-6 | Ejecución modo FLOW en ai-agent | B18-4, B18-5 | Alta | ⏳ Pendiente |
+| B18-7 | Cursos — acceso por magic link | Ninguna | Alta | ⏳ Pendiente |
+| B18-8 | Videos en cursos via Bunny.net | B18-7, BUNNY_API_KEY | Media | ⏳ Pendiente |
 
