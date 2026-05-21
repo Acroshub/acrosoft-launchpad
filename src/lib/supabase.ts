@@ -357,6 +357,20 @@ export type CrmClientAccount = {
   deleted_at: string | null
 }
 
+export type CrmSaasAccess = {
+  id: string
+  contact_id: string
+  activated_by: string
+  plan_id: string | null
+  status: 'active' | 'suspended' | 'expired'
+  starts_at: string
+  expires_at: string | null
+  notes: string | null
+  created_at: string
+  updated_at: string
+  plan?: { id: string; name: string; price: number; currency: string } | null
+}
+
 export type SupportTicket = {
   id: string
   created_at: string
@@ -624,6 +638,7 @@ export type CrmWaMessage = {
   conversation_id: string
   role: 'user' | 'assistant' | 'human'
   content: string
+  transcription: string | null
   wa_message_id: string | null
   send_error: string | null
   created_at: string

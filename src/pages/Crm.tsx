@@ -145,7 +145,7 @@ const Crm = () => {
       case "pipeline":  return can("pipeline","read")       ? <CrmPipeline />  : null;
       case "ventas":    return can("ventas","read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} vendorProfile={vendorProfile ?? null} /> : null;
       case "reminders": return can("recordatorios","read")  ? <CrmReminders /> : null;
-      case "settings":  return (!isStaff || isVendor)       ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} vendorId={vendorProfile?.id ?? null} /> : null;
+      case "settings":  return (!isStaff || isVendor)       ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} isVendor={isVendor} vendorId={vendorProfile?.id ?? null} /> : null;
       case "soporte":   return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;
       case "videos":    return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
       case "vendor_links": return isVendor ? <CrmVendorLinks vendorProfile={vendorProfile!} /> : null;

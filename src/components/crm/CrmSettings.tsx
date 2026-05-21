@@ -1646,26 +1646,27 @@ type TabDef = {
   group: string;
   Component: React.ComponentType;
   adminOnly?: boolean;
+  saasClientVisible?: boolean; // override adminOnly para clientes SaaS
   vendorOnly?: boolean;
 };
 
 const ALL_TABS: TabDef[] = [
-  { id: "general",      label: "Mi Negocio",       description: "Perfil, marca y servicios",  icon: Store,         group: "General",      adminOnly: true,  Component: GeneralTab          },
-  { id: "staff",        label: "Staff",             description: "Equipo y permisos",          icon: Users,         group: "General",      adminOnly: true,  Component: StaffTab            },
-  { id: "vendedores",   label: "Vendedores",        description: "Gestión de vendedores",      icon: UserCog,       group: "General",      adminOnly: true,  Component: CrmVendors          },
-  { id: "vendor_links", label: "Links Vendedores",  description: "URLs y recursos externos",   icon: Link,          group: "General",      adminOnly: true,  Component: VendorLinksAdminTab },
-  { id: "reminders",    label: "Recordatorios",     description: "Email y WhatsApp",           icon: Bell,          group: "Comunicación",                   Component: RemindersTab        },
-  { id: "soporte",      label: "Soporte",           description: "Canal de soporte",           icon: MessageCircle, group: "Comunicación", adminOnly: true,  Component: SupportTab          },
-  { id: "logs",         label: "Logs",              description: "Historial de actividad",     icon: Activity,      group: "Sistema",      adminOnly: true,  Component: LogsTab             },
-  { id: "ia_costos",    label: "Costos IA",         description: "Uso y costo del agente IA",  icon: Bot,           group: "Sistema",      adminOnly: true,  Component: IACostosTab         },
-  { id: "perfil",       label: "Mi Perfil",         description: "Datos del vendedor",         icon: User,          group: "Mi Cuenta",    vendorOnly: true, Component: VendorProfileTab    },
+  { id: "general",      label: "Mi Negocio",       description: "Perfil, marca y servicios",  icon: Store,         group: "General",      adminOnly: true,                           Component: GeneralTab          },
+  { id: "staff",        label: "Staff",             description: "Equipo y permisos",          icon: Users,         group: "General",      adminOnly: true,  saasClientVisible: true,   Component: StaffTab            },
+  { id: "vendedores",   label: "Vendedores",        description: "Gestión de vendedores",      icon: UserCog,       group: "General",      adminOnly: true,                           Component: CrmVendors          },
+  { id: "vendor_links", label: "Links Vendedores",  description: "URLs y recursos externos",   icon: Link,          group: "General",      adminOnly: true,                           Component: VendorLinksAdminTab },
+  { id: "reminders",    label: "Recordatorios",     description: "Email y WhatsApp",           icon: Bell,          group: "Comunicación",                                             Component: RemindersTab        },
+  { id: "soporte",      label: "Soporte",           description: "Canal de soporte",           icon: MessageCircle, group: "Comunicación", adminOnly: true,                           Component: SupportTab          },
+  { id: "logs",         label: "Logs",              description: "Historial de actividad",     icon: Activity,      group: "Sistema",      adminOnly: true,  saasClientVisible: true,   Component: LogsTab             },
+  { id: "ia_costos",    label: "Costos IA",         description: "Uso y costo del agente IA",  icon: Bot,           group: "Sistema",      adminOnly: true,                           Component: IACostosTab         },
+  { id: "perfil",       label: "Mi Perfil",         description: "Datos del vendedor",         icon: User,          group: "Mi Cuenta",    vendorOnly: true,                          Component: VendorProfileTab    },
 ];
 
 const SETTINGS_GROUPS = ["General", "Comunicación", "Sistema", "Mi Cuenta"];
 
-const CrmSettings = ({ isSuperAdmin, isVendor, vendorId: _vendorId }: { isSuperAdmin?: boolean; isVendor?: boolean; vendorId?: string | null }) => {
+const CrmSettings = ({ isSuperAdmin, isSaasClient, isVendor, vendorId: _vendorId }: { isSuperAdmin?: boolean; isSaasClient?: boolean; isVendor?: boolean; vendorId?: string | null }) => {
   const visibleTabs = ALL_TABS.filter((t) => {
-    if (t.adminOnly && !isSuperAdmin) return false;
+    if (t.adminOnly && !isSuperAdmin && !(t.saasClientVisible && isSaasClient)) return false;
     if (t.vendorOnly && !isVendor) return false;
     if (isVendor && (t.id === "staff" || t.id === "logs" || t.id === "general" || t.id === "soporte")) return false;
     return true;

@@ -685,7 +685,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
               <div className="space-y-1 text-xs text-muted-foreground">
                 <p>✅ <strong>Imágenes</strong> — puede verlas y analizarlas (comprobantes, fotos, etc.)</p>
                 <p>✅ <strong>PDFs</strong> — puede leer documentos PDF</p>
-                <p>🚫 <strong>Audios</strong> — no soportado, responderá pidiendo que escriban</p>
+                <p>✅ <strong>Audios</strong> — transcribe la nota de voz y responde al contenido</p>
               </div>
             </div>
 
@@ -1873,10 +1873,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} className="text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
               </div>
 
-              <div className="rounded-xl border border-border bg-secondary/30 px-3 py-2.5 space-y-1 text-xs text-muted-foreground">
-                <p className="font-semibold text-foreground">Archivos soportados</p>
-                <p>✅ Imágenes · ✅ PDFs · 🚫 Audios (respuesta automática)</p>
-              </div>
             </div>
           )}
 
@@ -2448,11 +2444,19 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
           )}
           {/* Audio */}
           {msg.media_type === "audio" && (
-            <div className={`flex items-center gap-2.5 px-3.5 py-3 ${isIncoming ? "text-muted-foreground" : "text-white/90"}`}>
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-base ${isIncoming ? "bg-secondary" : "bg-white/20"}`}>
+            <div className={`flex items-start gap-2.5 px-3.5 py-3 ${isIncoming ? "text-muted-foreground" : "text-white/90"}`}>
+              <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-base mt-0.5 ${isIncoming ? "bg-secondary" : "bg-white/20"}`}>
                 🎤
               </div>
-              <span className="text-sm">Mensaje de voz</span>
+              <div className="flex-1 min-w-0">
+                {msg.transcription ? (
+                  <p className="text-sm italic leading-relaxed break-words">{msg.transcription}</p>
+                ) : (
+                  <span className={`text-sm ${isIncoming ? "opacity-60" : "opacity-70"}`}>
+                    {msg.content !== "[Mensaje de voz]" ? msg.content : "Mensaje de voz"}
+                  </span>
+                )}
+              </div>
             </div>
           )}
           {/* Texto */}

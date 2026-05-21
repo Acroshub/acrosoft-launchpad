@@ -37,6 +37,7 @@ import type {
   CrmWaLabel,
   CrmPaymentMethod,
   CrmGoogleEvent,
+  CrmSaasAccess,
 } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "./useAuth";
 
@@ -3061,4 +3062,91 @@ export const useOnboardingStatus = () => {
   const completed = [step1, step2, step3, step4].filter(Boolean).length;
 
   return { step1, step2, step3, step4, allDone, requiredDone, completed, flags, profile };
+};
+
+// ─── B18-1 · Acceso SaaS ─────────────────────────────────────────────────────
+
+export const useSaasAccess = (contactId: string | null) => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_saas_access", contactId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_saas_access")
+        .select("*, plan:crm_services(id, name, price, currency)")
+        .eq("contact_id", contactId!)
+        .maybeSingle();
+      if (error) throw error;
+      return data as CrmSaasAccess | null;
+    },
+    enabled: !!contactId && !!user,
+  });
+};
+
+export const useActivateSaasClient = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      contact_id: string;
+      plan_id?: string | null;
+      starts_at?: string;
+      expires_at?: string | null;
+      notes?: string | null;
+    }) => {
+      const { data, error } = await supabase.functions.invoke("activate-saas-client", {
+        body: payload,
+      });
+      if (data?.error) throw new Error(data.error);
+      if (error) throw error;
+      return data as { success: boolean; client_user_id: string; is_new_user: boolean };
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["crm_saas_access", variables.contact_id] });
+      qc.invalidateQueries({ queryKey: ["crm_client_accounts"] });
+    },
+  });
+};
+
+export const useUpdateSaasAccess = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      contact_id: string;
+      status?: 'active' | 'suspended';
+      plan_id?: string | null;
+      starts_at?: string;
+      expires_at?: string | null;
+      notes?: string | null;
+    }) => {
+      const { contact_id, ...fields } = payload;
+
+      // 1. Actualizar crm_saas_access
+      const { data, error } = await supabase
+        .from("crm_saas_access")
+        .update({ ...fields, updated_at: new Date().toISOString() })
+        .eq("contact_id", contact_id)
+        .select()
+        .single();
+      if (error) throw error;
+
+      // 2. Sincronizar crm_client_accounts — esto controla el acceso real al CRM
+      if (payload.status === 'suspended') {
+        await supabase
+          .from("crm_client_accounts")
+          .update({ status: "disabled", disabled_at: new Date().toISOString() })
+          .eq("contact_id", contact_id);
+      } else if (payload.status === 'active') {
+        await supabase
+          .from("crm_client_accounts")
+          .update({ status: "active", disabled_at: null })
+          .eq("contact_id", contact_id);
+      }
+
+      return data as CrmSaasAccess;
+    },
+    onSuccess: (_data, variables) => {
+      qc.invalidateQueries({ queryKey: ["crm_saas_access", variables.contact_id] });
+      qc.invalidateQueries({ queryKey: ["crm_client_accounts"] });
+    },
+  });
 };

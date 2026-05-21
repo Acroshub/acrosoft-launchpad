@@ -3727,7 +3727,7 @@ La interfaz actual del chat del Agente IA en el CRM es funcional pero tiene opor
 
 ### B18-1 · Activación Manual de Clientes SaaS (Superadmin)
 
-**Estado:** ⏳ PENDIENTE
+**Estado:** ✅ COMPLETADO
 
 **Contexto:**
 El superadmin (`e.daniel.acero.r@gmail.com`) necesita poder activar acceso SaaS a cualquier contacto sin que ese contacto pase por el onboarding. Esto cubre casos como: ventas por WhatsApp, referidos, clientes que ya conocen el producto y prefieren que el superadmin los configure directamente.
@@ -3791,7 +3791,7 @@ CREATE TABLE crm_saas_access (
 
 ### B18-2 · Transcripción de mensajes de voz (Groq Whisper)
 
-**Estado:** ⏳ PENDIENTE
+**Estado:** ✅ COMPLETADO
 
 **Contexto:**
 Los contactos frecuentemente envían notas de voz por WhatsApp en lugar de texto. El agente IA actualmente no puede procesarlos — los ignora o responde con un mensaje genérico. Con Groq Whisper Large v3 (tier gratuito) se transcribe el audio a texto antes de pasarlo al modelo, habilitando respuestas coherentes a mensajes de voz.
@@ -4113,8 +4113,8 @@ ALTER TABLE crm_course_lessons
 
 | # | Feature | Dependencias | Esfuerzo | Estado |
 |---|---|---|---|---|
-| B18-1 | Activación manual de clientes SaaS | Ninguna | Media | ⏳ Pendiente |
-| B18-2 | Transcripción de mensajes de voz (Groq Whisper) | GROQ_API_KEY en Supabase | Media | ⏳ Pendiente |
+| B18-1 | Activación manual de clientes SaaS | Ninguna | Media | ✅ Completado |
+| B18-2 | Transcripción de mensajes de voz (Groq Whisper) | GROQ_API_KEY en Supabase | Media | ✅ Completado |
 | B18-3 | Reestructuración wizard Agente IA | Ninguna | Media | ⏳ Pendiente |
 | B18-4 | Flow Builder (crear y editar flujos) | Ninguna | Alta | ⏳ Pendiente |
 | B18-5 | Configuración de trigger-flows en wizard | B18-3, B18-4 | Alta | ⏳ Pendiente |

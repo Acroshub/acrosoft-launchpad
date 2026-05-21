@@ -161,7 +161,7 @@ async function handleIncomingMessage(
   const phone = msg.from;
   const msgType: string = msg.type;
 
-  // ── Audio: auto-reply, no AI ──
+  // ── Audio/Voice: download → transcribe → invoke agent ──
   if (msgType === "audio" || msgType === "voice") {
     const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
     if (dedupErr) return;
@@ -169,17 +169,27 @@ async function handleIncomingMessage(
     const conv = await upsertConversation(tenantUserId, phone, contactName);
     if (!conv) return;
 
+    let transcription: string | null = null;
+    const mediaId: string | undefined = msg[msgType]?.id;
+    if (mediaId && accessToken) {
+      const media = await downloadMedia(mediaId, accessToken);
+      if (media) transcription = await transcribeAudio(media.buffer, media.mimeType);
+    }
+
     await supabase.from("crm_wa_messages").insert({
       conversation_id: conv.id,
       role: "user",
-      content: "[Mensaje de voz]",
+      content: transcription ?? "[Mensaje de voz]",
       media_type: "audio",
+      transcription,
       wa_message_id: waMessageId,
     });
     await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
-    if (isActive) {
-      const autoReply = "Hola, lamentablemente no puedo escuchar mensajes de voz. Por favor escríbeme tu mensaje y con gusto te ayudo 🙏";
+    if (transcription) {
+      await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {});
+    } else if (isActive) {
+      const autoReply = "Hola, recibí tu mensaje de voz pero no pude procesarlo. Por favor escríbeme tu consulta y con gusto te ayudo 🙏";
       await sendAutoReply(phone, autoReply, tenantUserId, conv.id);
     }
     return;
@@ -300,6 +310,36 @@ async function handleIncomingMessage(
   }
 
   console.log(`[webhook] tipo no soportado: ${msgType}, ignorando`);
+}
+
+// ─── Groq Whisper transcription ──────────────────────────────────────────────
+async function transcribeAudio(buffer: ArrayBuffer, mimeType: string): Promise<string | null> {
+  const groqKey = Deno.env.get("GROQ_API_KEY");
+  if (!groqKey) return null;
+  try {
+    const ext = mimeType.includes("ogg") ? "ogg"
+      : mimeType.includes("mp4") || mimeType.includes("m4a") ? "m4a"
+      : mimeType.includes("wav") ? "wav"
+      : "ogg";
+    const form = new FormData();
+    form.append("file", new Blob([buffer], { type: mimeType }), `audio.${ext}`);
+    form.append("model", "whisper-large-v3");
+    form.append("language", "es");
+    const res = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${groqKey}` },
+      body: form,
+    });
+    if (!res.ok) {
+      console.error(`[webhook] Groq transcripción error: ${res.status} ${await res.text()}`);
+      return null;
+    }
+    const { text } = await res.json();
+    return (text as string)?.trim() || null;
+  } catch (err) {
+    console.error("[webhook] error transcribiendo audio:", err);
+    return null;
+  }
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

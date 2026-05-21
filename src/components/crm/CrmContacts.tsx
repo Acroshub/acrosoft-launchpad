@@ -13,7 +13,7 @@ import {
   Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Bell, Upload, FileUp, CheckCircle2, Bot,
 } from "lucide-react";
 import Papa from "papaparse";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices } from "@/hooks/useCrmData";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import CreateReminderModal from "@/components/shared/CreateReminderModal";
@@ -1345,6 +1345,312 @@ const ImportWizard = ({ open, onOpenChange, existingContacts, defaultStage }: Im
   );
 };
 
+// ─── B18-1 · Panel de Acceso SaaS ────────────────────────────────────────────
+const SaasAccessPanel = ({
+  contactId,
+  contactName,
+  contactEmail,
+  saasServices,
+  isSuperAdmin,
+  onAccessCrm,
+  accessingCrm,
+  compact = false,
+}: {
+  contactId: string;
+  contactName: string;
+  contactEmail: string | null;
+  saasServices: import("@/lib/supabase").CrmService[];
+  isSuperAdmin: boolean;
+  onAccessCrm: (contactId: string) => void;
+  accessingCrm: string | null;
+  compact?: boolean;
+}) => {
+  const { data: saasAccess, isLoading } = useSaasAccess(contactId);
+  const activateSaas  = useActivateSaasClient();
+  const updateAccess  = useUpdateSaasAccess();
+
+  const [modalOpen, setModalOpen]     = useState(false);
+  const [planId, setPlanId]           = useState<string>("");
+  const [startsAt, setStartsAt]       = useState<string>(new Date().toISOString().split("T")[0]);
+  const [noExpiry, setNoExpiry]       = useState(true);
+  const [expiresAt, setExpiresAt]     = useState<string>("");
+  const [notes, setNotes]             = useState<string>("");
+
+  const openModal = () => {
+    setPlanId(saasAccess?.plan_id ?? "");
+    setStartsAt(saasAccess?.starts_at ?? new Date().toISOString().split("T")[0]);
+    setNoExpiry(!saasAccess?.expires_at);
+    setExpiresAt(saasAccess?.expires_at ?? "");
+    setNotes(saasAccess?.notes ?? "");
+    setModalOpen(true);
+  };
+
+  const handleActivate = async () => {
+    try {
+      const result = await activateSaas.mutateAsync({
+        contact_id: contactId,
+        plan_id: planId || null,
+        starts_at: startsAt,
+        expires_at: noExpiry ? null : expiresAt || null,
+        notes: notes.trim() || null,
+      });
+      toast.success(
+        result.is_new_user
+          ? "Acceso SaaS activado. Se envió invitación por email al cliente."
+          : "Acceso SaaS actualizado correctamente."
+      );
+      setModalOpen(false);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al activar");
+    }
+  };
+
+  const handleSuspend = async () => {
+    try {
+      await updateAccess.mutateAsync({ contact_id: contactId, status: "suspended" });
+      toast.success("Acceso suspendido");
+    } catch {
+      toast.error("Error al suspender");
+    }
+  };
+
+  const handleReactivate = async () => {
+    try {
+      await updateAccess.mutateAsync({ contact_id: contactId, status: "active" });
+      toast.success("Acceso reactivado");
+    } catch {
+      toast.error("Error al reactivar");
+    }
+  };
+
+  if (!isSuperAdmin) return null;
+  if (isLoading) return null;
+
+  const today = new Date().toISOString().split("T")[0];
+  const isExpired = !!(saasAccess?.expires_at && saasAccess.expires_at < today);
+  const effectiveStatus = saasAccess
+    ? isExpired ? "expired" : saasAccess.status
+    : null;
+
+  const statusLabel: Record<string, string> = {
+    active: "Activo", suspended: "Suspendido", expired: "Vencido",
+  };
+  const statusStyle: Record<string, string> = {
+    active:    "bg-emerald-50 text-emerald-700 border-emerald-200",
+    suspended: "bg-orange-50 text-orange-700 border-orange-200",
+    expired:   "bg-secondary text-muted-foreground border-border",
+  };
+
+  if (!saasAccess) {
+    if (!contactEmail) return null;
+    return (
+      <>
+        <button
+          onClick={openModal}
+          className={`w-full flex items-center justify-center gap-2 rounded-xl text-xs font-semibold border-2 border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors ${compact ? "h-8" : "h-9"}`}
+        >
+          <span>🔐</span>
+          Activar acceso SaaS
+        </button>
+        <SaasActivationModal
+          open={modalOpen}
+          onOpenChange={setModalOpen}
+          contactName={contactName}
+          saasServices={saasServices}
+          planId={planId} setPlanId={setPlanId}
+          startsAt={startsAt} setStartsAt={setStartsAt}
+          noExpiry={noExpiry} setNoExpiry={setNoExpiry}
+          expiresAt={expiresAt} setExpiresAt={setExpiresAt}
+          notes={notes} setNotes={setNotes}
+          onConfirm={handleActivate}
+          isPending={activateSaas.isPending}
+        />
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className={`border rounded-xl p-3 space-y-2 bg-amber-50/40 border-amber-200/80 ${compact ? "text-[11px]" : ""}`}>
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] uppercase tracking-widest text-amber-700/70 font-semibold">Acceso SaaS</span>
+            {effectiveStatus && (
+              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${statusStyle[effectiveStatus]}`}>
+                {statusLabel[effectiveStatus]}
+              </span>
+            )}
+          </div>
+          {effectiveStatus !== "suspended" && (
+            <button onClick={openModal} className="text-[10px] text-muted-foreground hover:text-primary underline underline-offset-2 transition-colors">
+              Editar
+            </button>
+          )}
+        </div>
+
+        {saasAccess.plan && (
+          <p className="text-[11px] text-muted-foreground">
+            Plan: <span className="font-medium text-foreground">{saasAccess.plan.name}</span>
+          </p>
+        )}
+
+        {(saasAccess.starts_at || saasAccess.expires_at) && (
+          <p className="text-[11px] text-muted-foreground">
+            {saasAccess.starts_at && <>Desde <span className="font-medium text-foreground">{saasAccess.starts_at}</span></>}
+            {saasAccess.expires_at && <> · Hasta <span className="font-medium text-foreground">{saasAccess.expires_at}</span></>}
+            {!saasAccess.expires_at && <> · <span className="text-emerald-600">Sin vencimiento</span></>}
+          </p>
+        )}
+
+        {saasAccess.notes && (
+          <p className="text-[11px] text-muted-foreground italic line-clamp-2">{saasAccess.notes}</p>
+        )}
+
+        <div className="flex flex-col gap-1.5 pt-0.5">
+          {effectiveStatus === "active" && (
+            <>
+              <button
+                onClick={() => onAccessCrm(contactId)}
+                disabled={accessingCrm === contactId}
+                className="w-full h-8 rounded-lg text-xs font-semibold border-2 border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-1.5"
+              >
+                {accessingCrm === contactId ? <Loader2 size={11} className="animate-spin" /> : <span>🔐</span>}
+                Acceder al CRM
+              </button>
+              <button
+                onClick={handleSuspend}
+                disabled={updateAccess.isPending}
+                className="w-full h-7 rounded-lg text-[11px] font-medium border border-orange-200 text-orange-600 hover:bg-orange-50 transition-colors"
+              >
+                Suspender acceso
+              </button>
+            </>
+          )}
+          {(effectiveStatus === "suspended" || effectiveStatus === "expired") && (
+            <button
+              onClick={handleReactivate}
+              disabled={updateAccess.isPending}
+              className="w-full h-8 rounded-lg text-xs font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1.5"
+            >
+              {updateAccess.isPending ? <Loader2 size={11} className="animate-spin" /> : null}
+              Reactivar acceso
+            </button>
+          )}
+        </div>
+      </div>
+
+      <SaasActivationModal
+        isEditing={!!saasAccess}
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        contactName={contactName}
+        saasServices={saasServices}
+        planId={planId} setPlanId={setPlanId}
+        startsAt={startsAt} setStartsAt={setStartsAt}
+        noExpiry={noExpiry} setNoExpiry={setNoExpiry}
+        expiresAt={expiresAt} setExpiresAt={setExpiresAt}
+        notes={notes} setNotes={setNotes}
+        onConfirm={handleActivate}
+        isPending={activateSaas.isPending}
+      />
+    </>
+  );
+};
+
+const SaasActivationModal = ({
+  isEditing = false,
+  open, onOpenChange, contactName, saasServices,
+  planId, setPlanId, startsAt, setStartsAt,
+  noExpiry, setNoExpiry, expiresAt, setExpiresAt,
+  notes, setNotes, onConfirm, isPending,
+}: {
+  isEditing?: boolean;
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  contactName: string;
+  saasServices: import("@/lib/supabase").CrmService[];
+  planId: string; setPlanId: (v: string) => void;
+  startsAt: string; setStartsAt: (v: string) => void;
+  noExpiry: boolean; setNoExpiry: (v: boolean) => void;
+  expiresAt: string; setExpiresAt: (v: string) => void;
+  notes: string; setNotes: (v: string) => void;
+  onConfirm: () => void;
+  isPending: boolean;
+}) => (
+  <Dialog open={open} onOpenChange={onOpenChange}>
+    <DialogContent className="max-w-sm">
+      <DialogHeader>
+        <DialogTitle>{isEditing ? "Editar Acceso SaaS" : "Activar Acceso SaaS"}</DialogTitle>
+        <p className="text-sm text-muted-foreground">{contactName}</p>
+      </DialogHeader>
+      <div className="space-y-4 py-1">
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Plan</label>
+          <select
+            value={planId}
+            onChange={(e) => setPlanId(e.target.value)}
+            className="w-full h-9 rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+          >
+            <option value="">Sin plan específico</option>
+            {saasServices.map((s) => (
+              <option key={s.id} value={s.id}>{s.name}</option>
+            ))}
+          </select>
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Fecha de inicio</label>
+          <input
+            type="date"
+            value={startsAt}
+            onChange={(e) => setStartsAt(e.target.value)}
+            className="w-full h-9 rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Vencimiento</label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={noExpiry}
+              onChange={(e) => setNoExpiry(e.target.checked)}
+              className="rounded"
+            />
+            <span className="text-sm text-muted-foreground">Sin vencimiento</span>
+          </label>
+          {!noExpiry && (
+            <input
+              type="date"
+              value={expiresAt}
+              onChange={(e) => setExpiresAt(e.target.value)}
+              min={startsAt}
+              className="w-full h-9 rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-xs font-medium text-muted-foreground uppercase tracking-widest">Notas internas</label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notas visibles solo para el admin..."
+            rows={3}
+            className="w-full rounded-xl border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+        </div>
+      </div>
+      <DialogFooter className="gap-2">
+        <Button variant="outline" onClick={() => onOpenChange(false)} className="rounded-xl" disabled={isPending}>
+          Cancelar
+        </Button>
+        <Button onClick={onConfirm} disabled={isPending} className="rounded-xl">
+          {isPending ? <Loader2 size={13} className="animate-spin mr-1.5" /> : null}
+          {isEditing ? "Guardar cambios" : "Activar acceso"}
+        </Button>
+      </DialogFooter>
+    </DialogContent>
+  </Dialog>
+);
+
 // ─── Contacts list ────────────────────────────────────────────────────────────
 const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?: boolean; isVendor?: boolean }) => {
   const { can } = useStaffPermissions();
@@ -1662,46 +1968,16 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
                   if (!hasOnboarding) return null;
                   return <Button className="w-full h-9 rounded-xl text-xs font-medium gap-2" onClick={() => setViewing(detail.id)}><Eye size={14} />Ver Ficha Técnica</Button>;
                 })()}
-                {(() => {
-                  const acc = accountByContact[detail.id];
-                  const hasSaasService = (contactServices.get(detail.id) ?? []).some((s) => s.isSaas);
-                  if (!acc) {
-                    if (!detail.email || !hasSaasService || !isSuperAdmin) return null;
-                    return (
-                      <button onClick={async () => { try { await createSaasClient.mutateAsync(detail.id); toast.success("Invitación enviada."); } catch (err) { const e = err as Error & { alreadyExists?: boolean }; if (e.alreadyExists) toast.info("La cuenta SaaS ya existía."); else toast.error(`Error al activar: ${e.message ?? "Error desconocido"}`); } }}
-                        disabled={createSaasClient.isPending}
-                        className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors flex items-center justify-center gap-2">
-                        {createSaasClient.isPending ? <Loader2 size={12} className="animate-spin" /> : <span>🔐</span>}
-                        Activar Booking System
-                      </button>
-                    );
-                  }
-                  return (
-                    <div className="border rounded-xl p-3 space-y-2 bg-amber-50/50 border-amber-200">
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] uppercase tracking-widest text-amber-700/70 font-semibold">Cuenta SaaS</span>
-                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${acc.status === "active" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : acc.status === "pending" ? "bg-yellow-50 text-yellow-700 border-yellow-200" : "bg-secondary text-muted-foreground border-border"}`}>
-                            {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente" : "Deshabilitada"}
-                          </span>
-                        </div>
-                        {acc.status === "active" && isSuperAdmin && <button onClick={() => setDisableSaasTarget({ id: acc.id, name: detail.name })} className="text-[10px] text-destructive/60 hover:text-destructive underline underline-offset-2">Deshabilitar</button>}
-                      </div>
-                      {acc.status === "active" && isSuperAdmin && (
-                        <button onClick={() => handleAccessCrm(detail.id)} disabled={accessingCrm === detail.id} className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2">
-                          {accessingCrm === detail.id ? <Loader2 size={12} className="animate-spin" /> : <span>🔐</span>}
-                          Acceder al CRM del cliente
-                        </button>
-                      )}
-                      {acc.status === "pending" && <p className="text-[11px] text-muted-foreground">Esperando activación vía email.</p>}
-                      {acc.status === "disabled" && isSuperAdmin && (
-                        <button onClick={async () => { try { await enableClient.mutateAsync(acc.id); toast.success("Cuenta reactivada"); } catch { toast.error("Error al reactivar"); } }} disabled={enableClient.isPending} className="w-full h-8 rounded-lg text-xs font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1.5">
-                          {enableClient.isPending ? <Loader2 size={12} className="animate-spin" /> : null}Reactivar cuenta
-                        </button>
-                      )}
-                    </div>
-                  );
-                })()}
+                <SaasAccessPanel
+                  contactId={detail.id}
+                  contactName={detail.name}
+                  contactEmail={detail.email}
+                  saasServices={services.filter((s) => s.is_saas)}
+                  isSuperAdmin={isSuperAdmin}
+                  onAccessCrm={handleAccessCrm}
+                  accessingCrm={accessingCrm}
+                  compact
+                />
               </div>
               <div className="p-5 space-y-5">
                 {((contactStagesMap[detail.id]?.length ?? 0) > 0 || detail.stage) && (
@@ -1990,71 +2266,15 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
                       );
                     })()}
 
-                    {/* SaaS account actions in detail panel */}
-                    {(() => {
-                      const acc = accountByContact[detail.id];
-                      const hasSaasService = (contactServices.get(detail.id) ?? []).some((s) => s.isSaas);
-
-                      if (!acc) {
-                        if (!detail.email || !hasSaasService || !isSuperAdmin) return null;
-                        return (
-                          <button
-                            onClick={async () => {
-                              try {
-                                await createSaasClient.mutateAsync(detail.id);
-                                toast.success("Invitación enviada. El cliente recibirá un email para activar su cuenta.");
-                              } catch (err) {
-                                const e = err as Error & { alreadyExists?: boolean };
-                                if (e.alreadyExists) {
-                                  toast.info("La cuenta SaaS ya existía — el panel se ha actualizado.");
-                                } else {
-                                  toast.error(`Error al activar: ${e.message ?? "Error desconocido"}`);
-                                }
-                              }
-                            }}
-                            disabled={createSaasClient.isPending}
-                            className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors flex items-center justify-center gap-2"
-                          >
-                            {createSaasClient.isPending ? <Loader2 size={12} className="animate-spin" /> : <span>🔐</span>}
-                            Activar Booking System
-                          </button>
-                        );
-                      }
-
-                      return (
-                        <div className="border rounded-xl p-3 space-y-2 bg-amber-50/50 border-amber-200">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <span className="text-[10px] uppercase tracking-widest text-amber-700/70 font-semibold">Cuenta SaaS</span>
-                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                                acc.status === "active"   ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                                acc.status === "pending"  ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
-                                                            "bg-secondary text-muted-foreground border-border"
-                              }`}>
-                                {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente" : "Deshabilitada"}
-                              </span>
-                            </div>
-                            {acc.status === "active" && isSuperAdmin && (
-                              <button onClick={() => setDisableSaasTarget({ id: acc.id, name: detail.name })} className="text-[10px] text-destructive/60 hover:text-destructive underline underline-offset-2 transition-colors">
-                                Deshabilitar
-                              </button>
-                            )}
-                          </div>
-                          {acc.status === "active" && isSuperAdmin && (
-                            <button onClick={() => handleAccessCrm(detail.id)} disabled={accessingCrm === detail.id} className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2">
-                              {accessingCrm === detail.id ? <Loader2 size={12} className="animate-spin" /> : <span>🔐</span>}
-                              Acceder al CRM del cliente
-                            </button>
-                          )}
-                          {acc.status === "pending" && <p className="text-[11px] text-muted-foreground">Esperando que el cliente active su cuenta vía email.</p>}
-                          {acc.status === "disabled" && isSuperAdmin && (
-                            <button onClick={async () => { try { await enableClient.mutateAsync(acc.id); toast.success("Cuenta SaaS reactivada"); } catch { toast.error("Error al reactivar"); } }} disabled={enableClient.isPending} className="w-full h-8 rounded-lg text-xs font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1.5">
-                              {enableClient.isPending ? <Loader2 size={12} className="animate-spin" /> : null}Reactivar cuenta
-                            </button>
-                          )}
-                        </div>
-                      );
-                    })()}
+                    <SaasAccessPanel
+                      contactId={detail.id}
+                      contactName={detail.name}
+                      contactEmail={detail.email}
+                      saasServices={services.filter((s) => s.is_saas)}
+                      isSuperAdmin={isSuperAdmin}
+                      onAccessCrm={handleAccessCrm}
+                      accessingCrm={accessingCrm}
+                    />
                   </div>
 
                   {/* Scrollable body */}
