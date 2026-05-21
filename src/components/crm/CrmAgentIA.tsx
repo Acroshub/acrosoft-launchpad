@@ -3185,7 +3185,7 @@ const CrmAgentIA = ({
         </div>
       )}
 
-      <div className="flex flex-col h-full -mx-4 -my-6 sm:-mx-6 sm:-my-8">
+      <div className="flex flex-col h-full -mx-4 -mt-4 -mb-6 sm:-mx-6 sm:-mt-6 sm:-mb-8">
 
         {/* Top bar — oculto en mobile cuando el chat está abierto */}
         <div className={`px-4 sm:px-5 py-3 border-b flex items-center gap-3 shrink-0 bg-card ${mobileShowChat ? "hidden lg:flex" : "flex"}`}>

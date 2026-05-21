@@ -186,74 +186,6 @@ interface SlotDialogProps {
   apptHourOptions: number[];
 }
 
-const TimePickerField = ({
-  label, hour, minute, hourOptions, minuteOptions, onHourChange, onMinuteChange, accent = "primary",
-}: {
-  label: string; hour: number; minute: number;
-  hourOptions: number[]; minuteOptions: number[];
-  onHourChange: (h: number) => void; onMinuteChange: (m: number) => void;
-  accent?: "primary" | "amber";
-}) => {
-  const [open, setOpen] = useState(false);
-  const timeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-  const activeClass  = accent === "amber" ? "bg-amber-500 text-white" : "bg-primary text-primary-foreground";
-  const pillClass    = accent === "amber" ? "bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-700" : "bg-primary/5 border-primary/20";
-  const accentText   = accent === "amber" ? "text-amber-600 dark:text-amber-400" : "text-primary";
-
-  return (
-    <div className="space-y-1.5">
-      <label className="text-sm font-medium">{label}</label>
-      {!open ? (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border ${pillClass} text-left transition-colors`}
-        >
-          <Clock size={14} className={`${accentText} shrink-0`} />
-          <span className="text-sm font-semibold tabular-nums flex-1">{timeStr}</span>
-          <ChevronDown size={13} className="text-muted-foreground" />
-        </button>
-      ) : (
-        <div className="border rounded-xl overflow-hidden bg-background">
-          {/* Hour grid */}
-          <div className="p-2.5 border-b">
-            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2 px-0.5">Hora</p>
-            <div className="grid grid-cols-4 gap-1.5">
-              {hourOptions.map(h => (
-                <button
-                  key={h}
-                  type="button"
-                  onClick={() => { onHourChange(h); if (minuteOptions.length <= 1) setOpen(false); }}
-                  className={`h-10 rounded-xl text-sm font-semibold tabular-nums transition-colors ${h === hour ? activeClass : "bg-secondary/50 hover:bg-secondary text-foreground"}`}
-                >
-                  {String(h).padStart(2, "0")}
-                </button>
-              ))}
-            </div>
-          </div>
-          {/* Minute chips — only if more than one option */}
-          {minuteOptions.length > 1 && (
-            <div className="p-2.5">
-              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2 px-0.5">Minutos</p>
-              <div className="flex gap-1.5">
-                {minuteOptions.map(m => (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => { onMinuteChange(m); setOpen(false); }}
-                    className={`flex-1 h-10 rounded-xl text-sm font-semibold tabular-nums transition-colors ${m === minute ? activeClass : "bg-secondary/50 hover:bg-secondary text-foreground"}`}
-                  >
-                    :{String(m).padStart(2, "0")}
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
 
 const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSaveBlock, isSavingAppt, isSavingBlock, apptMinuteOptions, apptHourOptions }: SlotDialogProps) => {
   const [slotTab, setSlotTab] = useState<"appt" | "block">("appt");
@@ -269,10 +201,12 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
   const canSave = !!newAppt.contactId && !!newAppt.date && newAppt.hour >= 0;
 
   const selectedContact = contacts.find(c => c.id === newAppt.contactId);
-  const filteredContacts = contacts.filter(c => {
-    const q = contactSearch.toLowerCase();
-    return !q || c.name?.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q) || c.phone?.toLowerCase().includes(q);
-  });
+  const filteredContacts = contactSearch.trim().length > 0
+    ? contacts.filter(c => {
+        const q = contactSearch.toLowerCase();
+        return c.name?.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q) || c.phone?.toLowerCase().includes(q);
+      }).slice(0, 8)
+    : [];
 
   const handleSaveBlock = () =>
     onSaveBlock({
@@ -354,8 +288,10 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                   )}
                 </div>
                 <div className="max-h-48 overflow-y-auto divide-y divide-border/50">
-                  {filteredContacts.length === 0 ? (
-                    <p className="text-sm text-muted-foreground text-center py-4">Sin resultados</p>
+                  {contactSearch.trim().length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-5">Escribe para buscar un contacto</p>
+                  ) : filteredContacts.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-5">Sin resultados</p>
                   ) : filteredContacts.map(c => (
                     <button
                       key={c.id}
@@ -376,21 +312,29 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Fecha <span className="text-destructive">*</span></label>
               <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
             </div>
-            <TimePickerField
-              label="Hora *"
-              hour={newAppt.hour}
-              minute={newAppt.minute ?? 0}
-              hourOptions={apptHourOptions}
-              minuteOptions={apptMinuteOptions}
-              onHourChange={(h) => onChangeAppt({ hour: h })}
-              onMinuteChange={(m) => onChangeAppt({ minute: m })}
-              accent="primary"
-            />
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Hora <span className="text-destructive">*</span></label>
+              <div className="relative">
+                <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary">
+                  {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                </select>
+                <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium">Min.</label>
+              <div className="relative">
+                <select value={newAppt.minute} onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary">
+                  {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                </select>
+                <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              </div>
+            </div>
           </div>
 
           <div className="space-y-1.5">
@@ -438,26 +382,40 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                 <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <TimePickerField
-                  label="Desde"
-                  hour={newAppt.hour}
-                  minute={newAppt.minute ?? 0}
-                  hourOptions={apptHourOptions}
-                  minuteOptions={apptMinuteOptions}
-                  onHourChange={(h) => onChangeAppt({ hour: h })}
-                  onMinuteChange={(m) => onChangeAppt({ minute: m })}
-                  accent="amber"
-                />
-                <TimePickerField
-                  label="Hasta"
-                  hour={blockEndHour}
-                  minute={blockEndMinute}
-                  hourOptions={apptHourOptions}
-                  minuteOptions={apptMinuteOptions}
-                  onHourChange={setBlockEndHour}
-                  onMinuteChange={setBlockEndMinute}
-                  accent="amber"
-                />
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Desde</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="relative">
+                      <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                        {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                      </select>
+                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
+                    <div className="relative">
+                      <select value={newAppt.minute ?? 0} onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                        {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                      </select>
+                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-sm font-medium">Hasta</label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="relative">
+                      <select value={blockEndHour} onChange={(e) => setBlockEndHour(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                        {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
+                      </select>
+                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
+                    <div className="relative">
+                      <select value={blockEndMinute} onChange={(e) => setBlockEndMinute(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                        {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                      </select>
+                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}

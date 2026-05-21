@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell } from "lucide-react";
+import { Activity, Loader2, Filter, Users, ChevronDown, ChevronRight, ChevronLeft, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell, Store, Link, MessageCircle, Bot, User } from "lucide-react";
 import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient, useVendorProfile, useUpdateVendor, useVendorLinks, useUpsertVendorLinks } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
@@ -1638,59 +1638,159 @@ const IACostosTab = () => {
 
 type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte" | "perfil" | "vendor_links" | "vendedores" | "ia_costos";
 
-const ALL_TABS: { id: TabId; label: string; Component: React.ComponentType; adminOnly?: boolean; vendorOnly?: boolean }[] = [
-  { id: "general",      label: "General",          Component: GeneralTab,           adminOnly: true  },
-  { id: "staff",        label: "Staff",            Component: StaffTab,             adminOnly: true  },
-  { id: "vendedores",   label: "Vendedores",       Component: CrmVendors,           adminOnly: true  },
-  { id: "vendor_links", label: "Links Vendedores", Component: VendorLinksAdminTab,  adminOnly: true  },
-  { id: "soporte",      label: "Soporte",          Component: SupportTab,           adminOnly: true  },
-  { id: "logs",         label: "Logs",             Component: LogsTab,              adminOnly: true  },
-  { id: "ia_costos",    label: "Costos IA",        Component: IACostosTab,          adminOnly: true  },
-  { id: "reminders",    label: "Recordatorios",    Component: RemindersTab                          },
-  { id: "perfil",       label: "Mi Perfil",        Component: VendorProfileTab,     vendorOnly: true },
+type TabDef = {
+  id: TabId;
+  label: string;
+  description: string;
+  icon: React.ElementType;
+  group: string;
+  Component: React.ComponentType;
+  adminOnly?: boolean;
+  vendorOnly?: boolean;
+};
+
+const ALL_TABS: TabDef[] = [
+  { id: "general",      label: "Mi Negocio",       description: "Perfil, marca y servicios",  icon: Store,         group: "General",      adminOnly: true,  Component: GeneralTab          },
+  { id: "staff",        label: "Staff",             description: "Equipo y permisos",          icon: Users,         group: "General",      adminOnly: true,  Component: StaffTab            },
+  { id: "vendedores",   label: "Vendedores",        description: "Gestión de vendedores",      icon: UserCog,       group: "General",      adminOnly: true,  Component: CrmVendors          },
+  { id: "vendor_links", label: "Links Vendedores",  description: "URLs y recursos externos",   icon: Link,          group: "General",      adminOnly: true,  Component: VendorLinksAdminTab },
+  { id: "reminders",    label: "Recordatorios",     description: "Email y WhatsApp",           icon: Bell,          group: "Comunicación",                   Component: RemindersTab        },
+  { id: "soporte",      label: "Soporte",           description: "Canal de soporte",           icon: MessageCircle, group: "Comunicación", adminOnly: true,  Component: SupportTab          },
+  { id: "logs",         label: "Logs",              description: "Historial de actividad",     icon: Activity,      group: "Sistema",      adminOnly: true,  Component: LogsTab             },
+  { id: "ia_costos",    label: "Costos IA",         description: "Uso y costo del agente IA",  icon: Bot,           group: "Sistema",      adminOnly: true,  Component: IACostosTab         },
+  { id: "perfil",       label: "Mi Perfil",         description: "Datos del vendedor",         icon: User,          group: "Mi Cuenta",    vendorOnly: true, Component: VendorProfileTab    },
 ];
 
-const CrmSettings = ({ isSuperAdmin, isVendor, vendorId }: { isSuperAdmin?: boolean; isVendor?: boolean; vendorId?: string | null }) => {
+const SETTINGS_GROUPS = ["General", "Comunicación", "Sistema", "Mi Cuenta"];
+
+const CrmSettings = ({ isSuperAdmin, isVendor, vendorId: _vendorId }: { isSuperAdmin?: boolean; isVendor?: boolean; vendorId?: string | null }) => {
   const visibleTabs = ALL_TABS.filter((t) => {
     if (t.adminOnly && !isSuperAdmin) return false;
     if (t.vendorOnly && !isVendor) return false;
     if (isVendor && (t.id === "staff" || t.id === "logs" || t.id === "general" || t.id === "soporte")) return false;
     return true;
   });
-  const defaultTab  = isSuperAdmin ? "general" : isVendor ? "perfil" : "logs";
-  const [tab, setTab] = useState<TabId>(defaultTab);
 
-  const activeTab = visibleTabs.find((t) => t.id === tab) ?? visibleTabs[0];
+  const defaultTab = (isSuperAdmin ? "general" : isVendor ? "perfil" : "reminders") as TabId;
+  const [selectedId, setSelectedId] = useState<TabId>(defaultTab);
+  const [showMobileContent, setShowMobileContent] = useState(false);
+
+  const activeTab = visibleTabs.find((t) => t.id === selectedId) ?? visibleTabs[0];
   const { Component } = activeTab;
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-semibold">Configuración</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Gestión avanzada del sistema</p>
-      </div>
+  const handleSelect = (id: TabId) => {
+    setSelectedId(id);
+    setShowMobileContent(true);
+  };
 
-      {/* Tabs */}
-      <div className="overflow-x-auto overflow-y-hidden -mx-1 px-1">
-        <div className="flex gap-0 border-b min-w-max">
-          {visibleTabs.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`px-5 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors whitespace-nowrap ${
-                activeTab.id === t.id
-                  ? "border-primary text-primary"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      <Component />
+  const renderMenu = (activeSel?: TabId) => (
+    <div className="space-y-4">
+      {SETTINGS_GROUPS.map((group) => {
+        const items = visibleTabs.filter((t) => t.group === group);
+        if (!items.length) return null;
+        return (
+          <div key={group}>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 px-1 mb-1.5">
+              {group}
+            </p>
+            <div className="bg-card border rounded-2xl overflow-hidden divide-y divide-border/50">
+              {items.map((t) => {
+                const Icon = t.icon;
+                const isActive = t.id === activeSel;
+                return (
+                  <button
+                    key={t.id}
+                    onClick={() => handleSelect(t.id)}
+                    className={`w-full flex items-center gap-3 px-4 py-3.5 text-left transition-colors ${
+                      isActive ? "bg-primary/8" : "hover:bg-secondary/60"
+                    }`}
+                  >
+                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                      isActive ? "bg-primary/15" : "bg-secondary"
+                    }`}>
+                      <Icon size={15} className={isActive ? "text-primary" : "text-muted-foreground"} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium leading-tight ${isActive ? "text-primary" : "text-foreground"}`}>
+                        {t.label}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{t.description}</p>
+                    </div>
+                    <ChevronRight size={14} className={`shrink-0 ${isActive ? "text-primary" : "text-muted-foreground/30"}`} />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
+  );
+
+  return (
+    <>
+      {/* ── Mobile ── */}
+      <div className="lg:hidden">
+        {!showMobileContent ? (
+          <div className="space-y-6">
+            <div>
+              <h1 className="text-xl font-semibold">Configuración</h1>
+              <p className="text-sm text-muted-foreground mt-0.5">Gestión avanzada del sistema</p>
+            </div>
+            {renderMenu()}
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <button
+              onClick={() => setShowMobileContent(false)}
+              className="flex items-center gap-0.5 text-primary text-sm font-medium -ml-1 hover:opacity-75 transition-opacity"
+            >
+              <ChevronLeft size={20} />
+              Configuración
+            </button>
+            <div>
+              <h2 className="text-xl font-semibold leading-tight">{activeTab.label}</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">{activeTab.description}</p>
+            </div>
+            <Component />
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop ── */}
+      <div className="hidden lg:block space-y-6">
+        <div>
+          <h1 className="text-xl font-semibold">Configuración</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">Gestión avanzada del sistema</p>
+        </div>
+
+        {/* Tab bar — same style as CrmBusiness */}
+        <div className="overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <div className="inline-flex items-center gap-0.5 bg-secondary/60 rounded-xl p-1 min-w-max">
+            {visibleTabs.map(({ id, label, icon: Icon }) => {
+              const active = selectedId === id;
+              return (
+                <button
+                  key={id}
+                  onClick={() => setSelectedId(id)}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                    active
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Icon size={13} className="shrink-0" />
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Content */}
+        <Component />
+      </div>
+    </>
   );
 };
 

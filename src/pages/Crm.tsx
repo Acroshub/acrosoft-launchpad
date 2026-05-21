@@ -294,7 +294,7 @@ const Crm = () => {
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-6 sm:py-8 max-w-6xl w-full mx-auto">
+        <div className="flex-1 overflow-y-auto px-4 pt-8 pb-6 sm:px-6 sm:pt-10 sm:pb-8 max-w-6xl w-full mx-auto">
           {renderView()}
         </div>
       </main>
