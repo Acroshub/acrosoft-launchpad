@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, CalendarDays, Clock, User, Plus, Settings, ChevronDown, Pencil, Trash2, Coffee, Loader2, ClipboardList, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, Clock, User, Plus, Settings, ChevronDown, Pencil, Trash2, Coffee, Loader2, ClipboardList, X, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -186,16 +186,93 @@ interface SlotDialogProps {
   apptHourOptions: number[];
 }
 
+const TimePickerField = ({
+  label, hour, minute, hourOptions, minuteOptions, onHourChange, onMinuteChange, accent = "primary",
+}: {
+  label: string; hour: number; minute: number;
+  hourOptions: number[]; minuteOptions: number[];
+  onHourChange: (h: number) => void; onMinuteChange: (m: number) => void;
+  accent?: "primary" | "amber";
+}) => {
+  const [open, setOpen] = useState(false);
+  const timeStr = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+  const activeClass  = accent === "amber" ? "bg-amber-500 text-white" : "bg-primary text-primary-foreground";
+  const pillClass    = accent === "amber" ? "bg-amber-50 border-amber-200 dark:bg-amber-900/20 dark:border-amber-700" : "bg-primary/5 border-primary/20";
+  const accentText   = accent === "amber" ? "text-amber-600 dark:text-amber-400" : "text-primary";
+
+  return (
+    <div className="space-y-1.5">
+      <label className="text-sm font-medium">{label}</label>
+      {!open ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className={`w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl border ${pillClass} text-left transition-colors`}
+        >
+          <Clock size={14} className={`${accentText} shrink-0`} />
+          <span className="text-sm font-semibold tabular-nums flex-1">{timeStr}</span>
+          <ChevronDown size={13} className="text-muted-foreground" />
+        </button>
+      ) : (
+        <div className="border rounded-xl overflow-hidden bg-background">
+          {/* Hour grid */}
+          <div className="p-2.5 border-b">
+            <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2 px-0.5">Hora</p>
+            <div className="grid grid-cols-4 gap-1.5">
+              {hourOptions.map(h => (
+                <button
+                  key={h}
+                  type="button"
+                  onClick={() => { onHourChange(h); if (minuteOptions.length <= 1) setOpen(false); }}
+                  className={`h-10 rounded-xl text-sm font-semibold tabular-nums transition-colors ${h === hour ? activeClass : "bg-secondary/50 hover:bg-secondary text-foreground"}`}
+                >
+                  {String(h).padStart(2, "0")}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Minute chips — only if more than one option */}
+          {minuteOptions.length > 1 && (
+            <div className="p-2.5">
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2 px-0.5">Minutos</p>
+              <div className="flex gap-1.5">
+                {minuteOptions.map(m => (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => { onMinuteChange(m); setOpen(false); }}
+                    className={`flex-1 h-10 rounded-xl text-sm font-semibold tabular-nums transition-colors ${m === minute ? activeClass : "bg-secondary/50 hover:bg-secondary text-foreground"}`}
+                  >
+                    :{String(m).padStart(2, "0")}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSaveBlock, isSavingAppt, isSavingBlock, apptMinuteOptions, apptHourOptions }: SlotDialogProps) => {
   const [slotTab, setSlotTab] = useState<"appt" | "block">("appt");
   const [blockType, setBlockType]       = useState<"hours" | "fullday">("hours");
   const [blockReason, setBlockReason]   = useState("");
   const [blockEndHour, setBlockEndHour] = useState((newAppt?.hour ?? 12) + 1);
   const [blockEndMinute, setBlockEndMinute] = useState(0);
+  const [contactSearch, setContactSearch] = useState("");
+  const [contactPickerOpen, setContactPickerOpen] = useState(false);
 
   if (!newAppt) return null;
 
   const canSave = !!newAppt.contactId && !!newAppt.date && newAppt.hour >= 0;
+
+  const selectedContact = contacts.find(c => c.id === newAppt.contactId);
+  const filteredContacts = contacts.filter(c => {
+    const q = contactSearch.toLowerCase();
+    return !q || c.name?.toLowerCase().includes(q) || c.email?.toLowerCase().includes(q) || c.phone?.toLowerCase().includes(q);
+  });
 
   const handleSaveBlock = () =>
     onSaveBlock({
@@ -241,52 +318,79 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
         <div className="space-y-4 py-1">
           <div className="space-y-1.5">
             <label className="text-sm font-medium">Contacto <span className="text-destructive">*</span></label>
-            <div className="relative">
-              <select
-                value={newAppt.contactId}
-                onChange={(e) => onChangeAppt({ contactId: e.target.value })}
-                className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                <option value="">Seleccionar contacto...</option>
-                {contacts.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name} — {c.email ?? ""}</option>
-                ))}
-              </select>
-              <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-            </div>
+            {selectedContact && !contactPickerOpen ? (
+              /* Selected state — show pill + change button */
+              <div className="flex items-center gap-2 p-2 rounded-xl border bg-primary/5 border-primary/20">
+                <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                  {selectedContact.name?.charAt(0).toUpperCase() ?? "?"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold truncate leading-tight">{selectedContact.name}</p>
+                  {selectedContact.email && <p className="text-[11px] text-muted-foreground truncate">{selectedContact.email}</p>}
+                </div>
+                <button
+                  onClick={() => { setContactPickerOpen(true); setContactSearch(""); }}
+                  className="text-[11px] text-primary font-semibold px-2 py-1 rounded-lg hover:bg-primary/10 transition-colors shrink-0"
+                >
+                  Cambiar
+                </button>
+              </div>
+            ) : (
+              /* Picker state — search + scrollable list */
+              <div className="border rounded-xl overflow-hidden bg-background">
+                <div className="flex items-center gap-2 px-3 py-2 border-b bg-secondary/30">
+                  <Search size={13} className="text-muted-foreground shrink-0" />
+                  <input
+                    autoFocus
+                    value={contactSearch}
+                    onChange={e => setContactSearch(e.target.value)}
+                    placeholder="Buscar por nombre, email o teléfono..."
+                    className="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground/60"
+                  />
+                  {contactSearch && (
+                    <button onClick={() => setContactSearch("")} className="text-muted-foreground hover:text-foreground transition-colors">
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+                <div className="max-h-48 overflow-y-auto divide-y divide-border/50">
+                  {filteredContacts.length === 0 ? (
+                    <p className="text-sm text-muted-foreground text-center py-4">Sin resultados</p>
+                  ) : filteredContacts.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => { onChangeAppt({ contactId: c.id }); setContactPickerOpen(false); setContactSearch(""); }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-secondary/50 transition-colors text-left"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                        {c.name?.charAt(0).toUpperCase() ?? "?"}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate leading-tight">{c.name}</p>
+                        {c.email && <p className="text-[11px] text-muted-foreground truncate">{c.email}</p>}
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Fecha <span className="text-destructive">*</span></label>
               <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
             </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Hora <span className="text-destructive">*</span></label>
-              <div className="relative">
-                <select
-                  value={newAppt.hour}
-                  onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })}
-                  className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
-                </select>
-                <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium">Min.</label>
-              <div className="relative">
-                <select
-                  value={newAppt.minute}
-                  onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })}
-                  className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
-                </select>
-                <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-              </div>
-            </div>
+            <TimePickerField
+              label="Hora *"
+              hour={newAppt.hour}
+              minute={newAppt.minute ?? 0}
+              hourOptions={apptHourOptions}
+              minuteOptions={apptMinuteOptions}
+              onHourChange={(h) => onChangeAppt({ hour: h })}
+              onMinuteChange={(m) => onChangeAppt({ minute: m })}
+              accent="primary"
+            />
           </div>
 
           <div className="space-y-1.5">
@@ -334,40 +438,26 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                 <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Desde</label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <div className="relative">
-                      <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
-                        {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
-                      </select>
-                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                    </div>
-                    <div className="relative">
-                      <select value={newAppt.minute ?? 0} onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
-                        {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
-                      </select>
-                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-sm font-medium">Hasta</label>
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <div className="relative">
-                      <select value={blockEndHour} onChange={(e) => setBlockEndHour(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
-                        {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
-                      </select>
-                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                    </div>
-                    <div className="relative">
-                      <select value={blockEndMinute} onChange={(e) => setBlockEndMinute(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
-                        {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
-                      </select>
-                      <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                    </div>
-                  </div>
-                </div>
+                <TimePickerField
+                  label="Desde"
+                  hour={newAppt.hour}
+                  minute={newAppt.minute ?? 0}
+                  hourOptions={apptHourOptions}
+                  minuteOptions={apptMinuteOptions}
+                  onHourChange={(h) => onChangeAppt({ hour: h })}
+                  onMinuteChange={(m) => onChangeAppt({ minute: m })}
+                  accent="amber"
+                />
+                <TimePickerField
+                  label="Hasta"
+                  hour={blockEndHour}
+                  minute={blockEndMinute}
+                  hourOptions={apptHourOptions}
+                  minuteOptions={apptMinuteOptions}
+                  onHourChange={setBlockEndHour}
+                  onMinuteChange={setBlockEndMinute}
+                  accent="amber"
+                />
               </div>
             </div>
           )}
@@ -598,20 +688,24 @@ const WeekView = ({
   const totalHeight = slots.length * ROW_HEIGHT_WEEK;
 
   return (
-    <div className="bg-card border rounded-2xl overflow-hidden overflow-x-auto">
+    <div className="bg-card border rounded-2xl overflow-hidden">
       {/* Header row */}
       <div className="flex border-b">
-        <div className="w-14 shrink-0 border-r" />
+        <div className="w-8 lg:w-14 shrink-0 border-r" />
         {weekDays.map((day) => {
           const isToday = sameDay(day, new Date());
           const dayBlk = isDayBlocked(blocked, dateKey(day));
           return (
             <div
               key={day.toISOString()}
-              className={`flex-1 min-w-[90px] px-2 py-3 text-center border-r last:border-r-0 ${dayBlk ? "bg-amber-100/60 dark:bg-amber-900/30" : isToday ? "bg-primary/20 dark:bg-primary/15" : ""}`}
+              className={`flex-1 px-1 py-2 text-center border-r last:border-r-0 ${dayBlk ? "bg-amber-100/60" : ""}`}
             >
-              <p className="text-[10px] text-muted-foreground uppercase tracking-wide">{DAYS_ES[day.getDay()]}</p>
-              <p className={`text-sm font-semibold mt-0.5 ${isToday ? "text-primary" : ""}`}>{day.getDate()}</p>
+              <p className="text-[9px] text-muted-foreground uppercase tracking-wide leading-none">{DAYS_ES[day.getDay()]}</p>
+              <div className={`mt-1 w-6 h-6 mx-auto flex items-center justify-center rounded-full text-xs font-semibold ${
+                isToday ? "bg-primary text-primary-foreground" : "text-foreground"
+              }`}>
+                {day.getDate()}
+              </div>
             </div>
           );
         })}
@@ -620,16 +714,18 @@ const WeekView = ({
       {/* Body */}
       <div className="flex" style={{ height: totalHeight }}>
         {/* Time gutter */}
-        <div className="w-14 shrink-0 border-r relative" style={{ height: totalHeight }}>
+        <div className="w-8 lg:w-14 shrink-0 border-r relative" style={{ height: totalHeight }}>
           {slots.map(({ hour, minute }, idx) => (
             <div
               key={`label-${hour}-${minute}`}
               style={{ top: idx * ROW_HEIGHT_WEEK, height: ROW_HEIGHT_WEEK }}
-              className="absolute left-0 right-0 border-b px-2 pt-1.5 text-right"
+              className="absolute left-0 right-0 border-b px-1 pt-1.5 text-right"
             >
-              <span className="text-[10px] text-muted-foreground/60 font-mono">
-                {String(hour).padStart(2, "0")}:{String(minute).padStart(2, "0")}
-              </span>
+              {minute === 0 && (
+                <span className="text-[9px] text-muted-foreground/60 font-mono">
+                  {String(hour).padStart(2, "0")}
+                </span>
+              )}
             </div>
           ))}
         </div>
@@ -645,8 +741,8 @@ const WeekView = ({
           return (
             <div
               key={key}
-              className={`flex-1 min-w-[90px] border-r last:border-r-0 relative ${
-                dayBlk ? "bg-amber-50/60 dark:bg-amber-900/20" : isToday ? "bg-primary/10" : ""
+              className={`flex-1 border-r last:border-r-0 relative ${
+                dayBlk ? "bg-amber-50/60" : isToday ? "bg-primary/5" : ""
               }`}
               style={{ height: totalHeight }}
             >
@@ -703,13 +799,13 @@ const WeekView = ({
                       key={blk.id}
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onBlockClick(blk); }}
-                      style={{ top: Math.max(0, top), height: Math.max(height, 20), left: 2, right: 2 }}
-                      className="absolute rounded-lg flex items-start gap-1 px-1.5 py-1 bg-amber-100 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-800/60 transition-colors z-10 overflow-hidden"
+                      style={{ top: Math.max(0, top), height: Math.max(height, 20), left: 1, right: 1 }}
+                      className="absolute rounded-md flex items-start justify-center gap-1 px-1 py-1 bg-amber-100 border border-amber-200 text-amber-800 hover:bg-amber-200 transition-colors z-10 overflow-hidden"
                       title={blk.reason || "Bloqueo"}
                     >
-                      <Coffee size={10} className="shrink-0 mt-0.5 text-amber-600 dark:text-amber-400" />
+                      <Coffee size={9} className="shrink-0 mt-0.5 text-amber-600" />
                       {height > 28 && (
-                        <span className="text-[10px] font-semibold leading-tight truncate">{blk.reason || "Reservado"}</span>
+                        <span className="hidden lg:block text-[10px] font-semibold leading-tight truncate">{blk.reason || "Reservado"}</span>
                       )}
                     </button>
                   );
@@ -738,13 +834,13 @@ const WeekView = ({
                       key={evt.id}
                       type="button"
                       onClick={(e) => { e.stopPropagation(); onGoogleEventClick?.(evt); }}
-                      style={{ top, height, left: 2, right: 2 }}
-                      className="absolute rounded-lg flex items-start gap-1 px-1.5 py-1 bg-slate-100 dark:bg-slate-800/70 border border-slate-300 dark:border-slate-600 text-slate-500 dark:text-slate-400 z-10 overflow-hidden cursor-pointer hover:bg-slate-200 dark:hover:bg-slate-700/80 transition-colors text-left w-full"
+                      style={{ top, height, left: 1, right: 1 }}
+                      className="absolute rounded-md flex items-start justify-center gap-1 px-1 py-1 bg-slate-200/80 border border-slate-300 z-10 overflow-hidden cursor-pointer hover:bg-slate-300/80 transition-colors text-left w-full"
                       title={evt.title ?? "Evento de Google Calendar"}
                     >
                       <img src="https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_16dp.png" alt="" className="w-3 h-3 shrink-0 mt-0.5" />
                       {height > 28 && (
-                        <span className="text-[10px] font-medium leading-tight truncate">{evt.title ?? "Evento"}</span>
+                        <span className="hidden lg:block text-[10px] font-medium leading-tight truncate text-slate-600">{evt.title ?? "Evento"}</span>
                       )}
                     </button>
                   );
@@ -762,18 +858,27 @@ const WeekView = ({
                   <button
                     key={appt.id}
                     onClick={(e) => { e.stopPropagation(); onSelect(isSelected ? "" : appt.id); }}
-                    style={{ top, height: Math.max(height, 24), left: 2, right: 2 }}
-                    className={`absolute rounded-lg px-1.5 py-1 text-[10px] border transition-all text-left z-20 overflow-hidden ${
+                    style={{ top, height: Math.max(height, 20), left: 1, right: 1 }}
+                    className={`absolute rounded-md border transition-all z-20 overflow-hidden text-left ${
                       isSelected
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-primary/20 border-primary/30 text-primary hover:bg-primary/30"
+                        ? "bg-primary border-primary"
+                        : "bg-primary/25 border-primary/40 hover:bg-primary/35"
                     }`}
                   >
-                    <p className="font-semibold truncate leading-tight flex items-center gap-0.5">
-                      {appt.time}
-                      {isAI && <span className="text-[7px] font-bold bg-primary/40 px-0.5 rounded shrink-0">IA</span>}
-                    </p>
-                    {height > 36 && <p className="truncate opacity-80 leading-tight">{appt.name}</p>}
+                    {/* Desktop: show time + name */}
+                    <div className="hidden lg:block px-1.5 py-1 text-[10px]">
+                      <p className={`font-semibold truncate leading-tight flex items-center gap-0.5 ${isSelected ? "text-primary-foreground" : "text-primary"}`}>
+                        {appt.time}
+                        {isAI && <span className="text-[7px] font-bold bg-primary/40 px-0.5 rounded shrink-0">IA</span>}
+                      </p>
+                      {height > 36 && <p className={`truncate leading-tight ${isSelected ? "text-primary-foreground/80" : "text-primary/80"}`}>{appt.name}</p>}
+                    </div>
+                    {/* Mobile: avatar circle with initial + AI dot */}
+                    <div className="lg:hidden w-full h-full flex items-start justify-center pt-0.5">
+                      <div className={`w-4 h-4 rounded-full flex items-center justify-center text-[7px] font-bold shrink-0 ${isSelected ? "bg-primary-foreground/30 text-primary-foreground" : getAvatarColor(appt.name)}`}>
+                        {appt.name.charAt(0).toUpperCase()}
+                      </div>
+                    </div>
                   </button>
                 );
               })}
@@ -938,6 +1043,108 @@ const BlockDetailPanel = ({
   );
 };
 
+// ─── Avatar color helper (igual que CrmContacts) ─────────────
+
+const AVATAR_COLORS = [
+  "bg-blue-100 text-blue-700",
+  "bg-violet-100 text-violet-700",
+  "bg-emerald-100 text-emerald-700",
+  "bg-amber-100 text-amber-700",
+  "bg-rose-100 text-rose-700",
+  "bg-cyan-100 text-cyan-700",
+  "bg-orange-100 text-orange-700",
+  "bg-pink-100 text-pink-700",
+];
+
+function getAvatarColor(name: string): string {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
+}
+
+// ─── MobileMonthStrip ────────────────────────────────────────
+
+interface MobileMonthStripProps {
+  current: Date;
+  setCurrent: (d: Date) => void;
+  appointments: any[];
+}
+
+const MobileMonthStrip = ({ current, setCurrent, appointments }: MobileMonthStripProps) => {
+  // Semana actual centrada en `current`
+  const monday = startOfWeek(current);
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    return d;
+  });
+
+  const todayDate = new Date();
+
+  const goWeek = (dir: 1 | -1) => {
+    const d = new Date(current);
+    d.setDate(d.getDate() + dir * 7);
+    setCurrent(d);
+  };
+
+  return (
+    <div className="bg-card border-b flex items-center gap-1 px-2 py-2 h-[72px]">
+      <button
+        onClick={() => goWeek(-1)}
+        className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:bg-secondary transition-colors shrink-0"
+      >
+        <ChevronLeft size={16} />
+      </button>
+
+      <div className="flex-1 flex items-center justify-around">
+        {weekDays.map((day) => {
+          const isSelected = sameDay(day, current);
+          const isToday2   = sameDay(day, todayDate);
+          const key        = dateKey(day);
+          const hasAppts   = appointments.some(a => a.date === key);
+
+          return (
+            <button
+              key={key}
+              onClick={() => setCurrent(day)}
+              className="flex flex-col items-center gap-0.5 w-9"
+            >
+              <span className={`text-[10px] font-medium ${isSelected ? "text-primary" : "text-muted-foreground"}`}>
+                {DAYS_ES[day.getDay()]}
+              </span>
+              <span className={`w-7 h-7 flex items-center justify-center rounded-full text-sm font-semibold transition-all ${
+                isSelected
+                  ? "bg-primary text-primary-foreground"
+                  : isToday2
+                  ? "text-primary font-bold"
+                  : "text-foreground"
+              }`}>
+                {day.getDate()}
+              </span>
+              <span className={`w-1 h-1 rounded-full transition-all ${
+                isSelected && hasAppts
+                  ? "bg-white/70"
+                  : !isSelected && isToday2
+                  ? "bg-primary"
+                  : !isSelected && hasAppts
+                  ? "bg-muted-foreground/40"
+                  : "bg-transparent"
+              }`} />
+            </button>
+          );
+        })}
+      </div>
+
+      <button
+        onClick={() => goWeek(1)}
+        className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:bg-secondary transition-colors shrink-0"
+      >
+        <ChevronRight size={16} />
+      </button>
+    </div>
+  );
+};
+
 // ─── Main Component ───────────────────────────────────────────
 
 const CrmCalendar = () => {
@@ -1009,9 +1216,18 @@ const CrmCalendar = () => {
         rawStatus: a.status,
         duration_min: a.duration_min ?? null,
         contact_id: a.contact_id ?? null,
+        google_event_id: a.google_event_id ?? null,
         source: (a as any).source ?? null,
       };
     }), [rawAppointments, contacts, selectedCalendar]);
+
+  // Exclude Google events that were created from CRM appointments (already shown as appointments).
+  const filteredGoogleEvents = useMemo(() => {
+    const crmLinkedIds = new Set(
+      rawAppointments.map(a => a.google_event_id).filter(Boolean)
+    );
+    return googleEvents.filter(ge => !crmLinkedIds.has(ge.google_event_id));
+  }, [googleEvents, rawAppointments]);
 
   // Map raw blocked slots to the local BlockedSlot shape
   const blockedSlots: BlockedSlot[] = useMemo(() => rawBlocked.map(b => ({
@@ -1382,141 +1598,219 @@ const CrmCalendar = () => {
       isPending={deleteBlockedSlotMut.isPending}
       description="Se eliminará el bloqueo permanentemente."
     />
-    <div className="space-y-6">
-      {/* Top Toolbar */}
-      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div>
-          {/* Calendar dropdown selector */}
-          <div className="relative">
-            <button
-              onClick={() => setDropdownOpen(!dropdownOpen)}
-              className="flex items-center gap-2.5 text-xl font-semibold text-primary hover:text-primary/80 bg-primary/5 hover:bg-primary/10 px-4 py-2 rounded-xl border border-primary/20 transition-all"
-            >
-              <CalendarDays size={18} className="text-primary" />
-              {selectedCalendar?.name ?? "Seleccionar calendario"}
-              <ChevronDown size={16} className={`text-primary/60 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
-            </button>
+    <div className="space-y-4">
+      {/* ── Top Toolbar ── */}
+      <div className="space-y-3">
 
-            {dropdownOpen && (
-              <>
-                <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
-                <div className="absolute top-full left-0 mt-2 w-80 bg-popover border border-border/80 rounded-2xl shadow-xl z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-150">
-                  <p className="px-4 py-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Tus calendarios</p>
-                  {calendars.map((cal) => {
-                    const isActive = cal.id === (selectedCalendar?.id);
-                    return (
-                      <button
-                        key={cal.id}
-                        onClick={() => { handleSelectCalendar(cal.id); setDropdownOpen(false); }}
-                        className={`w-full text-left px-4 py-3 text-sm flex items-center gap-3 transition-all ${
-                          isActive ? "bg-primary/10 text-primary font-semibold border-l-2 border-primary" : "hover:bg-secondary/90 text-foreground"
-                        }`}
-                      >
-                        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isActive ? "bg-primary/20" : "bg-secondary"}`}>
-                          <CalendarDays size={13} className={isActive ? "text-primary" : "text-muted-foreground"} />
-                        </div>
-                        {cal.name ?? "Sin nombre"}
-                      </button>
-                    );
-                  })}
-                  <div className="border-t my-2 mx-3" />
-                  <button
-                    onClick={() => { setDropdownOpen(false); setEditingCalendarId(null); }}
-                    className="w-full text-left px-4 py-3 text-sm flex items-center gap-3 text-primary font-medium hover:bg-primary/5 transition-colors"
-                  >
-                    <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-                      <Plus size={13} className="text-primary" />
+        {/* Fila 1: Nombre del calendario + engranaje */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            {/* Selector de calendario — iOS style */}
+            <div className="relative">
+              <button
+                onClick={() => setDropdownOpen(!dropdownOpen)}
+                className="flex items-center gap-2 bg-secondary/40 hover:bg-secondary/70 px-3 py-2 rounded-xl transition-all max-w-full"
+              >
+                <CalendarDays size={15} className="text-primary shrink-0" />
+                <span className="text-base font-semibold text-foreground truncate">
+                  {selectedCalendar?.name ?? "Seleccionar calendario"}
+                </span>
+                <ChevronDown size={14} className={`text-muted-foreground shrink-0 transition-transform ${dropdownOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {dropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-40" onClick={() => setDropdownOpen(false)} />
+                  <div className="absolute top-full left-0 mt-2 w-72 bg-popover border border-border/80 rounded-2xl shadow-xl z-50 overflow-hidden animate-in fade-in slide-in-from-top-2 duration-150">
+                    <p className="px-4 pt-3 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Tus calendarios</p>
+                    <div className="rounded-2xl overflow-hidden mx-2 mb-1 border border-border/60">
+                      {calendars.map((cal, idx) => {
+                        const isActive = cal.id === (selectedCalendar?.id);
+                        return (
+                          <button
+                            key={cal.id}
+                            onClick={() => { handleSelectCalendar(cal.id); setDropdownOpen(false); }}
+                            className={`w-full text-left px-4 py-3 text-sm flex items-center gap-3 transition-all ${
+                              idx < calendars.length - 1 ? "border-b border-border/60" : ""
+                            } ${isActive ? "bg-primary/8 text-primary font-semibold border-l-2 border-primary" : "hover:bg-secondary/80 text-foreground"}`}
+                          >
+                            <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${isActive ? "bg-primary/20" : "bg-secondary"}`}>
+                              <CalendarDays size={13} className={isActive ? "text-primary" : "text-muted-foreground"} />
+                            </div>
+                            {cal.name ?? "Sin nombre"}
+                          </button>
+                        );
+                      })}
                     </div>
-                    Crear nuevo calendario
-                  </button>
-                </div>
-              </>
-            )}
+                    <div className="px-2 pb-2">
+                      <button
+                        onClick={() => { setDropdownOpen(false); setEditingCalendarId(null); }}
+                        className="w-full text-left px-4 py-3 text-sm flex items-center gap-3 text-primary font-medium hover:bg-primary/5 transition-colors rounded-xl"
+                      >
+                        <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                          <Plus size={13} className="text-primary" />
+                        </div>
+                        Crear nuevo calendario
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1 pl-1">Gestión de citas</p>
           </div>
-          <p className="text-sm text-muted-foreground mt-2">Gestión de citas agendadas</p>
+
+          {/* Engranaje — siempre visible */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="rounded-xl h-9 w-9 text-muted-foreground hover:text-foreground hover:bg-secondary shrink-0"
+            onClick={() => setEditingCalendarId(selectedCalendar?.id ?? null)}
+            title="Configurar calendario"
+          >
+            <Settings size={17} />
+          </Button>
         </div>
 
-        {/* View toggle & Settings */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {canEditCalendar && (
-            <Button
-              variant="outline"
-              onClick={openBlockModal}
-              className="h-[38px] rounded-xl text-xs font-semibold px-3 gap-2 text-amber-700 dark:text-amber-400 hover:text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-amber-300 dark:border-amber-700/40"
-            >
-              <Coffee size={14} /> <span className="hidden sm:inline">Reservar tiempo</span>
-            </Button>
-          )}
-          {canEditCalendar && (
-            <Button
-              onClick={() => openNewAppt(dateKey(current), 10, 0)}
-              className="h-[38px] rounded-xl text-xs font-semibold px-3 gap-2"
-            >
-              <Plus size={14} /> <span className="hidden sm:inline">Nueva cita</span>
-            </Button>
-          )}
-          <div className="flex border rounded-xl overflow-hidden bg-card h-[38px] shadow-sm">
+        {/* Fila 2: Segmented control + botones de acción */}
+        <div className="flex items-center gap-2">
+          {/* Segmented control — sistema */}
+          <div className="inline-flex items-center gap-0.5 bg-secondary/60 rounded-xl p-1 shrink-0">
             {(["day", "week", "month"] as ViewMode[]).map((v) => (
               <button
                 key={v}
                 onClick={() => handleSetView(v)}
-                className={`px-4 py-1 text-[11px] font-semibold transition-all ${
-                  view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground hover:bg-secondary/20"
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  view === v
+                    ? "bg-primary text-primary-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
                 }`}
               >
-                <span className="hidden sm:inline">{v === "day" ? "Diaria" : v === "week" ? "Semanal" : "Mensual"}</span>
-                <span className="sm:hidden">{v === "day" ? "D" : v === "week" ? "S" : "M"}</span>
+                <span className="hidden sm:inline">{v === "day" ? "Día" : v === "week" ? "Semana" : "Mes"}</span>
+                <span className="sm:hidden">{v === "day" ? "Día" : v === "week" ? "Sem" : "Mes"}</span>
               </button>
             ))}
           </div>
-          <Button
-            variant="outline"
-            size="icon"
-            className="rounded-xl h-[38px] w-[38px] bg-card shadow-sm border-border hover:bg-secondary text-muted-foreground hover:text-foreground"
-            onClick={() => setEditingCalendarId(selectedCalendar?.id ?? null)}
-            title="Configurar calendario"
-          >
-            <Settings size={16} />
-          </Button>
+
+          <div className="flex items-center gap-1.5 ml-auto">
+            {/* Reservar tiempo — solo desktop o ícono en mobile */}
+            {canEditCalendar && (
+              <Button
+                variant="outline"
+                onClick={openBlockModal}
+                className="h-9 rounded-xl text-xs font-semibold px-3 gap-1.5 text-amber-700 dark:text-amber-400 hover:text-amber-800 hover:bg-amber-50 dark:hover:bg-amber-950/20 border-amber-300 dark:border-amber-700/40"
+                title="Reservar tiempo personal"
+              >
+                <Coffee size={14} />
+                <span className="hidden sm:inline">Reservar tiempo</span>
+              </Button>
+            )}
+            {/* Nueva cita */}
+            {canEditCalendar && (
+              <Button
+                onClick={() => openNewAppt(dateKey(current), 10, 0)}
+                className="h-9 rounded-xl text-xs font-semibold px-3 gap-1.5"
+              >
+                <Plus size={14} />
+                <span className="hidden sm:inline">Nueva cita</span>
+                <span className="sm:hidden">Nueva</span>
+              </Button>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Date Navigation */}
-      <div className="flex flex-col-reverse sm:flex-row items-start sm:items-center gap-4 py-2 border-b border-border/40 mb-2">
-        <div className="flex items-center bg-secondary/90 border border-border/60 rounded-xl p-0.5">
-          <button onClick={() => navigate(-1)} className="p-1 px-1.5 hover:bg-background rounded-lg transition-colors text-muted-foreground hover:text-foreground">
-            <ChevronLeft size={16} />
-          </button>
-          <button 
-            disabled={isToday}
-            className={`text-xs px-3 transition-all h-7 rounded-lg mx-0.5 ${
-              isToday 
-                ? "text-muted-foreground/50 cursor-default font-medium" 
-                : "bg-background shadow-sm text-foreground font-semibold border border-border/40 hover:bg-secondary hover:text-primary cursor-pointer"
-            }`}
-            onClick={() => setCurrent(new Date())}
-            title={isToday ? "Ya estás viendo el día de hoy" : "Ir al día de hoy"}
-          >
-            Hoy
-          </button>
-          <button onClick={() => navigate(1)} className="p-1 px-1.5 hover:bg-background rounded-lg transition-colors text-muted-foreground hover:text-foreground">
-            <ChevronRight size={16} />
-          </button>
+      {/* ── Date Navigation ── */}
+      <div className="flex items-center gap-2 py-1 border-b border-border/40 pb-3">
+        {/* Prev / Next */}
+        <button
+          onClick={() => navigate(-1)}
+          className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0"
+        >
+          <ChevronLeft size={17} />
+        </button>
+
+        {/* Fecha centrada */}
+        <div className="flex-1 flex items-center justify-center gap-2 min-w-0">
+          <h2 className="text-base font-bold text-foreground select-none capitalize truncate">
+            {headerLabel()}
+          </h2>
+          {/* Chip "Hoy" junto a la fecha */}
+          {!isToday && (
+            <button
+              onClick={() => setCurrent(new Date())}
+              className="shrink-0 text-[11px] font-semibold text-primary bg-primary/10 hover:bg-primary/20 px-2.5 py-0.5 rounded-full transition-colors"
+            >
+              Hoy
+            </button>
+          )}
         </div>
-        <h2 className="text-xl font-bold text-foreground select-none capitalize">
-          {headerLabel()}
-        </h2>
+
+        <button
+          onClick={() => navigate(1)}
+          className="w-8 h-8 flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0"
+        >
+          <ChevronRight size={17} />
+        </button>
       </div>
 
       <div className={`${view !== "month" ? "grid lg:grid-cols-[1fr_300px] gap-6 overflow-hidden" : ""}`}>
-        {/* Calendar view */}
+        {/* ── Calendar view ── */}
         <div className="min-w-0 overflow-hidden">
-          {view === "day"   && <DayView   current={current} onSelect={(id) => { setSelectedGoogleEvent(null); handleSelectAppt(id); }} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} googleEvents={googleEvents} onGoogleEventClick={(evt) => { setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(evt); }} />}
-          {view === "week"  && <WeekView  current={current} onSelect={(id) => { setSelectedGoogleEvent(null); handleSelectAppt(id); }} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} googleEvents={googleEvents} onGoogleEventClick={(evt) => { setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(evt); }} />}
-          {view === "month" && <MonthView current={current} onSelect={handleSelectAppt} selected={selected} onBlockClick={handleSelectBlock} selectedBlockId={selectedBlockId} blocked={blockedSlots} appointments={appointments} />}
+
+          {/* ── MOBILE: vistas ── */}
+          {view === "day" && (
+            <div className="lg:hidden">
+              <MobileMonthStrip current={current} setCurrent={setCurrent} appointments={appointments} />
+              <DayView
+                current={current}
+                onSelect={(id) => { setSelectedGoogleEvent(null); handleSelectAppt(id); }}
+                selected={selected}
+                onSlotClick={canEditCalendar ? openNewAppt : () => {}}
+                onBlockClick={handleSelectBlock}
+                blocked={blockedSlots}
+                appointments={appointments}
+                availability={availability}
+                interval={calendarInterval}
+                googleEvents={filteredGoogleEvents}
+                onGoogleEventClick={(evt) => { setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(evt); }}
+              />
+            </div>
+          )}
+          {view === "week" && (
+            <div className="lg:hidden">
+              <WeekView
+                current={current}
+                onSelect={(id) => { setSelectedGoogleEvent(null); handleSelectAppt(id); }}
+                selected={selected}
+                onSlotClick={canEditCalendar ? openNewAppt : () => {}}
+                onBlockClick={handleSelectBlock}
+                blocked={blockedSlots}
+                appointments={appointments}
+                availability={availability}
+                interval={calendarInterval}
+                googleEvents={filteredGoogleEvents}
+                onGoogleEventClick={(evt) => { setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(evt); }}
+              />
+            </div>
+          )}
+
+          {/* Mobile: MonthView */}
+          {view === "month" && (
+            <div className="lg:hidden">
+              <MonthView current={current} onSelect={handleSelectAppt} selected={selected} onBlockClick={handleSelectBlock} selectedBlockId={selectedBlockId} blocked={blockedSlots} appointments={appointments} />
+            </div>
+          )}
+
+          {/* ── DESKTOP: vista elegida ── */}
+          <div className="hidden lg:block">
+            {view === "day"   && <DayView   current={current} onSelect={(id) => { setSelectedGoogleEvent(null); handleSelectAppt(id); }} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} googleEvents={filteredGoogleEvents} onGoogleEventClick={(evt) => { setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(evt); }} />}
+            {view === "week"  && <WeekView  current={current} onSelect={(id) => { setSelectedGoogleEvent(null); handleSelectAppt(id); }} selected={selected} onSlotClick={canEditCalendar ? openNewAppt : () => {}} onBlockClick={handleSelectBlock} blocked={blockedSlots} appointments={appointments} availability={availability} interval={calendarInterval} googleEvents={filteredGoogleEvents} onGoogleEventClick={(evt) => { setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(evt); }} />}
+            {view === "month" && <MonthView current={current} onSelect={handleSelectAppt} selected={selected} onBlockClick={handleSelectBlock} selectedBlockId={selectedBlockId} blocked={blockedSlots} appointments={appointments} />}
+          </div>
         </div>
 
-        {/* Detail panel — day & week only (desktop) */}
+        {/* ── Detail panel — día & semana, solo desktop ── */}
         {view !== "month" && (
           <div className="hidden lg:block bg-card border rounded-2xl p-5 h-fit">
             {selectedGoogleEvent ? (
@@ -1572,51 +1866,60 @@ const CrmCalendar = () => {
               />
             ) : detail ? (
               <div className="space-y-5">
+                {/* Avatar + nombre + estado */}
                 <div className="flex items-start gap-3">
-                  <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 ${getAvatarColor(detail.name)}`}>
                     {detail.name.substring(0, 2).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-sm truncate">{detail.name}</p>
-                    <div className="relative mt-1 inline-block">
-                      <select
-                        value={detail.status}
-                        disabled={!canEditCalendar}
-                        onChange={async (e) => {
-                          const newStatus = e.target.value === "Cancelada" ? "cancelled" : "confirmed";
-                          try {
-                            await updateAppointment.mutateAsync({ id: detail.id, status: newStatus });
-                            toast.success("Estado actualizado");
-                          } catch { toast.error("Error al actualizar"); }
-                        }}
-                        className={`text-[10px] appearance-none bg-background border px-2.5 py-0.5 rounded-full pr-6 ${canEditCalendar ? "cursor-pointer hover:bg-secondary/20" : "cursor-default opacity-70"} transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${statusStyles[detail.status] || ""}`}
-                      >
-                        <option value="Confirmada">Confirmada</option>
-                        <option value="Cancelada">Cancelada</option>
-                      </select>
-                      <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
-                    </div>
+                    {/* Badge de estado — clickable para cambiar si puede editar */}
+                    {canEditCalendar ? (
+                      <div className="relative mt-1 inline-block">
+                        <select
+                          value={detail.status}
+                          onChange={async (e) => {
+                            const newStatus = e.target.value === "Cancelada" ? "cancelled" : "confirmed";
+                            try {
+                              await updateAppointment.mutateAsync({ id: detail.id, status: newStatus });
+                              toast.success("Estado actualizado");
+                            } catch { toast.error("Error al actualizar"); }
+                          }}
+                          className={`text-[10px] appearance-none bg-background border px-2.5 py-1 rounded-full pr-6 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 font-semibold ${statusStyles[detail.status] || ""}`}
+                        >
+                          <option value="Confirmada">Confirmada</option>
+                          <option value="Cancelada">Cancelada</option>
+                        </select>
+                        <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
+                      </div>
+                    ) : (
+                      <span className={`mt-1 inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full border ${statusStyles[detail.status] || ""}`}>
+                        {detail.status}
+                      </span>
+                    )}
                   </div>
-
                   {canEditCalendar && (
                     <div className="flex items-center gap-0.5 mt-0.5 shrink-0">
                       <button
                         onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); setEditNotes(detail.notes ?? ""); }}
                         className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                        title="Editar cita (fecha y hora)"
+                        title="Editar cita"
                       >
                         <Pencil size={14} />
                       </button>
                       <button
                         onClick={() => setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` })}
-                        className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Borrar cita">
+                        className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                        title="Eliminar cita"
+                      >
                         <Trash2 size={14} />
                       </button>
                     </div>
                   )}
                 </div>
+
                 <div className="space-y-4 text-sm">
-                  {/* Cita Details */}
+                  {/* Info de la cita */}
                   <div>
                     <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Información de la Cita</p>
                     <div className="space-y-2.5">
@@ -1653,7 +1956,7 @@ const CrmCalendar = () => {
                     </div>
                   </div>
 
-                  {/* Contact Details */}
+                  {/* Info del contacto */}
                   {detail.contact_id && (() => {
                     const contact = contacts.find(c => c.id === detail.contact_id);
                     if (!contact) return null;
@@ -1696,137 +1999,302 @@ const CrmCalendar = () => {
                 </div>
               </div>
             ) : (
-              <div className="py-10 text-center">
-                <User size={22} className="text-muted-foreground/20 mx-auto mb-2" />
-                <p className="text-xs text-muted-foreground">Selecciona una cita o bloqueo para ver los detalles</p>
+              /* ── Empty state mejorado ── */
+              <div className="py-8 text-center space-y-3">
+                <CalendarDays size={20} className="text-muted-foreground/20 mx-auto" />
+                <div>
+                  <p className="text-xs font-medium text-foreground">Selecciona una cita</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">para ver los detalles</p>
+                </div>
+                {/* Próximas citas del día/semana — accesos rápidos */}
+                {(() => {
+                  const now = new Date();
+                  const nowKey = dateKey(now);
+                  const nowMin = now.getHours() * 60 + now.getMinutes();
+                  const upcoming = appointments
+                    .filter(a => {
+                      if (a.rawStatus === "cancelled") return false;
+                      if (a.date < nowKey) return false;
+                      if (a.date === nowKey && a.hour * 60 + (a.minute ?? 0) < nowMin) return false;
+                      return true;
+                    })
+                    .sort((a, b) => a.date.localeCompare(b.date) || a.hour - b.hour)
+                    .slice(0, 4);
+                  if (!upcoming.length) return null;
+                  return (
+                    <div className="text-left mt-4 space-y-1.5">
+                      <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider px-1">Próximas citas</p>
+                      {upcoming.map(a => (
+                        <button
+                          key={a.id}
+                          onClick={() => handleSelectAppt(a.id)}
+                          className="w-full text-left px-3 py-2 rounded-xl bg-secondary/40 hover:bg-secondary/70 transition-colors flex items-center gap-2"
+                        >
+                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0 ${getAvatarColor(a.name)}`}>
+                            {a.name.substring(0, 1).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">{a.name}</p>
+                            <p className="text-[10px] text-muted-foreground">{a.date} · {a.time}</p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
             )}
           </div>
         )}
 
-        {/* Mobile bottom sheet — day & week detail */}
-        {view !== "month" && (detail || blockDetail) && (
+        {/* ── Mobile bottom sheet — day & week detail ── */}
+        {view !== "month" && (detail || blockDetail || selectedGoogleEvent) && (
           <div className="lg:hidden">
             {/* Backdrop */}
             <div
-              className="fixed inset-0 bg-black/40 z-40"
-              onClick={() => { setSelected(null); setSelectedBlockId(null); }}
+              className="fixed inset-0 bg-black/50 z-40 backdrop-blur-[1px]"
+              onClick={() => { setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(null); }}
             />
             {/* Sheet */}
-            <div className="fixed bottom-0 inset-x-0 z-50 bg-card rounded-t-2xl shadow-xl max-h-[80dvh] flex flex-col">
-              {/* Drag handle */}
-              <div className="flex justify-center pt-3 pb-1 shrink-0">
-                <div className="w-10 h-1 rounded-full bg-muted-foreground/20" />
+            <div className="fixed bottom-0 inset-x-0 z-50 bg-card rounded-t-3xl shadow-2xl max-h-[85dvh] flex flex-col">
+              {/* Handle prominente */}
+              <div className="flex justify-center pt-4 pb-2 shrink-0">
+                <div className="w-12 h-1.5 rounded-full bg-muted-foreground/25" />
               </div>
               {/* Close button */}
               <button
-                onClick={() => { setSelected(null); setSelectedBlockId(null); }}
-                className="absolute top-3 right-4 w-8 h-8 flex items-center justify-center rounded-full hover:bg-secondary transition-colors text-muted-foreground"
+                onClick={() => { setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(null); }}
+                className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-full bg-secondary/70 hover:bg-secondary transition-colors text-muted-foreground"
               >
-                <X size={16} />
+                <X size={15} />
               </button>
+
               {/* Scrollable content */}
-              <div className="overflow-y-auto px-5 py-4">
-                {blockDetail ? (
-                  <BlockDetailPanel
-                    block={blockDetail}
-                    canEdit={canEditCalendar}
-                    onEdit={() => openEditBlockModal(blockDetail)}
-                    onDelete={() => setDeleteBlockTarget({ id: blockDetail.id, name: blockDetail.reason || "Bloqueo" })}
-                  />
-                ) : detail ? (
-                  <div className="space-y-5 pb-4">
+              <div className="overflow-y-auto px-5 pt-2 pb-8">
+                {selectedGoogleEvent ? (
+                  <div className="space-y-5 pb-2">
+                    {/* Header */}
                     <div className="flex items-start gap-3">
-                      <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
-                        {detail.name.substring(0, 2).toUpperCase()}
+                      <div className="w-12 h-12 rounded-xl bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                        <img src="https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_16dp.png" alt="Google" className="w-7 h-7" />
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-sm truncate">{detail.name}</p>
-                        <div className="relative mt-1 inline-block">
-                          <select
-                            value={detail.status}
-                            disabled={!canEditCalendar}
-                            onChange={async (e) => {
-                              const newStatus = e.target.value === "Cancelada" ? "cancelled" : "confirmed";
-                              try {
-                                await updateAppointment.mutateAsync({ id: detail.id, status: newStatus });
-                                toast.success("Estado actualizado");
-                              } catch { toast.error("Error al actualizar"); }
-                            }}
-                            className={`text-[10px] appearance-none bg-background border px-2.5 py-0.5 rounded-full pr-6 ${canEditCalendar ? "cursor-pointer hover:bg-secondary/20" : "cursor-default opacity-70"} transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${statusStyles[detail.status] || ""}`}
-                          >
-                            <option value="Confirmada">Confirmada</option>
-                            <option value="Cancelada">Cancelada</option>
-                          </select>
-                          <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
-                        </div>
+                      <div className="flex-1 min-w-0 pt-1">
+                        <p className="font-semibold text-base truncate leading-tight">{selectedGoogleEvent.title ?? "Evento de Google Calendar"}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">Google Calendar</p>
                       </div>
-                      {canEditCalendar && (
-                        <div className="flex items-center gap-0.5 mt-0.5 shrink-0">
-                          <button
-                            onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); setEditNotes(detail.notes ?? ""); }}
-                            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                            title="Editar cita"
-                          >
-                            <Pencil size={14} />
-                          </button>
-                          <button
-                            onClick={() => setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` })}
-                            className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      )}
                     </div>
-                    <div className="space-y-4 text-sm">
-                      <div>
-                        <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Información de la Cita</p>
-                        <div className="space-y-2.5">
-                          {([
-                            ["Fecha",    detail.date],
-                            ["Hora",     detail.time],
-                            ["Duración", `${detail.duration_min} min`],
-                            detail.service ? ["Servicio", detail.service] : null,
-                          ] as (readonly [string, string] | null)[]).filter((v): v is readonly [string, string] => !!v && !!v[1]).map(([label, value]) => (
-                            <div key={label}>
-                              <p className="text-[10px] text-muted-foreground/70">{label}</p>
-                              <p className="font-medium text-xs">{value}</p>
-                            </div>
-                          ))}
-                          {detail.google_event_id && (
-                            <p className="text-[10px] text-green-600">✓ Sincronizada con Google</p>
-                          )}
-                          {detail.notes && (
-                            <div className="pt-1 border-t">
-                              <p className="text-[10px] text-muted-foreground/70">Notas</p>
-                              <p className="text-xs mt-1">{detail.notes}</p>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      {detail.contact_id && (() => {
-                        const contact = contacts.find(c => c.id === detail.contact_id);
-                        if (!contact) return null;
+                    <div className="border-t border-border/50" />
+                    {/* Details */}
+                    <div className="space-y-3">
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">Detalles del evento</p>
+                      {(() => {
+                        const s = new Date(selectedGoogleEvent.start_at);
+                        const e = new Date(selectedGoogleEvent.end_at);
+                        const pad = (n: number) => String(n).padStart(2, "0");
+                        const dateStr  = `${s.getFullYear()}-${pad(s.getMonth()+1)}-${pad(s.getDate())}`;
+                        const startStr = `${pad(s.getHours())}:${pad(s.getMinutes())}`;
+                        const endStr   = `${pad(e.getHours())}:${pad(e.getMinutes())}`;
+                        const durMin = Math.round((e.getTime() - s.getTime()) / 60000);
+                        const durStr = durMin >= 60 ? `${Math.floor(durMin/60)}h ${durMin%60>0?" "+durMin%60+"min":""}`.trim() : `${durMin} min`;
                         return (
-                          <div className="border-t pt-4">
-                            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Información del Contacto</p>
-                            <div className="space-y-2.5">
-                              {([
-                                ["Email",    contact.email],
-                                ["Teléfono", contact.phone],
-                                ["Empresa",  contact.company],
-                              ] as readonly (readonly [string, string | undefined])[]).filter((pair): pair is readonly [string, string] => !!pair[1]).map(([label, value]) => (
-                                <div key={label}>
-                                  <p className="text-[10px] text-muted-foreground/70">{label}</p>
-                                  <p className="font-medium text-xs">{value}</p>
-                                </div>
-                              ))}
-                            </div>
+                          <div className="bg-secondary/30 rounded-2xl overflow-hidden divide-y divide-border/50">
+                            {([["Fecha", dateStr], ["Hora", `${startStr} – ${endStr}`], ["Duración", durStr]] as [string,string][]).map(([label, value]) => (
+                              <div key={label} className="flex items-center justify-between px-4 py-3">
+                                <p className="text-xs text-muted-foreground">{label}</p>
+                                <p className="text-xs font-semibold text-foreground">{value}</p>
+                              </div>
+                            ))}
                           </div>
                         );
                       })()}
+                      <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-3 py-1 rounded-full">
+                        <img src="https://www.gstatic.com/images/branding/product/1x/calendar_2020q4_16dp.png" alt="" className="w-3 h-3" />
+                        Importado de Google Calendar
+                      </span>
                     </div>
+                  </div>
+                ) : blockDetail ? (
+                  <div className="space-y-5 pb-2">
+                    {/* Header */}
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 rounded-xl bg-amber-100 dark:bg-amber-900/30 flex items-center justify-center shrink-0">
+                        <Coffee size={22} className="text-amber-600 dark:text-amber-400" />
+                      </div>
+                      <div className="flex-1 min-w-0 pt-1">
+                        <p className="font-semibold text-base truncate leading-tight">{blockDetail.reason || "Hora bloqueada"}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {blockDetail.type === "fullday" ? "Día completo bloqueado" : blockDetail.type === "range" ? "Rango de días" : "Horas bloqueadas"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="border-t border-border/50" />
+                    {/* Details */}
+                    <div className="space-y-3">
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">Detalles del bloqueo</p>
+                      <div className="bg-secondary/30 rounded-2xl overflow-hidden divide-y divide-border/50">
+                        {blockDetail.type === "hours" && blockDetail.date && (
+                          <div className="flex items-center justify-between px-4 py-3">
+                            <p className="text-xs text-muted-foreground">Fecha</p>
+                            <p className="text-xs font-semibold text-foreground">{blockDetail.date}</p>
+                          </div>
+                        )}
+                        {blockDetail.type === "range" && blockDetail.startDate && (
+                          <div className="flex items-center justify-between px-4 py-3">
+                            <p className="text-xs text-muted-foreground">Desde</p>
+                            <p className="text-xs font-semibold text-foreground">{blockDetail.startDate}</p>
+                          </div>
+                        )}
+                        {blockDetail.type === "range" && blockDetail.endDate && (
+                          <div className="flex items-center justify-between px-4 py-3">
+                            <p className="text-xs text-muted-foreground">Hasta</p>
+                            <p className="text-xs font-semibold text-foreground">{blockDetail.endDate}</p>
+                          </div>
+                        )}
+                        {blockDetail.type === "hours" && blockDetail.startHour != null && (
+                          <div className="flex items-center justify-between px-4 py-3">
+                            <p className="text-xs text-muted-foreground">Horario</p>
+                            <p className="text-xs font-semibold text-foreground">{formatBlockRange(blockDetail)}</p>
+                          </div>
+                        )}
+                        {blockDetail.reason && (
+                          <div className="flex items-center justify-between px-4 py-3">
+                            <p className="text-xs text-muted-foreground">Motivo</p>
+                            <p className="text-xs font-semibold text-foreground truncate max-w-[55%] text-right">{blockDetail.reason}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    {/* Actions */}
+                    {canEditCalendar && (
+                      <div className="flex gap-3 pt-1">
+                        <button
+                          onClick={() => { openEditBlockModal(blockDetail); setSelectedBlockId(null); }}
+                          className="flex-1 h-12 flex items-center justify-center gap-2 rounded-2xl bg-secondary/60 hover:bg-secondary transition-colors text-sm font-semibold text-foreground"
+                        >
+                          <Pencil size={15} /> Editar
+                        </button>
+                        <button
+                          onClick={() => { setDeleteBlockTarget({ id: blockDetail.id, name: blockDetail.reason || "Bloqueo" }); setSelectedBlockId(null); }}
+                          className="flex-1 h-12 flex items-center justify-center gap-2 rounded-2xl bg-destructive/10 hover:bg-destructive/20 transition-colors text-sm font-semibold text-destructive"
+                        >
+                          <Trash2 size={15} /> Eliminar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ) : detail ? (
+                  <div className="space-y-5 pb-2">
+                    {/* Cabecera: avatar coloreado + nombre + badge estado */}
+                    <div className="flex items-start gap-3">
+                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 ${getAvatarColor(detail.name)}`}>
+                        {detail.name.substring(0, 2).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0 pt-0.5">
+                        <p className="font-semibold text-base truncate leading-tight">{detail.name}</p>
+                        {/* Badge de estado */}
+                        {canEditCalendar ? (
+                          <div className="relative mt-1.5 inline-block">
+                            <select
+                              value={detail.status}
+                              onChange={async (e) => {
+                                const newStatus = e.target.value === "Cancelada" ? "cancelled" : "confirmed";
+                                try {
+                                  await updateAppointment.mutateAsync({ id: detail.id, status: newStatus });
+                                  toast.success("Estado actualizado");
+                                } catch { toast.error("Error al actualizar"); }
+                              }}
+                              className={`text-xs appearance-none bg-background border px-3 py-1 rounded-full pr-7 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 font-semibold ${statusStyles[detail.status] || ""}`}
+                            >
+                              <option value="Confirmada">Confirmada</option>
+                              <option value="Cancelada">Cancelada</option>
+                            </select>
+                            <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
+                          </div>
+                        ) : (
+                          <span className={`mt-1.5 inline-block text-xs font-semibold px-3 py-1 rounded-full border ${statusStyles[detail.status] || ""}`}>
+                            {detail.status}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Separador */}
+                    <div className="border-t border-border/50" />
+
+                    {/* Info de la cita */}
+                    <div className="space-y-3">
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">Información de la Cita</p>
+                      <div className="bg-secondary/30 rounded-2xl overflow-hidden divide-y divide-border/50">
+                        {([
+                          ["Fecha",    detail.date],
+                          ["Hora",     detail.time],
+                          ["Duración", detail.duration_min ? `${detail.duration_min} min` : null],
+                          detail.service ? ["Servicio", detail.service] : null,
+                        ] as (readonly [string, string | null] | null)[]).filter((v): v is readonly [string, string] => !!v && !!v[1]).map(([label, value]) => (
+                          <div key={label} className="flex items-center justify-between px-4 py-3">
+                            <p className="text-xs text-muted-foreground">{label}</p>
+                            <p className="text-xs font-semibold text-foreground">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      {(detail as any).source === "ai_agent" && (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-primary/10 text-primary px-3 py-1 rounded-full">
+                          Agendado por IA
+                        </span>
+                      )}
+                      {detail.google_event_id && (
+                        <p className="text-[11px] text-green-600 font-medium">✓ Sincronizada con Google</p>
+                      )}
+                      {detail.notes && (
+                        <div className="bg-secondary/30 rounded-2xl px-4 py-3">
+                          <p className="text-[10px] text-muted-foreground/70 mb-1">Notas</p>
+                          <p className="text-sm">{detail.notes}</p>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Info del contacto */}
+                    {detail.contact_id && (() => {
+                      const contact = contacts.find(c => c.id === detail.contact_id);
+                      if (!contact) return null;
+                      const contactRows = ([
+                        ["Email",    contact.email],
+                        ["Teléfono", contact.phone],
+                        ["Empresa",  contact.company],
+                      ] as readonly (readonly [string, string | undefined])[]).filter((pair): pair is readonly [string, string] => !!pair[1]);
+                      if (!contactRows.length) return null;
+                      return (
+                        <div className="space-y-3">
+                          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-semibold">Contacto</p>
+                          <div className="bg-secondary/30 rounded-2xl overflow-hidden divide-y divide-border/50">
+                            {contactRows.map(([label, value]) => (
+                              <div key={label} className="flex items-center justify-between px-4 py-3">
+                                <p className="text-xs text-muted-foreground">{label}</p>
+                                <p className="text-xs font-semibold text-foreground truncate max-w-[55%] text-right">{value}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Botones de acción accesibles */}
+                    {canEditCalendar && (
+                      <div className="flex gap-3 pt-1">
+                        <button
+                          onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); setEditNotes(detail.notes ?? ""); setSelected(null); }}
+                          className="flex-1 h-12 flex items-center justify-center gap-2 rounded-2xl bg-secondary/60 hover:bg-secondary transition-colors text-sm font-semibold text-foreground"
+                        >
+                          <Pencil size={15} /> Editar
+                        </button>
+                        <button
+                          onClick={() => { setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` }); setSelected(null); }}
+                          className="flex-1 h-12 flex items-center justify-center gap-2 rounded-2xl bg-destructive/10 hover:bg-destructive/20 transition-colors text-sm font-semibold text-destructive"
+                        >
+                          <Trash2 size={15} /> Eliminar
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ) : null}
               </div>
@@ -1846,12 +2314,12 @@ const CrmCalendar = () => {
           </div>
         )}
 
-        {/* Detail panel — month view (below) */}
+        {/* ── Detail panel — month view (debajo) ── */}
         {view === "month" && detail && (
           <div className="bg-card border rounded-2xl p-5 mt-4 space-y-4">
             <div className="flex justify-between items-start">
               <div className="flex items-center gap-3 overflow-hidden">
-                <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0">
+                <div className={`w-10 h-10 rounded-xl flex items-center justify-center text-sm font-bold shrink-0 ${getAvatarColor(detail.name)}`}>
                   {detail.name.substring(0, 2).toUpperCase()}
                 </div>
                 <div className="min-w-0">
@@ -1862,7 +2330,8 @@ const CrmCalendar = () => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-3 shrink-0 ml-4 max-sm:gap-1.5">
+              <div className="flex items-center gap-2 shrink-0 ml-4">
+                {/* Badge estado con select */}
                 <div className="relative inline-block">
                   <select
                     value={detail.status}
@@ -1873,7 +2342,7 @@ const CrmCalendar = () => {
                         toast.success("Estado actualizado");
                       } catch { toast.error("Error al actualizar"); }
                     }}
-                    className={`text-[10px] appearance-none bg-background border px-2 py-1 rounded-full pr-5 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 ${statusStyles[detail.status] || ""}`}
+                    className={`text-[10px] appearance-none bg-background border px-2.5 py-1 rounded-full pr-5 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 font-semibold ${statusStyles[detail.status] || ""}`}
                   >
                     <option value="Confirmada">Confirmada</option>
                     <option value="Cancelada">Cancelada</option>
@@ -1881,34 +2350,35 @@ const CrmCalendar = () => {
                   <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
                 </div>
                 {canEditCalendar && (
-                  <div className="flex items-center gap-1 sm:border-l sm:pl-3 border-border/40">
+                  <div className="flex items-center gap-0.5 border-l pl-2 border-border/40">
                     <button
                       onClick={() => { setEditingApptId(detail.id); setEditDate(detail.date); setEditHour(detail.hour); setEditMinute(detail.minute ?? 0); setEditNotes(detail.notes ?? ""); }}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                      title="Editar cita (fecha y hora)"
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                      title="Editar cita"
                     >
-                      <Pencil size={13} />
+                      <Pencil size={14} />
                     </button>
                     <button
                       onClick={() => setDeleteApptTarget({ id: detail.id, name: `Cita con ${detail.name} el ${detail.date}` })}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors" title="Borrar cita">
-                      <Trash2 size={13} />
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                      title="Eliminar cita"
+                    >
+                      <Trash2 size={14} />
                     </button>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Expanded details */}
+            {/* Detalles expandidos */}
             <div className="space-y-4 text-sm pt-3 border-t">
-              {/* Cita Details */}
               <div>
                 <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Información de la Cita</p>
                 <div className="space-y-2.5">
                   {([
-                    ["Duración", `${detail.duration_min} min`],
+                    ["Duración", detail.duration_min ? `${detail.duration_min} min` : null],
                     detail.service ? ["Servicio", detail.service] : null,
-                  ] as (readonly [string, string] | null)[]).filter((v): v is readonly [string, string] => !!v && !!v[1]).map(([label, value]) => (
+                  ] as (readonly [string, string | null] | null)[]).filter((v): v is readonly [string, string] => !!v && !!v[1]).map(([label, value]) => (
                     <div key={label}>
                       <p className="text-[10px] text-muted-foreground/70">{label}</p>
                       <p className="font-medium text-xs">{value}</p>
@@ -1930,7 +2400,6 @@ const CrmCalendar = () => {
                 </div>
               </div>
 
-              {/* Contact Details */}
               {detail.contact_id && (() => {
                 const contact = contacts.find(c => c.id === detail.contact_id);
                 if (!contact) return null;
@@ -2024,6 +2493,7 @@ const CrmCalendar = () => {
                   date: newAppt.date,
                   hour: newAppt.hour,
                   minute: newAppt.minute,
+                  duration_min: calendarInterval,
                   service: newAppt.service || null,
                   notes: newAppt.notes || null,
                   status: "confirmed",

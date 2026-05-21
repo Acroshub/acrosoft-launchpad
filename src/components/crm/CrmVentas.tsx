@@ -1,7 +1,10 @@
 import { useState, useMemo, useRef } from "react";
-import { DollarSign, Plus, Loader2, Pencil, Trash2, RefreshCcw, X, Filter, Crown, CheckCircle2, ExternalLink, UserCheck, TrendingUp, Percent, Calendar, Upload, AlertTriangle, Bot, Check, XCircle } from "lucide-react";
+import {
+  DollarSign, Plus, Loader2, RefreshCcw, X, Filter, Crown,
+  CheckCircle2, ExternalLink, UserCheck, TrendingUp, Percent,
+  Calendar, Upload, AlertTriangle, Bot, Check, XCircle, Pencil, Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
@@ -14,6 +17,8 @@ import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import SalesTable from "@/components/crm/SalesTable";
 
+// ─── Constants ────────────────────────────────────────────────────────────────
+
 const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
 const CURRENCY_SYMBOLS: Record<string, string> = {
@@ -24,17 +29,36 @@ const CURRENCY_SYMBOLS: Record<string, string> = {
 
 const fmtSaleAmt = (amount: number, currency?: string | null, decimals = 2) => {
   const cur = (currency ?? "USD").toUpperCase();
-  const sym = CURRENCY_SYMBOLS[cur] ?? `${cur} `;
-  return `${sym}${amount.toFixed(decimals)}`;
+  return `${CURRENCY_SYMBOLS[cur] ?? `${cur} `}${amount.toFixed(decimals)}`;
+};
+
+function getAvatarColor(str: string) {
+  const colors = ["#1877F2","#0a57d0","#00a884","#9B59B6","#E67E22","#E91E63","#3498DB","#2ECC71"];
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  return colors[Math.abs(h) % colors.length];
+}
+
+const SELECT_CLS = "w-full h-12 px-3.5 rounded-xl border border-border bg-card text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer";
+const INPUT_CLS  = "w-full h-12 px-4 rounded-xl border border-border bg-card text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-muted-foreground/50";
+const F_SELECT   = "w-full h-9 px-3 rounded-xl border border-border bg-card text-xs font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer";
+const F_INPUT    = "w-full h-9 px-3 rounded-xl border border-border bg-card text-xs font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all";
+
+const Chevron = () => (
+  <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  </div>
+);
+
+const INTERVAL_LABELS: Record<string, string> = {
+  monthly: "Mensual", annual: "Anual", quarterly: "Trimestral", semiannual: "Semestral",
 };
 
 // ─── Proof Upload ─────────────────────────────────────────────────────────────
 
-const ProofUpload = ({
-  onUploaded,
-}: {
-  onUploaded: (url: string) => void;
-}) => {
+const ProofUpload = ({ onUploaded }: { onUploaded: (url: string) => void }) => {
   const ref = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview]     = useState<string | null>(null);
@@ -44,9 +68,7 @@ const ProofUpload = ({
     try {
       const ext  = file.name.split(".").pop() ?? "jpg";
       const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage
-        .from("payment-proofs")
-        .upload(path, file, { upsert: false });
+      const { error } = await supabase.storage.from("payment-proofs").upload(path, file, { upsert: false });
       if (error) throw error;
       const { data } = supabase.storage.from("payment-proofs").getPublicUrl(path);
       setPreview(data.publicUrl);
@@ -60,45 +82,27 @@ const ProofUpload = ({
 
   return (
     <div className="space-y-2">
-      <input
-        ref={ref}
-        type="file"
-        accept="image/*,application/pdf"
-        className="hidden"
-        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }}
-      />
+      <input ref={ref} type="file" accept="image/*,application/pdf" className="hidden"
+        onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
       {preview ? (
         <div className="relative">
           <img src={preview} alt="Comprobante" className="w-full max-h-32 object-contain rounded-xl border" />
-          <button
-            type="button"
+          <button type="button"
             onClick={() => { setPreview(null); onUploaded(""); if (ref.current) ref.current.value = ""; }}
-            className="absolute top-1 right-1 bg-background border rounded-full p-0.5 text-muted-foreground hover:text-destructive"
-          >
-            <X size={12} />
+            className="absolute top-1.5 right-1.5 w-6 h-6 rounded-full bg-background border flex items-center justify-center text-muted-foreground hover:text-destructive transition-colors">
+            <X size={11} />
           </button>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => ref.current?.click()}
-          disabled={uploading}
-          className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-border rounded-xl py-4 text-sm text-muted-foreground hover:border-primary/40 hover:text-foreground transition-all"
-        >
+        <button type="button" onClick={() => ref.current?.click()} disabled={uploading}
+          className="w-full flex items-center justify-center gap-2 border-2 border-dashed border-border rounded-xl py-4 text-sm text-muted-foreground hover:border-primary/40 hover:text-foreground transition-all">
           {uploading
             ? <><Loader2 size={14} className="animate-spin" /> Subiendo...</>
-            : <><Upload size={14} /> Subir imagen o PDF</>
-          }
+            : <><Upload size={14} /> Subir imagen o PDF</>}
         </button>
       )}
     </div>
   );
-};
-const INTERVAL_LABELS: Record<string, string> = {
-  monthly:    "Mensual",
-  annual:     "Anual",
-  quarterly:  "Trimestral",
-  semiannual: "Semestral",
 };
 
 // ─── Vendor Sales View ────────────────────────────────────────────────────────
@@ -108,11 +112,10 @@ const VendorSalesView = ({ vendorProfile }: { vendorProfile: CrmVendor }) => {
   const { data: maint = [] }                = useMaintenancePayments();
   const commissionPct                       = vendorProfile.commission_pct;
 
-  const totalVentas          = salesData.length;
-  const initialSales         = salesData.filter(s => s.type === "initial");
-  const recurringSales       = salesData.filter(s => s.type === "recurring");
+  const totalVentas    = salesData.length;
+  const initialSales   = salesData.filter(s => s.type === "initial");
+  const recurringSales = salesData.filter(s => s.type === "recurring");
 
-  // First recurring sale per (contact, service) = included in initial, no commission
   const firstRecurringSaleIds = useMemo(() => {
     const firstByKey: Record<string, string> = {};
     const sorted = [...salesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -127,77 +130,70 @@ const VendorSalesView = ({ vendorProfile }: { vendorProfile: CrmVendor }) => {
   const effectivePct = (sale: CrmSale) =>
     sale.commission_pct > 0 ? sale.commission_pct : commissionPct;
 
-  const comisionesIniciales  = initialSales.reduce(
-    (s, x) => s + (x.amount * effectivePct(x) / 100), 0
-  );
+  const comisionesIniciales   = initialSales.reduce((s, x) => s + (x.amount * effectivePct(x) / 100), 0);
   const comisionesRecurrentes = recurringSales
     .filter(x => !firstRecurringSaleIds.has(x.id))
     .reduce((s, x) => s + (x.amount * effectivePct(x) / 100), 0);
   const totalComisiones = comisionesIniciales + comisionesRecurrentes;
 
-  // Comisiones de mantenimiento pagadas (del historial)
-  const maintPagadas = maint.filter(m => m.is_paid).reduce((s, m) => s + m.commission_amount, 0);
-  const maintPendientes = maint.filter(m => !m.is_paid).reduce((s, m) => s + m.commission_amount, 0);
+  const KPIS = [
+    { icon: TrendingUp,  label: "Ventas totales",              value: String(totalVentas),                    iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
+    { icon: DollarSign,  label: `Total comisiones (${commissionPct}%)`, value: `$${totalComisiones.toFixed(0)}`,       iconCls: "text-primary",          bgCls: "bg-primary/10" },
+    { icon: Percent,     label: `Iniciales · ${initialSales.length} vta${initialSales.length !== 1 ? "s" : ""}`,    value: `$${comisionesIniciales.toFixed(0)}`,   iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
+    { icon: RefreshCcw,  label: `Mantenimientos · ${recurringSales.length} activo${recurringSales.length !== 1 ? "s" : ""}`, value: `$${comisionesRecurrentes.toFixed(0)}`, iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
+  ];
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold">Mis Ventas</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Resumen de tus comisiones y actividad de ventas</p>
+        <h1 className="text-xl font-bold tracking-tight">Mis Ventas</h1>
+        <p className="text-sm text-muted-foreground mt-0.5">Resumen de comisiones y actividad</p>
       </div>
 
       {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-card border rounded-2xl p-5">
-          <TrendingUp size={16} className="mb-4 text-muted-foreground" />
-          <p className="text-2xl font-semibold">{totalVentas}</p>
-          <p className="text-xs text-muted-foreground mt-1">Ventas totales</p>
-        </div>
-        <div className="bg-card border border-primary/20 rounded-2xl p-5">
-          <DollarSign size={16} className="mb-4 text-primary/60" />
-          <p className="text-2xl font-semibold">${totalComisiones.toFixed(0)}</p>
-          <p className="text-xs text-muted-foreground mt-1">Total comisiones ({commissionPct}%)</p>
-        </div>
-        <div className="bg-card border border-emerald-200 dark:border-emerald-800 rounded-2xl p-5">
-          <Percent size={16} className="mb-4 text-emerald-600/60" />
-          <p className="text-2xl font-semibold">${comisionesIniciales.toFixed(0)}</p>
-          <p className="text-xs text-muted-foreground mt-1">Comis. pagos iniciales</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">{initialSales.length} venta{initialSales.length !== 1 ? "s" : ""}</p>
-        </div>
-        <div className="bg-card border border-blue-200 dark:border-blue-800 rounded-2xl p-5">
-          <RefreshCcw size={16} className="mb-4 text-blue-600/60" />
-          <p className="text-2xl font-semibold">${comisionesRecurrentes.toFixed(0)}</p>
-          <p className="text-xs text-muted-foreground mt-1">Comis. mantenimientos</p>
-          <p className="text-[10px] text-muted-foreground mt-0.5">{recurringSales.length} activo{recurringSales.length !== 1 ? "s" : ""}</p>
-        </div>
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {KPIS.map(({ icon: Icon, label, value, iconCls, bgCls }) => (
+          <div key={label} className="bg-card border rounded-2xl p-4">
+            <div className={`w-8 h-8 rounded-xl ${bgCls} flex items-center justify-center mb-3`}>
+              <Icon size={15} className={iconCls} />
+            </div>
+            <p className="text-2xl font-bold text-foreground leading-tight">{value}</p>
+            <p className="text-xs text-muted-foreground mt-1 leading-tight">{label}</p>
+          </div>
+        ))}
       </div>
 
-      {/* Sales table */}
+      {/* Historial de ventas */}
       <div className="bg-card border rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b flex items-center gap-2">
-          <DollarSign size={14} className="text-muted-foreground" />
+        <div className="px-5 py-4 border-b flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
+            <DollarSign size={13} className="text-primary" />
+          </div>
           <h2 className="text-sm font-semibold">Historial de Ventas</h2>
         </div>
-
         {isLoading ? (
-          <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+          <div className="flex justify-center py-12">
+            <Loader2 size={20} className="animate-spin text-muted-foreground" />
+          </div>
         ) : salesData.length === 0 ? (
-          <div className="px-6 py-12 text-center text-muted-foreground">
-            <DollarSign size={24} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm font-medium">No hay ventas registradas todavía</p>
+          <div className="px-5 py-10 flex flex-col items-center gap-2 text-center">
+            <div className="w-10 h-10 rounded-2xl bg-secondary flex items-center justify-center">
+              <DollarSign size={18} className="text-muted-foreground/50" />
+            </div>
+            <p className="text-sm font-medium text-muted-foreground">No hay ventas registradas</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="bg-secondary/50 text-muted-foreground text-xs uppercase">
-                <tr>
-                  <th className="px-6 py-3 font-medium">Fecha</th>
-                  <th className="px-6 py-3 font-medium">Cliente</th>
-                  <th className="px-6 py-3 font-medium">Servicio / Producto</th>
-                  <th className="px-6 py-3 font-medium">Tipo</th>
-                  <th className="px-6 py-3 font-medium text-right">Mi Comisión</th>
-                  <th className="px-6 py-3 font-medium">Estado pago</th>
-                  <th className="px-6 py-3 font-medium">Comprobante</th>
+              <thead>
+                <tr className="border-b bg-secondary/30">
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Fecha</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Cliente</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Servicio / Producto</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Tipo</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Mi Comisión</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Estado</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Comprobante</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
@@ -205,49 +201,42 @@ const VendorSalesView = ({ vendorProfile }: { vendorProfile: CrmVendor }) => {
                   const isFirstRec = firstRecurringSaleIds.has(sale.id);
                   const commission = isFirstRec ? 0 : sale.amount * effectivePct(sale) / 100;
                   return (
-                    <tr key={sale.id} className="hover:bg-secondary/30 transition-colors">
-                      <td className="px-6 py-3 text-muted-foreground text-xs whitespace-nowrap">
+                    <tr key={sale.id} className="hover:bg-secondary/20 transition-colors">
+                      <td className="px-5 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
                         {new Date(sale.created_at).toLocaleDateString("es-ES")}
                       </td>
-                      <td className="px-6 py-3 font-medium">{sale.contact_name ?? "—"}</td>
-                      <td className="px-6 py-3 text-muted-foreground">{sale.product_name ?? sale.service_name ?? "—"}</td>
-                      <td className="px-6 py-3">
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${
+                      <td className="px-5 py-3.5 font-medium">{sale.contact_name ?? "—"}</td>
+                      <td className="px-5 py-3.5 text-muted-foreground text-sm">{sale.product_name ?? sale.service_name ?? "—"}</td>
+                      <td className="px-5 py-3.5">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
                           sale.type === "recurring"
-                            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                            ? "bg-blue-500/10 text-blue-600"
                             : "bg-secondary text-muted-foreground"
                         }`}>
                           {sale.type === "recurring" ? "Mantenimiento" : "Inicial"}
                         </span>
                       </td>
-                      <td className="px-6 py-3 text-right">
+                      <td className="px-5 py-3.5 text-right">
                         {isFirstRec
                           ? <span className="text-[10px] text-muted-foreground italic">Incluido en inicial</span>
-                          : <span className="font-semibold text-emerald-600">${commission.toFixed(2)}</span>
-                        }
+                          : <span className="font-semibold text-emerald-600">${commission.toFixed(2)}</span>}
                       </td>
-                      <td className="px-6 py-3">
+                      <td className="px-5 py-3.5">
                         {sale.is_paid ? (
-                          <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                            <CheckCircle2 size={12} /> Pagado
+                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
+                            <CheckCircle2 size={11} /> Pagado
                           </span>
                         ) : (
                           <span className="text-[11px] text-muted-foreground">Pendiente</span>
                         )}
                       </td>
-                      <td className="px-6 py-3">
+                      <td className="px-5 py-3.5">
                         {sale.payment_proof_url ? (
-                          <a
-                            href={sale.payment_proof_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-1 text-[11px] text-primary hover:underline"
-                          >
-                            <ExternalLink size={11} /> Ver comprobante
+                          <a href={sale.payment_proof_url} target="_blank" rel="noreferrer"
+                            className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline">
+                            <ExternalLink size={10} /> Ver
                           </a>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">—</span>
-                        )}
+                        ) : <span className="text-[11px] text-muted-foreground">—</span>}
                       </td>
                     </tr>
                   );
@@ -258,43 +247,46 @@ const VendorSalesView = ({ vendorProfile }: { vendorProfile: CrmVendor }) => {
         )}
       </div>
 
-      {/* Mantenimientos pagados */}
+      {/* Historial de mantenimientos */}
       {maint.length > 0 && (
         <div className="bg-card border rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 border-b flex items-center gap-2">
-            <Calendar size={14} className="text-muted-foreground" />
+          <div className="px-5 py-4 border-b flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center">
+              <Calendar size={13} className="text-muted-foreground" />
+            </div>
             <h2 className="text-sm font-semibold">Historial de Mantenimientos</h2>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
-              <thead className="bg-secondary/50 text-muted-foreground text-xs uppercase">
-                <tr>
-                  <th className="px-6 py-3 font-medium">Mes</th>
-                  <th className="px-6 py-3 font-medium text-right">Monto</th>
-                  <th className="px-6 py-3 font-medium text-right">Mi Comisión</th>
-                  <th className="px-6 py-3 font-medium">Estado</th>
-                  <th className="px-6 py-3 font-medium">Comprobante</th>
+              <thead>
+                <tr className="border-b bg-secondary/30">
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Mes</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Monto</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Mi Comisión</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Estado</th>
+                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Comprobante</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {maint.map(m => (
-                  <tr key={m.id} className="hover:bg-secondary/30 transition-colors">
-                    <td className="px-6 py-3 font-medium">{m.month}</td>
-                    <td className="px-6 py-3 text-right">${m.amount.toFixed(2)}</td>
-                    <td className="px-6 py-3 text-right font-medium text-emerald-600">${m.commission_amount.toFixed(2)}</td>
-                    <td className="px-6 py-3">
+                  <tr key={m.id} className="hover:bg-secondary/20 transition-colors">
+                    <td className="px-5 py-3.5 font-medium">{m.month}</td>
+                    <td className="px-5 py-3.5 text-right">${m.amount.toFixed(2)}</td>
+                    <td className="px-5 py-3.5 text-right font-semibold text-emerald-600">${m.commission_amount.toFixed(2)}</td>
+                    <td className="px-5 py-3.5">
                       {m.is_paid ? (
-                        <span className="flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                          <CheckCircle2 size={12} /> Pagado
+                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
+                          <CheckCircle2 size={11} /> Pagado
                         </span>
                       ) : (
                         <span className="text-[11px] text-muted-foreground">Pendiente</span>
                       )}
                     </td>
-                    <td className="px-6 py-3">
+                    <td className="px-5 py-3.5">
                       {m.proof_url ? (
-                        <a href={m.proof_url} target="_blank" rel="noreferrer" className="flex items-center gap-1 text-[11px] text-primary hover:underline">
-                          <ExternalLink size={11} /> Ver
+                        <a href={m.proof_url} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline">
+                          <ExternalLink size={10} /> Ver
                         </a>
                       ) : "—"}
                     </td>
@@ -320,47 +312,42 @@ const CrmVentas = ({
   isVendor?: boolean;
   vendorProfile?: CrmVendor | null;
 }) => {
-  const { user }   = useCurrentUser();
-  const { can }    = useStaffPermissions();
+  const { user }      = useCurrentUser();
+  const { can }       = useStaffPermissions();
   const canCreateSale = can("ventas", "create");
   const canEditSale   = can("ventas", "edit");
   const canDeleteSale = can("ventas", "delete");
 
-  const { data: contacts = [] }               = useContacts();
-  const { data: services = [] }               = useServices();
-  const { data: salesData = [], isLoading: loadingSales } = useSales();
-  const { data: clientAccounts = [] }         = useClientAccounts();
-  const { data: vendors = [] }                = useVendors();
-  const { data: maintPayments = [] }          = useMaintenancePayments();
-  const createSale              = useCreateSale();
-  const updateSale              = useUpdateSale();
-  const deleteSale              = useDeleteSale();
-  const markSalePaid            = useMarkSalePaid();
-  const upsertMaint             = useUpsertMaintenancePayment();
+  const { data: contacts = [] }                            = useContacts();
+  const { data: services = [] }                            = useServices();
+  const { data: salesData = [], isLoading: loadingSales }  = useSales();
+  const { data: clientAccounts = [] }                      = useClientAccounts();
+  const { data: vendors = [] }                             = useVendors();
+  const { data: maintPayments = [] }                       = useMaintenancePayments();
+  const createSale  = useCreateSale();
+  const updateSale  = useUpdateSale();
+  const deleteSale  = useDeleteSale();
+  const markSalePaid = useMarkSalePaid();
+  const upsertMaint  = useUpsertMaintenancePayment();
 
-  // Vendor lookup map: vendor_id → vendor
   const vendorMap = useMemo(
     () => Object.fromEntries(vendors.map(v => [v.id, v])),
     [vendors]
   );
-
-  // vendor_user_id → vendor (for auto-detecting vendor when admin registers sale manually)
   const vendorByUserId = useMemo(
     () => Object.fromEntries(vendors.filter(v => v.vendor_user_id).map(v => [v.vendor_user_id!, v])),
     [vendors]
   );
-
   const accountByContact = useMemo(
     () => Object.fromEntries(clientAccounts.map(a => [a.contact_id, a])),
     [clientAccounts]
   );
 
-  // ─── Vendor sales view ────────────────────────────────────────────────────
   if (isVendor && vendorProfile) {
     return <VendorSalesView vendorProfile={vendorProfile} />;
   }
 
-  // ─── Sale modal (edit / delete) ───────────────────────────────────────────
+  // ─── Sale modal ───────────────────────────────────────────────────────────
   const [saleModal, setSaleModal] = useState<
     | { mode: "edit";   sale: CrmSale }
     | { mode: "delete"; sale: CrmSale }
@@ -393,11 +380,11 @@ const CrmVentas = ({
   };
 
   // ─── Mark as paid modal ───────────────────────────────────────────────────
-  const [payModal, setPayModal]     = useState<CrmSale | null>(null);
-  const [proofUrl, setProofUrl]     = useState("");
-  const [paying, setPaying]         = useState(false);
+  const [payModal, setPayModal] = useState<CrmSale | null>(null);
+  const [proofUrl, setProofUrl] = useState("");
+  const [paying, setPaying]     = useState(false);
 
-  const openPayModal = (sale: CrmSale) => { setPayModal(sale); setProofUrl(""); };
+  const openPayModal  = (sale: CrmSale) => { setPayModal(sale); setProofUrl(""); };
   const closePayModal = () => { setPayModal(null); setProofUrl(""); };
 
   const handleMarkPaid = async () => {
@@ -412,9 +399,9 @@ const CrmVentas = ({
   };
 
   // ─── Maintenance pay modal ────────────────────────────────────────────────
-  const [maintModal, setMaintModal]     = useState<{ vendor: CrmVendor; month: string; amount: number; commissionAmount: number } | null>(null);
+  const [maintModal, setMaintModal]       = useState<{ vendor: CrmVendor; month: string; amount: number; commissionAmount: number } | null>(null);
   const [maintProofUrl, setMaintProofUrl] = useState("");
-  const [payingMaint, setPayingMaint]   = useState(false);
+  const [payingMaint, setPayingMaint]     = useState(false);
   const today = new Date();
 
   const handleMarkMaintPaid = async () => {
@@ -422,15 +409,10 @@ const CrmVentas = ({
     setPayingMaint(true);
     try {
       await upsertMaint.mutateAsync({
-        vendor_id:         maintModal.vendor.id,
-        month:             maintModal.month,
-        amount:            maintModal.amount,
-        commission_pct:    maintModal.vendor.commission_pct,
-        commission_amount: maintModal.commissionAmount,
-        is_paid:           true,
-        paid_at:           new Date().toISOString(),
-        proof_url:         maintProofUrl.trim() || null,
-        notes:             null,
+        vendor_id: maintModal.vendor.id, month: maintModal.month,
+        amount: maintModal.amount, commission_pct: maintModal.vendor.commission_pct,
+        commission_amount: maintModal.commissionAmount, is_paid: true,
+        paid_at: new Date().toISOString(), proof_url: maintProofUrl.trim() || null, notes: null,
       });
       toast.success("Mantenimiento marcado como pagado");
       setMaintModal(null); setMaintProofUrl("");
@@ -490,7 +472,7 @@ const CrmVentas = ({
 
   const resetSaleForm = () => {
     setSelectedContact(""); setSelectedService(""); setSelectedProduct(""); setSelectedVariant("");
-    setSaleNotes(""); setSaleAmount(""); setSaleType("initial"); setCurrentPage(1);
+    setSaleNotes(""); setSaleAmount(""); setSaleType("initial");
   };
 
   const handleRegisterSale = async () => {
@@ -523,12 +505,11 @@ const CrmVentas = ({
             toast.success(`Venta registrada · Email de invitación enviado a ${contact.email ?? contact.name}`);
           } catch {
             toast.success("Venta registrada");
-            toast.error("No se pudo crear la cuenta SaaS del cliente. Inténtalo manualmente.");
+            toast.error("No se pudo crear la cuenta SaaS del cliente.");
           }
         } else { toast.success("Venta registrada"); }
         resetSaleForm();
       } catch { toast.error("Error al registrar la venta"); }
-
     } else {
       if (!selectedProduct || saleAmount === "" || isNaN(Number(saleAmount))) return;
       const product = activeProducts.find(p => p.id === selectedProduct);
@@ -552,19 +533,19 @@ const CrmVentas = ({
   };
 
   // ─── Filters ──────────────────────────────────────────────────────────────
-  const [filterDateFrom, setFilterDateFrom]   = useState("");
-  const [filterDateTo,   setFilterDateTo]     = useState("");
-  const [filterService,  setFilterService]    = useState("");
-  const [filterContact,  setFilterContact]    = useState("");
-  const [filterVip,      setFilterVip]        = useState(false);
-  const [filterVendor,   setFilterVendor]     = useState("");
-  const [filterCurrency, setFilterCurrency]   = useState("");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo,   setFilterDateTo]   = useState("");
+  const [filterService,  setFilterService]  = useState("");
+  const [filterContact,  setFilterContact]  = useState("");
+  const [filterVip,      setFilterVip]      = useState(false);
+  const [filterVendor,   setFilterVendor]   = useState("");
+  const [filterCurrency, setFilterCurrency] = useState("");
 
   const hasFilters = !!(filterDateFrom || filterDateTo || filterService || filterContact || filterVip || filterVendor || filterCurrency);
 
   const clearFilters = () => {
     setFilterDateFrom(""); setFilterDateTo(""); setFilterService("");
-    setFilterContact(""); setFilterVip(false); setFilterVendor(""); setFilterCurrency(""); setCurrentPage(1);
+    setFilterContact(""); setFilterVip(false); setFilterVendor(""); setFilterCurrency("");
   };
 
   const handleToggleVip = async (sale: CrmSale) => {
@@ -580,22 +561,14 @@ const CrmVentas = ({
     try {
       if (action === "confirm") {
         await updateSale.mutateAsync({
-          id: sale.id,
-          status: "confirmed" as any,
-          is_paid: true as any,
+          id: sale.id, status: "confirmed" as any, is_paid: true as any,
           paid_at: new Date().toISOString() as any,
           justification: "Confirmado manualmente desde panel de Ventas",
         });
-        if (sale.product_id) {
-          supabase.functions.invoke("send-deliverable", { body: { sale_id: sale.id } }).catch(() => {});
-        }
+        if (sale.product_id) supabase.functions.invoke("send-deliverable", { body: { sale_id: sale.id } }).catch(() => {});
         toast.success("Venta confirmada");
       } else {
-        await updateSale.mutateAsync({
-          id: sale.id,
-          status: "rejected" as any,
-          justification: "Rechazado manualmente desde panel de Ventas",
-        });
+        await updateSale.mutateAsync({ id: sale.id, status: "rejected" as any, justification: "Rechazado manualmente desde panel de Ventas" });
         toast.success("Venta rechazada");
       }
     } catch (e: any) { toast.error(`Error: ${e.message}`); }
@@ -607,52 +580,17 @@ const CrmVentas = ({
     [salesData]
   );
 
-  // Solo ventas confirmadas cuentan para KPIs (excluye pending_review y rejected)
+  // ─── KPIs ─────────────────────────────────────────────────────────────────
   const confirmedSales = useMemo(
     () => salesData.filter(s => s.status !== "pending_review" && s.status !== "rejected"),
     [salesData]
   );
 
-  // ─── KPIs ─────────────────────────────────────────────────────────────────
-  const totalVendido = useMemo(() => confirmedSales.reduce((s, x) => s + x.amount, 0), [confirmedSales]);
   const totalComisiones = useMemo(
     () => confirmedSales.reduce((s, x) => s + (x.vendor_id ? x.amount * (x.commission_pct || 0) / 100 : 0), 0),
     [confirmedSales]
   );
-  const gananciaAdmin = totalVendido - totalComisiones;
 
-  const comisionesPorMoneda = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of confirmedSales) {
-      if (!s.vendor_id) continue;
-      const c = s.currency ?? "USD";
-      const comm = s.amount * (s.commission_pct > 0 ? s.commission_pct : 0) / 100;
-      map.set(c, (map.get(c) ?? 0) + comm);
-    }
-    return [...map.entries()];
-  }, [confirmedSales]);
-
-  const gananciaPorMoneda = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of confirmedSales) {
-      const c = s.currency ?? "USD";
-      const comm = s.vendor_id ? s.amount * (s.commission_pct > 0 ? s.commission_pct : 0) / 100 : 0;
-      map.set(c, (map.get(c) ?? 0) + s.amount - comm);
-    }
-    return [...map.entries()];
-  }, [confirmedSales]);
-
-  const salesThisMonth = useMemo(() => {
-    const now = new Date();
-    return confirmedSales.filter(s => { const d = new Date(s.created_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).length;
-  }, [confirmedSales]);
-
-  const ingresoMesActual = useMemo(() => {
-    const now = new Date();
-    return confirmedSales.filter(s => { const d = new Date(s.created_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).reduce((s, x) => s + x.amount, 0);
-  }, [confirmedSales]);
-
-  // Totales agrupados por moneda para KPIs
   const totalPorMoneda = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of confirmedSales) { const c = s.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount); }
@@ -670,6 +608,31 @@ const CrmVentas = ({
     return [...map.entries()];
   }, [confirmedSales]);
 
+  const salesThisMonth = useMemo(() => {
+    const now = new Date();
+    return confirmedSales.filter(s => { const d = new Date(s.created_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).length;
+  }, [confirmedSales]);
+
+  const comisionesPorMoneda = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of confirmedSales) {
+      if (!s.vendor_id) continue;
+      const c = s.currency ?? "USD";
+      map.set(c, (map.get(c) ?? 0) + s.amount * (s.commission_pct > 0 ? s.commission_pct : 0) / 100);
+    }
+    return [...map.entries()];
+  }, [confirmedSales]);
+
+  const gananciaPorMoneda = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of confirmedSales) {
+      const c = s.currency ?? "USD";
+      const comm = s.vendor_id ? s.amount * (s.commission_pct > 0 ? s.commission_pct : 0) / 100 : 0;
+      map.set(c, (map.get(c) ?? 0) + s.amount - comm);
+    }
+    return [...map.entries()];
+  }, [confirmedSales]);
+
   const availableCurrencies = useMemo(() => {
     const s = new Set(salesData.map(x => x.currency ?? "USD"));
     return [...s].sort();
@@ -683,7 +646,7 @@ const CrmVentas = ({
       }
     }
     const seen = new Set<string>();
-    const totals: Record<string, Record<string, number>> = {}; // interval → currency → total
+    const totals: Record<string, Record<string, number>> = {};
     for (const sale of salesData) {
       if (!sale.service_id || !sale.contact_id) continue;
       const info = serviceInfo[sale.service_id]; if (!info) continue;
@@ -693,18 +656,15 @@ const CrmVentas = ({
       totals[info.interval][info.currency] = (totals[info.interval][info.currency] ?? 0) + info.recPrice;
     }
     return Object.entries(totals).map(([interval, byCurrency]) => ({
-      interval,
-      byCurrency: Object.entries(byCurrency) as [string, number][],
+      interval, byCurrency: Object.entries(byCurrency) as [string, number][],
     }));
   }, [services, salesData]);
 
-  // ─── Maintenance section (current month) ─────────────────────────────────
   const currentMonth = useMemo(() => {
     const now = new Date();
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   }, []);
 
-  // First recurring sale per (contact_id, service_id) with a vendor = included in initial payment, no commission owed
   const firstRecurringSaleIds = useMemo(() => {
     const firstByKey: Record<string, string> = {};
     const sorted = [...salesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -720,8 +680,7 @@ const CrmVentas = ({
     if (!isSuperAdmin || vendors.length === 0) return [];
     const byVendor: Record<string, { vendor: CrmVendor; amount: number; count: number; currency: string }> = {};
     for (const sale of salesData) {
-      if (sale.type !== "recurring" || !sale.vendor_id) continue;
-      if (firstRecurringSaleIds.has(sale.id)) continue;
+      if (sale.type !== "recurring" || !sale.vendor_id || firstRecurringSaleIds.has(sale.id)) continue;
       const now = new Date(); const d = new Date(sale.created_at);
       if (d.getFullYear() !== now.getFullYear() || d.getMonth() !== now.getMonth()) continue;
       const vendor = vendorMap[sale.vendor_id]; if (!vendor) continue;
@@ -736,7 +695,6 @@ const CrmVentas = ({
     }));
   }, [isSuperAdmin, vendors, salesData, vendorMap, maintPayments, currentMonth, firstRecurringSaleIds]);
 
-  // ─── Last month recurring commissions (for "DIA DE PAGO RECURRENTE") ─────
   const lastMonthStr = useMemo(() => {
     const d = new Date();
     const lm = new Date(d.getFullYear(), d.getMonth() - 1, 1);
@@ -744,20 +702,18 @@ const CrmVentas = ({
   }, []);
 
   const lastMonthLabel = useMemo(() => {
-    const d = new Date();
-    d.setDate(1); d.setMonth(d.getMonth() - 1);
+    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
     return `${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`;
   }, []);
 
   const maintByVendorLastMonth = useMemo(() => {
-    if (!isSuperAdmin || vendors.length === 0) return [] as Array<{ vendor: CrmVendor; amount: number; count: number; commissionAmount: number; paid: boolean; isMock: boolean }>;
+    if (!isSuperAdmin || vendors.length === 0) return [] as Array<{ vendor: CrmVendor; amount: number; count: number; commissionAmount: number; paid: boolean }>;
     const now = new Date();
-    const lmYear = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
+    const lmYear  = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
     const lmMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
     const byVendor: Record<string, { vendor: CrmVendor; amount: number; count: number }> = {};
     for (const sale of salesData) {
-      if (sale.type !== "recurring" || !sale.vendor_id) continue;
-      if (firstRecurringSaleIds.has(sale.id)) continue; // first month included in initial
+      if (sale.type !== "recurring" || !sale.vendor_id || firstRecurringSaleIds.has(sale.id)) continue;
       const d = new Date(sale.created_at);
       if (d.getFullYear() !== lmYear || d.getMonth() !== lmMonth) continue;
       const vendor = vendorMap[sale.vendor_id]; if (!vendor) continue;
@@ -769,12 +725,10 @@ const CrmVentas = ({
       vendor, amount, count,
       commissionAmount: amount * vendor.commission_pct / 100,
       paid: maintPayments.find(m => m.vendor_id === vendor.id && m.month === lastMonthStr)?.is_paid ?? false,
-      isMock: false,
     }));
   }, [isSuperAdmin, vendors, salesData, vendorMap, maintPayments, lastMonthStr, firstRecurringSaleIds]);
 
-  // ─── History with filters ─────────────────────────────────────────────────
-
+  // ─── Filtered history ─────────────────────────────────────────────────────
   const allSales = useMemo(() => salesData.map(s => ({
     id: s.id, raw: s,
     date:        new Date(s.created_at),
@@ -782,10 +736,8 @@ const CrmVentas = ({
     dateKey:     s.created_at.slice(0, 10),
     contactName: s.contact_name ?? contacts.find(c => c.id === s.contact_id)?.name ?? "Contacto eliminado",
     serviceName: s.product_name ?? s.service_name ?? "—",
-    amount:      s.amount,
-    notes:       s.notes ?? "",
-    serviceId:   s.service_id ?? "",
-    contactId:   s.contact_id ?? "",
+    amount:      s.amount, notes: s.notes ?? "",
+    serviceId:   s.service_id ?? "", contactId: s.contact_id ?? "",
     vendorId:    s.vendor_id ?? "",
     vendorName:  s.vendor_id ? (vendorMap[s.vendor_id]?.name ?? "Vendedor") : "",
     commission:  (s.vendor_id && !firstRecurringSaleIds.has(s.id)) ? s.amount * (s.commission_pct > 0 ? s.commission_pct : (vendorMap[s.vendor_id]?.commission_pct ?? 0)) / 100 : 0,
@@ -804,14 +756,21 @@ const CrmVentas = ({
     return r;
   }, [allSales, filterDateFrom, filterDateTo, filterService, filterContact, filterVip, filterVendor, filterCurrency]);
 
-  const filteredTotal = useMemo(() => filteredSales.filter(s => s.raw.status !== "pending_review" && s.raw.status !== "rejected").reduce((s, x) => s + x.amount, 0), [filteredSales]);
-
-  const applyFilter = (fn: () => void) => { fn(); };
+  const filteredTotal = useMemo(
+    () => filteredSales.filter(s => s.raw.status !== "pending_review" && s.raw.status !== "rejected").reduce((s, x) => s + x.amount, 0),
+    [filteredSales]
+  );
 
   const salesContactIds  = useMemo(() => new Set(salesData.map(s => s.contact_id).filter(Boolean)), [salesData]);
   const salesServiceIds  = useMemo(() => new Set(salesData.map(s => s.service_id).filter(Boolean)), [salesData]);
   const contactsWithSale = useMemo(() => contacts.filter(c => salesContactIds.has(c.id)), [contacts, salesContactIds]);
   const servicesWithSale = useMemo(() => services.filter(s => salesServiceIds.has(s.id)), [services, salesServiceIds]);
+
+  const isFormValid = selectedContact && (
+    saleItemType === "service"
+      ? !!selectedService
+      : !!selectedProduct && (!selectedProductObj?.has_variants || !productVariants.length || !!selectedVariant)
+  ) && saleAmount !== "";
 
   return (
     <>
@@ -829,19 +788,19 @@ const CrmVentas = ({
               {saleModal.mode === "edit" && (
                 <>
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-muted-foreground">Nuevo monto</label>
-                    <Input type="number" min={0} step={0.01} value={editAmount} onChange={(e) => setEditAmount(e.target.value === "" ? "" : Number(e.target.value))} className="h-9" />
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Nuevo monto</label>
+                    <input type="number" min={0} step={0.01} value={editAmount} onChange={(e) => setEditAmount(e.target.value === "" ? "" : Number(e.target.value))} className={INPUT_CLS} />
                   </div>
                   <div className="space-y-1.5">
-                    <label className="text-xs font-medium text-muted-foreground">Notas</label>
-                    <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={2} className="text-sm resize-none" placeholder="Observaciones..." />
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Notas</label>
+                    <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={2} className="text-sm resize-none rounded-xl" placeholder="Observaciones..." />
                   </div>
                 </>
               )}
               {saleModal.mode === "delete" && <p className="text-sm text-muted-foreground">Esta acción eliminará la transacción permanentemente.</p>}
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Justificación <span className="text-destructive">*</span></label>
-                <Textarea value={justification} onChange={(e) => setJustification(e.target.value)} rows={2} className="text-sm resize-none" placeholder="Motivo de este cambio..." autoFocus />
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Justificación <span className="text-destructive">*</span></label>
+                <Textarea value={justification} onChange={(e) => setJustification(e.target.value)} rows={2} className="text-sm resize-none rounded-xl" placeholder="Motivo de este cambio..." autoFocus />
               </div>
             </div>
           )}
@@ -849,11 +808,11 @@ const CrmVentas = ({
             <Button variant="ghost" onClick={closeSaleModal}>Cancelar</Button>
             {saleModal?.mode === "edit" ? (
               <Button onClick={handleConfirmEditSale} disabled={!justification.trim() || editAmount === "" || updateSale.isPending}>
-                {updateSale.isPending && <Loader2 size={14} className="animate-spin mr-1.5" />} Guardar cambios
+                {updateSale.isPending && <Loader2 size={14} className="animate-spin mr-1.5" />} Guardar
               </Button>
             ) : (
               <Button variant="destructive" onClick={handleConfirmDeleteSale} disabled={!justification.trim() || deleteSale.isPending}>
-                {deleteSale.isPending && <Loader2 size={14} className="animate-spin mr-1.5" />} Eliminar transacción
+                {deleteSale.isPending && <Loader2 size={14} className="animate-spin mr-1.5" />} Eliminar
               </Button>
             )}
           </DialogFooter>
@@ -872,13 +831,12 @@ const CrmVentas = ({
                 <p className="text-primary font-semibold">${payModal.amount.toFixed(2)}</p>
                 {payModal.vendor_id && vendorMap[payModal.vendor_id] && (
                   <p className="text-[11px] text-muted-foreground">
-                    Vendedor: {vendorMap[payModal.vendor_id].name} ·
-                    Comisión: ${(payModal.amount * (payModal.commission_pct || vendorMap[payModal.vendor_id].commission_pct) / 100).toFixed(2)}
+                    Vendedor: {vendorMap[payModal.vendor_id].name} · Comisión: ${(payModal.amount * (payModal.commission_pct || vendorMap[payModal.vendor_id].commission_pct) / 100).toFixed(2)}
                   </p>
                 )}
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Comprobante de pago</label>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Comprobante de pago</label>
                 <ProofUpload onUploaded={setProofUrl} />
                 <p className="text-[10px] text-muted-foreground">Opcional. El vendedor podrá verlo.</p>
               </div>
@@ -903,11 +861,11 @@ const CrmVentas = ({
               <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1 text-sm">
                 <p className="font-medium">{maintModal.vendor.name}</p>
                 <p className="text-muted-foreground text-xs">Mes: {maintModal.month}</p>
-                <p className="text-foreground font-semibold">Total: ${maintModal.amount.toFixed(2)}</p>
-                <p className="text-emerald-600 text-xs font-medium">Comisión a pagar: ${maintModal.commissionAmount.toFixed(2)} ({maintModal.vendor.commission_pct}%)</p>
+                <p className="font-semibold">Total: ${maintModal.amount.toFixed(2)}</p>
+                <p className="text-emerald-600 text-xs font-semibold">Comisión a pagar: ${maintModal.commissionAmount.toFixed(2)} ({maintModal.vendor.commission_pct}%)</p>
               </div>
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Comprobante de pago</label>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Comprobante</label>
                 <ProofUpload onUploaded={setMaintProofUrl} />
                 <p className="text-[10px] text-muted-foreground">Opcional. El vendedor podrá verlo.</p>
               </div>
@@ -923,107 +881,119 @@ const CrmVentas = ({
         </DialogContent>
       </Dialog>
 
-      <div className="space-y-8">
-        {/* Header */}
+      <div className="space-y-6">
+
+        {/* ── Header ── */}
         <div>
-          <h1 className="text-xl font-semibold">Ventas</h1>
+          <h1 className="text-xl font-bold tracking-tight">Ventas</h1>
           <p className="text-sm text-muted-foreground mt-0.5">Historial completo de transacciones y métricas de ingresos</p>
         </div>
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-card border rounded-2xl p-5">
-            <DollarSign size={16} className="mb-4 text-muted-foreground" />
+        {/* ── KPI Cards ── */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {/* Total vendido */}
+          <div className="bg-card border rounded-2xl p-4">
+            <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center mb-3">
+              <DollarSign size={15} className="text-primary" />
+            </div>
             {totalPorMoneda.length === 0
-              ? <p className="text-2xl font-semibold">$0</p>
-              : totalPorMoneda.map(([cur, total]) => (
-                  <p key={cur} className="text-2xl font-semibold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
-                ))
+              ? <p className="text-2xl font-bold">$0</p>
+              : totalPorMoneda.map(([cur, total]) => <p key={cur} className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>)
             }
             <p className="text-xs text-muted-foreground mt-1">Total vendido</p>
           </div>
-          <div className="bg-card border rounded-2xl p-5">
-            <DollarSign size={16} className="mb-4 text-muted-foreground" />
+
+          {/* Ingresos del mes */}
+          <div className="bg-card border rounded-2xl p-4">
+            <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
+              <Calendar size={15} className="text-muted-foreground" />
+            </div>
             {ingresoMesPorMoneda.length === 0
-              ? <p className="text-2xl font-semibold">$0</p>
-              : ingresoMesPorMoneda.map(([cur, total]) => (
-                  <p key={cur} className="text-2xl font-semibold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
-                ))
+              ? <p className="text-2xl font-bold">$0</p>
+              : ingresoMesPorMoneda.map(([cur, total]) => <p key={cur} className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>)
             }
             <p className="text-xs text-muted-foreground mt-1">Ingresos en {MONTHS_ES[new Date().getMonth()]}</p>
           </div>
-          <div className="bg-card border rounded-2xl p-5">
-            <Plus size={16} className="mb-4 text-muted-foreground" />
-            <p className="text-2xl font-semibold">{salesThisMonth}</p>
+
+          {/* Ventas este mes */}
+          <div className="bg-card border rounded-2xl p-4">
+            <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
+              <CheckCircle2 size={15} className="text-muted-foreground" />
+            </div>
+            <p className="text-2xl font-bold">{salesThisMonth}</p>
             <p className="text-xs text-muted-foreground mt-1">Ventas este mes</p>
           </div>
+
+          {/* Ganancia neta (si hay comisiones) */}
           {isSuperAdmin && totalComisiones > 0 && (
-            <div className="bg-card border border-emerald-200 dark:border-emerald-800 rounded-2xl p-5">
-              <Percent size={16} className="mb-4 text-emerald-600/60" />
-              {gananciaPorMoneda.map(([cur, total]) => (
-                <p key={cur} className="text-2xl font-semibold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
-              ))}
+            <div className="bg-card border rounded-2xl p-4">
+              <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
+                <Percent size={15} className="text-muted-foreground" />
+              </div>
+              {gananciaPorMoneda.map(([cur, total]) => <p key={cur} className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>)}
               <p className="text-xs text-muted-foreground mt-1">Tu ganancia neta</p>
-              <p className="text-[10px] text-muted-foreground mt-0.5">
-                Comisiones: {comisionesPorMoneda.map(([cur, t]) => fmtSaleAmt(t, cur, 0)).join(" · ")}
-              </p>
+              {comisionesPorMoneda.length > 0 && (
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  Comis: {comisionesPorMoneda.map(([cur, t]) => fmtSaleAmt(t, cur, 0)).join(" · ")}
+                </p>
+              )}
             </div>
           )}
+
+          {/* IRE por intervalo */}
           {isSuperAdmin && recurringByInterval.map(({ interval, byCurrency }) => (
-            <div key={`ire-${interval}`} className="bg-card border border-primary/20 rounded-2xl p-5">
-              <RefreshCcw size={16} className="mb-4 text-primary/60" />
-              {byCurrency.map(([cur, total]) => (
-                <p key={cur} className="text-2xl font-semibold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
-              ))}
+            <div key={`ire-${interval}`} className="bg-card border rounded-2xl p-4">
+              <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
+                <RefreshCcw size={15} className="text-muted-foreground" />
+              </div>
+              {byCurrency.map(([cur, total]) => <p key={cur} className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>)}
               <p className="text-xs text-muted-foreground mt-1">IRE {INTERVAL_LABELS[interval] ?? interval}</p>
             </div>
           ))}
         </div>
 
-        {/* Ventas IA pendientes de revisión */}
+        {/* ── Ventas IA pendientes ── */}
         {pendingAiSales.length > 0 && (
-          <div className="border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 rounded-2xl overflow-hidden">
-            <div className="px-5 py-3.5 border-b border-blue-200 dark:border-blue-800 flex items-center gap-2">
-              <Bot size={15} className="text-blue-600 shrink-0" />
-              <div>
-                <p className="text-sm font-semibold text-blue-800 dark:text-blue-300">Comprobantes detectados por IA</p>
-                <p className="text-[11px] text-blue-600 dark:text-blue-400">Revisa y confirma o rechaza cada venta</p>
+          <div className="border border-blue-200 bg-blue-50 rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-blue-200 flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-xl bg-blue-500/15 flex items-center justify-center shrink-0">
+                <Bot size={15} className="text-blue-600" />
               </div>
+              <div>
+                <p className="text-sm font-semibold text-blue-800">Comprobantes detectados por IA</p>
+                <p className="text-xs text-blue-600">Revisa y confirma o rechaza cada venta</p>
+              </div>
+              <span className="ml-auto text-xs font-bold bg-blue-500/15 text-blue-700 px-2 py-0.5 rounded-full">
+                {pendingAiSales.length}
+              </span>
             </div>
-            <div className="divide-y divide-blue-100 dark:divide-blue-800/50">
+            <div className="divide-y divide-blue-100">
               {pendingAiSales.map(sale => (
                 <div key={sale.id} className="px-5 py-3.5 flex items-center gap-3 flex-wrap">
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{sale.contact_name ?? "Cliente desconocido"}</p>
+                    <p className="text-sm font-semibold truncate">{sale.contact_name ?? "Cliente desconocido"}</p>
                     <p className="text-xs text-muted-foreground">
                       {sale.product_name ?? sale.service_name ?? "Producto"} · ${sale.amount.toFixed(2)}
                       {sale.payment_method_type && <span className="ml-1.5 capitalize">· {sale.payment_method_type}</span>}
                     </p>
                   </div>
                   <div className="flex gap-2 shrink-0">
-                    <Button
-                      size="sm"
-                      className="h-8 gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                    <button
                       disabled={!!confirmingAiSale}
                       onClick={() => handleConfirmAiSale(sale, "confirm")}
+                      className="h-9 px-3.5 rounded-xl text-xs font-bold text-white bg-emerald-500 hover:bg-emerald-600 transition-colors flex items-center gap-1.5 disabled:opacity-50"
                     >
-                      {confirmingAiSale === sale.id + "confirm"
-                        ? <Loader2 size={12} className="animate-spin" />
-                        : <Check size={12} />}
+                      {confirmingAiSale === sale.id + "confirm" ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
                       Confirmar
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-8 gap-1.5 text-destructive border-destructive/30 hover:bg-destructive/10"
+                    </button>
+                    <button
                       disabled={!!confirmingAiSale}
                       onClick={() => handleConfirmAiSale(sale, "reject")}
+                      className="h-9 px-3.5 rounded-xl text-xs font-bold text-destructive border border-destructive/30 hover:bg-destructive/5 transition-colors flex items-center gap-1.5 disabled:opacity-50"
                     >
-                      {confirmingAiSale === sale.id + "reject"
-                        ? <Loader2 size={12} className="animate-spin" />
-                        : <XCircle size={12} />}
+                      {confirmingAiSale === sale.id + "reject" ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />}
                       Rechazar
-                    </Button>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -1031,110 +1001,95 @@ const CrmVentas = ({
           </div>
         )}
 
-        {/* DIA DE PAGO RECURRENTE — solo día 1 de cada mes, mientras haya pagos pendientes */}
+        {/* ── Día de pago recurrente ── */}
         {isSuperAdmin && today.getDate() === 1 && maintByVendorLastMonth.length > 0 && maintByVendorLastMonth.some(r => !r.paid) && (
-          <div className="border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 rounded-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b border-amber-200 dark:border-amber-800 flex items-center gap-3">
-              <AlertTriangle size={16} className="text-amber-600 shrink-0" />
+          <div className="border border-amber-200 bg-amber-50 rounded-2xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-amber-200 flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                <AlertTriangle size={15} className="text-amber-600" />
+              </div>
               <div className="flex-1">
-                <p className="text-sm font-bold text-amber-800 dark:text-amber-300 tracking-wide">DIA DE PAGO RECURRENTE</p>
-                <p className="text-[11px] text-amber-700 dark:text-amber-400 mt-0.5">
-                  Comisiones de mantenimientos — {lastMonthLabel}
-                </p>
+                <p className="text-sm font-bold text-amber-800">Día de Pago Recurrente</p>
+                <p className="text-xs text-amber-700 mt-0.5">Comisiones de mantenimientos — {lastMonthLabel}</p>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-amber-100/50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-xs uppercase">
-                  <tr>
-                    <th className="px-6 py-3 font-medium text-left">Vendedor</th>
-                    <th className="px-6 py-3 font-medium text-right">Clientes activos</th>
-                    <th className="px-6 py-3 font-medium text-right">Total cobrado</th>
-                    <th className="px-6 py-3 font-medium text-right">Comisión a pagar</th>
-                    <th className="px-6 py-3 font-medium text-center">Estado</th>
-                    <th className="px-4 py-3"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-amber-100 dark:divide-amber-900/40">
-                  {maintByVendorLastMonth.map(({ vendor, amount, count, commissionAmount, paid }) => (
-                    <tr key={`lm-${vendor.id}`} className="hover:bg-amber-100/30 dark:hover:bg-amber-900/20 transition-colors">
-                      <td className="px-6 py-3 font-medium">
-                        <div className="flex items-center gap-2">
-                          <div className="w-7 h-7 rounded-full bg-amber-100 dark:bg-amber-900/50 flex items-center justify-center text-xs font-bold text-amber-700 dark:text-amber-400 shrink-0">
-                            {vendor.name.charAt(0)}
-                          </div>
-                          {vendor.name}
-                        </div>
-                      </td>
-                      <td className="px-6 py-3 text-right">{count}</td>
-                      <td className="px-6 py-3 text-right font-medium">${amount.toFixed(2)}</td>
-                      <td className="px-6 py-3 text-right font-bold text-amber-700 dark:text-amber-400">${commissionAmount.toFixed(2)}</td>
-                      <td className="px-6 py-3 text-center">
-                        {paid ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                            <CheckCircle2 size={12} /> Pagado
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">Pendiente</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        {!paid && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="h-7 text-xs gap-1 border-amber-300 dark:border-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/40"
-                            onClick={() => { setMaintModal({ vendor, month: lastMonthStr, amount, commissionAmount }); setMaintProofUrl(""); }}
-                          >
-                            <CheckCircle2 size={11} /> Pagar
-                          </Button>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="divide-y divide-amber-100">
+              {maintByVendorLastMonth.map(({ vendor, amount, count, commissionAmount, paid }) => (
+                <div key={`lm-${vendor.id}`} className="px-5 py-3.5 flex items-center gap-3 flex-wrap sm:flex-nowrap">
+                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
+                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                      style={{ backgroundColor: getAvatarColor(vendor.name) }}>
+                      {vendor.name.charAt(0)}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold truncate">{vendor.name}</p>
+                      <p className="text-xs text-muted-foreground">{count} cliente{count !== 1 ? "s" : ""} · Total: ${amount.toFixed(2)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="text-right">
+                      <p className="text-sm font-bold text-amber-700">${commissionAmount.toFixed(2)}</p>
+                      <p className="text-[10px] text-amber-600/70">{vendor.commission_pct}%</p>
+                    </div>
+                    {paid ? (
+                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+                        <CheckCircle2 size={11} /> Pagado
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => { setMaintModal({ vendor, month: lastMonthStr, amount, commissionAmount }); setMaintProofUrl(""); }}
+                        className="h-8 px-3 rounded-xl text-xs font-bold text-amber-700 border border-amber-300 bg-white hover:bg-amber-50 transition-colors flex items-center gap-1"
+                      >
+                        <CheckCircle2 size={11} /> Pagar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
-        {/* Comisiones por vendedor (superadmin) */}
+        {/* ── Comisiones por vendedor ── */}
         {isSuperAdmin && vendors.length > 0 && (
           <div className="bg-card border rounded-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b flex items-center gap-2">
-              <UserCheck size={14} className="text-muted-foreground" />
+            <div className="px-5 py-4 border-b flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center">
+                <UserCheck size={13} className="text-muted-foreground" />
+              </div>
               <h2 className="text-sm font-semibold">Comisiones por Vendedor</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="bg-secondary/50 text-muted-foreground text-xs uppercase">
-                  <tr>
-                    <th className="px-6 py-3 font-medium text-left">Vendedor</th>
-                    <th className="px-6 py-3 font-medium text-right">Ventas</th>
-                    <th className="px-6 py-3 font-medium text-right">Ingresos generados</th>
-                    <th className="px-6 py-3 font-medium text-right">Comisión (%)</th>
-                    <th className="px-6 py-3 font-medium text-right">Total comisión</th>
+                <thead>
+                  <tr className="border-b bg-secondary/30">
+                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-left">Vendedor</th>
+                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Ventas</th>
+                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Ingresos</th>
+                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Comisión</th>
+                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Total</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {vendors.map(v => {
-                    const vSales = allSales.filter(s => s.vendorId === v.id);
+                    const vSales   = allSales.filter(s => s.vendorId === v.id);
                     const vRevenue = vSales.reduce((s, x) => s + x.amount, 0);
-                    const vComm = vSales.reduce((s, x) => s + x.commission, 0);
+                    const vComm    = vSales.reduce((s, x) => s + x.commission, 0);
                     return (
-                      <tr key={v.id} className="hover:bg-secondary/30 transition-colors">
-                        <td className="px-6 py-3 font-medium">
-                          <div className="flex items-center gap-2">
-                            <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-xs font-bold text-primary shrink-0">
+                      <tr key={v.id} className="hover:bg-secondary/20 transition-colors">
+                        <td className="px-5 py-3.5">
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                              style={{ backgroundColor: getAvatarColor(v.name) }}>
                               {v.name.charAt(0)}
                             </div>
-                            {v.name}
+                            <span className="font-medium">{v.name}</span>
                           </div>
                         </td>
-                        <td className="px-6 py-3 text-right">{vSales.length}</td>
-                        <td className="px-6 py-3 text-right font-medium">${vRevenue.toFixed(2)}</td>
-                        <td className="px-6 py-3 text-right text-muted-foreground">{v.commission_pct}%</td>
-                        <td className="px-6 py-3 text-right font-semibold text-emerald-600">${vComm.toFixed(2)}</td>
+                        <td className="px-5 py-3.5 text-right text-muted-foreground">{vSales.length}</td>
+                        <td className="px-5 py-3.5 text-right font-medium">${vRevenue.toFixed(2)}</td>
+                        <td className="px-5 py-3.5 text-right text-muted-foreground">{v.commission_pct}%</td>
+                        <td className="px-5 py-3.5 text-right font-semibold text-emerald-600">${vComm.toFixed(2)}</td>
                       </tr>
                     );
                   })}
@@ -1144,212 +1099,280 @@ const CrmVentas = ({
           </div>
         )}
 
-        {/* Mantenimientos del mes (superadmin) — solo informativo, sin pago */}
+        {/* ── Mantenimientos del mes (solo info) ── */}
         {isSuperAdmin && maintByVendor.length > 0 && (
           <div className="bg-card border rounded-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b flex items-center gap-3">
-              <Calendar size={14} className="text-muted-foreground" />
-              <div className="flex-1">
-                <h2 className="text-sm font-semibold">Mantenimientos del mes — {MONTHS_ES[new Date().getMonth()]} {new Date().getFullYear()}</h2>
-                <p className="text-[11px] text-muted-foreground mt-0.5">El pago a vendedores se habilitará el 1° de {MONTHS_ES[(new Date().getMonth() + 1) % 12]}</p>
+            <div className="px-5 py-4 border-b flex items-center gap-2.5">
+              <div className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center">
+                <Calendar size={13} className="text-muted-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="text-sm font-semibold">Mantenimientos — {MONTHS_ES[new Date().getMonth()]} {new Date().getFullYear()}</h2>
+                <p className="text-xs text-muted-foreground mt-0.5">El pago se habilitará el 1° de {MONTHS_ES[(new Date().getMonth() + 1) % 12]}</p>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-secondary/50 text-muted-foreground text-xs uppercase">
-                  <tr>
-                    <th className="px-6 py-3 font-medium text-left">Vendedor</th>
-                    <th className="px-6 py-3 font-medium text-right">Clientes activos</th>
-                    <th className="px-6 py-3 font-medium text-right">Total cobrado</th>
-                    <th className="px-6 py-3 font-medium text-right">Comisión proyectada</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {maintByVendor.map(({ vendor, amount, count, commissionAmount, currency }) => (
-                    <tr key={vendor.id} className="hover:bg-secondary/30 transition-colors">
-                      <td className="px-6 py-3 font-medium">{vendor.name}</td>
-                      <td className="px-6 py-3 text-right">{count}</td>
-                      <td className="px-6 py-3 text-right">{fmtSaleAmt(amount, currency)}</td>
-                      <td className="px-6 py-3 text-right font-semibold text-emerald-600">{fmtSaleAmt(commissionAmount, currency)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="divide-y divide-border">
+              {maintByVendor.map(({ vendor, amount, count, commissionAmount, currency }) => (
+                <div key={vendor.id} className="px-5 py-3.5 flex items-center gap-3">
+                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                    style={{ backgroundColor: getAvatarColor(vendor.name) }}>
+                    {vendor.name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{vendor.name}</p>
+                    <p className="text-xs text-muted-foreground">{count} cliente{count !== 1 ? "s" : ""}</p>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-medium">{fmtSaleAmt(amount, currency)}</p>
+                    <p className="text-xs text-emerald-600 font-semibold">+{fmtSaleAmt(commissionAmount, currency)}</p>
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
 
-        {/* Registrar venta */}
+        {/* ── Registrar Venta ── */}
         {canCreateSale && (
-          <div className="bg-card border rounded-2xl p-6">
-            <h2 className="text-sm font-semibold mb-4">Registrar Venta</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 items-end">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Contacto</label>
-                <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={selectedContact} onChange={(e) => setSelectedContact(e.target.value)}>
-                  <option value="">Seleccionar...</option>
-                  {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+          <div className="bg-card border rounded-2xl p-5">
+            <div className="flex items-center gap-2.5 mb-5">
+              <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center">
+                <Plus size={15} className="text-muted-foreground" />
               </div>
-              {/* Toggle Servicio / Producto */}
+              <h2 className="text-sm font-semibold">Registrar Venta</h2>
+            </div>
+
+            <div className="space-y-3">
+              {/* Contacto */}
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Tipo</label>
-                <div className="flex rounded-md border overflow-hidden h-10">
-                  <button type="button" onClick={() => { setSaleItemType("service"); setSelectedProduct(""); setSaleAmount(""); }} className={`flex-1 text-sm font-medium transition-colors ${saleItemType === "service" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground"}`}>Servicio</button>
-                  <button type="button" onClick={() => { setSaleItemType("product"); setSelectedService(""); setSaleAmount(""); setSaleType("initial"); }} className={`flex-1 text-sm font-medium transition-colors ${saleItemType === "product" ? "bg-primary text-primary-foreground" : "bg-background text-muted-foreground hover:text-foreground"}`}>Producto</button>
+                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contacto</label>
+                <div className="relative">
+                  <select className={SELECT_CLS} value={selectedContact} onChange={(e) => setSelectedContact(e.target.value)}>
+                    <option value="">Seleccionar contacto...</option>
+                    {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  <Chevron />
                 </div>
               </div>
 
-              {saleItemType === "service" ? (
+              {/* Tipo + Servicio/Producto */}
+              <div className="grid sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Servicio</label>
-                  <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={selectedService} onChange={handleServiceChange}>
-                    <option value="">Seleccionar...</option>
-                    {services.map(s => <option key={s.id} value={s.id}>{s.name} — {fmtSaleAmt(s.price, s.currency)}</option>)}
-                  </select>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tipo</label>
+                  <div className="flex rounded-xl border border-border overflow-hidden h-12">
+                    <button type="button"
+                      onClick={() => { setSaleItemType("service"); setSelectedProduct(""); setSaleAmount(""); }}
+                      className={`flex-1 text-sm font-semibold transition-colors ${saleItemType === "service" ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"}`}>
+                      Servicio
+                    </button>
+                    <button type="button"
+                      onClick={() => { setSaleItemType("product"); setSelectedService(""); setSaleAmount(""); setSaleType("initial"); }}
+                      className={`flex-1 text-sm font-semibold transition-colors border-l border-border ${saleItemType === "product" ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"}`}>
+                      Producto
+                    </button>
+                  </div>
                 </div>
-              ) : (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Producto</label>
-                  <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={selectedProduct} onChange={handleProductChange}>
-                    <option value="">Seleccionar...</option>
-                    {activeProducts.map(p => {
-                      const disc = p.discount_pct ?? 0;
-                      const displayPrice = disc > 0 ? +(p.price * (1 - disc / 100)).toFixed(2) : p.price;
-                      return <option key={p.id} value={p.id}>{p.name} — {fmtSaleAmt(displayPrice, p.currency)}{disc > 0 ? ` (-${disc}%)` : ""}</option>;
-                    })}
-                  </select>
-                </div>
-              )}
 
-              {/* Variante — solo cuando el producto seleccionado tiene variantes */}
+                {saleItemType === "service" ? (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Servicio</label>
+                    <div className="relative">
+                      <select className={SELECT_CLS} value={selectedService} onChange={handleServiceChange}>
+                        <option value="">Seleccionar...</option>
+                        {services.map(s => <option key={s.id} value={s.id}>{s.name} — {fmtSaleAmt(s.price, s.currency)}</option>)}
+                      </select>
+                      <Chevron />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Producto</label>
+                    <div className="relative">
+                      <select className={SELECT_CLS} value={selectedProduct} onChange={handleProductChange}>
+                        <option value="">Seleccionar...</option>
+                        {activeProducts.map(p => {
+                          const disc = p.discount_pct ?? 0;
+                          const displayPrice = disc > 0 ? +(p.price * (1 - disc / 100)).toFixed(2) : p.price;
+                          return <option key={p.id} value={p.id}>{p.name} — {fmtSaleAmt(displayPrice, p.currency)}{disc > 0 ? ` (-${disc}%)` : ""}</option>;
+                        })}
+                      </select>
+                      <Chevron />
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Variante */}
               {saleItemType === "product" && selectedProductObj?.has_variants && productVariants.length > 0 && (
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground">Variante</label>
-                  <select className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" value={selectedVariant} onChange={handleVariantChange}>
-                    <option value="">Seleccionar variante...</option>
-                    {productVariants.map(v => {
-                      const price = calcProductPrice(selectedProductObj, v);
-                      const base = v.price_override != null ? v.price_override : selectedProductObj.price;
-                      const hasDisc = price < base;
-                      return <option key={v.id} value={v.id}>{v.name} — {fmtSaleAmt(price, selectedProductObj.currency)}{hasDisc ? ` (-${v.discount_pct ?? selectedProductObj.discount_pct ?? 0}%)` : ""}</option>;
-                    })}
-                  </select>
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Variante</label>
+                  <div className="relative">
+                    <select className={SELECT_CLS} value={selectedVariant} onChange={handleVariantChange}>
+                      <option value="">Seleccionar variante...</option>
+                      {productVariants.map(v => {
+                        const price = calcProductPrice(selectedProductObj, v);
+                        const base  = v.price_override != null ? v.price_override : selectedProductObj.price;
+                        return <option key={v.id} value={v.id}>{v.name} — {fmtSaleAmt(price, selectedProductObj.currency)}{price < base ? ` (-${v.discount_pct ?? selectedProductObj.discount_pct ?? 0}%)` : ""}</option>;
+                      })}
+                    </select>
+                    <Chevron />
+                  </div>
                 </div>
               )}
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">
-                  {saleItemType === "service"
-                    ? `Monto${selectedService ? ` (${services.find(x => x.id === selectedService)?.currency ?? "USD"})` : ""}`
-                    : `Monto${selectedProduct ? ` (${activeProducts.find(x => x.id === selectedProduct)?.currency ?? "USD"})` : ""}`}
-                </label>
-                <Input type="number" min={0} placeholder="0.00" value={saleAmount} onChange={(e) => setSaleAmount(e.target.value as any)} className="h-10" />
-              </div>
-              <Button onClick={handleRegisterSale} className="h-10 w-full" disabled={!selectedContact || (saleItemType === "service" ? !selectedService : !selectedProduct || (selectedProductObj?.has_variants && productVariants.length > 0 && !selectedVariant)) || saleAmount === "" || createSale.isPending}>
-                {createSale.isPending ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Plus size={16} className="mr-1.5" />}
-                Registrar Venta
-              </Button>
+              {/* Tipo de cobro (servicio recurrente) */}
               {saleItemType === "service" && (() => {
                 const s = services.find(x => x.id === selectedService);
                 if (!s?.is_recurring) return null;
+                const recLabel = s.recurring_label ? s.recurring_label.replace(/^[/\s]+/, "") : (s.recurring_interval ?? "mes");
                 return (
-                  <div className="md:col-span-4 p-3 bg-secondary/30 rounded-xl border border-secondary">
-                    <p className="text-xs font-medium text-muted-foreground mb-2">Tipo de cobro</p>
-                    <div className="flex gap-4">
-                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <div className="p-4 bg-secondary/40 rounded-xl border border-secondary space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tipo de cobro</p>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <label className="flex items-center gap-2.5 text-sm cursor-pointer flex-1 p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors">
                         <input type="radio" name="saleType" checked={saleType === "initial"} onChange={() => { setSaleType("initial"); setSaleAmount(s.price); }} className="h-4 w-4 accent-primary" />
-                        Pago Inicial ({fmtSaleAmt(s.price, s.currency)})
+                        <div>
+                          <p className="font-semibold leading-tight">Pago Inicial</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{fmtSaleAmt(s.price, s.currency)}</p>
+                        </div>
                       </label>
-                      <label className="flex items-center gap-2 text-sm cursor-pointer">
+                      <label className="flex items-center gap-2.5 text-sm cursor-pointer flex-1 p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors">
                         <input type="radio" name="saleType" checked={saleType === "recurring"} onChange={() => { setSaleType("recurring"); setSaleAmount(s.recurring_price ?? s.price); }} className="h-4 w-4 accent-primary" />
-                        Pago Recurrente{s.recurring_price ? ` (${fmtSaleAmt(s.recurring_price, s.currency)})` : ""}
+                        <div>
+                          <p className="font-semibold leading-tight">Pago Recurrente</p>
+                          {s.recurring_price && <p className="text-xs text-muted-foreground mt-0.5">{fmtSaleAmt(s.recurring_price, s.currency)} / {recLabel}</p>}
+                        </div>
                       </label>
                     </div>
                   </div>
                 );
               })()}
-            </div>
-            <div className="mt-4 space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Notas (Opcional)</label>
-              <Input type="text" placeholder="Detalles sobre esta venta..." value={saleNotes} onChange={(e) => setSaleNotes(e.target.value)} className="h-10" />
+
+              {/* Monto + Notas */}
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                    {saleItemType === "service"
+                      ? `Monto${selectedService ? ` (${services.find(x => x.id === selectedService)?.currency ?? "USD"})` : ""}`
+                      : `Monto${selectedProduct ? ` (${activeProducts.find(x => x.id === selectedProduct)?.currency ?? "USD"})` : ""}`}
+                  </label>
+                  <input type="number" value={saleAmount} onChange={(e) => setSaleAmount(e.target.value as any)} min={0} placeholder="0.00" className={INPUT_CLS} />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Notas <span className="font-normal normal-case">(opcional)</span></label>
+                  <input type="text" value={saleNotes} onChange={(e) => setSaleNotes(e.target.value)} placeholder="Método de pago, detalles..." className={INPUT_CLS} />
+                </div>
+              </div>
+
+              {/* Submit */}
+              <button
+                onClick={handleRegisterSale}
+                disabled={!isFormValid || createSale.isPending}
+                className="w-full h-12 rounded-xl text-sm font-bold text-white transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+                style={{ background: isFormValid ? "linear-gradient(135deg, #1877F2, #0f5cc8)" : undefined }}
+              >
+                {createSale.isPending ? <Loader2 size={15} className="animate-spin" /> : <><Plus size={15} /> Registrar Venta</>}
+              </button>
             </div>
           </div>
         )}
 
-        {/* Historial filtrado */}
+        {/* ── Historial filtrado ── */}
         <div className="bg-card border rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 border-b">
-            <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-              <div className="flex items-center gap-2 flex-1">
-                <Filter size={14} className="text-muted-foreground shrink-0" />
-                <h2 className="text-sm font-semibold">Historial de Ventas</h2>
-                {hasFilters && (
-                  <span className="text-[10px] font-semibold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
-                    {filteredSales.length} resultado{filteredSales.length !== 1 ? "s" : ""}
-                  </span>
-                )}
+          {/* Header + filters */}
+          <div className="px-5 py-4 border-b space-y-4">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Filter size={13} className="text-primary" />
               </div>
-              <div className="flex items-center gap-2">
-                {isSuperAdmin && (
-                  <button onClick={() => applyFilter(() => setFilterVip(v => !v))} className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border font-medium transition-colors ${filterVip ? "bg-amber-100 border-amber-300 text-amber-700 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-400" : "border-border text-muted-foreground hover:text-foreground"}`}>
-                    <Crown size={11} /> Solo VIP
-                  </button>
-                )}
-                {hasFilters && <button onClick={clearFilters} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"><X size={12} /> Limpiar</button>}
-              </div>
+              <h2 className="text-sm font-semibold flex-1">Historial de Ventas</h2>
+              {hasFilters && (
+                <span className="text-[10px] font-bold bg-primary/10 text-primary px-2 py-0.5 rounded-full">
+                  {filteredSales.length} resultado{filteredSales.length !== 1 ? "s" : ""}
+                </span>
+              )}
+              {isSuperAdmin && (
+                <button
+                  onClick={() => setFilterVip(v => !v)}
+                  className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-xl border font-semibold transition-colors ${
+                    filterVip
+                      ? "bg-amber-100 border-amber-300 text-amber-700"
+                      : "border-border text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <Crown size={11} /> VIP
+                </button>
+              )}
+              {hasFilters && (
+                <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                  <X size={11} /> Limpiar
+                </button>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 mt-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Desde</label>
-                <Input type="date" className="h-8 text-xs" value={filterDateFrom} onChange={(e) => applyFilter(() => setFilterDateFrom(e.target.value))} />
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Desde</label>
+                <input type="date" className={F_INPUT} value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Hasta</label>
-                <Input type="date" className="h-8 text-xs" value={filterDateTo} onChange={(e) => applyFilter(() => setFilterDateTo(e.target.value))} />
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Hasta</label>
+                <input type="date" className={F_INPUT} value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Servicio</label>
-                <select className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={filterService} onChange={(e) => applyFilter(() => setFilterService(e.target.value))}>
-                  <option value="">Todos</option>
-                  {servicesWithSale.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Servicio</label>
+                <div className="relative">
+                  <select className={F_SELECT} value={filterService} onChange={(e) => setFilterService(e.target.value)}>
+                    <option value="">Todos</option>
+                    {servicesWithSale.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  <Chevron />
+                </div>
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Cliente</label>
-                <select className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={filterContact} onChange={(e) => applyFilter(() => setFilterContact(e.target.value))}>
-                  <option value="">Todos</option>
-                  {contactsWithSale.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                </select>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Cliente</label>
+                <div className="relative">
+                  <select className={F_SELECT} value={filterContact} onChange={(e) => setFilterContact(e.target.value)}>
+                    <option value="">Todos</option>
+                    {contactsWithSale.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
+                  <Chevron />
+                </div>
               </div>
               {isSuperAdmin && vendors.length > 0 && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Vendedor</label>
-                  <select className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={filterVendor} onChange={(e) => applyFilter(() => setFilterVendor(e.target.value))}>
-                    <option value="">Todos</option>
-                    <option value="__direct__">Sin vendedor</option>
-                    {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                  </select>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Vendedor</label>
+                  <div className="relative">
+                    <select className={F_SELECT} value={filterVendor} onChange={(e) => setFilterVendor(e.target.value)}>
+                      <option value="">Todos</option>
+                      <option value="__direct__">Sin vendedor</option>
+                      {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                    </select>
+                    <Chevron />
+                  </div>
                 </div>
               )}
               {availableCurrencies.length > 1 && (
                 <div className="space-y-1">
-                  <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Moneda</label>
-                  <select className="flex h-8 w-full rounded-md border border-input bg-background px-2 text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring" value={filterCurrency} onChange={(e) => applyFilter(() => setFilterCurrency(e.target.value))}>
-                    <option value="">Todas</option>
-                    {availableCurrencies.map(c => <option key={c} value={c}>{c} ({CURRENCY_SYMBOLS[c] ?? c})</option>)}
-                  </select>
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Moneda</label>
+                  <div className="relative">
+                    <select className={F_SELECT} value={filterCurrency} onChange={(e) => setFilterCurrency(e.target.value)}>
+                      <option value="">Todas</option>
+                      {availableCurrencies.map(c => <option key={c} value={c}>{c} ({CURRENCY_SYMBOLS[c] ?? c})</option>)}
+                    </select>
+                    <Chevron />
+                  </div>
                 </div>
               )}
             </div>
           </div>
 
           {hasFilters && filteredSales.length === 0 && !loadingSales && (
-            <div className="px-6 py-4 text-center">
+            <div className="px-5 py-4 text-center">
               <button onClick={clearFilters} className="text-xs text-primary hover:underline">Sin resultados — limpiar filtros</button>
             </div>
           )}
+
           <SalesTable
             rows={filteredSales}
             isLoading={loadingSales}
@@ -1366,6 +1389,7 @@ const CrmVentas = ({
             onMarkPaid={openPayModal}
           />
         </div>
+
       </div>
     </>
   );

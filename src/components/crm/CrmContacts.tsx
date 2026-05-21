@@ -10,7 +10,7 @@ import {
   ArrowLeft, FolderOpen, Star, FileText, MessageSquare,
   TrendingUp, Briefcase, Target, ImagePlus, Plus,
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
-  Trash2, ChevronDown, ExternalLink, Bell, Upload, FileUp, CheckCircle2, Bot,
+  Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Bell, Upload, FileUp, CheckCircle2, Bot,
 } from "lucide-react";
 import Papa from "papaparse";
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices } from "@/hooks/useCrmData";
@@ -701,6 +701,13 @@ const ClientDetail = ({
 
 // ─── CSV Export ───────────────────────────────────────────────────────────────
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+const CONTACT_COLORS = ["#1877F2", "#0a57d0", "#00a884", "#9B59B6", "#E67E22", "#E91E63", "#3498DB", "#2ECC71"];
+function getContactColor(str: string) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
+  return CONTACT_COLORS[Math.abs(h) % CONTACT_COLORS.length];
+}
 
 const parseCustomFields = (cf: unknown): Record<string, unknown> => {
   if (!cf || typeof cf !== "object" || Array.isArray(cf)) return {};
@@ -1399,6 +1406,7 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
   const [tagValue, setTagValue]     = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [disableSaasTarget, setDisableSaasTarget] = useState<{ id: string; name: string } | null>(null);
+  const [mobileShowDetail, setMobileShowDetail] = useState(false);
 
   // New contact dialog
   const [showNew, setShowNew]       = useState(false);
@@ -1527,7 +1535,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
       description="Se eliminará el contacto y todos sus datos permanentemente."
     />
 
-    {/* SaaS disable confirmation */}
     {disableSaasTarget && (
       <Dialog open onOpenChange={(open) => { if (!open) setDisableSaasTarget(null); }}>
         <DialogContent className="max-w-sm">
@@ -1577,588 +1584,181 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
       defaultStage={defaultStage}
     />
 
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Contactos</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Todos los contactos registrados en el CRM</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {!isVendor && (
-            <Button
-              variant="outline"
-              onClick={() => exportContactsCsv(filtered)}
-              className="rounded-xl gap-1.5 h-9 text-xs font-medium"
-              title={filtered.length < contacts.length ? `Exportar ${filtered.length} contactos (filtrados)` : "Exportar todos los contactos a CSV"}
-            >
-              <Upload size={13} /> <span className="hidden sm:inline">Exportar</span>
-            </Button>
-          )}
-          {canCreate && !isVendor && (
-            <Button
-              variant="outline"
-              onClick={() => setShowImport(true)}
-              className="rounded-xl gap-1.5 h-9 text-xs font-medium"
-            >
-              <Download size={13} /> <span className="hidden sm:inline">Importar</span>
-            </Button>
-          )}
-          {canCreate && (
-            <Button onClick={() => setShowNew(true)} className="rounded-xl gap-2 h-9 text-xs font-medium">
-              <Plus size={14} /> Nuevo contacto
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* New contact dialog */}
-      <Dialog open={showNew} onOpenChange={(v) => { if (!v) { setShowNew(false); setNewName(""); setNewEmail(""); setNewEmailError(null); } else setShowNew(true); }}>
-        <DialogContent className="max-w-sm rounded-2xl">
-          <DialogHeader>
-            <DialogTitle className="text-base font-semibold">Nuevo Contacto</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Nombre *</label>
-              <Input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                placeholder="Nombre completo"
-                className="h-9"
-                autoFocus
-              />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Email *</label>
-              <Input
-                value={newEmail}
-                onChange={(e) => { setNewEmail(e.target.value); setNewEmailError(null); }}
-                placeholder="email@ejemplo.com"
-                className="h-9"
-                type="email"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && newName.trim() && newEmail.trim()) handleCreateContact();
-                }}
-              />
-              {newEmailError && <p className="text-xs text-destructive mt-1">{newEmailError}</p>}
-            </div>
+    {/* New contact dialog */}
+    <Dialog open={showNew} onOpenChange={(v) => { if (!v) { setShowNew(false); setNewName(""); setNewEmail(""); setNewEmailError(null); } else setShowNew(true); }}>
+      <DialogContent className="max-w-sm rounded-2xl">
+        <DialogHeader>
+          <DialogTitle className="text-base font-semibold">Nuevo Contacto</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Nombre *</label>
+            <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre completo" className="h-9" autoFocus />
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => { setShowNew(false); setNewName(""); setNewEmail(""); setNewEmailError(null); }}>
-              Cancelar
-            </Button>
-            <Button
-              onClick={handleCreateContact}
-              disabled={!newName.trim() || !newEmail.trim() || createContact.isPending}
-              className="rounded-xl"
-            >
-              {createContact.isPending && <Loader2 size={14} className="animate-spin mr-2" />}
-              Guardar contacto
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {isLoading ? (
-        <div className="flex items-center justify-center py-16">
-          <Loader2 size={24} className="animate-spin text-muted-foreground" />
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Email *</label>
+            <Input
+              value={newEmail}
+              onChange={(e) => { setNewEmail(e.target.value); setNewEmailError(null); }}
+              placeholder="email@ejemplo.com"
+              className="h-9"
+              type="email"
+              onKeyDown={(e) => { if (e.key === "Enter" && newName.trim() && newEmail.trim()) handleCreateContact(); }}
+            />
+            {newEmailError && <p className="text-xs text-destructive mt-1">{newEmailError}</p>}
+          </div>
         </div>
-      ) : (
-        <div className="grid lg:grid-cols-[1fr_360px] gap-6">
-          {/* Lista */}
-          <div className="bg-card border rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b space-y-3">
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1">
-                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Buscar por nombre, email, teléfono o etiqueta..."
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    className="pl-9 h-9 text-sm bg-secondary/30 border-transparent"
-                  />
-                </div>
-                <span className="text-xs text-muted-foreground shrink-0 font-medium">
-                  {filtered.length} contactos
-                </span>
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={() => setOnlyClients(!onlyClients)}
-                  className={`h-7 px-3 rounded-lg text-[11px] font-semibold border transition-all ${
-                    onlyClients
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-secondary/50 text-muted-foreground border-transparent hover:border-border"
-                  }`}
-                >
-                  Solo clientes
-                </button>
-                <div className="relative">
-                  <select
-                    value={serviceFilter}
-                    onChange={(e) => setServiceFilter(e.target.value)}
-                    className="h-7 rounded-lg border bg-secondary/50 border-transparent text-[11px] font-semibold text-muted-foreground pl-2.5 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary"
-                  >
-                    <option value="">Todos los servicios</option>
-                    {services.filter((s) => s.active).map((s) => (
-                      <option key={s.id} value={s.id}>{s.name}</option>
-                    ))}
-                  </select>
-                  <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-                </div>
-                {(onlyClients || serviceFilter) && (
-                  <button
-                    onClick={() => { setOnlyClients(false); setServiceFilter(""); }}
-                    className="h-7 px-2.5 rounded-lg text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all flex items-center gap-1"
-                  >
-                    <X size={11} /> Limpiar filtros
-                  </button>
-                )}
-              </div>
-            </div>
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => { setShowNew(false); setNewName(""); setNewEmail(""); setNewEmailError(null); }}>Cancelar</Button>
+          <Button onClick={handleCreateContact} disabled={!newName.trim() || !newEmail.trim() || createContact.isPending} className="rounded-xl">
+            {createContact.isPending && <Loader2 size={14} className="animate-spin mr-2" />}
+            Guardar contacto
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
-            {filtered.length === 0 ? (
-              <div className="py-16 text-center">
-                <Users size={28} className="text-muted-foreground/20 mx-auto mb-3" />
-                <p className="text-sm text-muted-foreground">
-                  {search || onlyClients || serviceFilter
-                    ? "No se encontraron contactos con estos filtros."
-                    : "No hay contactos registrados aún."}
-                </p>
-              </div>
-            ) : (
-              <div className="divide-y">
-                {filtered.map((c) => {
-                  const account = accountByContact[c.id];
-                  const isSaasActive = account?.status === "active";
-                  const isSaasPending = account?.status === "pending";
-                  const isSaasDisabled = account?.status === "disabled";
-                  const hasSaasService = (contactServices.get(c.id) ?? []).some((s) => s.isSaas);
+    {isLoading ? (
+      <div className="flex items-center justify-center py-16">
+        <Loader2 size={24} className="animate-spin text-muted-foreground" />
+      </div>
+    ) : (
+      <div className="space-y-5">
 
-                  return (
-                  <div key={c.id}>
-                    <div
-                      className={`px-5 py-4 flex items-center gap-3 hover:bg-secondary/30 transition-colors ${
-                        selected === c.id ? "bg-primary/5" : ""
-                      }`}
-                    >
-                      <button
-                        className="flex items-center gap-3 flex-1 min-w-0 text-left"
-                        onClick={() => setSelected(c.id === selected ? null : c.id)}
-                      >
-                        <div className="w-10 h-10 rounded-xl bg-secondary flex items-center justify-center text-xs font-semibold shrink-0">
-                          {c.name.substring(0, 2).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-medium truncate">{c.name}</p>
-                            {(contactStagesMap[c.id]?.length ?? 0) > 0
-                              ? contactStagesMap[c.id].map((s, i) => (
-                                  <Badge key={i} variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-primary/20 bg-primary/5 text-primary" title={s.pipelineName}>
-                                    {s.stage}
-                                  </Badge>
-                                ))
-                              : c.stage && (
-                                  <Badge variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-primary/20 bg-primary/5 text-primary">
-                                    {c.stage}
-                                  </Badge>
-                                )
-                            }
-                            {(contactServices.get(c.id) ?? []).map((svc, i) => (
-                              <Badge key={`svc-${i}`} variant="outline" className="text-[10px] px-2 py-0 shrink-0 border-emerald-200 bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400 dark:border-emerald-800/40">
-                                {svc.serviceName}
-                              </Badge>
-                            ))}
-                            {hasSaasService && !account && (
-                              <Badge className="text-[10px] px-2 py-0 shrink-0 font-medium bg-secondary text-muted-foreground border border-border hover:bg-secondary">
-                                Sin invitación
-                              </Badge>
-                            )}
-                            {isSaasPending && (
-                              <Badge className="text-[10px] px-2 py-0 shrink-0 font-semibold bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-50">
-                                Invitación enviada
-                              </Badge>
-                            )}
-                            {isSaasActive && (
-                              <Badge className="text-[10px] px-2 py-0 shrink-0 font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-50">
-                                SaaS Activo
-                              </Badge>
-                            )}
-                            {isSaasDisabled && (
-                              <Badge className="text-[10px] px-2 py-0 shrink-0 font-medium bg-destructive/10 text-destructive border border-destructive/20 hover:bg-destructive/10">
-                                Cuenta deshabilitada
-                              </Badge>
-                            )}
-                          </div>
-                          <p className="text-xs text-muted-foreground truncate mt-0.5">{c.email ?? "Sin email"}</p>
-                        </div>
+        {/* ── Mobile full-screen detail view ── */}
+        {mobileShowDetail && detail && (
+          <div className="lg:hidden space-y-4">
+            <button
+              onClick={() => { setMobileShowDetail(false); setSelected(null); }}
+              className="flex items-center gap-1.5 text-sm font-medium text-primary -ml-1 px-1 py-1 rounded-xl hover:bg-secondary/60 transition-colors"
+            >
+              <ChevronLeft size={16} />
+              Contactos
+              <span className="text-muted-foreground/50 font-normal ml-0.5">· {detail.name}</span>
+            </button>
+            <div className="bg-card border rounded-2xl overflow-hidden">
+              <div className="p-5 border-b space-y-3">
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center text-white text-sm font-bold shrink-0 overflow-hidden relative"
+                    style={{ backgroundColor: getContactColor(detail.id) }}
+                  >
+                    {detail.profile_pic_url ? (
+                      <img src={detail.profile_pic_url} alt={detail.name} className="absolute inset-0 w-full h-full object-cover"
+                        onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                    ) : null}
+                    <span>{detail.name.substring(0, 2).toUpperCase()}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-base">{detail.name}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      Desde {new Date(detail.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
+                    </p>
+                  </div>
+                </div>
+                {isSuperAdmin && (() => {
+                  const cf = (detail.custom_fields ?? {}) as Record<string, any>;
+                  const hasOnboarding = forms.some(f => cf[f.id] !== undefined && (f.slug?.toLowerCase().includes("onboarding") || f.name?.toLowerCase().includes("onboarding")));
+                  if (!hasOnboarding) return null;
+                  return <Button className="w-full h-9 rounded-xl text-xs font-medium gap-2" onClick={() => setViewing(detail.id)}><Eye size={14} />Ver Ficha Técnica</Button>;
+                })()}
+                {(() => {
+                  const acc = accountByContact[detail.id];
+                  const hasSaasService = (contactServices.get(detail.id) ?? []).some((s) => s.isSaas);
+                  if (!acc) {
+                    if (!detail.email || !hasSaasService || !isSuperAdmin) return null;
+                    return (
+                      <button onClick={async () => { try { await createSaasClient.mutateAsync(detail.id); toast.success("Invitación enviada."); } catch (err) { const e = err as Error & { alreadyExists?: boolean }; if (e.alreadyExists) toast.info("La cuenta SaaS ya existía."); else toast.error(`Error al activar: ${e.message ?? "Error desconocido"}`); } }}
+                        disabled={createSaasClient.isPending}
+                        className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors flex items-center justify-center gap-2">
+                        {createSaasClient.isPending ? <Loader2 size={12} className="animate-spin" /> : <span>🔐</span>}
+                        Activar Booking System
                       </button>
-
-                      {/* Delete button */}
-                      {canDelete && (
-                        <button
-                          onClick={() => setDeleteTarget({ id: c.id, name: c.name })}
-                          className="p-1.5 rounded-lg hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive shrink-0"
-                          title="Eliminar contacto"
-                        >
-                          <Trash2 size={14} />
+                    );
+                  }
+                  return (
+                    <div className="border rounded-xl p-3 space-y-2 bg-amber-50/50 border-amber-200">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] uppercase tracking-widest text-amber-700/70 font-semibold">Cuenta SaaS</span>
+                          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${acc.status === "active" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : acc.status === "pending" ? "bg-yellow-50 text-yellow-700 border-yellow-200" : "bg-secondary text-muted-foreground border-border"}`}>
+                            {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente" : "Deshabilitada"}
+                          </span>
+                        </div>
+                        {acc.status === "active" && isSuperAdmin && <button onClick={() => setDisableSaasTarget({ id: acc.id, name: detail.name })} className="text-[10px] text-destructive/60 hover:text-destructive underline underline-offset-2">Deshabilitar</button>}
+                      </div>
+                      {acc.status === "active" && isSuperAdmin && (
+                        <button onClick={() => handleAccessCrm(detail.id)} disabled={accessingCrm === detail.id} className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2">
+                          {accessingCrm === detail.id ? <Loader2 size={12} className="animate-spin" /> : <span>🔐</span>}
+                          Acceder al CRM del cliente
+                        </button>
+                      )}
+                      {acc.status === "pending" && <p className="text-[11px] text-muted-foreground">Esperando activación vía email.</p>}
+                      {acc.status === "disabled" && isSuperAdmin && (
+                        <button onClick={async () => { try { await enableClient.mutateAsync(acc.id); toast.success("Cuenta reactivada"); } catch { toast.error("Error al reactivar"); } }} disabled={enableClient.isPending} className="w-full h-8 rounded-lg text-xs font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1.5">
+                          {enableClient.isPending ? <Loader2 size={12} className="animate-spin" /> : null}Reactivar cuenta
                         </button>
                       )}
                     </div>
-
-                    {/* Mobile inline expand — hidden on desktop */}
-                    {selected === c.id && detail && (
-                      <div className="lg:hidden border-t bg-secondary/5 px-5 py-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Detalle</p>
-                          <button
-                            onClick={() => setSelected(null)}
-                            className="p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
-                          >
-                            <X size={13} />
-                          </button>
-                        </div>
-                        {/* Contact info */}
-                        <div className="space-y-1.5">
-                          {detail.email && (
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <Mail size={12} className="shrink-0" />
-                              <span className="truncate">{detail.email}</span>
-                            </div>
-                          )}
-                          {detail.phone && (
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <Phone size={12} className="shrink-0" />
-                              <span>{detail.phone}</span>
-                            </div>
-                          )}
-                          {detail.company && (
-                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                              <Briefcase size={12} className="shrink-0" />
-                              <span className="truncate">{detail.company}</span>
-                            </div>
-                          )}
-                        </div>
-                        {/* Tags */}
-                        {(detail.tags ?? []).length > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {detail.tags.map((tag) => (
-                              <span key={tag} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        {/* Notes preview */}
-                        {detail.notes && (
-                          <div className="bg-secondary/60 rounded-xl p-3">
-                            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Notas</p>
-                            <p className="text-xs text-muted-foreground leading-relaxed line-clamp-4">{detail.notes}</p>
-                          </div>
-                        )}
-                        {/* Pipeline stages */}
-                        {(contactStagesMap[c.id]?.length ?? 0) > 0 && (
-                          <div className="flex flex-wrap gap-1">
-                            {contactStagesMap[c.id].map((s, i) => (
-                              <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20 font-medium" title={s.pipelineName}>
-                                {s.stage}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                        <p className="text-[10px] text-muted-foreground/60">Abre en escritorio para editar el perfil completo</p>
-                      </div>
-                    )}
-                  </div>
                   );
-                })}
+                })()}
               </div>
-            )}
-          </div>
-
-          {/* Panel de detalle — solo visible en desktop */}
-          <div className="hidden lg:flex bg-card border rounded-2xl flex-col max-h-[80vh]">
-            {detail ? (
-              <>
-                {/* Fixed header */}
-                <div className="p-5 border-b shrink-0 space-y-3">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center gap-3">
-                      <div className="w-11 h-11 rounded-xl bg-secondary flex items-center justify-center text-sm font-semibold shrink-0 overflow-hidden relative">
-                        {detail.profile_pic_url ? (
-                          <img src={detail.profile_pic_url} alt={detail.name} className="absolute inset-0 w-full h-full object-cover"
-                            onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-                        ) : null}
-                        <span>{detail.name.substring(0, 2).toUpperCase()}</span>
-                      </div>
-                      <div>
-                        <p className="font-semibold text-sm">{detail.name}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5">
-                          Desde{" "}
-                          {new Date(detail.created_at).toLocaleDateString("es-ES", {
-                            day: "numeric", month: "short", year: "numeric",
-                          })}
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setSelected(null)}
-                      className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground"
-                    >
-                      <X size={14} />
-                    </button>
-                  </div>
-                  {isSuperAdmin && (() => {
-                    const cf = (detail.custom_fields ?? {}) as Record<string, any>;
-                    const hasOnboarding = forms.some(f =>
-                      cf[f.id] !== undefined &&
-                      (f.slug?.toLowerCase().includes("onboarding") || f.name?.toLowerCase().includes("onboarding"))
-                    );
-                    if (!hasOnboarding) return null;
-                    return (
-                      <Button
-                        className="w-full h-9 rounded-xl text-xs font-medium gap-2"
-                        onClick={() => setViewing(detail.id)}
-                      >
-                        <Eye size={14} />
-                        Ver Ficha Técnica
-                      </Button>
-                    );
-                  })()}
-
-                  {/* SaaS account actions in detail panel */}
-                  {(() => {
-                    const acc = accountByContact[detail.id];
-                    const hasSaasService = (contactServices.get(detail.id) ?? []).some((s) => s.isSaas);
-
-                    // No account yet — show activation button only if contact bought a SaaS service
-                    if (!acc) {
-                      if (!detail.email || !hasSaasService || !isSuperAdmin) return null;
-                      return (
-                        <button
-                          onClick={async () => {
-                            try {
-                              await createSaasClient.mutateAsync(detail.id);
-                              toast.success("Invitación enviada. El cliente recibirá un email para activar su cuenta.");
-                            } catch (err) {
-                              const e = err as Error & { alreadyExists?: boolean };
-                              if (e.alreadyExists) {
-                                toast.info("La cuenta SaaS ya existía — el panel se ha actualizado.");
-                              } else {
-                                toast.error(`Error al activar: ${e.message ?? "Error desconocido"}`);
-                              }
-                            }
-                          }}
-                          disabled={createSaasClient.isPending}
-                          className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors flex items-center justify-center gap-2"
-                        >
-                          {createSaasClient.isPending
-                            ? <Loader2 size={12} className="animate-spin" />
-                            : <span>🔐</span>
-                          }
-                          Activar Booking System
-                        </button>
-                      );
-                    }
-
-                    return (
-                      <div className="border rounded-xl p-3 space-y-2 bg-amber-50/50 border-amber-200">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-[10px] uppercase tracking-widest text-amber-700/70 font-semibold">Cuenta SaaS</span>
-                            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
-                              acc.status === "active"   ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
-                              acc.status === "pending"  ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
-                                                          "bg-secondary text-muted-foreground border-border"
-                            }`}>
-                              {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente" : "Deshabilitada"}
-                            </span>
-                          </div>
-                          {acc.status === "active" && isSuperAdmin && (
-                            <button
-                              onClick={() => setDisableSaasTarget({ id: acc.id, name: detail.name })}
-                              className="text-[10px] text-destructive/60 hover:text-destructive underline underline-offset-2 transition-colors"
-                            >
-                              Deshabilitar
-                            </button>
-                          )}
-                        </div>
-
-                        {acc.status === "active" && isSuperAdmin && (
-                          <button
-                            onClick={() => handleAccessCrm(detail.id)}
-                            disabled={accessingCrm === detail.id}
-                            className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2"
-                          >
-                            {accessingCrm === detail.id
-                              ? <Loader2 size={12} className="animate-spin" />
-                              : <span>🔐</span>
-                            }
-                            Acceder al CRM del cliente
-                          </button>
-                        )}
-
-                        {acc.status === "pending" && (
-                          <p className="text-[11px] text-muted-foreground">
-                            Esperando que el cliente active su cuenta vía email.
-                          </p>
-                        )}
-                        {acc.status === "disabled" && isSuperAdmin && (
-                          <button
-                            onClick={async () => {
-                              try {
-                                await enableClient.mutateAsync(acc.id);
-                                toast.success("Cuenta SaaS reactivada");
-                              } catch { toast.error("Error al reactivar"); }
-                            }}
-                            disabled={enableClient.isPending}
-                            className="w-full h-8 rounded-lg text-xs font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1.5"
-                          >
-                            {enableClient.isPending ? <Loader2 size={12} className="animate-spin" /> : null}
-                            Reactivar cuenta
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Scrollable body */}
-                <div className="p-5 overflow-y-auto flex-1 space-y-5">
-
+              <div className="p-5 space-y-5">
                 {((contactStagesMap[detail.id]?.length ?? 0) > 0 || detail.stage) && (
                   <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium shrink-0">Etapa</span>
                     {(contactStagesMap[detail.id]?.length ?? 0) > 0
-                      ? contactStagesMap[detail.id].map((s, i) => (
-                          <Badge key={i} variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary" title={s.pipelineName}>
-                            {s.stage}
-                          </Badge>
-                        ))
-                      : (
-                          <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary">
-                            {detail.stage}
-                          </Badge>
-                        )
+                      ? contactStagesMap[detail.id].map((s, i) => <Badge key={i} variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary" title={s.pipelineName}>{s.stage}</Badge>)
+                      : <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary">{detail.stage}</Badge>
                     }
                   </div>
                 )}
-
                 <div className="space-y-2">
-                  <InlineEdit
-                    icon={Mail}
-                    value={detail.email}
-                    placeholder="Añadir email"
-                    type="email"
-                    readOnly={!canEdit}
-                    onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})}
-                  />
-                  <InlineEdit
-                    icon={Phone}
-                    value={detail.phone}
-                    placeholder="Añadir teléfono"
-                    type="tel"
-                    readOnly={!canEdit}
-                    onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})}
-                  />
-                  <InlineEdit
-                    icon={ImageIcon}
-                    value={detail.profile_pic_url ?? null}
-                    placeholder="URL foto de perfil"
-                    type="url"
-                    readOnly={!canEdit}
+                  <InlineEdit icon={Mail} value={detail.email} placeholder="Añadir email" type="email" readOnly={!canEdit} onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})} />
+                  <InlineEdit icon={Phone} value={detail.phone} placeholder="Añadir teléfono" type="tel" readOnly={!canEdit} onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})} />
+                  <InlineEdit icon={ImageIcon} value={detail.profile_pic_url ?? null} placeholder="URL foto de perfil" type="url" readOnly={!canEdit}
                     onSave={async (v) => {
                       await updateContact.mutateAsync({ id: detail.id, profile_pic_url: v || null });
-                      // Propagar foto a conversaciones WhatsApp vinculadas con este teléfono
                       if (detail.phone) {
                         const normalized = detail.phone.replace(/\D/g, "");
-                        await supabase
-                          .from("crm_wa_conversations")
-                          .update({ contact_profile_pic: v || null })
-                          .eq("user_id", detail.user_id)
-                          .or(`phone.eq.${detail.phone},phone.eq.+${normalized},phone.eq.${normalized}`);
+                        await supabase.from("crm_wa_conversations").update({ contact_profile_pic: v || null }).eq("user_id", detail.user_id).or(`phone.eq.${detail.phone},phone.eq.+${normalized},phone.eq.${normalized}`);
                       }
                     }}
                   />
                 </div>
-
-                {/* Tags */}
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Etiquetas</p>
                   <div className="flex flex-wrap gap-1.5">
                     {(detail.tags ?? []).map((tag) => (
                       <span key={tag} className="flex items-center gap-1 text-[10px] border rounded-full px-2 py-0.5 bg-secondary/50">
                         {tag}
-                        {canEdit && (
-                          <button onClick={() => removeTag(detail.id, tag)} className="text-muted-foreground hover:text-destructive transition-colors">
-                            <X size={9} />
-                          </button>
-                        )}
+                        {canEdit && <button onClick={() => removeTag(detail.id, tag)} className="text-muted-foreground hover:text-destructive transition-colors"><X size={9} /></button>}
                       </span>
                     ))}
-                    {canEdit && (
-                      <button
-                        onClick={() => { setTagInputId(detail.id); setTagValue(""); }}
-                        className="flex items-center gap-1 text-[10px] border border-dashed rounded-full px-2 py-0.5 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
-                      >
-                        <Plus size={9} /> Añadir
-                      </button>
-                    )}
+                    {canEdit && <button onClick={() => { setTagInputId(detail.id); setTagValue(""); }} className="flex items-center gap-1 text-[10px] border border-dashed rounded-full px-2 py-0.5 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"><Plus size={9} /> Añadir</button>}
                   </div>
                   {tagInputId === detail.id && (
                     <div className="flex items-center gap-2 mt-2">
-                      <Input
-                        autoFocus
-                        value={tagValue}
-                        onChange={(e) => setTagValue(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") addTag(detail.id);
-                          if (e.key === "Escape") setTagInputId(null);
-                        }}
-                        onBlur={() => setTimeout(() => setTagInputId(null), 150)}
-                        placeholder="Nueva etiqueta..."
-                        className="h-7 text-xs flex-1"
-                      />
-                      <button
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => addTag(detail.id)}
-                        className="p-1 rounded-md bg-primary text-primary-foreground"
-                      >
-                        <Plus size={13} />
-                      </button>
-                      <button
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => setTagInputId(null)}
-                        className="p-1 rounded-md hover:bg-secondary text-muted-foreground"
-                      >
-                        <X size={13} />
-                      </button>
+                      <Input autoFocus value={tagValue} onChange={(e) => setTagValue(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === "Enter") addTag(detail.id); if (e.key === "Escape") setTagInputId(null); }}
+                        onBlur={() => setTimeout(() => setTagInputId(null), 150)} placeholder="Nueva etiqueta..." className="h-7 text-xs flex-1" />
+                      <button onMouseDown={(e) => e.preventDefault()} onClick={() => addTag(detail.id)} className="p-1 rounded-md bg-primary text-primary-foreground"><Plus size={13} /></button>
+                      <button onMouseDown={(e) => e.preventDefault()} onClick={() => setTagInputId(null)} className="p-1 rounded-md hover:bg-secondary text-muted-foreground"><X size={13} /></button>
                     </div>
                   )}
                 </div>
-
-                {/* Recordatorio rápido */}
                 {canCreateReminder && (
-                  <div>
-                    <button
-                      onClick={() => setReminderContact(detail)}
-                      className="w-full flex items-center justify-center gap-2 h-8 rounded-xl border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
-                    >
-                      <Bell size={12} /> Crear recordatorio
-                    </button>
-                  </div>
+                  <button onClick={() => setReminderContact(detail)} className="w-full flex items-center justify-center gap-2 h-9 rounded-xl border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
+                    <Bell size={12} /> Crear recordatorio
+                  </button>
                 )}
-
-                {/* Datos recopilados por el Agente IA */}
                 {(() => {
                   const aiData = Object.entries(detail.ai_collected_data ?? {}).filter(([, v]) => v);
                   if (aiData.length === 0) return null;
                   return (
                     <div>
-                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2 flex items-center gap-1.5">
-                        <Bot size={10} /> Datos recopilados por IA
-                      </p>
-                      <div className="border rounded-xl overflow-hidden divide-y bg-primary/3">
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2 flex items-center gap-1.5"><Bot size={10} /> Datos recopilados por IA</p>
+                      <div className="border rounded-xl overflow-hidden divide-y">
                         {aiData.map(([key, value]) => (
                           <div key={key} className="flex items-start justify-between gap-3 px-3 py-2.5">
                             <p className="text-xs text-muted-foreground capitalize shrink-0">{key.replace(/_/g, " ")}</p>
@@ -2169,54 +1769,454 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
                     </div>
                   );
                 })()}
-
-                {/* Campos personalizados (importados por CSV u otros) */}
                 {(() => {
-                  const flatFields = Object.entries(
-                    (detail.custom_fields as Record<string, unknown>) ?? {}
-                  ).filter(([k, v]) => !UUID_RE.test(k) && v !== null && v !== undefined && v !== "");
+                  const flatFields = Object.entries((detail.custom_fields as Record<string, unknown>) ?? {}).filter(([k, v]) => !UUID_RE.test(k) && v !== null && v !== undefined && v !== "");
                   if (flatFields.length === 0) return null;
                   return (
                     <div>
-                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">
-                        Campos personalizados
-                      </p>
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Campos personalizados</p>
                       <div className="border rounded-xl overflow-hidden divide-y">
                         {flatFields.map(([key, value]) => (
                           <div key={key} className="flex items-start justify-between gap-3 px-3 py-2.5">
                             <p className="text-xs text-muted-foreground capitalize shrink-0">{key.replace(/_/g, " ")}</p>
-                            <p className="text-xs font-medium text-right break-all">
-                              {typeof value === "object" ? JSON.stringify(value) : String(value)}
-                            </p>
+                            <p className="text-xs font-medium text-right break-all">{typeof value === "object" ? JSON.stringify(value) : String(value)}</p>
                           </div>
                         ))}
                       </div>
                     </div>
                   );
                 })()}
-
-                {/* Formularios */}
-                <FormDataPanel
-                  contact={detail}
-                  forms={forms}
-                  canEdit={canEdit}
-                  onSave={(cf) => handleSaveFormData(detail.id, cf)}
-                />
-
-                {/* Historial de notas */}
+                <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
                 <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
+                {canDelete && (
+                  <div className="pt-2 border-t">
+                    <button onClick={() => setDeleteTarget({ id: detail.id, name: detail.name })} className="w-full h-10 rounded-xl text-xs font-medium text-destructive border border-destructive/20 hover:bg-destructive/5 transition-colors flex items-center justify-center gap-2">
+                      <Trash2 size={13} /> Eliminar contacto
+                    </button>
+                  </div>
+                )}
               </div>
-              </>
-            ) : (
-              <div className="p-5 py-10 text-center">
-                <Users size={22} className="text-muted-foreground/20 mx-auto mb-2" />
-                <p className="text-xs text-muted-foreground">Selecciona un contacto para ver los detalles</p>
+            </div>
+          </div>
+        )}
+
+        {/* ── Main list view (hidden on mobile when detail is open) ── */}
+        <div className={`space-y-5 ${mobileShowDetail && detail ? "hidden lg:block" : ""}`}>
+
+          {/* Page header */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl font-bold text-foreground">Contactos</h1>
+                <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-secondary text-muted-foreground border border-border tabular-nums">
+                  {contacts.length}
+                </span>
               </div>
-            )}
+              <p className="text-sm text-muted-foreground mt-0.5">
+                {clientContactIds.size > 0
+                  ? `${clientContactIds.size} cliente${clientContactIds.size !== 1 ? "s" : ""} activo${clientContactIds.size !== 1 ? "s" : ""}`
+                  : "Gestiona tus contactos y clientes"}
+              </p>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              {!isVendor && (
+                <Button variant="outline" onClick={() => exportContactsCsv(filtered)} className="rounded-xl gap-1.5 h-9 text-xs font-medium" title={filtered.length < contacts.length ? `Exportar ${filtered.length} contactos (filtrados)` : "Exportar todos"}>
+                  <Upload size={13} /><span className="hidden sm:inline">Exportar</span>
+                </Button>
+              )}
+              {canCreate && !isVendor && (
+                <Button variant="outline" onClick={() => setShowImport(true)} className="rounded-xl gap-1.5 h-9 text-xs font-medium">
+                  <Download size={13} /><span className="hidden sm:inline">Importar</span>
+                </Button>
+              )}
+              {canCreate && (
+                <Button onClick={() => setShowNew(true)} className="rounded-xl gap-2 h-9 text-xs font-medium">
+                  <Plus size={14} /> Nuevo contacto
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid lg:grid-cols-[1fr_360px] gap-5">
+            {/* Lista */}
+            <div className="bg-card border rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b space-y-2.5">
+                <div className="flex items-center gap-2.5">
+                  <div className="relative flex-1">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      placeholder="Buscar por nombre, email, teléfono o etiqueta..."
+                      value={search}
+                      onChange={(e) => setSearch(e.target.value)}
+                      className="pl-9 h-9 text-sm bg-secondary/30 border-transparent"
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground shrink-0 font-medium tabular-nums">{filtered.length}</span>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={() => setOnlyClients(!onlyClients)}
+                    className={`h-7 px-3 rounded-lg text-[11px] font-semibold border transition-all ${onlyClients ? "bg-primary text-primary-foreground border-primary" : "bg-secondary/50 text-muted-foreground border-transparent hover:border-border"}`}
+                  >
+                    Solo clientes
+                  </button>
+                  <div className="relative">
+                    <select value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} className="h-7 rounded-lg border bg-secondary/50 border-transparent text-[11px] font-semibold text-muted-foreground pl-2.5 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+                      <option value="">Todos los servicios</option>
+                      {services.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                    <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  </div>
+                  {(onlyClients || serviceFilter) && (
+                    <button onClick={() => { setOnlyClients(false); setServiceFilter(""); }} className="h-7 px-2.5 rounded-lg text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all flex items-center gap-1">
+                      <X size={11} /> Limpiar filtros
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {filtered.length === 0 ? (
+                <div className="py-16 text-center">
+                  <div className="w-14 h-14 rounded-2xl bg-primary/8 flex items-center justify-center mx-auto mb-3">
+                    <Users size={22} className="text-primary/40" />
+                  </div>
+                  <p className="text-sm font-medium text-foreground/70">
+                    {search || onlyClients || serviceFilter ? "Sin resultados" : "Sin contactos"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {search || onlyClients || serviceFilter ? "Prueba otros filtros o términos de búsqueda." : "Crea tu primer contacto con el botón de arriba."}
+                  </p>
+                </div>
+              ) : (
+                <div className="divide-y">
+                  {filtered.map((c) => {
+                    const account      = accountByContact[c.id];
+                    const isSaasActive = account?.status === "active";
+                    const isSaasPending  = account?.status === "pending";
+                    const isSaasDisabled = account?.status === "disabled";
+                    const avatarColor  = getContactColor(c.id);
+                    const isSelected   = selected === c.id;
+
+                    return (
+                      <button
+                        key={c.id}
+                        className={`w-full px-4 py-3.5 flex items-center gap-3 text-left transition-colors hover:bg-secondary/30 active:bg-secondary/50 ${isSelected ? "bg-primary/5" : ""}`}
+                        onClick={() => {
+                          const next = c.id === selected ? null : c.id;
+                          setSelected(next);
+                          if (next) setMobileShowDetail(true);
+                        }}
+                      >
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ backgroundColor: avatarColor }}>
+                          {c.name.substring(0, 2).toUpperCase()}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className={`text-sm font-semibold truncate ${isSelected ? "text-primary" : ""}`}>{c.name}</p>
+                            {isSaasActive   && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 shrink-0">SaaS</span>}
+                            {isSaasPending  && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-yellow-50 text-yellow-700 border border-yellow-200 shrink-0">Invitado</span>}
+                            {isSaasDisabled && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 shrink-0">Deshabilitado</span>}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">{c.email ?? "Sin email"}</p>
+                          {((contactStagesMap[c.id]?.length ?? 0) > 0 || c.stage || (contactServices.get(c.id) ?? []).length > 0) && (
+                            <div className="flex items-center gap-1 flex-wrap mt-1">
+                              {(contactStagesMap[c.id]?.length ?? 0) > 0
+                                ? contactStagesMap[c.id].map((s, i) => <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary border border-primary/15 font-medium" title={s.pipelineName}>{s.stage}</span>)
+                                : c.stage && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary border border-primary/15 font-medium">{c.stage}</span>
+                              }
+                              {(contactServices.get(c.id) ?? []).map((svc, i) => (
+                                <span key={`svc-${i}`} className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-medium">{svc.serviceName}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1 shrink-0">
+                          {canDelete && (
+                            <button onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: c.id, name: c.name }); }} className="hidden sm:flex p-1.5 rounded-lg hover:bg-destructive/10 transition-colors text-muted-foreground hover:text-destructive" title="Eliminar">
+                              <Trash2 size={13} />
+                            </button>
+                          )}
+                          <ChevronRight size={14} className="lg:hidden text-muted-foreground/30" />
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Panel de detalle — solo desktop */}
+            <div className="hidden lg:flex bg-card border rounded-2xl flex-col max-h-[80vh]">
+              {detail ? (
+                <>
+                  {/* Fixed header */}
+                  <div className="p-5 border-b shrink-0 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-3">
+                        <div
+                          className="w-11 h-11 rounded-xl flex items-center justify-center text-white text-sm font-bold shrink-0 overflow-hidden relative"
+                          style={{ backgroundColor: getContactColor(detail.id) }}
+                        >
+                          {detail.profile_pic_url ? (
+                            <img src={detail.profile_pic_url} alt={detail.name} className="absolute inset-0 w-full h-full object-cover"
+                              onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                          ) : null}
+                          <span>{detail.name.substring(0, 2).toUpperCase()}</span>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-sm">{detail.name}</p>
+                          <p className="text-[10px] text-muted-foreground mt-0.5">
+                            Desde{" "}
+                            {new Date(detail.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
+                          </p>
+                        </div>
+                      </div>
+                      <button onClick={() => setSelected(null)} className="p-1.5 rounded-lg hover:bg-secondary transition-colors text-muted-foreground">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    {isSuperAdmin && (() => {
+                      const cf = (detail.custom_fields ?? {}) as Record<string, any>;
+                      const hasOnboarding = forms.some(f =>
+                        cf[f.id] !== undefined &&
+                        (f.slug?.toLowerCase().includes("onboarding") || f.name?.toLowerCase().includes("onboarding"))
+                      );
+                      if (!hasOnboarding) return null;
+                      return (
+                        <Button className="w-full h-9 rounded-xl text-xs font-medium gap-2" onClick={() => setViewing(detail.id)}>
+                          <Eye size={14} />
+                          Ver Ficha Técnica
+                        </Button>
+                      );
+                    })()}
+
+                    {/* SaaS account actions in detail panel */}
+                    {(() => {
+                      const acc = accountByContact[detail.id];
+                      const hasSaasService = (contactServices.get(detail.id) ?? []).some((s) => s.isSaas);
+
+                      if (!acc) {
+                        if (!detail.email || !hasSaasService || !isSuperAdmin) return null;
+                        return (
+                          <button
+                            onClick={async () => {
+                              try {
+                                await createSaasClient.mutateAsync(detail.id);
+                                toast.success("Invitación enviada. El cliente recibirá un email para activar su cuenta.");
+                              } catch (err) {
+                                const e = err as Error & { alreadyExists?: boolean };
+                                if (e.alreadyExists) {
+                                  toast.info("La cuenta SaaS ya existía — el panel se ha actualizado.");
+                                } else {
+                                  toast.error(`Error al activar: ${e.message ?? "Error desconocido"}`);
+                                }
+                              }
+                            }}
+                            disabled={createSaasClient.isPending}
+                            className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors flex items-center justify-center gap-2"
+                          >
+                            {createSaasClient.isPending ? <Loader2 size={12} className="animate-spin" /> : <span>🔐</span>}
+                            Activar Booking System
+                          </button>
+                        );
+                      }
+
+                      return (
+                        <div className="border rounded-xl p-3 space-y-2 bg-amber-50/50 border-amber-200">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] uppercase tracking-widest text-amber-700/70 font-semibold">Cuenta SaaS</span>
+                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${
+                                acc.status === "active"   ? "bg-emerald-50 text-emerald-700 border-emerald-200" :
+                                acc.status === "pending"  ? "bg-yellow-50 text-yellow-700 border-yellow-200" :
+                                                            "bg-secondary text-muted-foreground border-border"
+                              }`}>
+                                {acc.status === "active" ? "Activa" : acc.status === "pending" ? "Pendiente" : "Deshabilitada"}
+                              </span>
+                            </div>
+                            {acc.status === "active" && isSuperAdmin && (
+                              <button onClick={() => setDisableSaasTarget({ id: acc.id, name: detail.name })} className="text-[10px] text-destructive/60 hover:text-destructive underline underline-offset-2 transition-colors">
+                                Deshabilitar
+                              </button>
+                            )}
+                          </div>
+                          {acc.status === "active" && isSuperAdmin && (
+                            <button onClick={() => handleAccessCrm(detail.id)} disabled={accessingCrm === detail.id} className="w-full h-9 rounded-xl text-xs font-semibold border-2 border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-2">
+                              {accessingCrm === detail.id ? <Loader2 size={12} className="animate-spin" /> : <span>🔐</span>}
+                              Acceder al CRM del cliente
+                            </button>
+                          )}
+                          {acc.status === "pending" && <p className="text-[11px] text-muted-foreground">Esperando que el cliente active su cuenta vía email.</p>}
+                          {acc.status === "disabled" && isSuperAdmin && (
+                            <button onClick={async () => { try { await enableClient.mutateAsync(acc.id); toast.success("Cuenta SaaS reactivada"); } catch { toast.error("Error al reactivar"); } }} disabled={enableClient.isPending} className="w-full h-8 rounded-lg text-xs font-medium border border-emerald-300 text-emerald-700 hover:bg-emerald-50 transition-colors flex items-center justify-center gap-1.5">
+                              {enableClient.isPending ? <Loader2 size={12} className="animate-spin" /> : null}Reactivar cuenta
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+
+                  {/* Scrollable body */}
+                  <div className="p-5 overflow-y-auto flex-1 space-y-5">
+
+                  {((contactStagesMap[detail.id]?.length ?? 0) > 0 || detail.stage) && (
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium shrink-0">Etapa</span>
+                      {(contactStagesMap[detail.id]?.length ?? 0) > 0
+                        ? contactStagesMap[detail.id].map((s, i) => (
+                            <Badge key={i} variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary" title={s.pipelineName}>
+                              {s.stage}
+                            </Badge>
+                          ))
+                        : (
+                            <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary">
+                              {detail.stage}
+                            </Badge>
+                          )
+                      }
+                    </div>
+                  )}
+
+                  <div className="space-y-2">
+                    <InlineEdit
+                      icon={Mail}
+                      value={detail.email}
+                      placeholder="Añadir email"
+                      type="email"
+                      readOnly={!canEdit}
+                      onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})}
+                    />
+                    <InlineEdit
+                      icon={Phone}
+                      value={detail.phone}
+                      placeholder="Añadir teléfono"
+                      type="tel"
+                      readOnly={!canEdit}
+                      onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})}
+                    />
+                    <InlineEdit
+                      icon={ImageIcon}
+                      value={detail.profile_pic_url ?? null}
+                      placeholder="URL foto de perfil"
+                      type="url"
+                      readOnly={!canEdit}
+                      onSave={async (v) => {
+                        await updateContact.mutateAsync({ id: detail.id, profile_pic_url: v || null });
+                        if (detail.phone) {
+                          const normalized = detail.phone.replace(/\D/g, "");
+                          await supabase
+                            .from("crm_wa_conversations")
+                            .update({ contact_profile_pic: v || null })
+                            .eq("user_id", detail.user_id)
+                            .or(`phone.eq.${detail.phone},phone.eq.+${normalized},phone.eq.${normalized}`);
+                        }
+                      }}
+                    />
+                  </div>
+
+                  {/* Tags */}
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Etiquetas</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(detail.tags ?? []).map((tag) => (
+                        <span key={tag} className="flex items-center gap-1 text-[10px] border rounded-full px-2 py-0.5 bg-secondary/50">
+                          {tag}
+                          {canEdit && (
+                            <button onClick={() => removeTag(detail.id, tag)} className="text-muted-foreground hover:text-destructive transition-colors">
+                              <X size={9} />
+                            </button>
+                          )}
+                        </span>
+                      ))}
+                    {canEdit && (
+                        <button onClick={() => { setTagInputId(detail.id); setTagValue(""); }} className="flex items-center gap-1 text-[10px] border border-dashed rounded-full px-2 py-0.5 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
+                          <Plus size={9} /> Añadir
+                        </button>
+                      )}
+                    </div>
+                    {tagInputId === detail.id && (
+                      <div className="flex items-center gap-2 mt-2">
+                        <Input autoFocus value={tagValue} onChange={(e) => setTagValue(e.target.value)}
+                          onKeyDown={(e) => { if (e.key === "Enter") addTag(detail.id); if (e.key === "Escape") setTagInputId(null); }}
+                          onBlur={() => setTimeout(() => setTagInputId(null), 150)} placeholder="Nueva etiqueta..." className="h-7 text-xs flex-1" />
+                        <button onMouseDown={(e) => e.preventDefault()} onClick={() => addTag(detail.id)} className="p-1 rounded-md bg-primary text-primary-foreground"><Plus size={13} /></button>
+                        <button onMouseDown={(e) => e.preventDefault()} onClick={() => setTagInputId(null)} className="p-1 rounded-md hover:bg-secondary text-muted-foreground"><X size={13} /></button>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Recordatorio rápido */}
+                  {canCreateReminder && (
+                    <div>
+                      <button onClick={() => setReminderContact(detail)} className="w-full flex items-center justify-center gap-2 h-8 rounded-xl border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
+                        <Bell size={12} /> Crear recordatorio
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Datos recopilados por el Agente IA */}
+                  {(() => {
+                    const aiData = Object.entries(detail.ai_collected_data ?? {}).filter(([, v]) => v);
+                    if (aiData.length === 0) return null;
+                    return (
+                      <div>
+                        <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2 flex items-center gap-1.5">
+                          <Bot size={10} /> Datos recopilados por IA
+                        </p>
+                        <div className="border rounded-xl overflow-hidden divide-y bg-primary/3">
+                          {aiData.map(([key, value]) => (
+                            <div key={key} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                              <p className="text-xs text-muted-foreground capitalize shrink-0">{key.replace(/_/g, " ")}</p>
+                              <p className="text-xs font-medium text-right break-all">{String(value)}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* Campos personalizados */}
+                  {(() => {
+                    const flatFields = Object.entries(
+                      (detail.custom_fields as Record<string, unknown>) ?? {}
+                    ).filter(([k, v]) => !UUID_RE.test(k) && v !== null && v !== undefined && v !== "");
+                    if (flatFields.length === 0) return null;
+                    return (
+                      <div>
+                        <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Campos personalizados</p>
+                        <div className="border rounded-xl overflow-hidden divide-y">
+                          {flatFields.map(([key, value]) => (
+                            <div key={key} className="flex items-start justify-between gap-3 px-3 py-2.5">
+                              <p className="text-xs text-muted-foreground capitalize shrink-0">{key.replace(/_/g, " ")}</p>
+                              <p className="text-xs font-medium text-right break-all">
+                                {typeof value === "object" ? JSON.stringify(value) : String(value)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
+                  <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
+                </div>
+                </>
+              ) : (
+                <div className="p-5 py-10 text-center flex-1 flex flex-col items-center justify-center">
+                  <div className="w-12 h-12 rounded-2xl bg-secondary flex items-center justify-center mb-3">
+                    <Users size={18} className="text-muted-foreground/30" />
+                  </div>
+                  <p className="text-xs font-medium text-foreground/60">Selecciona un contacto</p>
+                  <p className="text-xs text-muted-foreground mt-0.5">para ver y editar su perfil</p>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      )}
-    </div>
+      </div>
+    )}
     </>
   );
 };

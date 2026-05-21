@@ -3688,7 +3688,7 @@ La landing page actual en `acrosoftlabs.com` muestra la información del negocio
 
 ### B17-6 · Mejoras de UX en la interfaz de chat del Agente IA
 
-**Estado:** ⏳ PENDIENTE
+**Estado:** ✅ Completado
 
 **Contexto:**
 La interfaz actual del chat del Agente IA en el CRM es funcional pero tiene oportunidades de mejora en UX. El objetivo es refinar lo existente y agregar elementos que mejoren la experiencia de trabajo de los agentes humanos. Implementar cuando se comparta imagen de referencia de diseño.
@@ -3715,8 +3715,8 @@ La interfaz actual del chat del Agente IA en el CRM es funcional pero tiene opor
 | B17-2 | Fix foto de perfil Agente IA | Ninguna | Media | ✅ Completado |
 | B17-3 | Fix OAuth Google Calendar www/non-www | Ninguna | Baja | ✅ Completado |
 | B17-4 | Sync Google Calendar → slots bloqueados | B17-3 | Alta | ✅ Completado |
-| B17-5 | Mejora landing page acrosoftlabs.com | Ninguna (espera imagen) | Media | ⏳ Pendiente |
-| B17-6 | Mejoras UX chat Agente IA | Ninguna (espera imagen) | Alta | ⏳ Pendiente |
+| B17-5 | Mejora landing page acrosoftlabs.com | Ninguna (espera imagen) | Media | ✅ Completado |
+| B17-6 | Mejoras UX chat Agente IA | Ninguna (espera imagen) | Alta | ✅ Completado |
 
 ---
 

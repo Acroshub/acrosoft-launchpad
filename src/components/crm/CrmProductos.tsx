@@ -959,42 +959,76 @@ function CatalogCard({ catalog, businessSlug, onEnter, onEdit, onDelete }: {
   const { data: products = [] } = useCatalogProducts(catalog.id);
 
   return (
-    <div className="bg-card border rounded-2xl overflow-hidden hover:shadow-sm transition-shadow group cursor-pointer" onClick={onEnter}>
-      <div className="h-28 bg-secondary/40 overflow-hidden">
+    <div
+      className="bg-card border rounded-2xl overflow-hidden hover:shadow-md transition-all group cursor-pointer active:scale-[0.99]"
+      onClick={onEnter}
+    >
+      {/* Cover image */}
+      <div className="h-32 bg-secondary/30 overflow-hidden relative">
         {catalog.cover_image ? (
-          <img src={catalog.cover_image} alt={catalog.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+          <img
+            src={catalog.cover_image}
+            alt={catalog.name}
+            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+          />
         ) : (
-          <div className="w-full h-full flex items-center justify-center">
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2">
             <Package size={28} className="text-muted-foreground/20" />
           </div>
         )}
+        {/* Status pill overlay */}
+        <div className="absolute top-2.5 left-2.5">
+          {catalog.is_active
+            ? <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/90 text-white backdrop-blur-sm">Público</span>
+            : <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-black/40 text-white/80 backdrop-blur-sm">Privado</span>
+          }
+        </div>
       </div>
-      <div className="p-4 space-y-2">
+
+      <div className="p-4 space-y-3">
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold truncate">{catalog.name}</p>
-            {catalog.description && <p className="text-xs text-muted-foreground truncate mt-0.5">{catalog.description}</p>}
-          </div>
-          <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={e => { e.stopPropagation(); onEdit(); }}
-              className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors"><Pencil size={12} /></button>
-            <button onClick={e => { e.stopPropagation(); onDelete(); }}
-              className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"><Trash2 size={12} /></button>
-          </div>
-        </div>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">{products.length} productos</span>
-            {catalog.is_active
-              ? <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">Público</span>
-              : <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground/60">Privado</span>
+            {catalog.description
+              ? <p className="text-xs text-muted-foreground truncate mt-0.5">{catalog.description}</p>
+              : <p className="text-xs text-muted-foreground/40 mt-0.5">{products.length} producto{products.length !== 1 ? "s" : ""}</p>
             }
           </div>
+          <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+            <button
+              onClick={e => { e.stopPropagation(); onEdit(); }}
+              className="p-1.5 rounded-xl hover:bg-secondary text-muted-foreground transition-colors"
+            >
+              <Pencil size={12} />
+            </button>
+            <button
+              onClick={e => { e.stopPropagation(); onDelete(); }}
+              className="p-1.5 rounded-xl hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+            >
+              <Trash2 size={12} />
+            </button>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between pt-0.5">
+          <span className="text-[10px] font-medium text-muted-foreground bg-secondary px-2 py-1 rounded-xl">
+            {products.length} producto{products.length !== 1 ? "s" : ""}
+          </span>
           {catalog.is_active && publicUrl && (
             <button
-              onClick={e => { e.stopPropagation(); navigator.clipboard.writeText(publicUrl); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-              className="flex items-center gap-1 text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-lg hover:bg-secondary">
-              {copied ? <><Check size={10} className="text-emerald-500" /> Copiado</> : <><Copy size={10} /> Compartir</>}
+              onClick={e => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(publicUrl);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 2000);
+              }}
+              className={`flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-xl transition-all ${
+                copied
+                  ? "bg-emerald-500/10 text-emerald-600"
+                  : "text-primary bg-primary/8 hover:bg-primary/15"
+              }`}
+            >
+              {copied ? <><Check size={10} /> Copiado</> : <><Copy size={10} /> Compartir</>}
             </button>
           )}
         </div>
@@ -1184,12 +1218,16 @@ export default function CrmProductos() {
   });
 
   return (
-    <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold">Catálogos de productos</h2>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          {catalogs.length > 0
+            ? `${catalogs.length} catálogo${catalogs.length !== 1 ? "s" : ""} · ${allProducts.length} producto${allProducts.length !== 1 ? "s" : ""}`
+            : "Organiza y comparte tus productos en catálogos públicos"}
+        </p>
         {!showCatalogForm && !editingCatalog && (
-          <Button size="sm" onClick={() => setShowCatalogForm(true)} className="h-8 text-xs gap-1">
-            <Plus size={12} /> Nuevo catálogo
+          <Button size="sm" onClick={() => setShowCatalogForm(true)} className="h-9 text-sm font-semibold gap-1.5 rounded-2xl shrink-0">
+            <Plus size={13} /> Nuevo catálogo
           </Button>
         )}
       </div>
@@ -1243,16 +1281,16 @@ export default function CrmProductos() {
       )}
 
       {!showCatalogForm && !editingCatalog && catalogs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-4 text-muted-foreground">
-          <div className="w-14 h-14 rounded-2xl bg-secondary flex items-center justify-center">
-            <Package size={24} className="opacity-40" />
+        <div className="flex flex-col items-center justify-center py-16 gap-4 text-center bg-card border border-dashed rounded-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-primary/8 flex items-center justify-center">
+            <Package size={24} className="text-primary/60" />
           </div>
-          <div className="text-center">
-            <p className="text-sm font-medium">Sin catálogos todavía</p>
-            <p className="text-xs text-muted-foreground/70 mt-1">Crea tu primer catálogo para organizar y compartir tus productos</p>
+          <div>
+            <p className="text-sm font-semibold">Sin catálogos todavía</p>
+            <p className="text-xs text-muted-foreground mt-1">Crea tu primer catálogo para organizar y compartir tus productos</p>
           </div>
-          <Button size="sm" onClick={() => setShowCatalogForm(true)} className="gap-1">
-            <Plus size={12} /> Crear catálogo
+          <Button size="sm" onClick={() => setShowCatalogForm(true)} className="gap-1.5 rounded-2xl">
+            <Plus size={13} /> Crear catálogo
           </Button>
         </div>
       ) : !showCatalogForm && (

@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Link2, Loader2, Trash2, CheckCircle2, Unlink, Bell, ShieldAlert } from "lucide-react";
+import { Code, Copy, Check, Globe, Clock, Calendar, ArrowLeft, Link2, Loader2, Trash2, CheckCircle2, Unlink, Bell, ShieldAlert, ChevronRight, ChevronLeft } from "lucide-react";
 import { useCreateCalendarConfig, useUpdateCalendarConfig, useDeleteCalendarConfig, useForms, useCreateForm, useBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmCalendarConfig as CalendarData } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -97,7 +97,6 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
   const [linkedFormId, setLinkedFormId]   = useState<string | null>(null);
   const [availability, setAvailability]   = useState<WeeklySchedule>(DEFAULT_WEEKLY_SCHEDULE);
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>([]);
-  const [savingRules, setSavingRules]     = useState(false);
   const [timezone, setTimezone]               = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   // For new calendars, inherit business profile timezone once it loads
   useEffect(() => {
@@ -105,12 +104,21 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
   }, [isNew, businessProfile?.timezone]);
   const [minAdvanceHours, setMinAdvanceHours] = useState(1);
   const [maxFutureDays, setMaxFutureDays]     = useState(60);
-  const [isEditingHours, setIsEditingHours] = useState(false);
   const [embedTab, setEmbedTab]           = useState<"iframe" | "js">("iframe");
   const [copied, setCopied]               = useState(false);
   const [saving, setSaving]               = useState(false);
   const [pixelId, setPixelId]             = useState("");
   const [useFormPixel, setUseFormPixel]   = useState(false);
+  const [mobileShowContent, setMobileShowContent] = useState(!!initialSection && !!existingCalendar);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  // Skip 2 fires: initial mount (empty state) + populate effect re-render
+  const autoSaveSkips = useRef(2);
+  const autoSaveTimer   = useRef<ReturnType<typeof setTimeout>>();
+  const updateConfigRef = useRef(updateConfig);
+  updateConfigRef.current = updateConfig;
+  const formsRef = useRef(forms);
+  formsRef.current = forms;
 
   // Populate form when editing an existing calendar
   useEffect(() => {
@@ -131,6 +139,43 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
       setPixelId(existingCalendar.facebook_pixel_id ?? "");
     }
   }, [existingCalendar]);
+
+  // Auto-save for existing calendars (debounce 800ms)
+  useEffect(() => {
+    if (isNew) return;
+    if (autoSaveSkips.current > 0) { autoSaveSkips.current--; return; }
+    clearTimeout(autoSaveTimer.current);
+    setAutoSaveStatus("saving");
+    autoSaveTimer.current = setTimeout(async () => {
+      try {
+        const linkedForm = formsRef.current.find(f => f.id === linkedFormId);
+        const fbPixel = useFormPixel && linkedForm?.facebook_pixel_id
+          ? linkedForm.facebook_pixel_id
+          : pixelId.replace(/\D/g, "") || null;
+        await updateConfigRef.current.mutateAsync({
+          id: existingCalendar!.id,
+          name: name.trim() || "Sin nombre",
+          description: description || null,
+          duration_min: duration,
+          buffer_min: bufferTime,
+          timezone,
+          min_advance_hours: minAdvanceHours,
+          max_future_days: maxFutureDays,
+          linked_form_id: linkedFormId,
+          availability,
+          schedule_interval: duration,
+          reminder_rules: reminderRules as unknown as any,
+          facebook_pixel_id: fbPixel,
+        });
+        setAutoSaveStatus("saved");
+        setTimeout(() => setAutoSaveStatus("idle"), 2000);
+      } catch {
+        setAutoSaveStatus("idle");
+      }
+    }, 800);
+    return () => clearTimeout(autoSaveTimer.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, description, duration, bufferTime, linkedFormId, availability, timezone, minAdvanceHours, maxFutureDays, pixelId, useFormPixel, reminderRules]);
 
   const calendarUid = existingCalendar?.id ?? "";
   const makeIframe = (lang: "es" | "en") => calendarUid
@@ -222,23 +267,8 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
     }
   };
 
-  const handleSaveHours = async () => {
-    await handleSave();
-    setIsEditingHours(false);
-  };
-
-  const handleRulesChange = async (newRules: ReminderRule[]) => {
+  const handleRulesChange = (newRules: ReminderRule[]) => {
     setReminderRules(newRules);
-    if (!existingCalendar) return; // calendario nuevo: se guardará con el save inicial
-    setSavingRules(true);
-    try {
-      await updateConfig.mutateAsync({ id: existingCalendar.id, reminder_rules: newRules as unknown as any });
-      toast.success("Notificaciones guardadas");
-    } catch {
-      toast.error("Error al guardar notificaciones");
-    } finally {
-      setSavingRules(false);
-    }
   };
 
   const handleConfirmDelete = async () => {
@@ -255,14 +285,14 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
   };
 
   // ── Sidebar nav items ────────────────────────────────────────────────────────
-  type NavItem = { id: Section; label: string; icon: React.ElementType; onlyEdit?: boolean };
+  type NavItem = { id: Section; label: string; desc: string; icon: React.ElementType; onlyEdit?: boolean };
   const navItems: NavItem[] = [
-    { id: "general",        label: "General",         icon: Calendar },
-    { id: "horarios",       label: "Disponibilidad",  icon: Clock },
-    { id: "integraciones",  label: "Integraciones",   icon: Link2,  onlyEdit: true },
-    { id: "enlace",         label: "Enlace & Embed",  icon: Globe,  onlyEdit: true },
-    { id: "notificaciones", label: "Notificaciones",  icon: Bell,        onlyEdit: true },
-    { id: "avanzado",       label: "Avanzado",         icon: ShieldAlert, onlyEdit: true },
+    { id: "general",        label: "General",         desc: "Nombre, duración y formulario",   icon: Calendar },
+    { id: "horarios",       label: "Disponibilidad",  desc: "Días y horarios de atención",      icon: Clock },
+    { id: "integraciones",  label: "Integraciones",   desc: "Google Calendar y sincronización", icon: Link2,       onlyEdit: true },
+    { id: "enlace",         label: "Enlace & Embed",  desc: "URL pública e iFrame",             icon: Globe,       onlyEdit: true },
+    { id: "notificaciones", label: "Notificaciones",  desc: "Recordatorios automáticos",        icon: Bell,        onlyEdit: true },
+    { id: "avanzado",       label: "Avanzado",        desc: "Zona de peligro",                  icon: ShieldAlert, onlyEdit: true },
   ];
   const visibleNav = navItems.filter(n => !n.onlyEdit || !isNew);
 
@@ -334,14 +364,45 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
               {isNew ? "Completa los datos para comenzar a recibir citas" : name || "Personaliza cómo los clientes agendan contigo"}
             </p>
           </div>
+          {!isNew && autoSaveStatus !== "idle" && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1.5 shrink-0 self-start mt-1">
+              {autoSaveStatus === "saving" ? (
+                <><Loader2 size={11} className="animate-spin" />Guardando...</>
+              ) : (
+                <><span className="text-green-500 font-semibold">✓</span> Guardado</>
+              )}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Sidebar + Content */}
-      <div className="flex flex-col lg:flex-row gap-6 items-start">
-        {/* Sidebar */}
-        <nav className="lg:w-48 shrink-0 w-full">
-          <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0">
+      {/* Mobile: iOS Settings menu */}
+      <div className={`lg:hidden ${mobileShowContent ? "hidden" : ""}`}>
+        <div className="bg-card border rounded-2xl overflow-hidden">
+          {visibleNav.map(({ id, label, desc, icon: Icon }, index) => (
+            <button
+              key={id}
+              onClick={() => { setActiveSection(id); setMobileShowContent(true); }}
+              className={`w-full flex items-center gap-3.5 px-4 py-4 text-left transition-colors hover:bg-secondary/40 ${index < visibleNav.length - 1 ? "border-b border-border/60" : ""}`}
+            >
+              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${activeSection === id ? "bg-primary/10" : "bg-secondary"}`}>
+                <Icon size={16} className={activeSection === id ? "text-primary" : "text-muted-foreground"} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className={`text-sm font-semibold ${activeSection === id ? "text-primary" : "text-foreground"}`}>{label}</p>
+                <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+              </div>
+              <ChevronRight size={15} className="text-muted-foreground/30 shrink-0" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Desktop sidebar + Content (also mobile content when mobileShowContent) */}
+      <div className={`${mobileShowContent ? "flex flex-col" : "hidden lg:flex"} lg:flex-row gap-6 items-start`}>
+        {/* Desktop sidebar */}
+        <nav className="hidden lg:block lg:w-48 shrink-0">
+          <div className="flex flex-col gap-0.5">
             {visibleNav.map((item) => {
               const Icon = item.icon;
               const active = activeSection === item.id;
@@ -349,10 +410,10 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                 <button
                   key={item.id}
                   onClick={() => setActiveSection(item.id)}
-                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap lg:w-full text-left shrink-0 ${
+                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all w-full text-left ${
                     active
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      ? "bg-primary/8 text-primary border-l-2 border-primary"
+                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
                   }`}
                 >
                   <Icon size={15} />
@@ -364,7 +425,16 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
         </nav>
 
         {/* Content */}
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 w-full space-y-0">
+          {/* Mobile back button */}
+          <button
+            onClick={() => setMobileShowContent(false)}
+            className="lg:hidden flex items-center gap-1.5 text-sm font-medium text-primary mb-4 transition-colors"
+          >
+            <ChevronLeft size={16} />
+            {isNew ? "Nuevo Calendario" : "Calendario"}
+            <span className="text-muted-foreground/50 font-normal ml-0.5">· {visibleNav.find(n => n.id === activeSection)?.label}</span>
+          </button>
 
           {/* ── General ── */}
           {activeSection === "general" && (
@@ -510,14 +580,16 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                 </Field>
               </div>
 
-              <Button
-                onClick={handleSave}
-                disabled={saving}
-                className="w-full rounded-xl h-10 font-medium text-sm mt-2"
-              >
-                {saving ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
-                {isNew ? "Crear Calendario" : "Guardar cambios"}
-              </Button>
+              {isNew && (
+                <Button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="w-full rounded-xl h-10 font-medium text-sm mt-2"
+                >
+                  {saving ? <Loader2 size={14} className="animate-spin mr-2" /> : null}
+                  Crear Calendario
+                </Button>
+              )}
 
             </div>
           )}
@@ -525,32 +597,9 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
           {/* ── Disponibilidad ── */}
           {activeSection === "horarios" && (
             <div className="bg-card border rounded-2xl p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Clock size={15} className="text-muted-foreground" />
-                  <h2 className="text-sm font-semibold">Disponibilidad semanal</h2>
-                </div>
-                {!isNew && (
-                  isEditingHours ? (
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setIsEditingHours(false)}
-                        className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
-                      >
-                        Cancelar
-                      </button>
-                      <Button size="sm" className="h-7 text-xs px-3 gap-1.5" onClick={handleSaveHours} disabled={saving}>
-                        {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
-                        Guardar
-                      </Button>
-                    </div>
-                  ) : (
-                    <Button size="sm" variant="outline" className="h-7 text-xs px-3" onClick={() => setIsEditingHours(true)}>
-                      Editar horarios
-                    </Button>
-                  )
-                )}
+              <div className="flex items-center gap-2">
+                <Clock size={15} className="text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Disponibilidad semanal</h2>
               </div>
               <p className="text-xs text-muted-foreground -mt-1">
                 Define qué días y horarios están disponibles para reservas públicas.
@@ -558,7 +607,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
               <WeeklySchedulePicker
                 value={availability}
                 onChange={setAvailability}
-                isEditing={isNew ? true : isEditingHours}
+                isEditing={true}
                 interval={duration}
               />
             </div>
@@ -751,11 +800,6 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
               {canEditReminders ? (
                 <>
                   <ReminderRulesEditor rules={reminderRules} onChange={handleRulesChange} />
-                  {savingRules && (
-                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      <Loader2 size={11} className="animate-spin" /> Guardando...
-                    </p>
-                  )}
                   {isNew && (
                     <p className="text-xs text-muted-foreground">Las notificaciones se guardarán al crear el calendario.</p>
                   )}

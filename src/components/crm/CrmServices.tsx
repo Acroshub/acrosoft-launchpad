@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, GripVertical, Tag, CreditCard } from "lucide-react";
@@ -63,36 +63,49 @@ const ServiceEditor = ({
   const [isSaas, setIsSaas]                 = useState(service.is_saas ?? false);
   const [discountPct, setDiscountPct]                   = useState(service.discount_pct ?? 0);
   const [recurringDiscountPct, setRecurringDiscountPct] = useState(service.recurring_discount_pct ?? 0);
-  const [saving, setSaving] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
 
   const discountedPrice          = discountPct > 0 ? price * (1 - discountPct / 100) : null;
   const discountedRecurringPrice = recurringPrice > 0 && recurringDiscountPct > 0
     ? recurringPrice * (1 - recurringDiscountPct / 100) : null;
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await onUpdate({
-        name,
-        description: description || null,
-        benefits,
-        price,
-        currency,
-        recurring_price: recurringPrice > 0 ? recurringPrice : null,
-        recurring_interval: recurringInterval || null,
-        recurring_label: recurringLabel || null,
-        is_recurring: recurringPrice > 0,
-        delivery_time: deliveryTime || null,
-        is_recommended: isRecommended,
-        active,
-        is_saas: isSaas,
-        discount_pct: discountPct,
-        recurring_discount_pct: recurringDiscountPct,
-      });
-    } finally {
-      setSaving(false);
-    }
-  };
+  const isFirstRender = useRef(true);
+  const saveTimer     = useRef<ReturnType<typeof setTimeout>>();
+  const onUpdateRef   = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    clearTimeout(saveTimer.current);
+    setAutoSaveStatus("saving");
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await onUpdateRef.current({
+          name,
+          description: description || null,
+          benefits,
+          price,
+          currency,
+          recurring_price: recurringPrice > 0 ? recurringPrice : null,
+          recurring_interval: recurringInterval || null,
+          recurring_label: recurringLabel || null,
+          is_recurring: recurringPrice > 0,
+          delivery_time: deliveryTime || null,
+          is_recommended: isRecommended,
+          active,
+          is_saas: isSaas,
+          discount_pct: discountPct,
+          recurring_discount_pct: recurringDiscountPct,
+        });
+        setAutoSaveStatus("saved");
+        setTimeout(() => setAutoSaveStatus("idle"), 2000);
+      } catch {
+        setAutoSaveStatus("idle");
+      }
+    }, 800);
+    return () => clearTimeout(saveTimer.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, description, benefits, price, currency, recurringPrice, recurringInterval, recurringLabel, deliveryTime, isRecommended, active, isSaas, discountPct, recurringDiscountPct]);
 
   return (
     <div className="space-y-8">
@@ -116,6 +129,15 @@ const ServiceEditor = ({
           </p>
         </div>
         <div className="flex items-center gap-3">
+          {autoSaveStatus !== "idle" && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+              {autoSaveStatus === "saving" ? (
+                <><Loader2 size={11} className="animate-spin" />Guardando...</>
+              ) : (
+                <><span className="text-green-500 font-semibold">✓</span> Guardado</>
+              )}
+            </span>
+          )}
           {/* Activo / Inactivo */}
           <label className="flex items-center gap-2 cursor-pointer select-none">
             <div
@@ -126,10 +148,6 @@ const ServiceEditor = ({
             </div>
             <span className="text-xs font-medium text-muted-foreground">{active ? "Activo" : "Inactivo"}</span>
           </label>
-          <Button onClick={handleSave} disabled={saving} className="h-9 rounded-xl text-sm font-medium px-5">
-            {saving && <Loader2 size={14} className="animate-spin mr-2" />}
-            {saving ? "Guardando..." : "Guardar cambios"}
-          </Button>
         </div>
       </div>
 
@@ -390,103 +408,138 @@ const SortableServiceItem = ({
     transform: CSS.Transform.toString(transform),
     transition,
     zIndex: isDragging ? 1 : 0,
-    opacity: isDragging ? 0.8 : 1,
+    opacity: isDragging ? 0.85 : 1,
   };
+
+  const finalPrice = svc.discount_pct > 0
+    ? svc.price * (1 - svc.discount_pct / 100)
+    : svc.price;
 
   return (
     <div
       ref={setNodeRef}
       style={style}
-      className={`bg-card border rounded-2xl p-5 flex items-center justify-between group ${isDragging ? "shadow-lg border-primary/50" : ""} ${!svc.active ? "opacity-60" : ""}`}
+      className={`bg-card border rounded-2xl overflow-hidden transition-shadow ${
+        isDragging ? "shadow-xl border-primary/40" : "hover:shadow-sm"
+      } ${!svc.active ? "opacity-60" : ""}`}
     >
-      <div
-        className={`flex items-center gap-2 p-1 -ml-2 select-none transition-colors ${canReorder ? "cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-foreground" : "cursor-default text-muted-foreground/15"}`}
-        {...(canReorder ? { ...attributes, ...listeners } : {})}
-      >
-        <GripVertical size={18} />
-      </div>
-      <div
-        className={`flex items-center gap-4 flex-1 ml-2 ${canEdit ? "cursor-pointer" : "cursor-default"}`}
-        onClick={() => canEdit && handleEdit(svc.id)}
-      >
-        <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-          <Briefcase size={18} className="text-primary" />
+      <div className="flex items-stretch">
+        {/* Drag handle strip */}
+        <div
+          className={`flex items-center px-2 border-r ${
+            canReorder
+              ? "cursor-grab active:cursor-grabbing text-muted-foreground/25 hover:text-muted-foreground/60 hover:bg-secondary/40"
+              : "cursor-default text-muted-foreground/10"
+          } transition-colors select-none`}
+          {...(canReorder ? { ...attributes, ...listeners } : {})}
+        >
+          <GripVertical size={14} />
         </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold group-hover:text-primary transition-colors">
-            {svc.name}
-          </p>
-          <p className="text-xs text-muted-foreground truncate">
-            {svc.description || "Sin descripción"}
-          </p>
-        </div>
-        <div className="text-right shrink-0 mr-4">
-          <p className="text-sm font-bold text-foreground">
-            {svc.discount_pct > 0 ? (
-              <>
-                <span className="line-through text-muted-foreground font-normal mr-1">{fmtSvc(svc.price, svc.currency)}</span>
-                <span className="text-primary">{fmtSvc(svc.price * (1 - svc.discount_pct / 100), svc.currency)}</span>
-              </>
-            ) : (
-              fmtSvc(svc.price, svc.currency)
-            )}
-            {svc.recurring_price != null && svc.recurring_price > 0 && (
-              <span className="text-muted-foreground text-xs font-normal">
-                {" "}+{" "}
-                {(svc.recurring_discount_pct ?? 0) > 0 ? (
-                  <>
-                    <span className="line-through opacity-60">{fmtSvc(svc.recurring_price, svc.currency)}</span>
-                    {" "}<span className="text-primary">{fmtSvc(svc.recurring_price * (1 - (svc.recurring_discount_pct ?? 0) / 100), svc.currency)}</span>
-                  </>
+
+        {/* Main content */}
+        <div
+          className={`flex items-center gap-3 flex-1 px-4 py-4 min-w-0 ${canEdit ? "cursor-pointer" : "cursor-default"}`}
+          onClick={() => canEdit && handleEdit(svc.id)}
+        >
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <Briefcase size={16} className="text-primary" />
+          </div>
+
+          <div className="flex-1 min-w-0">
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-sm font-semibold leading-tight group-hover:text-primary transition-colors truncate">
+                {svc.name}
+              </p>
+              {/* Price — desktop */}
+              <div className="hidden sm:block text-right shrink-0 ml-2">
+                {svc.discount_pct > 0 ? (
+                  <div className="flex items-baseline gap-1.5 justify-end">
+                    <span className="text-[11px] line-through text-muted-foreground/60">{fmtSvc(svc.price, svc.currency)}</span>
+                    <span className="text-sm font-bold text-primary">{fmtSvc(finalPrice, svc.currency)}</span>
+                  </div>
                 ) : (
-                  fmtSvc(svc.recurring_price, svc.currency)
+                  <span className="text-sm font-bold text-foreground">{fmtSvc(svc.price, svc.currency)}</span>
                 )}
-                {svc.recurring_interval ? ` ${svc.recurring_interval}` : ""}
-              </span>
-            )}
-          </p>
-          <div className="flex items-center justify-end gap-2 mt-0.5">
-            {!svc.active && (
-              <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground bg-secondary px-1.5 py-0.5 rounded">
-                Inactivo
-              </span>
-            )}
-            {svc.is_saas && (
-              <span className="text-[9px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-1.5 py-0.5 rounded">
-                SaaS
-              </span>
-            )}
-            {svc.is_recommended && (
-              <span className="text-[9px] font-bold uppercase tracking-wider text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">
-                Recomendado
-              </span>
-            )}
-            <p className="text-[10px] text-muted-foreground">
-              {svc.benefits?.filter(Boolean).length ?? 0} beneficios
+                {svc.recurring_price != null && svc.recurring_price > 0 && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    +{fmtSvc(
+                      (svc.recurring_discount_pct ?? 0) > 0
+                        ? svc.recurring_price * (1 - (svc.recurring_discount_pct ?? 0) / 100)
+                        : svc.recurring_price,
+                      svc.currency
+                    )}{svc.recurring_interval ? ` ${svc.recurring_interval}` : ""}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Description */}
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">
+              {svc.description || "Sin descripción"}
             </p>
+
+            {/* Price — mobile */}
+            <div className="sm:hidden mt-1.5">
+              {svc.discount_pct > 0 ? (
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-[11px] line-through text-muted-foreground/60">{fmtSvc(svc.price, svc.currency)}</span>
+                  <span className="text-sm font-bold text-primary">{fmtSvc(finalPrice, svc.currency)}</span>
+                </div>
+              ) : (
+                <span className="text-sm font-bold text-foreground">{fmtSvc(svc.price, svc.currency)}</span>
+              )}
+            </div>
+
+            {/* Badges */}
+            <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+              {!svc.active && (
+                <span className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground bg-secondary px-2 py-0.5 rounded-full">
+                  Inactivo
+                </span>
+              )}
+              {svc.is_saas && (
+                <span className="text-[9px] font-bold uppercase tracking-wider text-primary bg-primary/10 px-2 py-0.5 rounded-full">
+                  SaaS
+                </span>
+              )}
+              {svc.is_recommended && (
+                <span className="text-[9px] font-bold uppercase tracking-wider text-amber-600 bg-amber-500/10 px-2 py-0.5 rounded-full">
+                  Destacado
+                </span>
+              )}
+              {(svc.benefits?.filter(Boolean).length ?? 0) > 0 && (
+                <span className="text-[9px] text-muted-foreground/70">
+                  {svc.benefits?.filter(Boolean).length} beneficios
+                </span>
+              )}
+            </div>
           </div>
         </div>
-      </div>
-      <div className="flex items-center gap-1">
-        {canEdit && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:text-foreground hover:bg-secondary"
-            onClick={() => handleEdit(svc.id)}
-          >
-            <Settings size={15} />
-          </Button>
-        )}
-        {canDelete && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            onClick={() => handleDelete(svc.id)}
-          >
-            <Trash2 size={14} />
-          </Button>
+
+        {/* Actions */}
+        {(canEdit || canDelete) && (
+          <div className="flex items-center gap-0.5 px-2 border-l">
+            {canEdit && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="w-9 h-9 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-xl"
+                onClick={(e) => { e.stopPropagation(); handleEdit(svc.id); }}
+              >
+                <Settings size={14} />
+              </Button>
+            )}
+            {canDelete && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="w-9 h-9 text-muted-foreground hover:bg-destructive/10 hover:text-destructive rounded-xl"
+                onClick={(e) => { e.stopPropagation(); handleDelete(svc.id); }}
+              >
+                <Trash2 size={13} />
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -625,60 +678,73 @@ const CrmServices = ({
         isPending={deleteService.isPending}
         description="Se eliminará el servicio permanentemente."
       />
-      <div className="space-y-8">
-        <div className="flex items-center justify-between">
+      <div className="space-y-4">
+
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3">
           <div>
-            <h1 className="text-xl font-semibold">Servicios</h1>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Define los servicios que ofreces a tus clientes
+            <p className="text-sm text-muted-foreground">
+              {orderedServices.length > 0
+                ? `${orderedServices.length} servicio${orderedServices.length !== 1 ? "s" : ""} configurado${orderedServices.length !== 1 ? "s" : ""}`
+                : "Define los servicios que ofreces a tus clientes"}
             </p>
           </div>
           {canCreate && (
             <Button
               onClick={handleCreateNew}
               disabled={createService.isPending}
-              className="h-9 rounded-xl text-sm font-medium px-4 gap-2"
+              className="h-9 rounded-2xl text-sm font-semibold px-4 gap-2 shrink-0"
             >
-              {createService.isPending ? <Loader2 size={14} className="animate-spin" /> : <Plus size={16} />}
-              Crear nuevo
+              {createService.isPending ? <Loader2 size={13} className="animate-spin" /> : <Plus size={14} />}
+              Nuevo servicio
             </Button>
           )}
         </div>
 
-        <div className="grid gap-4">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 size={24} className="animate-spin text-muted-foreground" />
+        {/* List */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 size={22} className="animate-spin text-muted-foreground" />
+          </div>
+        ) : orderedServices.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-4 text-center bg-card border border-dashed rounded-2xl">
+            <div className="w-14 h-14 rounded-2xl bg-primary/8 flex items-center justify-center">
+              <Briefcase size={24} className="text-primary/60" />
             </div>
-          ) : orderedServices.length === 0 ? (
-            <div className="text-center py-12 bg-card border rounded-2xl">
-              <Briefcase size={32} className="mx-auto text-muted-foreground/30 mb-3" />
-              <p className="text-sm font-medium">No hay servicios creados.</p>
+            <div>
+              <p className="text-sm font-semibold">Sin servicios todavía</p>
+              <p className="text-xs text-muted-foreground mt-1">Crea tu primer servicio para mostrarlo en tus propuestas y cotizaciones</p>
             </div>
-          ) : (
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
-            >
-              <SortableContext items={orderedIds} strategy={verticalListSortingStrategy}>
-                <div className="grid gap-4">
-                  {orderedServices.map((svc) => (
-                    <SortableServiceItem
-                      key={svc.id}
-                      svc={svc}
-                      handleEdit={handleEdit}
-                      handleDelete={handleDelete}
-                      canEdit={canEdit}
-                      canDelete={canDelete}
-                      canReorder={canReorder}
-                    />
-                  ))}
-                </div>
-              </SortableContext>
-            </DndContext>
-          )}
-        </div>
+            {canCreate && (
+              <Button onClick={handleCreateNew} disabled={createService.isPending} size="sm" className="gap-1.5 rounded-2xl">
+                {createService.isPending ? <Loader2 size={12} className="animate-spin" /> : <Plus size={13} />}
+                Crear servicio
+              </Button>
+            )}
+          </div>
+        ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
+          >
+            <SortableContext items={orderedIds} strategy={verticalListSortingStrategy}>
+              <div className="grid gap-2.5">
+                {orderedServices.map((svc) => (
+                  <SortableServiceItem
+                    key={svc.id}
+                    svc={svc}
+                    handleEdit={handleEdit}
+                    handleDelete={handleDelete}
+                    canEdit={canEdit}
+                    canDelete={canDelete}
+                    canReorder={canReorder}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        )}
       </div>
     </>
   );

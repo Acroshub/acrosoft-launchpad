@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import {
   Plus, Trash2, GripVertical, Pencil, X,
-  Type, AlignLeft, Mail, Phone, MapPin, ChevronDown,
+  Type, AlignLeft, Mail, Phone, MapPin, ChevronDown, ChevronLeft, ChevronRight,
   Calendar, Clock, Link, ClipboardList, ArrowLeft, Settings, Briefcase,
   Hash, Upload, CheckSquare, Minus, Palette, Circle, Layers, ChevronUp,
   ExternalLink, Copy, Code, Braces, Link as LinkIcon, Eye, Loader2, List,
@@ -401,24 +401,16 @@ const FieldRow = ({
           {/* Multi-select toggle */}
           <div className="flex items-center gap-3">
             <span className="text-xs text-muted-foreground">Selección:</span>
-            <div className="flex border rounded-lg overflow-hidden text-xs">
+            <div className="inline-flex items-center gap-0.5 bg-secondary/60 rounded-xl p-1">
               <button
                 onClick={() => field.multiSelect && onToggleMultiSelect()}
-                className={`px-3 py-1.5 font-medium transition-colors ${
-                  !field.multiSelect
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${!field.multiSelect ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
               >
                 Una opción
               </button>
               <button
                 onClick={() => !field.multiSelect && onToggleMultiSelect()}
-                className={`px-3 py-1.5 font-medium transition-colors border-l ${
-                  field.multiSelect
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${field.multiSelect ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
               >
                 Varias opciones
               </button>
@@ -646,6 +638,40 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
   const [facebookPixelId, setFacebookPixelId] = useState(form.facebookPixelId ?? "");
   const [pipelineIds, setPipelineIds] = useState<string[]>(form.pipelineIds ?? []);
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>(form.reminderRules ?? []);
+  const [mobileShowTabContent, setMobileShowTabContent] = useState(!!initialTab);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  const isFirstRender = useRef(true);
+  const saveTimerRef  = useRef<ReturnType<typeof setTimeout>>();
+  const onUpdateRef   = useRef(onUpdate);
+  const formRef       = useRef(form);
+  onUpdateRef.current = onUpdate;
+  formRef.current     = form;
+
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    if (readOnly) return;
+    clearTimeout(saveTimerRef.current);
+    setAutoSaveStatus("saving");
+    saveTimerRef.current = setTimeout(() => {
+      const f = formRef.current;
+      onUpdateRef.current({
+        ...f, name, fields,
+        sections: multiPage ? sections : undefined,
+        multiPage, showConfirmationStep,
+        confirmationMessage: confirmationMessage || undefined,
+        submitButtonText, successAction, successPopupMessage,
+        successImageType, successRedirectUrl, autoTags,
+        facebookPixelId: facebookPixelId || undefined,
+        pipelineIds, reminderRules,
+      });
+      setAutoSaveStatus("saved");
+      setTimeout(() => setAutoSaveStatus("idle"), 2000);
+    }, 800);
+    return () => clearTimeout(saveTimerRef.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fields, name, multiPage, showConfirmationStep, confirmationMessage, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId, pipelineIds, reminderRules, sections, readOnly]);
+
   const { can: canPerm } = useStaffPermissions();
   const canEditReminders = canPerm("recordatorios", "create");
   const { data: pipelines = [] } = usePipelines();
@@ -718,8 +744,6 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
 
   const handleRulesChange = (newRules: ReminderRule[]) => {
     setReminderRules(newRules);
-    // Auto-save: el parent (CrmForms) llama a updateForm.mutateAsync y muestra el toast
-    onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId: facebookPixelId || undefined, pipelineIds, reminderRules: newRules });
   };
 
   const addSection = () =>
@@ -794,48 +818,85 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
             Define qué información se solicita al usar este formulario
           </p>
         </div>
-        <div className="flex items-center gap-4">
-          {!readOnly && (
-            <Button onClick={handleSave} className="h-9 rounded-xl text-sm font-medium px-5">
-              {saved ? "Guardado ✓" : "Guardar cambios"}
-            </Button>
-          )}
-        </div>
+        {!readOnly && autoSaveStatus !== "idle" && (
+          <span className="text-xs text-muted-foreground flex items-center gap-1.5 shrink-0 self-start mt-1">
+            {autoSaveStatus === "saving" ? (
+              <><Loader2 size={11} className="animate-spin" />Guardando...</>
+            ) : (
+              <><span className="text-green-500 font-semibold">✓</span> Guardado</>
+            )}
+          </span>
+        )}
       </div>
 
       {/* ─── Sidebar + Content layout ─── */}
-      <div className="flex flex-col lg:flex-row gap-6 items-start">
-        {/* Sidebar */}
-        <nav className="lg:w-48 shrink-0 w-full">
-          <div className="flex lg:flex-col gap-1 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0">
-            {([
-              { id: "campos",        label: "Campos",         icon: Layers },
-              { id: "configuracion", label: "Configuración",  icon: Settings },
-              { id: "notificaciones",label: "Notificaciones", icon: Bell },
-              { id: "compartir",     label: "Compartir",      icon: LinkIcon },
-            ] as const).map(item => {
-              const Icon = item.icon;
-              const active = formTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setFormTab(item.id)}
-                  className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all whitespace-nowrap lg:w-full text-left shrink-0 ${
-                    active
-                      ? "bg-primary text-primary-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground hover:bg-secondary"
-                  }`}
-                >
-                  <Icon size={15} />
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        </nav>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0 space-y-5">
+      {(() => {
+        const tabItems = [
+          { id: "campos"         as const, label: "Campos",         desc: "Añade y configura los campos",  icon: Layers   },
+          { id: "configuracion"  as const, label: "Configuración",  desc: "Etiquetas, pipelines y éxito",  icon: Settings },
+          { id: "notificaciones" as const, label: "Notificaciones", desc: "Recordatorios automáticos",     icon: Bell     },
+          { id: "compartir"      as const, label: "Compartir",      desc: "Link directo, iFrame y embed",  icon: LinkIcon },
+        ];
+        return (
+          <>
+            {/* Mobile: iOS Settings menu */}
+            <div className={`lg:hidden ${mobileShowTabContent ? "hidden" : ""}`}>
+              <div className="bg-card border rounded-2xl overflow-hidden">
+                {tabItems.map(({ id, label, desc, icon: Icon }, index) => (
+                  <button
+                    key={id}
+                    onClick={() => { setFormTab(id); setMobileShowTabContent(true); }}
+                    className={`w-full flex items-center gap-3.5 px-4 py-4 text-left transition-colors active:bg-secondary/50 hover:bg-secondary/30 ${index < tabItems.length - 1 ? "border-b border-border/60" : ""}`}
+                  >
+                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${formTab === id ? "bg-primary/10" : "bg-secondary"}`}>
+                      <Icon size={16} className={formTab === id ? "text-primary" : "text-muted-foreground"} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-semibold leading-tight ${formTab === id ? "text-primary" : "text-foreground"}`}>{label}</p>
+                      <p className="text-xs text-muted-foreground mt-0.5">{desc}</p>
+                    </div>
+                    <ChevronRight size={15} className="text-muted-foreground/30 shrink-0" />
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Desktop sidebar + Content (on mobile: shown only when tab is selected) */}
+            <div className={`${mobileShowTabContent ? "flex flex-col" : "hidden lg:flex"} lg:flex-row gap-6 items-start`}>
+              {/* Desktop sidebar */}
+              <nav className="hidden lg:block lg:w-48 shrink-0">
+                <div className="flex flex-col gap-0.5">
+                  {tabItems.map(({ id, label, icon: Icon }) => {
+                    const active = formTab === id;
+                    return (
+                      <button
+                        key={id}
+                        onClick={() => setFormTab(id)}
+                        className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all w-full text-left ${
+                          active ? "bg-primary/8 text-primary" : "text-muted-foreground hover:text-foreground hover:bg-secondary/60"
+                        }`}
+                      >
+                        <Icon size={15} />
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </nav>
+
+              {/* Content */}
+              <div className="flex-1 min-w-0 space-y-5 w-full">
+
+                {/* Mobile back button */}
+                <button
+                  onClick={() => setMobileShowTabContent(false)}
+                  className="lg:hidden flex items-center gap-1.5 text-sm font-medium text-primary -ml-1 px-1 py-1 rounded-xl hover:bg-secondary/60 transition-colors"
+                >
+                  <ChevronLeft size={16} />
+                  Formulario
+                  <span className="text-muted-foreground/50 font-normal ml-0.5">· {tabItems.find(t => t.id === formTab)?.label}</span>
+                </button>
 
           {/* ── Campos ── */}
           {formTab === "campos" && (
@@ -845,16 +906,16 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                 <h2 className="text-sm font-semibold mb-3 flex items-center gap-2">
                   <Layers size={15} className="text-muted-foreground" /> Estructura del formulario
                 </h2>
-                <div className="flex border rounded-xl overflow-hidden w-fit">
+                <div className="inline-flex items-center gap-0.5 bg-secondary/60 rounded-xl p-1">
                   <button
                     onClick={() => { setMultiPage(false); setFields(fs => fs.map(f => ({ ...f, sectionId: undefined }))); }}
-                    className={`px-4 py-2 text-xs font-semibold transition-all ${!multiPage ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${!multiPage ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     Todo en uno
                   </button>
                   <button
                     onClick={() => { setMultiPage(true); const firstSec = sections[0]; if (firstSec) { setFields(fs => fs.map(f => !f.sectionId ? { ...f, sectionId: firstSec.id } : f)); } }}
-                    className={`px-4 py-2 text-xs font-semibold transition-all ${multiPage ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                    className={`px-4 py-2 rounded-lg text-xs font-semibold transition-all ${multiPage ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                   >
                     Por páginas
                   </button>
@@ -1194,20 +1255,16 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
             {/* Al completar el formulario */}
             <div className="space-y-2">
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Al completar el formulario</label>
-              <div className="flex border rounded-xl overflow-hidden h-10">
+              <div className="inline-flex items-center gap-0.5 bg-secondary/60 rounded-xl p-1 w-full">
                 <button
                   onClick={() => setSuccessAction("popup")}
-                  className={`flex-1 text-xs font-semibold transition-all ${
-                    successAction === "popup" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
-                  }`}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${successAction === "popup" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                 >
                   Mostrar Mensaje
                 </button>
                 <button
                   onClick={() => setSuccessAction("redirect")}
-                  className={`flex-1 text-xs font-semibold transition-all border-l ${
-                    successAction === "redirect" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
-                  }`}
+                  className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${successAction === "redirect" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                 >
                   Redirigir a URL
                 </button>
@@ -1219,20 +1276,16 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                 <>
                   <div className="space-y-2">
                     <label className="text-xs font-medium text-muted-foreground">Imagen a mostrar</label>
-                    <div className="flex border rounded-xl overflow-hidden h-9 w-max">
+                    <div className="inline-flex items-center gap-0.5 bg-secondary/60 rounded-xl p-1">
                       <button
                         onClick={() => setSuccessImageType("icon")}
-                        className={`px-4 text-xs font-semibold transition-all ${
-                          successImageType === "icon" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
-                        }`}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${successImageType === "icon" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Icono (Check)
                       </button>
                       <button
                         onClick={() => setSuccessImageType("logo")}
-                        className={`px-4 text-xs font-semibold transition-all border-l ${
-                          successImageType === "logo" ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-secondary/50"
-                        }`}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-semibold transition-all ${successImageType === "logo" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"}`}
                       >
                         Logo de la marca
                       </button>
@@ -1384,8 +1437,13 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
             </div>
           )}
 
-        </div>
-      </div>
+
+              </div>
+            </div>
+          </>
+        );
+      })()}
+
     </div>
     </>
   );
