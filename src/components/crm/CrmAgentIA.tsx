@@ -24,9 +24,10 @@ import {
   useCatalogs, useCatalogProductsMap,
   useCalendars,
   useAiPendingSales, useUpdateSale,
+  useAppointments, useContacts,
 } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
-import type { CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale } from "@/lib/supabase";
+import type { CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale, CrmAppointment, CrmContact } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -2497,8 +2498,10 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
 };
 
 // ─── Chat Panel ───────────────────────────────────────────────────────────────
+type UpcomingAppt = { appt: CrmAppointment; contact: CrmContact; minutesAway: number };
+
 const ChatPanel = ({
-  conv, onBack, onDelete, staffList, staffMap, highlightMessageId, onHighlightClear, pendingSale, onSaleConfirmed,
+  conv, onBack, onDelete, staffList, staffMap, highlightMessageId, onHighlightClear, pendingSale, onSaleConfirmed, upcomingAppt,
 }: {
   conv: CrmWaConversation;
   onBack?: () => void;
@@ -2509,6 +2512,7 @@ const ChatPanel = ({
   onHighlightClear?: () => void;
   pendingSale?: CrmSale | null;
   onSaleConfirmed?: () => void;
+  upcomingAppt?: UpcomingAppt | null;
 }) => {
   const { data: messages = [], isLoading } = useWaMessages(conv.id);
   const { data: allLabels = [] }           = useWaLabels();
@@ -2890,6 +2894,24 @@ const ChatPanel = ({
         </div>
       )}
 
+      {/* Banner de cita próxima — solo si el teléfono del chat coincide con el contacto */}
+      {upcomingAppt && (
+        <div className="mx-3 mt-2 mb-0 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-4 py-3 flex items-center gap-3 shrink-0">
+          <Calendar size={18} className="text-blue-500 dark:text-blue-400 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-blue-800 dark:text-blue-200">
+              {upcomingAppt.minutesAway < 60
+                ? `En ${upcomingAppt.minutesAway} min tienes cita con ${upcomingAppt.contact.name}`
+                : `En ${Math.floor(upcomingAppt.minutesAway / 60)}h tienes cita con ${upcomingAppt.contact.name}`}
+            </p>
+            <p className="text-[11px] text-blue-600 dark:text-blue-400">
+              {upcomingAppt.appt.date} · {String(upcomingAppt.appt.hour).padStart(2, "0")}:{String(upcomingAppt.appt.minute ?? 0).padStart(2, "0")}
+              {upcomingAppt.appt.service ? ` · ${upcomingAppt.appt.service}` : ""}
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto py-3 bg-[#F0F2F5] dark:bg-zinc-900/50" style={{ overscrollBehavior: "contain" }}>
         {isLoading ? (
@@ -3018,7 +3040,47 @@ const CrmAgentIA = ({
   const { data: convLabelsMap = {} } = useAllConversationLabels(principalId);
   const { data: staffList = [] }     = useStaff();
   const { staffRecord }              = useStaffPermissions();
+  const { data: appointments = [] }  = useAppointments();
+  const { data: allContacts = [] }   = useContacts();
   const staffMap = useMemo(() => Object.fromEntries(staffList.map(s => [s.id, s])), [staffList]);
+
+  // Map convId → próxima cita (próximas 24h, solo cuando el teléfono del chat coincide con el contacto)
+  const normalizePhone = (p: string) => p.replace(/\D/g, "");
+  const upcomingApptByConvId = useMemo<Map<string, UpcomingAppt>>(() => {
+    const nowMs = Date.now();
+    const in24h = nowMs + 24 * 60 * 60 * 1000;
+    // phone normalizado → cita más próxima
+    const phoneToAppt = new Map<string, { appt: CrmAppointment; contact: CrmContact }>();
+    for (const appt of appointments) {
+      if (appt.status !== "confirmed" || !appt.contact_id) continue;
+      const [y, m, d] = appt.date.split("-").map(Number);
+      const apptMs = new Date(y, m - 1, d, appt.hour, appt.minute ?? 0).getTime();
+      if (apptMs < nowMs || apptMs > in24h) continue;
+      const contact = allContacts.find(c => c.id === appt.contact_id);
+      if (!contact?.phone) continue;
+      const key = normalizePhone(contact.phone);
+      if (!key) continue;
+      const prev = phoneToAppt.get(key);
+      if (!prev) {
+        phoneToAppt.set(key, { appt, contact });
+      } else {
+        const [py, pm, pd] = prev.appt.date.split("-").map(Number);
+        const prevMs = new Date(py, pm - 1, pd, prev.appt.hour, prev.appt.minute ?? 0).getTime();
+        if (apptMs < prevMs) phoneToAppt.set(key, { appt, contact });
+      }
+    }
+    const result = new Map<string, UpcomingAppt>();
+    for (const conv of conversations) {
+      const key = normalizePhone(conv.phone);
+      const found = phoneToAppt.get(key);
+      if (!found) continue;
+      const [y, m, d] = found.appt.date.split("-").map(Number);
+      const apptMs = new Date(y, m - 1, d, found.appt.hour, found.appt.minute ?? 0).getTime();
+      result.set(conv.id, { ...found, minutesAway: Math.round((apptMs - nowMs) / 60000) });
+    }
+    return result;
+  }, [appointments, allContacts, conversations]);
+
   const [selectedId, setSelectedId]           = useState<string | null>(null);
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
   const [mobileShowChat, setMobileShowChat]   = useState(false);
@@ -3574,6 +3636,7 @@ const CrmAgentIA = ({
                 onHighlightClear={() => setHighlightMessageId(null)}
                 pendingSale={pendingSaleByConvId[selectedConv.id] ?? null}
                 onSaleConfirmed={() => {/* react-query auto-refetches */}}
+                upcomingAppt={upcomingApptByConvId.get(selectedConv.id) ?? null}
               />
             ) : (
               <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground">

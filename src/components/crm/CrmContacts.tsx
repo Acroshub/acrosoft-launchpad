@@ -1652,7 +1652,7 @@ const SaasActivationModal = ({
 );
 
 // ─── Contacts list ────────────────────────────────────────────────────────────
-const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?: boolean; isVendor?: boolean }) => {
+const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId }: { isSuperAdmin?: boolean; isVendor?: boolean; initialContactId?: string }) => {
   const { can } = useStaffPermissions();
   const canCreate         = can("contactos", "create");
   const canEdit           = can("contactos", "edit");
@@ -1706,13 +1706,21 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false }: { isSuperAdmin?
   const [search, setSearch]         = useState("");
   const [onlyClients, setOnlyClients] = useState(false);
   const [serviceFilter, setServiceFilter] = useState("");
-  const [selected, setSelected]     = useState<string | null>(null);
+  const [selected, setSelected]     = useState<string | null>(initialContactId ?? null);
   const [viewing, setViewing]       = useState<string | null>(null);
   const [tagInputId, setTagInputId] = useState<string | null>(null);
   const [tagValue, setTagValue]     = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [disableSaasTarget, setDisableSaasTarget] = useState<{ id: string; name: string } | null>(null);
-  const [mobileShowDetail, setMobileShowDetail] = useState(false);
+  const [mobileShowDetail, setMobileShowDetail] = useState(!!initialContactId);
+
+  // Abrir contacto automáticamente al navegar desde otra sección
+  useEffect(() => {
+    if (initialContactId) {
+      setSelected(initialContactId);
+      setMobileShowDetail(true);
+    }
+  }, [initialContactId]);
 
   // New contact dialog
   const [showNew, setShowNew]       = useState(false);

@@ -401,7 +401,7 @@ async function bookAppointmentFromAgent(
   minute: number,
   notes: string | null,
   rescheduleId: string | null,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; appointmentId?: string; contactId?: string; error?: string }> {
   try {
     // Si hay rescheduleId → modificar cita existente en lugar de crear una nueva
     if (rescheduleId) {
@@ -411,7 +411,7 @@ async function bookAppointmentFromAgent(
         .eq("id", rescheduleId)
         .eq("user_id", userId);
       if (error) return { ok: false, error: error.message };
-      return { ok: true };
+      return { ok: true, appointmentId: rescheduleId };
     }
 
     let contactId: string | null = null;
@@ -456,7 +456,7 @@ async function bookAppointmentFromAgent(
 
     const durationMin = (cal?.duration_min as number | null) ?? 30;
 
-    const { error } = await supabase.from("crm_appointments").insert({
+    const { data: appt, error } = await supabase.from("crm_appointments").insert({
       calendar_id: calendarId,
       user_id: userId,
       contact_id: contactId,
@@ -467,7 +467,7 @@ async function bookAppointmentFromAgent(
       notes: notes ?? null,
       status: "confirmed",
       source: "ai_agent",
-    });
+    }).select("id").single();
 
     if (error) return { ok: false, error: error.message };
 
@@ -480,9 +480,131 @@ async function bookAppointmentFromAgent(
         .is("contact_id", null);
     }
 
-    return { ok: true };
+    return { ok: true, appointmentId: appt?.id, contactId: contactId ?? undefined };
   } catch (e: any) {
     return { ok: false, error: e.message };
+  }
+}
+
+// ─── Post-booking: sincronizar con Google y enviar confirmaciones ─────────────
+async function firePostBookingActions(
+  appointmentId: string,
+  contactId: string | null,
+  calendarId: string,
+  userId: string,
+  contactName: string,
+  contactPhone: string,
+  date: string,
+  hour: number,
+  minute: number,
+) {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+
+  // 1. Google Calendar sync
+  fetch(`${supabaseUrl}/functions/v1/sync-to-google`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+    body: JSON.stringify({ appointment_id: appointmentId, action: "create" }),
+  }).catch(() => {});
+
+  // 2. on_booking reminder rules
+  try {
+    const { data: cal } = await supabase
+      .from("crm_calendar_config")
+      .select("name, reminder_rules")
+      .eq("id", calendarId)
+      .single();
+
+    const allRules = ((cal as any)?.reminder_rules ?? []) as any[];
+    const onBookingRules = allRules.filter((r: any) => r.timing === "on_booking");
+    if (!onBookingRules.length) return;
+
+    let contactEmail = "";
+    if (contactId) {
+      const { data: ct } = await supabase
+        .from("crm_contacts").select("email").eq("id", contactId).single();
+      contactEmail = (ct as any)?.email ?? "";
+    }
+
+    const nowIso = new Date().toISOString();
+    let queued = 0;
+    const pad2 = (n: number) => String(n).padStart(2, "0");
+    const timeStr = `${pad2(hour)}:${pad2(minute)} hs`;
+
+    for (const rule of onBookingRules) {
+      const ruleChannels = (rule.channels ?? { email: rule.channel === "email", whatsapp: rule.channel === "whatsapp" }) as { email: boolean; whatsapp: boolean };
+
+      if (rule.recipient === "contact") {
+        const emailVal = ruleChannels.email ? contactEmail : "";
+        const phoneVal = ruleChannels.whatsapp ? contactPhone : "";
+        const hasEmail = ruleChannels.email && !!emailVal;
+        const hasPhone = ruleChannels.whatsapp && !!phoneVal;
+        if (!hasEmail && !hasPhone) continue;
+        const msg = rule.content?.trim()
+          || `Hola ${contactName || "Cliente"}, confirmamos tu cita el ${date} a las ${timeStr} con ${(cal as any)?.name ?? "nosotros"}.`;
+        const { data: rem } = await supabase.from("crm_reminders").insert({
+          user_id: userId, appointment_id: appointmentId, contact_id: contactId,
+          type: rule.channel ?? "email", channels: ruleChannels,
+          recipient_email: hasEmail ? emailVal : null,
+          recipient_phone: hasPhone ? phoneVal : null,
+          scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg,
+          status: "pending", is_auto: true,
+          business_target: `rule:${calendarId}:${rule.id}:contact`,
+        }).select("id").single();
+        if ((rem as any)?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: (rem as any).id }); queued++; }
+
+      } else {
+        const targets: string[] = rule.businessTargets?.length
+          ? rule.businessTargets
+          : rule.businessTarget ? [rule.businessTarget] : ["admin"];
+
+        for (const targetId of targets) {
+          let emailVal = "";
+          let phoneVal = "";
+          if (targetId === "admin") {
+            const { data: profile } = await supabase
+              .from("crm_business_profile").select("contact_email, contact_phone")
+              .eq("user_id", userId).single();
+            emailVal = (profile as any)?.contact_email ?? "";
+            phoneVal = (profile as any)?.contact_phone ?? "";
+            if (!emailVal && ruleChannels.email) {
+              const { data: { user: authUser } } = await supabase.auth.admin.getUserById(userId);
+              emailVal = authUser?.email ?? "";
+            }
+          } else if (targetId !== "vendor") {
+            const { data: staff } = await supabase
+              .from("crm_staff").select("email, phone").eq("id", targetId).single();
+            emailVal = (staff as any)?.email ?? "";
+            phoneVal = (staff as any)?.phone ?? "";
+          }
+          const hasEmail = ruleChannels.email && !!emailVal;
+          const hasPhone = ruleChannels.whatsapp && !!phoneVal;
+          if (!hasEmail && !hasPhone) continue;
+          const msg = rule.content?.trim()
+            || `Cita confirmada: ${contactName || "Cliente"} el ${date} a las ${timeStr}.`;
+          const { data: rem } = await supabase.from("crm_reminders").insert({
+            user_id: userId, appointment_id: appointmentId, contact_id: contactId,
+            type: rule.channel ?? "email", channels: ruleChannels,
+            recipient_email: hasEmail ? emailVal : null,
+            recipient_phone: hasPhone ? phoneVal : null,
+            scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg,
+            status: "pending", is_auto: true,
+            business_target: `rule:${calendarId}:${rule.id}:${targetId}`,
+          }).select("id").single();
+          if ((rem as any)?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: (rem as any).id }); queued++; }
+        }
+      }
+    }
+
+    if (queued > 0) {
+      fetch(`${supabaseUrl}/functions/v1/send-reminders`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
+      }).catch(() => {});
+    }
+  } catch (e) {
+    console.error("[ai-agent] firePostBookingActions reminders (non-fatal):", e);
   }
 }
 
@@ -1144,7 +1266,8 @@ REGLAS:
 - Si el cliente pide un día específico, muestra las opciones de ese día. Si no hay ese día, díselo y ofrece las más próximas.
 - NUNCA ofrezcas un horario que no esté en la lista.
 - Para CONFIRMAR una cita: usa la herramienta check_and_book_slot. Si retorna booked:true, confirma al cliente. Si retorna booked:false, presenta las alternativas que retorna.
-- Para MOVER una cita existente: usa check_and_book_slot con reschedule_id del appointment_id de arriba.`;
+- Para MOVER una cita existente: usa check_and_book_slot con reschedule_id del appointment_id de arriba.
+- REGLA CRITICA DE FECHAS: Al confirmar la cita con el cliente, SIEMPRE usa el campo 'label' exacto que devuelve la herramienta (ej: Lunes 25 de mayo, 10:00 AM). NUNCA combines el nombre de un dia con un numero de fecha diferente. La etiqueta del sistema es la fuente de verdad, copiala literalmente sin parafrasear.`;
     } else {
       schedulingInstruction = `\n\nAGENDAMIENTO: No hay horarios disponibles en los próximos días según la configuración actual del calendario. Si el cliente quiere agendar, sugiérele contactar directamente al negocio.`;
     }
@@ -1414,11 +1537,22 @@ function makeSchedulingToolExecutor(
         return JSON.stringify({ booked: false, reason: bookResult.error, message: "Error al agendar." });
       }
 
+      // Sincronizar con Google Calendar y disparar recordatorios on_booking (fire-and-forget)
+      if (bookResult.appointmentId) {
+        firePostBookingActions(
+          bookResult.appointmentId,
+          bookResult.contactId ?? null,
+          calendarId, userId,
+          contact_name || clientPhone, clientPhone,
+          date, hour, minute,
+        ).catch(() => {});
+      }
+
       return JSON.stringify({
         booked: true,
         date, hour, minute,
         label: formatSlotLabel(date, hour, minute, timezone),
-        message: `Cita ${rescheduleId ? "modificada" : "agendada"} correctamente. Confirma al cliente.`,
+        message: `Cita ${rescheduleId ? "modificada" : "agendada"} correctamente. Confirma al cliente usando el label exacto.`,
       });
     }
 

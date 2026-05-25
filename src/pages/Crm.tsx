@@ -67,12 +67,20 @@ const Crm = () => {
 
   const [view, setView]                           = useState<View>("overview");
   const [pendingBusinessTab, setPendingBusinessTab] = useState<string | undefined>(undefined);
+  const [pendingContactId, setPendingContactId]   = useState<string | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen]             = useState(false);
 
   const navigateTo = (v: View, tab?: string) => {
     setView(v);
     if (v === "business" && tab) setPendingBusinessTab(tab);
     else setPendingBusinessTab(undefined);
+    if (v !== "contacts") setPendingContactId(undefined);
+  };
+
+  const handleNavigateToContact = (contactId: string) => {
+    setView("contacts");
+    setPendingContactId(contactId);
+    setPendingBusinessTab(undefined);
   };
 
   const { data: vendorProfile, isLoading: vendorLoading } = useVendorProfile();
@@ -139,9 +147,9 @@ const Crm = () => {
     switch (view) {
       case "overview":  return <CrmOverview isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} onNavigate={navigateTo} />;
       case "business":  return (!isStaff || can("mi_negocio_personal","read") || can("mi_negocio_datos","read") || can("servicios","read")) ? <CrmBusiness initialTab={pendingBusinessTab as any} /> : null;
-      case "calendar":  return can("calendarios","read")    ? <CrmCalendar />  : null;
+      case "calendar":  return can("calendarios","read")    ? <CrmCalendar onNavigateToContact={handleNavigateToContact} />  : null;
       case "forms":     return can("formularios","read")    ? <CrmForms />     : null;
-      case "contacts":  return can("contactos","read")      ? <CrmContacts isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} /> : null;
+      case "contacts":  return can("contactos","read")      ? <CrmContacts isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} initialContactId={pendingContactId} /> : null;
       case "pipeline":  return can("pipeline","read")       ? <CrmPipeline />  : null;
       case "ventas":    return can("ventas","read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} vendorProfile={vendorProfile ?? null} /> : null;
       case "reminders": return can("recordatorios","read")  ? <CrmReminders /> : null;

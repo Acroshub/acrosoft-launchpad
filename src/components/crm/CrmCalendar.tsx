@@ -1105,7 +1105,7 @@ const MobileMonthStrip = ({ current, setCurrent, appointments }: MobileMonthStri
 
 // ─── Main Component ───────────────────────────────────────────
 
-const CrmCalendar = () => {
+const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId: string) => void }) => {
   // ─── Supabase hooks ───
   const { allowedIds, canItem } = useStaffPermissions();
   const { data: allCalendars = [], isLoading: loadingConfig, isFetching: fetchingConfig, refetch: refetchCalendars } = useCalendars();
@@ -1950,6 +1950,14 @@ const CrmCalendar = () => {
                               <p className="text-xs mt-1">{contact.notes}</p>
                             </div>
                           )}
+                          {onNavigateToContact && (
+                            <button
+                              onClick={() => onNavigateToContact(detail.contact_id!)}
+                              className="mt-2 w-full h-8 flex items-center justify-center gap-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 transition-colors text-xs font-semibold text-primary"
+                            >
+                              <User size={12} /> Ver ficha completa del contacto
+                            </button>
+                          )}
                         </div>
                       </div>
                     );
@@ -2236,6 +2244,16 @@ const CrmCalendar = () => {
                       );
                     })()}
 
+                    {/* Botón ir a contacto */}
+                    {detail.contact_id && onNavigateToContact && (
+                      <button
+                        onClick={() => { onNavigateToContact(detail.contact_id!); setSelected(null); setSelectedBlockId(null); setSelectedGoogleEvent(null); }}
+                        className="w-full h-12 flex items-center justify-center gap-2 rounded-2xl bg-primary/10 hover:bg-primary/20 transition-colors text-sm font-semibold text-primary"
+                      >
+                        <User size={15} /> Ver ficha del contacto
+                      </button>
+                    )}
+
                     {/* Botones de acción accesibles */}
                     {canEditCalendar && (
                       <div className="flex gap-3 pt-1">
@@ -2392,6 +2410,14 @@ const CrmCalendar = () => {
                           <p className="text-[10px] text-muted-foreground/70">Notas del Contacto</p>
                           <p className="text-xs mt-1">{contact.notes}</p>
                         </div>
+                      )}
+                      {onNavigateToContact && (
+                        <button
+                          onClick={() => onNavigateToContact(detail.contact_id!)}
+                          className="mt-2 w-full h-8 flex items-center justify-center gap-1.5 rounded-xl bg-primary/10 hover:bg-primary/20 transition-colors text-xs font-semibold text-primary"
+                        >
+                          <User size={12} /> Ver ficha completa del contacto
+                        </button>
                       )}
                     </div>
                   </div>
