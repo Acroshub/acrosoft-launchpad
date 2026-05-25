@@ -1,0 +1,12 @@
+# Supabase project configuration
+# Ref: https://supabase.com/docs/guides/local-development/cli/config
+
+[functions.ai-agent]
+# verify_jwt MUST be false — this is an internal function invoked by whatsapp-webhook
+# with explicit service role key auth. Setting true broke invocations silently when
+# the deploy tool defaulted to true. Keep false always.
+verify_jwt = false
+
+[functions.whatsapp-webhook]
+# verify_jwt false — receives unauthenticated requests from Meta Cloud API (HMAC-verified internally)
+verify_jwt = false
