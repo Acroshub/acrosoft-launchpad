@@ -397,8 +397,16 @@ async function maybeInvokeAgent(
   const { data: freshConv } = await supabase.from("crm_wa_conversations").select("mode").eq("id", conv.id).single();
   if (freshConv?.mode !== "AI") return;
 
-  supabase.functions.invoke("ai-agent", {
-    body: { conversation_id: conv.id, tenant_user_id: tenantUserId, phone, ...media },
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
+  fetch(`${supabaseUrl}/functions/v1/ai-agent`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${serviceKey}`,
+      "apikey": serviceKey,
+    },
+    body: JSON.stringify({ conversation_id: conv.id, tenant_user_id: tenantUserId, phone, ...media }),
   }).catch((err) => console.error("[webhook] error invocando ai-agent:", err));
 }
 
