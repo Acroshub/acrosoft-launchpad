@@ -23,7 +23,7 @@ import {
   useVideoCourses, useVideoModules, useVideosForCourse,
   useCreateVideoCourse, useUpdateVideoCourse, useDeleteVideoCourse,
   useCreateVideoModule, useUpdateVideoModule, useDeleteVideoModule,
-  useCreateVideo, useUpdateVideo, useDeleteVideo, useAllContactTags,
+  useCreateVideo, useUpdateVideo, useDeleteVideo,
 } from "@/hooks/useCrmData";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 
@@ -1100,7 +1100,7 @@ const AdminCourseEditor = ({
 }) => {
   const isNew = !course;
 
-  const [tab, setTab]           = useState<"info" | "access" | "content">("info");
+  const [tab, setTab]           = useState<"info" | "content">("info");
   const [title, setTitle]       = useState(course?.title ?? "");
   const [description, setDesc]  = useState(course?.description ?? "");
   const [coverFile, setCover]   = useState<File | null>(null);
@@ -1117,7 +1117,6 @@ const AdminCourseEditor = ({
   const { data: videos = [], refetch: refetchVideos } = useVideosForCourse(activeCourse?.id ?? null);
   const createModule = useCreateVideoModule();
 
-  const { data: allTags = [] } = useAllContactTags();
 
   const [localModules, setLocalModules] = useState<typeof modules>([]);
   useEffect(() => { setLocalModules(modules); }, [modules]);
@@ -1210,12 +1209,6 @@ const AdminCourseEditor = ({
     finally { setSaving(false); }
   };
 
-  const handleSaveAccess = async (data: Partial<CrmVideoCourse>) => {
-    if (!activeCourse) return;
-    const updated = await updateCourse.mutateAsync({ id: activeCourse.id, ...data });
-    setActiveCourse(updated);
-  };
-
   const handleAddModule = async () => {
     if (!newModuleTitle.trim() || !activeCourse) return;
     try {
@@ -1231,7 +1224,6 @@ const AdminCourseEditor = ({
 
   const TABS = [
     { id: "info",    label: "Información" },
-    { id: "access",  label: "Acceso" },
     { id: "content", label: "Contenido" },
   ] as const;
 
@@ -1326,18 +1318,6 @@ const AdminCourseEditor = ({
             {saving ? <Loader2 size={14} className="animate-spin mr-1.5" /> : <Check size={14} className="mr-1.5" />}
             {isNew && !activeCourse ? "Crear curso" : "Guardar información"}
           </Button>
-        </div>
-      )}
-
-      {/* ── Tab: Acceso ── */}
-      {tab === "access" && activeCourse && (
-        <div className="bg-card border rounded-2xl p-5">
-          <h2 className="text-sm font-semibold mb-4">Control de acceso</h2>
-          <AccessControl
-            course={activeCourse}
-            allTags={allTags}
-            onSave={handleSaveAccess}
-          />
         </div>
       )}
 
@@ -1469,11 +1449,6 @@ const AdminCourseList = ({
                   {c.description && (
                     <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{c.description}</p>
                   )}
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${c.access_type === "all" ? "bg-green-100 text-green-700" : "bg-blue-100 text-blue-700"}`}>
-                      {c.access_type === "all" ? "Todos" : "Específico"}
-                    </span>
-                  </div>
                   <div className="flex items-center gap-2 mt-3">
                     <Button
                       onClick={() => onEdit(c)}

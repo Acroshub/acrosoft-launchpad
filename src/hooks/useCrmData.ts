@@ -35,9 +35,17 @@ import type {
   CrmWaConversation,
   CrmWaMessage,
   CrmWaLabel,
+  CrmWaSequence,
+  SequenceStep,
+  CrmWaFlow,
+  CrmWaFlowFinalAction,
   CrmPaymentMethod,
   CrmGoogleEvent,
   CrmSaasAccess,
+  CrmCourse,
+  CrmCourseModule,
+  CrmCourseLesson,
+  CrmCourseAccess,
 } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "./useAuth";
 
@@ -55,6 +63,28 @@ export const useLogs = () => {
       return data as CrmLog[];
     },
     enabled: !!user,
+  });
+};
+
+export const useInsertLog = () => {
+  const { user } = useCurrentUser();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      action: "create" | "update" | "delete";
+      entity: string;
+      entity_id?: string | null;
+      description?: string | null;
+    }) => {
+      if (!user) return;
+      const { error } = await supabase.from("crm_logs").insert({
+        ...payload,
+        user_id: user.id,
+        performed_by_user_id: user.id,
+      });
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_logs"] }),
   });
 };
 
@@ -3150,3 +3180,374 @@ export const useUpdateSaasAccess = () => {
     },
   });
 };
+
+// ─── B18-4: WA Sequences (Secuencias de Mensajes) ────────────────────────────
+
+export const useWaSequences = (userId?: string) => {
+  const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
+  return useQuery({
+    queryKey: ["wa_sequences", effectiveId],
+    queryFn: async () => {
+      if (!effectiveId) return [] as CrmWaSequence[];
+      const { data } = await supabase
+        .from("crm_wa_sequences")
+        .select("*")
+        .eq("user_id", effectiveId)
+        .order("created_at");
+      return (data ?? []) as CrmWaSequence[];
+    },
+    enabled: !!effectiveId,
+  });
+};
+
+export const useUpsertWaSequence = () => {
+  const { user } = useCurrentUser();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (seq: { id?: string; name: string; product_id: string | null; steps: SequenceStep[] }) => {
+      if (seq.id) {
+        const { data, error } = await supabase
+          .from("crm_wa_sequences")
+          .update({ name: seq.name, product_id: seq.product_id, steps: seq.steps, updated_at: new Date().toISOString() })
+          .eq("id", seq.id)
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      } else {
+        const { data, error } = await supabase
+          .from("crm_wa_sequences")
+          .insert({ name: seq.name, product_id: seq.product_id, steps: seq.steps, user_id: user!.id })
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_sequences"] }),
+  });
+};
+
+export const useDeleteWaSequence = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_wa_sequences").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_sequences"] }),
+  });
+};
+
+// ─── B18-5: WA Flows (Flow Builder) ──────────────────────────────────────────
+
+export const useWaFlows = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["wa_flows", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [] as CrmWaFlow[];
+      const { data } = await supabase
+        .from("crm_wa_flows")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at");
+      return (data ?? []) as CrmWaFlow[];
+    },
+    enabled: !!user?.id,
+  });
+};
+
+export const useUpsertWaFlow = () => {
+  const { user } = useCurrentUser();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (flow: {
+      id?: string
+      name: string
+      trigger_text: string
+      sequence_id: string | null
+      final_action: CrmWaFlowFinalAction
+      is_active: boolean
+    }) => {
+      if (flow.id) {
+        const { data, error } = await supabase
+          .from("crm_wa_flows")
+          .update({
+            name: flow.name,
+            trigger_text: flow.trigger_text,
+            sequence_id: flow.sequence_id,
+            final_action: flow.final_action,
+            is_active: flow.is_active,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", flow.id)
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      } else {
+        const { data, error } = await supabase
+          .from("crm_wa_flows")
+          .insert({
+            name: flow.name,
+            trigger_text: flow.trigger_text,
+            sequence_id: flow.sequence_id,
+            final_action: flow.final_action,
+            is_active: flow.is_active,
+            user_id: user!.id,
+          })
+          .select()
+          .single();
+        if (error) throw error;
+        return data;
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_flows"] }),
+  });
+};
+
+export const useDeleteWaFlow = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_wa_flows").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_flows"] }),
+  });
+};
+
+export const useToggleWaFlow = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, is_active }: { id: string; is_active: boolean }) => {
+      const { error } = await supabase
+        .from("crm_wa_flows")
+        .update({ is_active, updated_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_flows"] }),
+  });
+};
+
+// ─── Cursos ───────────────────────────────────────────────────────────────────
+
+export const useCourses = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_courses", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_courses")
+        .select("*")
+        .eq("user_id", user!.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CrmCourse[];
+    },
+    enabled: !!user,
+  });
+};
+
+export const useUpsertCourse = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (course: Partial<Omit<CrmCourse, "user_id" | "created_at">> & { id?: string }) => {
+      const payload = { ...course, user_id: user!.id, updated_at: new Date().toISOString() };
+      if (course.id) {
+        const { data, error } = await supabase.from("crm_courses").update(payload).eq("id", course.id).select().single();
+        if (error) throw error;
+        return data as CrmCourse;
+      }
+      const { data, error } = await supabase.from("crm_courses").insert(payload).select().single();
+      if (error) throw error;
+      return data as CrmCourse;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_courses"] }),
+  });
+};
+
+export const useDeleteCourse = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_courses").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_courses"] }),
+  });
+};
+
+export const useCourseModules = (courseId: string | null) =>
+  useQuery({
+    queryKey: ["crm_course_modules", courseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_course_modules")
+        .select("*")
+        .eq("course_id", courseId!)
+        .order("sort_order");
+      if (error) throw error;
+      return (data ?? []) as CrmCourseModule[];
+    },
+    enabled: !!courseId,
+  });
+
+export const useUpsertCourseModule = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (mod: Partial<Omit<CrmCourseModule, "user_id" | "created_at">> & { course_id: string }) => {
+      const payload = { ...mod, user_id: user!.id };
+      if (mod.id) {
+        const { data, error } = await supabase.from("crm_course_modules").update(payload).eq("id", mod.id).select().single();
+        if (error) throw error;
+        return data as CrmCourseModule;
+      }
+      const { data, error } = await supabase.from("crm_course_modules").insert(payload).select().single();
+      if (error) throw error;
+      return data as CrmCourseModule;
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ["crm_course_modules", vars.course_id] }),
+  });
+};
+
+export const useDeleteCourseModule = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, courseId }: { id: string; courseId: string }) => {
+      const { error } = await supabase.from("crm_course_modules").delete().eq("id", id);
+      if (error) throw error;
+      return courseId;
+    },
+    onSuccess: (courseId) => {
+      qc.invalidateQueries({ queryKey: ["crm_course_modules", courseId] });
+      qc.invalidateQueries({ queryKey: ["crm_course_lessons", courseId] });
+    },
+  });
+};
+
+export const useCourseLessons = (courseId: string | null) => {
+  return useQuery({
+    queryKey: ["crm_course_lessons", courseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_course_lessons")
+        .select("*")
+        .eq("course_id", courseId!)
+        .order("sort_order");
+      if (error) throw error;
+      return (data ?? []) as CrmCourseLesson[];
+    },
+    enabled: !!courseId,
+  });
+};
+
+export const useUpsertCourseLesson = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (lesson: Partial<Omit<CrmCourseLesson, "created_at">> & { course_id: string }) => {
+      if (lesson.id) {
+        const { data, error } = await supabase.from("crm_course_lessons").update(lesson).eq("id", lesson.id).select().single();
+        if (error) throw error;
+        return data as CrmCourseLesson;
+      }
+      const { data, error } = await supabase.from("crm_course_lessons").insert(lesson).select().single();
+      if (error) throw error;
+      return data as CrmCourseLesson;
+    },
+    onSuccess: (data, vars) => {
+      // Actualizar cache inmediatamente para evitar flash de "—" mientras llega el refetch
+      qc.setQueryData(
+        ["crm_course_lessons", vars.course_id],
+        (old: CrmCourseLesson[] | undefined) => {
+          if (!old) return [data];
+          const exists = old.some(l => l.id === data.id);
+          return exists ? old.map(l => l.id === data.id ? data : l) : [...old, data];
+        },
+      );
+      qc.invalidateQueries({ queryKey: ["crm_course_lessons", vars.course_id] });
+    },
+  });
+};
+
+export const useDeleteCourseLesson = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, courseId }: { id: string; courseId: string }) => {
+      const { error } = await supabase.from("crm_course_lessons").delete().eq("id", id);
+      if (error) throw error;
+      return courseId;
+    },
+    onSuccess: (courseId) => qc.invalidateQueries({ queryKey: ["crm_course_lessons", courseId] }),
+  });
+};
+
+export const useCourseAccess = (courseId: string | null) => {
+  return useQuery({
+    queryKey: ["crm_course_access", courseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_course_access")
+        .select("*")
+        .eq("course_id", courseId!)
+        .order("granted_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CrmCourseAccess[];
+    },
+    enabled: !!courseId,
+  });
+};
+
+export const useGrantCourseAccess = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async ({ course_id, email, expires_at }: { course_id: string; email: string; expires_at?: string | null }) => {
+      const { data, error } = await supabase
+        .from("crm_course_access")
+        .upsert({ course_id, email: email.toLowerCase().trim(), granted_by: user!.id, expires_at: expires_at ?? null }, { onConflict: "course_id,email" })
+        .select().single();
+      if (error) throw error;
+      return data as CrmCourseAccess;
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ["crm_course_access", vars.course_id] }),
+  });
+};
+
+export const useRevokeCourseAccess = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, courseId }: { id: string; courseId: string }) => {
+      const { error } = await supabase.from("crm_course_access").delete().eq("id", id);
+      if (error) throw error;
+      return courseId;
+    },
+    onSuccess: (courseId) => qc.invalidateQueries({ queryKey: ["crm_course_access", courseId] }),
+  });
+};
+
+// Devuelve un Map<email, count> con el número de cursos asignados a cada email
+export const useContactCourseMap = () =>
+  useQuery({
+    queryKey: ["contact_course_map"],
+    queryFn: async () => {
+      const { data: courses } = await supabase.from("crm_courses").select("id");
+      if (!courses?.length) return new Map<string, number>();
+      const courseIds = courses.map((c: { id: string }) => c.id);
+      const { data: accesses } = await supabase
+        .from("crm_course_access")
+        .select("email, course_id")
+        .in("course_id", courseIds);
+      const map = new Map<string, number>();
+      accesses?.forEach((a: { email: string; course_id: string }) => {
+        if (a.email) map.set(a.email, (map.get(a.email) ?? 0) + 1);
+      });
+      return map;
+    },
+    staleTime: 30_000,
+  });

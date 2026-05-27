@@ -233,6 +233,33 @@ Deno.serve(async (req) => {
         .update({ status: "sent", processed_at: now.toISOString() })
         .eq("id", item.id);
 
+      // ── [notif] en el chat del CRM — solo visible para el dueño, nunca al contacto ──
+      if (reminder.contact_id && reminder.user_id) {
+        const { data: conv } = await supabase
+          .from("crm_wa_conversations")
+          .select("id")
+          .eq("user_id", reminder.user_id)
+          .eq("contact_id", reminder.contact_id)
+          .maybeSingle();
+
+        if (conv?.id) {
+          const isContactRecipient = reminder.business_target?.endsWith(":contact") ?? false;
+          const notifText = isContactRecipient
+            ? `Recordatorio enviado a ${vars.contact_name ?? "contacto"}`
+            : resolvedMessage;
+
+          await supabase.from("crm_wa_messages").insert({
+            conversation_id: conv.id,
+            role: "assistant",
+            content: `[notif]${notifText}`,
+          });
+          await supabase
+            .from("crm_wa_conversations")
+            .update({ last_message_at: now.toISOString() })
+            .eq("id", conv.id);
+        }
+      }
+
       sent++;
 
     } catch (err) {

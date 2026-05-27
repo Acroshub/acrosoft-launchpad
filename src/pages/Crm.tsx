@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList,
   Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle,
-  PlayCircle, Link, Bot, GraduationCap, Menu, X, ChevronRight,
+  PlayCircle, Link, Bot, GraduationCap, Menu, X, ChevronRight, BookOpen, Video,
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
@@ -22,12 +22,13 @@ import CrmVideos from "@/components/crm/CrmVideos";
 import CrmVendorLinks from "@/components/crm/CrmVendorLinks";
 import CrmVendors from "@/components/crm/CrmVendors";
 import CrmAgentIA from "@/components/crm/CrmAgentIA";
+import CrmCourses from "@/components/crm/CrmCourses";
 import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount, useVendorProfile } from "@/hooks/useCrmData";
 import { vendorVisibleNavItems } from "@/lib/permissions";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "vendor_links" | "vendors" | "agente_ia";
+type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte" | "tutoriales" | "vendor_links" | "vendors" | "agente_ia" | "cursos";
 
 const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
   { id: "overview",     label: "Resumen",             icon: LayoutDashboard, group: "Principal"  },
@@ -40,7 +41,8 @@ const navItems: { id: View; label: string; icon: React.ElementType; group: strin
   { id: "reminders",    label: "Notificaciones",      icon: Bell,            group: "CRM"        },
   { id: "agente_ia",    label: "Agente IA",           icon: Bot,             group: "CRM"        },
   { id: "vendor_links", label: "Links",               icon: Link,            group: "CRM"        },
-  { id: "videos",       label: "Tutoriales y Cursos", icon: GraduationCap,   group: "Ajustes"    },
+  { id: "cursos",        label: "Cursos",              icon: BookOpen,        group: "CRM"        },
+  { id: "tutoriales",   label: "Tutoriales",          icon: Video,           group: "Ajustes"    },
   { id: "soporte",      label: "Soporte",             icon: MessageCircle,   group: "Ajustes"    },
   { id: "settings",     label: "Configuración",       icon: Settings,        group: "Ajustes"    },
 ];
@@ -155,7 +157,8 @@ const Crm = () => {
       case "reminders": return can("recordatorios","read")  ? <CrmReminders /> : null;
       case "settings":  return (!isStaff || isVendor)       ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} isVendor={isVendor} vendorId={vendorProfile?.id ?? null} /> : null;
       case "soporte":   return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;
-      case "videos":    return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
+      case "tutoriales": return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
+      case "cursos":       return <CrmCourses />;
       case "vendor_links": return isVendor ? <CrmVendorLinks vendorProfile={vendorProfile!} /> : null;
       case "vendors":      return effectiveIsAdmin ? <CrmVendors /> : null;
       case "agente_ia":    return <CrmAgentIA
@@ -191,7 +194,8 @@ const Crm = () => {
           const items = navItems.filter(n =>
             n.group === group &&
             effectiveAllowedNavItems.has(n.id) &&
-            (n.id !== "videos"       || effectiveIsAdmin || isSaasClient) &&
+            (n.id !== "tutoriales"   || effectiveIsAdmin || isSaasClient) &&
+            (n.id !== "cursos"       || isSaasClient    || effectiveIsAdmin) &&
             (n.id !== "vendor_links" || isVendor)
           );
           if (!items.length) return null;

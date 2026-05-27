@@ -186,12 +186,7 @@ async function handleIncomingMessage(
     });
     await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
-    if (transcription) {
-      await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {});
-    } else if (isActive) {
-      const autoReply = "Hola, recibí tu mensaje de voz pero no pude procesarlo. Por favor escríbeme tu consulta y con gusto te ayudo 🙏";
-      await sendAutoReply(phone, autoReply, tenantUserId, conv.id);
-    }
+    await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {});
     return;
   }
 
@@ -309,6 +304,31 @@ async function handleIncomingMessage(
     return;
   }
 
+  // ── Interactive (button reply) ──
+  if (msgType === "interactive") {
+    const buttonReply = msg.interactive?.button_reply;
+    const listReply   = msg.interactive?.list_reply;
+    const text = buttonReply?.title ?? listReply?.title ?? "";
+    if (!text) return;
+
+    const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
+    if (dedupErr) return;
+
+    console.log(`[webhook] ← button reply de ${phone}: "${text}"`);
+    const conv = await upsertConversation(tenantUserId, phone, contactName);
+    if (!conv) return;
+
+    await supabase.from("crm_wa_messages").insert({
+      conversation_id: conv.id, role: "user", content: text, wa_message_id: waMessageId,
+      button_reply_id: buttonReply?.id ?? null,
+    });
+    await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
+    await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {
+      button_reply_id: buttonReply?.id,
+    });
+    return;
+  }
+
   console.log(`[webhook] tipo no soportado: ${msgType}, ignorando`);
 }
 
@@ -391,11 +411,16 @@ async function maybeInvokeAgent(
   tenantUserId: string,
   phone: string,
   isActive: boolean,
-  media: { media_base64?: string | null; media_mime_type?: string | null; media_type?: string },
+  extra: {
+    media_base64?: string | null;
+    media_mime_type?: string | null;
+    media_type?: string;
+    button_reply_id?: string;
+  },
 ) {
   if (!isActive) return;
   const { data: freshConv } = await supabase.from("crm_wa_conversations").select("mode").eq("id", conv.id).single();
-  if (freshConv?.mode !== "AI") return;
+  if (freshConv?.mode !== "AI" && freshConv?.mode !== "FLOW") return;
 
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -406,7 +431,7 @@ async function maybeInvokeAgent(
       "Authorization": `Bearer ${serviceKey}`,
       "apikey": serviceKey,
     },
-    body: JSON.stringify({ conversation_id: conv.id, tenant_user_id: tenantUserId, phone, ...media }),
+    body: JSON.stringify({ conversation_id: conv.id, tenant_user_id: tenantUserId, phone, ...extra }),
   }).catch((err) => console.error("[webhook] error invocando ai-agent:", err));
 }
 

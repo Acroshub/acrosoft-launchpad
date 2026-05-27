@@ -255,6 +255,7 @@ export type CrmBusinessProfile = {
   instagram: string | null
   facebook: string | null
   description: string | null
+  agent_faq: Array<{ q: string; a: string }> | null
   logo_url: string | null
   color_primary: string
   color_secondary: string
@@ -334,6 +335,63 @@ export type CrmVideo = {
   duration_seconds: number | null
   sort_order: number
   created_at: string
+}
+
+export type CrmCourse = {
+  id: string
+  user_id: string
+  title: string
+  description: string | null
+  slug: string
+  thumbnail_url: string | null
+  is_published: boolean
+  price: number | null
+  created_at: string
+  updated_at: string
+}
+
+export type CrmCourseModule = {
+  id: string
+  course_id: string
+  user_id: string
+  title: string
+  sort_order: number
+  created_at: string
+}
+
+export type CrmCourseLesson = {
+  id: string
+  course_id: string
+  module_id: string | null
+  title: string
+  content: string | null
+  bunny_video_id: string | null
+  video_duration_seconds: number | null
+  video_status: "none" | "uploading" | "processing" | "ready" | "error"
+  attachment_url: string | null
+  attachment_name: string | null
+  sort_order: number
+  created_at: string
+}
+
+export type CrmCourseAccess = {
+  id: string
+  course_id: string
+  email: string
+  granted_by: string | null
+  access_token: string | null
+  token_expires_at: string | null
+  granted_at: string
+  expires_at: string | null
+  status: "invited" | "active"
+}
+
+export type CrmCourseMagicLink = {
+  id: string
+  course_access_id: string
+  token: string
+  used_at: string | null
+  expires_at: string
 }
 
 export type CrmContactPipelineMembership = {
@@ -533,6 +591,7 @@ export type CrmAIAgentConfig = {
   do_upsell: boolean
   confirm_summary: boolean
   agent_faq: Array<{ q: string; a: string }> | null
+  use_business_faq: boolean
   agent_extra_prompt: string | null
   scheduling_calendar_id: string | null
   profile_picture_url: string | null
@@ -624,7 +683,9 @@ export type CrmWaConversation = {
   phone: string
   contact_name: string | null
   contact_profile_pic: string | null
-  mode: 'AI' | 'HUMAN'
+  mode: 'AI' | 'HUMAN' | 'FLOW'
+  active_flow_id: string | null
+  flow_step: number
   assigned_to: string | null
   last_message_at: string | null
   created_at: string
@@ -642,5 +703,55 @@ export type CrmWaMessage = {
   wa_message_id: string | null
   send_error: string | null
   created_at: string
+  button_reply_id: string | null
+  interactive_options: Array<{ label: string }> | null
+}
+
+export type SequenceStepOption = {
+  label: string
+  next_step_id: string | null
+}
+
+export type SequenceStepMedia = {
+  url: string
+  name: string
+  mime_type?: string
+}
+
+export type SequenceStep = {
+  id: string
+  type: 'message' | 'question' | 'image' | 'video' | 'audio' | 'file' | 'link'
+  text?: string
+  options?: SequenceStepOption[]
+  media?: SequenceStepMedia[]
+  link_url?: string
+  link_label?: string
+  shared?: boolean
+  next_step_id?: string | null  // undefined = legacy (usa índice); null = fin; string = ID del siguiente paso
+  ai_enhance?: boolean          // si true, la IA personaliza el texto antes de enviar
+}
+
+export type CrmWaSequence = {
+  id: string
+  user_id: string
+  name: string
+  product_id: string | null
+  steps: SequenceStep[]
+  created_at: string
+  updated_at: string
+}
+
+export type CrmWaFlowFinalAction = 'nothing' | 'human_handoff'
+
+export type CrmWaFlow = {
+  id: string
+  user_id: string
+  name: string
+  trigger_text: string
+  sequence_id: string | null
+  final_action: CrmWaFlowFinalAction
+  is_active: boolean
+  created_at: string
+  updated_at: string
 }
 

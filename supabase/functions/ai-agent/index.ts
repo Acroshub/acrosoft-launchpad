@@ -42,12 +42,14 @@ interface AgentConfig {
   do_upsell: boolean;
   confirm_summary: boolean;
   agent_faq: Array<{ q: string; a: string }> | null;
+  use_business_faq: boolean;
   agent_extra_prompt: string | null;
 }
 
 interface WaMessage {
   role: "user" | "assistant" | "human";
   content: string;
+  button_reply_id?: string | null;
 }
 
 interface WaLabel {
@@ -763,6 +765,405 @@ function parseAndStripQrMarkers(text: string): { text: string; qrIds: string[] }
   return { text: cleaned, qrIds };
 }
 
+// ─── B18-6: Flow execution ─────────────────────────────────────────────────────
+
+interface FlowStep {
+  id: string;
+  type: "message" | "question" | "image" | "video" | "audio" | "file" | "link";
+  text?: string;
+  options?: { label: string; next_step_id: string | null }[];
+  media?: { url: string; name: string; mime_type?: string }[];
+  link_url?: string;
+  link_label?: string;
+  // undefined = legado (usa índice+1); null = fin explícito; string = ID del siguiente paso
+  next_step_id?: string | null;
+  ai_enhance?: boolean; // si true, la IA personaliza el texto con contexto de la conversación
+}
+
+interface ActiveFlowRow {
+  id: string;
+  sequence_id: string | null;
+  final_action: string;
+}
+
+function formatQuestionStep(step: FlowStep): string {
+  const lines = [step.text ?? ""];
+  (step.options ?? []).forEach((opt, i) => lines.push(`${i + 1}. ${opt.label}`));
+  return lines.join("\n");
+}
+
+async function sendInteractiveQuestion(
+  step: FlowStep,
+  phone: string,
+  config: AgentConfig,
+  conversationId: string,
+): Promise<void> {
+  const options = (step.options ?? []).filter(o => o.label.trim()).slice(0, 3);
+  const bodyText = step.text?.trim() || "";
+
+  // Si no hay opciones válidas o el texto supera 1024 chars → fallback a texto plano
+  if (!options.length || bodyText.length > 1024) {
+    const text = formatQuestionStep(step);
+    if (!text.trim()) return;
+    const { wa_message_id } = await sendWhatsAppMessageRaw(phone, text, config);
+    await supabase.from("crm_wa_messages").insert({
+      conversation_id: conversationId, role: "assistant", content: bodyText || text, wa_message_id,
+      media_type: "interactive_question",
+      interactive_options: (step.options ?? []).filter(o => o.label.trim()).map(o => ({ label: o.label })),
+    });
+    return;
+  }
+
+  const payload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: phone,
+    type: "interactive",
+    interactive: {
+      type: "button",
+      body: { text: bodyText || "Elige una opción:" },
+      action: {
+        buttons: options.map((opt, i) => ({
+          type: "reply",
+          reply: {
+            id: `opt_${i}`,
+            title: opt.label.slice(0, 20),
+          },
+        })),
+      },
+    },
+  };
+
+  const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phone_number_id}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    console.error(`[flow] error enviando interactive question:`, await res.text());
+    // Fallback a texto plano
+    const text = formatQuestionStep(step);
+    const { wa_message_id } = await sendWhatsAppMessageRaw(phone, text, config);
+    await supabase.from("crm_wa_messages").insert({
+      conversation_id: conversationId, role: "assistant", content: text, wa_message_id,
+    });
+    return;
+  }
+  const json = await res.json();
+  const wa_message_id = json?.messages?.[0]?.id ?? "";
+  await supabase.from("crm_wa_messages").insert({
+    conversation_id: conversationId, role: "assistant", content: bodyText, wa_message_id,
+    media_type: "interactive_question",
+    interactive_options: options.map(o => ({ label: o.label })),
+  });
+}
+
+async function personalizeStepText(
+  baseText: string,
+  conversationId: string,
+  config: AgentConfig,
+): Promise<string> {
+  try {
+    const { data: msgs } = await supabase
+      .from("crm_wa_messages")
+      .select("role, content")
+      .eq("conversation_id", conversationId)
+      .order("created_at", { ascending: false })
+      .limit(8);
+
+    const history = (msgs ?? []).reverse();
+    const contextStr = history
+      .map(m => `${m.role === "user" ? "Receptor" : "Nosotros"}: ${m.content}`)
+      .join("\n");
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 256,
+        system: `Eres el redactor de mensajes de WhatsApp de ${config.agent_name}. Tu tarea es reescribir un mensaje base de forma natural y variada: cambia sinónimos, ajusta ligeramente el largo, varía la estructura de las frases. Si hay contexto de conversación relevante (nombre del cliente, interés específico), incorpóralo. Responde únicamente con el mensaje final, sin explicaciones ni preguntas.`,
+        messages: [
+          {
+            role: "user",
+            content: `Conversación reciente:\n${contextStr || "ninguna"}\n\nMensaje base: ${baseText}`,
+          },
+        ],
+      }),
+    });
+
+    if (!res.ok) return baseText;
+    const json = await res.json();
+    const raw = (json.content?.[0]?.text ?? "").trim();
+
+    // Guard: si la IA respondió con meta-texto (preguntas, excusas, pedidos de info)
+    // en vez del mensaje, devolver el texto base directamente
+    const isMetaResponse = !raw || /no (puedo|tengo|veo|encuentro)|necesito|por favor (comparte|proporciona)|proporciona|comparte el|no (se|sé) (el|la)|no (me|se) (ha|han)/i.test(raw);
+    return isMetaResponse ? baseText : raw;
+  } catch {
+    return baseText;
+  }
+}
+
+async function sendSequenceStep(
+  step: FlowStep,
+  phone: string,
+  config: AgentConfig,
+  conversationId: string,
+): Promise<void> {
+  if (step.type === "question") {
+    // No personalizamos el texto de preguntas: el texto es estructural para el routing/recuperación
+    await sendInteractiveQuestion(step, phone, config, conversationId);
+    return;
+  } else if (step.type === "link") {
+    const url = step.link_url?.trim();
+    if (!url) return;
+    const btnLabel = (step.link_label?.trim() || "Ver más").slice(0, 20);
+    const bodyText = step.text?.trim() || url;
+    const payload = {
+      messaging_product: "whatsapp", recipient_type: "individual", to: phone,
+      type: "interactive",
+      interactive: {
+        type: "cta_url",
+        body: { text: bodyText },
+        action: { name: "cta_url", parameters: { display_text: btnLabel, url } },
+      },
+    };
+    const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phone_number_id}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      console.error(`[flow] error enviando link:`, await res.text());
+      // Fallback: enviar URL como texto plano
+      const fallback = bodyText !== url ? `${bodyText}\n${url}` : url;
+      const { wa_message_id } = await sendWhatsAppMessageRaw(phone, fallback, config);
+      await supabase.from("crm_wa_messages").insert({ conversation_id: conversationId, role: "assistant", content: fallback, wa_message_id });
+      return;
+    }
+    const json = await res.json();
+    await supabase.from("crm_wa_messages").insert({
+      conversation_id: conversationId, role: "assistant",
+      content: `${bodyText} → ${url}`,
+      wa_message_id: json?.messages?.[0]?.id ?? "",
+    });
+    return;
+  } else if (step.type === "message") {
+    const baseText = step.text ?? "";
+    const finalText = step.ai_enhance && baseText.trim()
+      ? await personalizeStepText(baseText, conversationId, config)
+      : baseText;
+    const text = toWhatsAppFormat(finalText);
+    if (!text.trim()) return;
+    const { wa_message_id } = await sendWhatsAppMessageRaw(phone, text, config);
+    await supabase.from("crm_wa_messages").insert({
+      conversation_id: conversationId, role: "assistant", content: text, wa_message_id,
+    });
+  } else if (step.type === "image" || step.type === "video" || step.type === "audio" || step.type === "file") {
+    const mediaUrl = step.media?.[0]?.url;
+    if (!mediaUrl) return;
+    const waType = step.type === "file" ? "document" : step.type;
+    const rawCaption = step.text?.trim() || null;
+    const caption = (rawCaption && step.ai_enhance)
+      ? await personalizeStepText(rawCaption, conversationId, config)
+      : rawCaption;
+    const mediaObj: Record<string, unknown> = { link: mediaUrl };
+    if (caption && step.type !== "audio") {
+      mediaObj.caption = caption;
+    }
+    if (step.type === "file" && step.media?.[0]?.name) mediaObj.filename = step.media[0].name;
+    const payload: Record<string, unknown> = {
+      messaging_product: "whatsapp", recipient_type: "individual", to: phone, type: waType,
+      [waType]: mediaObj,
+    };
+    const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phone_number_id}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${config.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const errText = !res.ok ? await res.text() : null;
+    if (errText) console.error(`[flow] error enviando ${step.type}:`, errText);
+    const resJson = res.ok ? await res.json() : null;
+    await supabase.from("crm_wa_messages").insert({
+      conversation_id: conversationId, role: "assistant",
+      content: caption || `[${step.type}]`,
+      media_type: step.type, media_url: mediaUrl,
+      wa_message_id: resJson?.messages?.[0]?.id ?? null,
+      send_error: errText ? errText.slice(0, 500) : null,
+    });
+  }
+}
+
+// sendWhatsAppMessageRaw devuelve wa_message_id (diferencia con sendWhatsAppMessage que ya existe)
+async function sendWhatsAppMessageRaw(
+  phone: string, text: string, config: AgentConfig,
+): Promise<{ wa_message_id: string }> {
+  const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phone_number_id}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.access_token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messaging_product: "whatsapp", recipient_type: "individual", to: phone,
+      type: "text", text: { preview_url: false, body: text },
+    }),
+  });
+  if (!res.ok) throw new Error(`Graph API ${res.status}: ${await res.text()}`);
+  const json = await res.json();
+  return { wa_message_id: json?.messages?.[0]?.id ?? "" };
+}
+
+const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
+
+// Delay entre pasos según tipo — da tiempo a WhatsApp para procesar y entregar en orden
+function stepDelay(type: FlowStep["type"]): number {
+  if (type === "audio" || type === "video") return 1200;
+  if (type === "image" || type === "file") return 900;
+  return 600;
+}
+
+async function executeFlowSteps(
+  steps: FlowStep[],
+  startIdx: number,
+  incomingMsg: string,
+  phone: string,
+  config: AgentConfig,
+  conversationId: string,
+  isAnsweringQuestion: boolean,
+  buttonReplyId?: string,
+): Promise<{ newStep: number; completed: boolean }> {
+  let idx = startIdx;
+
+  if (isAnsweringQuestion && idx < steps.length && steps[idx].type === "question") {
+    const questionStep = steps[idx];
+    // Usar solo opciones con label — misma lógica que sendInteractiveQuestion para que opt_N coincida
+    const options = (questionStep.options ?? []).filter(o => o.label.trim());
+    const answer = incomingMsg.trim();
+    let chosenNextStepId: string | null = null;
+    let fallbackIdx = idx + 1;
+
+    // Routing prioritario: button ID (opt_0, opt_1…) → índice directo sin ambigüedad
+    // IMPORTANTE: validar que el label del botón coincide con la opción de ESTA pregunta.
+    // En WhatsApp los botones viejos siguen siendo clicables, por lo que opt_N de una
+    // pregunta anterior puede llegar aquí cuando ya estamos en otra pregunta distinta.
+    const optIdMatch = buttonReplyId?.match(/^opt_(\d+)$/);
+    if (optIdMatch) {
+      const optIdx = parseInt(optIdMatch[1], 10);
+      // Verificar si el botón corresponde a la pregunta actual (índice en rango Y label coincide)
+      const currentOpt = optIdx >= 0 && optIdx < options.length ? options[optIdx] : null;
+      const labelMatch = currentOpt?.label.trim().toLowerCase() === answer.toLowerCase();
+
+      if (currentOpt && labelMatch) {
+        // Botón válido para esta pregunta
+        chosenNextStepId = currentOpt.next_step_id ?? null;
+      } else {
+        // Índice fuera de rango O label no coincide → buscar hacia atrás en todas las
+        // preguntas anteriores del flujo. Cubre el caso donde el usuario presiona el
+        // botón 3 de Q1 (opt_2) estando en Q2 que solo tiene 2 opciones.
+        let foundPrev = false;
+        for (let pi = idx - 1; pi >= 0; pi--) {
+          const ps = steps[pi];
+          if (ps.type !== "question") continue;
+          const prevOpts = (ps.options ?? []).filter((o: { label: string }) => o.label.trim());
+          if (
+            optIdx < prevOpts.length &&
+            prevOpts[optIdx].label.trim().toLowerCase() === answer.toLowerCase()
+          ) {
+            console.log(`[flow] botón opt_${optIdx}="${answer}" → match en paso ${pi}, re-enrutando`);
+            chosenNextStepId = prevOpts[optIdx].next_step_id ?? null;
+            foundPrev = true;
+            break;
+          }
+        }
+        if (!foundPrev) {
+          console.log(`[flow] botón opt_${optIdx}="${answer}" sin match → reenviando pregunta actual`);
+          await sendSequenceStep(steps[idx], phone, config, conversationId);
+          return { newStep: idx, completed: false };
+        }
+      }
+    } else {
+      // Fallback: respuesta numérica ("1", "2"…)
+      const numAnswer = parseInt(answer, 10);
+      if (!isNaN(numAnswer) && numAnswer >= 1 && numAnswer <= options.length) {
+        chosenNextStepId = options[numAnswer - 1].next_step_id ?? null;
+      } else {
+        // Fallback: coincidencia exacta de texto (case-insensitive)
+        const lower = answer.toLowerCase();
+        const matchIdx = options.findIndex(o => o.label.toLowerCase() === lower);
+        if (matchIdx >= 0) {
+          chosenNextStepId = options[matchIdx].next_step_id ?? null;
+        } else {
+          // Sin match → reenviar la pregunta
+          await sendSequenceStep(steps[idx], phone, config, conversationId);
+          return { newStep: idx, completed: false };
+        }
+      }
+    }
+
+    if (chosenNextStepId) {
+      const target = steps.findIndex(s => s.id === chosenNextStepId);
+      idx = target >= 0 ? target : fallbackIdx;
+    } else {
+      idx = fallbackIdx;
+    }
+  }
+
+  while (idx < steps.length) {
+    const step = steps[idx];
+
+    if (step.type === "question") {
+      await sleep(stepDelay("message")); // pausa antes de la pregunta para que llegue después del contenido previo
+      await sendSequenceStep(step, phone, config, conversationId);
+      return { newStep: idx, completed: false };
+    }
+
+    await sendSequenceStep(step, phone, config, conversationId);
+    await sleep(stepDelay(step.type)); // pausa para que WhatsApp entregue en orden
+
+    // Navegar al siguiente paso según el modelo explícito o legado
+    if ("next_step_id" in step) {
+      // Modelo explícito: seguir el enlace
+      if (step.next_step_id === null) {
+        // Fin explícito de esta rama
+        idx = steps.length;
+        break;
+      }
+      const nextIdx = steps.findIndex(s => s.id === step.next_step_id);
+      if (nextIdx < 0) {
+        // Enlace roto → secuencia completada
+        idx = steps.length;
+        break;
+      }
+      idx = nextIdx;
+    } else {
+      // Legado: sin next_step_id → avanzar por índice
+      idx++;
+    }
+  }
+
+  return { newStep: idx, completed: idx >= steps.length };
+}
+
+async function executeFinalAction(
+  flow: ActiveFlowRow,
+  phone: string,
+  conversationId: string,
+  config: AgentConfig,
+): Promise<void> {
+  if (flow.final_action === "human_handoff") {
+    const msg = "Listo, ahora te atiende uno de nuestros asesores. 😊";
+    await transferToHuman(
+      config, phone, conversationId, msg,
+      "💬 Chat listo para atención",
+      "El flujo automatizado finalizó. La conversación fue transferida a modo Manual.",
+    );
+  }
+  // 'nothing' y 'book_appointment' no requieren acción extra aquí (IA retoma)
+}
+
 // Enviar imagen por WhatsApp Graph API
 async function sendWhatsAppImage(phone: string, imageUrl: string, caption: string | null, config: AgentConfig): Promise<void> {
   const payload: Record<string, unknown> = {
@@ -1006,7 +1407,7 @@ async function buildServicesCatalog(config: AgentConfig): Promise<string> {
 }
 
 // ─── Construir instrucciones estratégicas desde config B15-1 ─────────────────
-function buildStrategicInstructions(config: AgentConfig): string {
+function buildStrategicInstructions(config: AgentConfig, businessFaqs: Array<{ q: string; a: string }> = []): string {
   const parts: string[] = [];
 
   // Objectives — primero = CTA implícito
@@ -1094,8 +1495,9 @@ function buildStrategicInstructions(config: AgentConfig): string {
   }
 
   // FAQ
-  if (config.agent_faq?.length) {
-    const faqBlock = config.agent_faq
+  const allFaqs = [...businessFaqs, ...(config.agent_faq ?? [])];
+  if (allFaqs.length) {
+    const faqBlock = allFaqs
       .map(pair => `P: ${pair.q}\nR: ${pair.a}`)
       .join("\n\n");
     parts.push(
@@ -1112,15 +1514,12 @@ async function buildSystemPrompt(
   phone: string,
   canTransfer = false,
 ): Promise<{ prompt: string; contactId: string | null; contactName: string | null; availableSlots: AvailableSlot[] }> {
-  const strategicInstructions = buildStrategicInstructions(config);
-  const hasStrategicConfig = strategicInstructions.length > 0;
-
   const canSchedule = !!(config.can_book_appointments && config.scheduling_calendar_id);
 
   const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: config.timezone ?? "UTC" }).format(new Date());
 
   const [businessRes, servicesRes, convRes, labelsRes, productsCatalog, servicesCatalog, slotsResult] = await Promise.all([
-    supabase.from("crm_business_profile").select("business_name, description").eq("user_id", config.user_id).maybeSingle(),
+    supabase.from("crm_business_profile").select("business_name, description, agent_faq").eq("user_id", config.user_id).maybeSingle(),
     supabase.from("crm_services").select("name, price, currency, description, discount_pct, is_recurring, recurring_price, recurring_interval, recurring_label, recurring_discount_pct").eq("user_id", config.user_id).eq("active", true).order("sort_order", { ascending: true }),
     supabase.from("crm_wa_conversations").select("contact_name, contact_id").eq("user_id", config.user_id).eq("phone", phone).maybeSingle(),
     supabase.from("crm_wa_labels").select("id, name, hint").eq("user_id", config.user_id).not("hint", "is", null),
@@ -1130,6 +1529,12 @@ async function buildSystemPrompt(
   ]);
 
   const business = businessRes.data;
+
+  const bizFaqs = config.use_business_faq !== false
+    ? ((business as { agent_faq?: Array<{ q: string; a: string }> } | null)?.agent_faq ?? [])
+    : [];
+  const strategicInstructions = buildStrategicInstructions(config, bizFaqs);
+  const hasStrategicConfig = strategicInstructions.length > 0;
   const services = servicesRes.data;
   const conv = convRes.data;
   const contactId = conv?.contact_id ?? null;
@@ -1193,7 +1598,8 @@ async function buildSystemPrompt(
   const globalRules = `\n\nREGLAS GLOBALES (obligatorias siempre):
 1. IDENTIDAD: Eres una persona del equipo de atención, no una IA ni un bot. NUNCA menciones que eres inteligencia artificial, asistente virtual, sistema automático ni nada similar. Habla siempre como una persona real.
 2. LENGUAJE: Usa lenguaje natural y humano. NUNCA uses términos técnicos o de sistema como "configurado", "módulo", "plataforma", "base de datos", "sistema" al hablar con clientes.
-3. FORMATO WHATSAPP: Para negrilla usa *un solo asterisco* por lado — NUNCA doble asterisco **. Para cursiva _guion bajo_. Para tachado ~virgulilla~.`;
+3. FORMATO WHATSAPP: Para negrilla usa *un solo asterisco* por lado — NUNCA doble asterisco **. Para cursiva _guion bajo_. Para tachado ~virgulilla~.
+4. AUDIO NO TRANSCRITO: Si el último mensaje del usuario es "[Mensaje de voz]", el cliente envió una nota de voz que el sistema no pudo transcribir en este momento. Pídele de forma natural y breve que escriba su mensaje.`;
 
   // Instrucción de detección de pagos
   let paymentInstruction = "";
@@ -1651,6 +2057,7 @@ Deno.serve(async (req: Request) => {
     media_base64?: string;
     media_mime_type?: string;
     media_type?: string;
+    button_reply_id?: string;
   };
   try {
     body = await req.json();
@@ -1658,7 +2065,7 @@ Deno.serve(async (req: Request) => {
     return new Response("bad json", { status: 400 });
   }
 
-  const { conversation_id, tenant_user_id, phone, media_base64, media_mime_type, media_type } = body;
+  const { conversation_id, tenant_user_id, phone, media_base64, media_mime_type, media_type, button_reply_id } = body;
   const media = (media_base64 && media_mime_type && media_type)
     ? { base64: media_base64, mimeType: media_mime_type, type: media_type as "image" | "document" }
     : null;
@@ -1700,12 +2107,223 @@ Deno.serve(async (req: Request) => {
     // 3. Cargar historial reciente (últimos 15 mensajes — balance contexto/costo)
     const { data: rawHistory } = await supabase
       .from("crm_wa_messages")
-      .select("role, content")
+      .select("role, content, button_reply_id, media_type")
       .eq("conversation_id", conversation_id)
       .order("created_at", { ascending: false })
       .limit(15);
 
     const history: WaMessage[] = ((rawHistory ?? []) as WaMessage[]).reverse();
+    const lastUserMsg = [...history].reverse().find(m => m.role === "user")?.content ?? "";
+    // Leer button_reply_id del registro del último mensaje de usuario en BD (fuente de verdad persistida)
+    const storedButtonReplyId = [...history].reverse().find(m => m.role === "user")?.button_reply_id ?? null;
+    // Usar el del request body primero, luego el persistido en BD como fallback
+    const effectiveButtonReplyId = button_reply_id || storedButtonReplyId || undefined;
+
+    // ── B18-6: Cargar estado de conversación (mode, active_flow_id, flow_step) ──
+    const { data: convState } = await supabase
+      .from("crm_wa_conversations")
+      .select("mode, active_flow_id, flow_step")
+      .eq("id", conversation_id)
+      .single();
+
+    const convMode = convState?.mode ?? "AI";
+    const activeFlowId = convState?.active_flow_id ?? null;
+    const currentFlowStep = convState?.flow_step ?? 0;
+
+    // ── B18-6: Modo FLOW activo ──
+    // Usar activeFlowId como indicador primario — si hay un flujo activo se procesa
+    // independientemente de si mode quedó desincronizado como "AI" en algún edge case
+    if (activeFlowId) {
+      const [{ data: flow }, ] = await Promise.all([
+        supabase.from("crm_wa_flows").select("id, sequence_id, final_action").eq("id", activeFlowId).eq("is_active", true).single(),
+      ]);
+
+      if (!flow || !flow.sequence_id) {
+        await supabase.from("crm_wa_conversations")
+          .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+          .eq("id", conversation_id);
+      } else {
+        const { data: seq } = await supabase
+          .from("crm_wa_sequences").select("steps").eq("id", flow.sequence_id).single();
+        const steps: FlowStep[] = (seq?.steps as FlowStep[]) ?? [];
+
+        if (steps.length === 0 || currentFlowStep >= steps.length) {
+          await executeFinalAction(flow, phone, conversation_id, config as AgentConfig);
+          await supabase.from("crm_wa_conversations")
+            .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+            .eq("id", conversation_id);
+        } else {
+          console.log(`[flow] activeFlowId=${activeFlowId} step=${currentFlowStep} effectiveBtnId=${effectiveButtonReplyId}`);
+          try {
+            const { newStep, completed } = await executeFlowSteps(
+              steps, currentFlowStep, lastUserMsg, phone, config as AgentConfig, conversation_id, true, effectiveButtonReplyId,
+            );
+            if (completed) {
+              await executeFinalAction(flow, phone, conversation_id, config as AgentConfig);
+              await supabase.from("crm_wa_conversations")
+                .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+                .eq("id", conversation_id);
+            } else {
+              await supabase.from("crm_wa_conversations")
+                .update({ flow_step: newStep, last_message_at: new Date().toISOString() })
+                .eq("id", conversation_id);
+            }
+          } catch (flowErr) {
+            console.error("[flow] error ejecutando pasos:", flowErr);
+            // Conservar active_flow_id para que el siguiente mensaje reintente desde el mismo paso
+            await supabase.from("crm_wa_conversations")
+              .update({ last_message_at: new Date().toISOString() })
+              .eq("id", conversation_id);
+          }
+        }
+      }
+      return new Response(JSON.stringify({ ok: true, reason: "flow_executed" }), { status: 200 });
+    }
+
+    // ── Recuperación: button reply sin estado de flujo activo ──
+    // Cuando active_flow_id es null pero el usuario presionó un botón, buscamos
+    // si el último mensaje del asistente es de tipo interactive_question o su texto
+    // coincide con el texto de una pregunta en algún flujo activo.
+    if (effectiveButtonReplyId && !activeFlowId) {
+      // Buscar el último mensaje de tipo interactive_question del asistente en historial
+      const lastQuestionMsg = [...history].reverse().find(m =>
+        m.role === "assistant" && (m as any).media_type === "interactive_question"
+      );
+      const lastAssistantContent = lastQuestionMsg?.content?.trim()
+        ?? ([...history].reverse().find(m => m.role === "assistant")?.content?.trim() ?? "");
+
+      console.log(`[flow_recovery] intentando recuperar — effectiveBtnId=${effectiveButtonReplyId} lastAssistant="${lastAssistantContent?.slice(0,40)}"`);
+
+      if (lastAssistantContent) {
+        const { data: recoveryFlows } = await supabase
+          .from("crm_wa_flows")
+          .select("id, sequence_id, final_action")
+          .eq("user_id", tenant_user_id)
+          .eq("is_active", true);
+
+        for (const flow of recoveryFlows ?? []) {
+          if (!flow.sequence_id) continue;
+          const { data: seq } = await supabase
+            .from("crm_wa_sequences").select("steps").eq("id", flow.sequence_id).single();
+          const steps = (seq?.steps as FlowStep[]) ?? [];
+          const questionStepIdx = steps.findIndex(s =>
+            s.type === "question" && (
+              s.text?.trim() === lastAssistantContent ||
+              lastAssistantContent.startsWith(s.text?.trim() ?? "NOMATCH__")
+            )
+          );
+          if (questionStepIdx >= 0) {
+            console.log(`[flow_recovery] Flujo ${flow.id} recuperado vía historial, step ${questionStepIdx}`);
+            try {
+              const { newStep, completed } = await executeFlowSteps(
+                steps, questionStepIdx, lastUserMsg, phone, config as AgentConfig, conversation_id, true, effectiveButtonReplyId,
+              );
+              if (completed) {
+                await executeFinalAction(flow as ActiveFlowRow, phone, conversation_id, config as AgentConfig);
+                await supabase.from("crm_wa_conversations")
+                  .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+                  .eq("id", conversation_id);
+              } else {
+                await supabase.from("crm_wa_conversations")
+                  .update({ active_flow_id: flow.id, flow_step: newStep, last_message_at: new Date().toISOString() })
+                  .eq("id", conversation_id);
+              }
+            } catch (flowErr) {
+              console.error("[flow_recovery] error ejecutando pasos:", flowErr);
+              await supabase.from("crm_wa_conversations")
+                .update({ active_flow_id: flow.id, flow_step: questionStepIdx, last_message_at: new Date().toISOString() })
+                .eq("id", conversation_id);
+            }
+            return new Response(JSON.stringify({ ok: true, reason: "flow_recovered" }), { status: 200 });
+          }
+        }
+      }
+    }
+
+    // ── B18-6: Modo AI — verificar si algún trigger coincide ──
+    if (convMode === "AI" && lastUserMsg) {
+      const { data: activeFlows } = await supabase
+        .from("crm_wa_flows")
+        .select("id, sequence_id, final_action, trigger_text")
+        .eq("user_id", tenant_user_id)
+        .eq("is_active", true);
+
+      if (activeFlows && activeFlows.length > 0) {
+        // Evaluar intenciones con Claude Haiku (un solo llamado con todos los triggers)
+        const intentList = activeFlows
+          .filter(f => f.trigger_text?.trim())
+          .map((f, i) => `${i + 1}. [id:${f.id}] ${f.trigger_text}`)
+          .join("\n");
+
+        let matchedId: string | null = null;
+        try {
+          const intentRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "x-api-key": ANTHROPIC_API_KEY,
+              "anthropic-version": "2023-06-01",
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "claude-haiku-4-5-20251001",
+              max_tokens: 64,
+              system: "Eres un clasificador de intenciones. Responde SOLO con el id entre corchetes de la intención activada, o con la palabra null. Sin explicación, sin puntuación extra.",
+              messages: [{
+                role: "user",
+                content: `Intenciones configuradas:\n${intentList}\n\nMensaje del cliente: "${lastUserMsg}"\n\n¿Cuál intención se activa? Responde solo con el id (ej: abc123) o null.`,
+              }],
+            }),
+          });
+          if (intentRes.ok) {
+            const intentJson = await intentRes.json();
+            const raw = (intentJson.content?.[0]?.text ?? "").trim().toLowerCase();
+            if (raw !== "null" && raw !== "") {
+              // Buscar el id en la respuesta (puede venir como "abc123" o "[id:abc123]")
+              const idMatch = raw.match(/[a-f0-9\-]{8,}/);
+              if (idMatch) matchedId = idMatch[0];
+            }
+          }
+        } catch (e) {
+          console.error("[flow] error evaluando intenciones:", e);
+        }
+
+        const matched = matchedId ? activeFlows.find(f => f.id === matchedId) : null;
+
+        if (matched && matched.sequence_id) {
+          const { data: seq } = await supabase
+            .from("crm_wa_sequences").select("steps").eq("id", matched.sequence_id).single();
+          const steps: FlowStep[] = (seq?.steps as FlowStep[]) ?? [];
+
+          if (steps.length > 0) {
+            await supabase.from("crm_wa_conversations")
+              .update({ active_flow_id: matched.id, flow_step: 0 })
+              .eq("id", conversation_id);
+
+            try {
+              const { newStep, completed } = await executeFlowSteps(
+                steps, 0, "", phone, config as AgentConfig, conversation_id, false,
+              );
+              if (completed) {
+                await executeFinalAction(matched, phone, conversation_id, config as AgentConfig);
+                await supabase.from("crm_wa_conversations")
+                  .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+                  .eq("id", conversation_id);
+              } else {
+                await supabase.from("crm_wa_conversations")
+                  .update({ flow_step: newStep, last_message_at: new Date().toISOString() })
+                  .eq("id", conversation_id);
+              }
+            } catch (flowErr) {
+              console.error("[flow_trigger] error ejecutando pasos:", flowErr);
+              await supabase.from("crm_wa_conversations")
+                .update({ last_message_at: new Date().toISOString() })
+                .eq("id", conversation_id);
+            }
+            return new Response(JSON.stringify({ ok: true, reason: "flow_triggered" }), { status: 200 });
+          }
+        }
+      }
+    }
 
     // 4. Construir system prompt con catálogo, variables y etiquetas
     const t0 = Date.now();
@@ -2020,6 +2638,22 @@ Deno.serve(async (req: Request) => {
             commission_pct: 0,                                        // ventas IA no aplican comisión por defecto
           };
 
+          // Deduplicación: evitar venta doble si el mismo comprobante fue enviado 2 veces en <10 min
+          const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+          let dupQ = supabase
+            .from("crm_sales")
+            .select("id")
+            .eq("user_id", config.user_id)
+            .eq("is_ai_sale", true)
+            .eq("amount", payment.amount)
+            .gte("created_at", tenMinAgo);
+          if (resolvedContactId) dupQ = dupQ.eq("contact_id", resolvedContactId);
+          dupQ = isProduct ? dupQ.eq("product_id", itemId) : dupQ.eq("service_id", itemId);
+          const { data: dupSale } = await dupQ.limit(1).maybeSingle();
+
+          if (dupSale) {
+            console.log(`[ai-agent] venta duplicada detectada (${dupSale.id}) — comprobante ya procesado, omitiendo`);
+          } else {
           const { data: newSale, error: saleErr } = await supabase
             .from("crm_sales")
             .insert(salePayload)
@@ -2094,6 +2728,7 @@ Deno.serve(async (req: Request) => {
               ] : []),
             ]);
           }
+          } // cierra else (!dupSale)
         }
       } catch (payErr: any) {
         console.error("[ai-agent] error procesando pago:", payErr.message);

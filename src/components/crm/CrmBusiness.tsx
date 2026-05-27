@@ -3,7 +3,7 @@ import {
   Pencil, User, Building2, Image as ImageIcon, Briefcase, ShoppingBag,
   Check, Loader2, Trash2, Upload, Store, Globe, MapPin, Phone,
   Mail, Instagram, Facebook, Clock, Shield, Palette,
-  ChevronRight, ChevronLeft,
+  ChevronRight, ChevronLeft, HelpCircle, Plus, X,
 } from "lucide-react";
 import PhoneInput from "@/components/shared/PhoneInput";
 import CrmServices from "./CrmServices";
@@ -340,8 +340,43 @@ const NegocioTab = ({
 }) => {
   const [desc, setDesc]             = useState(profile?.description || "");
   const [savingDesc, setSavingDesc] = useState(false);
+  const [faq, setFaq]               = useState<Array<{ q: string; a: string }>>(profile?.agent_faq ?? []);
+  const [newQ, setNewQ]             = useState("");
+  const [newA, setNewA]             = useState("");
+  const [savingFaq, setSavingFaq]   = useState(false);
 
   useEffect(() => { setDesc(profile?.description || ""); }, [profile?.description]);
+  useEffect(() => { setFaq(profile?.agent_faq ?? []); }, [profile?.agent_faq]);
+
+  const handleAddFaq = async () => {
+    if (!newQ.trim() || !newA.trim()) return;
+    const updated = [...faq, { q: newQ.trim(), a: newA.trim() }];
+    setSavingFaq(true);
+    try {
+      await update({ agent_faq: updated });
+      setFaq(updated);
+      setNewQ("");
+      setNewA("");
+      toast.success("Pregunta agregada");
+    } catch {
+      toast.error("Error al guardar pregunta");
+    } finally {
+      setSavingFaq(false);
+    }
+  };
+
+  const handleDeleteFaq = async (index: number) => {
+    const updated = faq.filter((_, i) => i !== index);
+    setSavingFaq(true);
+    try {
+      await update({ agent_faq: updated });
+      setFaq(updated);
+    } catch {
+      toast.error("Error al eliminar pregunta");
+    } finally {
+      setSavingFaq(false);
+    }
+  };
 
   const handleSaveDesc = async () => {
     if (desc === profile?.description) return;
@@ -451,6 +486,77 @@ const NegocioTab = ({
               {savingDesc ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
               Guardar descripción
             </button>
+          )}
+        </div>
+      </div>
+
+      {/* Preguntas Frecuentes */}
+      <div className="md:col-span-2 bg-card border rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b flex items-center gap-3">
+          <div className="w-7 h-7 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <HelpCircle size={13} className="text-primary" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold">Preguntas Frecuentes</h2>
+            <p className="text-xs text-muted-foreground mt-0.5">El Agente IA usará estas respuestas en las conversaciones de WhatsApp</p>
+          </div>
+        </div>
+        <div className="px-5 py-5 space-y-4">
+          {/* Listado existente */}
+          {faq.length > 0 ? (
+            <div className="space-y-2">
+              {faq.map((item, i) => (
+                <div key={i} className="flex items-start gap-3 rounded-xl border border-border bg-muted/30 px-4 py-3">
+                  <div className="flex-1 min-w-0 space-y-1">
+                    <p className="text-xs font-semibold text-foreground truncate">P: {item.q}</p>
+                    <p className="text-xs text-muted-foreground leading-relaxed line-clamp-3">R: {item.a}</p>
+                  </div>
+                  {!readOnly && (
+                    <button
+                      onClick={() => handleDeleteFaq(i)}
+                      disabled={savingFaq}
+                      className="shrink-0 w-6 h-6 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors disabled:opacity-40"
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground/60 text-center py-4">
+              Aún no hay preguntas frecuentes registradas.
+            </p>
+          )}
+
+          {/* Formulario para agregar nueva FAQ */}
+          {!readOnly && (
+            <div className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-4 space-y-3">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wide">Agregar pregunta</p>
+              <input
+                type="text"
+                value={newQ}
+                onChange={e => setNewQ(e.target.value)}
+                placeholder="¿Cuál es la pregunta que hacen los clientes?"
+                className="w-full h-10 rounded-xl border border-border bg-background text-sm px-3 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+              />
+              <textarea
+                value={newA}
+                onChange={e => setNewA(e.target.value)}
+                rows={3}
+                placeholder="Escribe la respuesta que el agente debe dar..."
+                className="w-full rounded-xl border border-border bg-background text-sm px-3 py-2.5 resize-none outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+              />
+              <button
+                onClick={handleAddFaq}
+                disabled={savingFaq || !newQ.trim() || !newA.trim()}
+                className="h-9 px-4 rounded-xl text-sm font-semibold text-white flex items-center gap-1.5 transition-all disabled:opacity-40 active:scale-[0.98] shadow-sm"
+                style={{ background: "linear-gradient(135deg, #1877F2, #0f5cc8)" }}
+              >
+                {savingFaq ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                Agregar
+              </button>
+            </div>
           )}
         </div>
       </div>

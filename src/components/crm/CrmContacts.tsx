@@ -13,7 +13,7 @@ import {
   Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Bell, Upload, FileUp, CheckCircle2, Bot,
 } from "lucide-react";
 import Papa from "papaparse";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess } from "@/hooks/useCrmData";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess, useContactCourseMap } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import CreateReminderModal from "@/components/shared/CreateReminderModal";
@@ -1664,6 +1664,7 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
   const { data: pipelines = [] } = usePipelines();
   const { data: clientAccounts = [] } = useClientAccounts();
   const { data: contactStagesMap = {} } = useAllContactStages();
+  const { data: courseMap = new Map<string, number>() } = useContactCourseMap();
   const { data: sales = [] } = useSales();
   const { data: services = [] } = useServices();
   const createContact = useCreateContact();
@@ -2211,6 +2212,11 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                               {(contactServices.get(c.id) ?? []).map((svc, i) => (
                                 <span key={`svc-${i}`} className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-medium">{svc.serviceName}</span>
                               ))}
+                              {c.email && (courseMap.get(c.email.toLowerCase()) ?? 0) > 0 && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/60 font-medium dark:bg-blue-950/30 dark:text-blue-400">
+                                  {courseMap.get(c.email.toLowerCase())} curso{(courseMap.get(c.email.toLowerCase()) ?? 0) !== 1 ? "s" : ""}
+                                </span>
+                              )}
                             </div>
                           )}
                         </div>

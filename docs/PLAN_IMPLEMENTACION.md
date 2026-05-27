@@ -3823,7 +3823,7 @@ No requiere cambios de schema. Se puede añadir opcionalmente `transcription tex
 
 ### B18-3 · Reestructuración del Wizard del Agente IA
 
-**Estado:** ⏳ PENDIENTE
+**Estado:** ✅ COMPLETADO
 
 **Contexto:**
 El wizard actual tiene un orden que no refleja la dependencia lógica entre pasos. Se reorganiza para preparar la llegada de los flujos conversacionales: primero conectas el canal, luego defines qué puede hacer el agente, luego configuras cómo se comporta (incluyendo los trigger-flows).
@@ -3848,7 +3848,7 @@ El wizard actual tiene un orden que no refleja la dependencia lógica entre paso
 
 ### B18-4 · Flow Builder — Crear y Editar Flujos
 
-**Estado:** ⏳ PENDIENTE
+**Estado:** ✅ COMPLETADO
 
 **Contexto:**
 Los tenants que venden múltiples productos necesitan guiar al contacto por una secuencia de mensajes predefinida. Un flujo es solo contenido reutilizable — sin triggers ni acciones finales incorporadas. Los triggers y acciones se configuran desde el wizard (B18-5). Los flujos son independientes del agente: se crean, editan y reutilizan libremente.
@@ -3914,7 +3914,7 @@ CREATE POLICY "owner" ON crm_wa_flows USING (user_id = auth.uid());
 
 ### B18-5 · Configuración de Trigger-Flows en el Wizard (Paso 3)
 
-**Estado:** ⏳ PENDIENTE
+**Estado:** ✅ COMPLETADO
 
 **Dependencias:** B18-3, B18-4
 
@@ -3956,7 +3956,7 @@ ALTER TABLE crm_ai_agent_config
 
 ### B18-6 · Ejecución del Modo FLOW en ai-agent
 
-**Estado:** ⏳ PENDIENTE
+**Estado:** ✅ COMPLETADO
 
 **Dependencias:** B18-4, B18-5
 
@@ -3995,9 +3995,10 @@ ALTER TABLE crm_wa_conversations
 
 ---
 
+
 ### B18-7 · Plataforma de Cursos — Acceso por Magic Link (sin cuenta)
 
-**Estado:** ⏳ PENDIENTE
+**Estado:** ✅ COMPLETADO
 
 **Contexto:**
 Los tenants que venden cursos necesitan que sus alumnos accedan al contenido de forma simple, sin crear una cuenta en el CRM. Cada curso tiene un link público. El alumno solo ingresa su email y recibe un magic link. No hay contraseñas, no hay onboarding, no hay relación con la autenticación de Supabase.
@@ -4115,12 +4116,12 @@ ALTER TABLE crm_course_lessons
 |---|---|---|---|---|
 | B18-1 | Activación manual de clientes SaaS | Ninguna | Media | ✅ Completado |
 | B18-2 | Transcripción de mensajes de voz (Groq Whisper) | GROQ_API_KEY en Supabase | Media | ✅ Completado |
-| B18-3 | Reestructuración wizard Agente IA | Ninguna | Media | ⏳ Pendiente |
-| B18-4 | Flow Builder (crear y editar flujos) | Ninguna | Alta | ⏳ Pendiente |
-| B18-5 | Configuración de trigger-flows en wizard | B18-3, B18-4 | Alta | ⏳ Pendiente |
-| B18-6 | Ejecución modo FLOW en ai-agent | B18-4, B18-5 | Alta | ⏳ Pendiente |
-| B18-7 | Cursos — acceso por magic link | Ninguna | Alta | ⏳ Pendiente |
-| B18-8 | Videos en cursos via Bunny.net | B18-7, BUNNY_API_KEY | Media | ⏳ Pendiente |
+| B18-3 | Reestructuración wizard Agente IA | Ninguna | Media | ✅ Completado |
+| B18-4 | Flow Builder (crear y editar flujos) | Ninguna | Alta | ✅ Completado |
+| B18-5 | Configuración de trigger-flows en wizard | B18-3, B18-4 | Alta | ✅ Completado |
+| B18-6 | Ejecución modo FLOW en ai-agent | B18-4, B18-5 | Alta | ✅ Completado |
+| B18-7 | Cursos — acceso por magic link | Ninguna | Alta | ✅ Completado |
+| B18-8 | Videos en cursos via Bunny.net | B18-7, BUNNY_API_KEY | Media | ✅ Completado |
 
 ---
 

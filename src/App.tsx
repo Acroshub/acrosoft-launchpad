@@ -17,6 +17,8 @@ import GoogleCalendarCallback from "./pages/GoogleCalendarCallback.tsx";
 import VipLanding from "./pages/VipLanding.tsx";
 import VendorLanding from "./pages/VendorLanding.tsx";
 import CatalogPublic from "./pages/CatalogPublic.tsx";
+import CourseAccess from "./pages/CourseAccess.tsx";
+import CoursePlayer from "./pages/CoursePlayer.tsx";
 
 const queryClient = new QueryClient();
 
@@ -47,6 +49,10 @@ const App = () => (
 
           {/* Public catalog pages — must be before /:vendorSlug catch-all */}
           <Route path="/catalogo/:businessSlug/:catalogSlug" element={<CatalogPublic />} />
+
+          {/* Curso — gate de acceso y player (públicos, sin auth Supabase) */}
+          <Route path="/curso/:courseSlug"      element={<CourseAccess />} />
+          <Route path="/curso/:courseSlug/ver"  element={<CoursePlayer />} />
 
           {/* Vendor landing pages — must be before * catch-all */}
           <Route path="/:vendorSlug" element={<VendorLanding />} />

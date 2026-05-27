@@ -2,9 +2,19 @@ import { useState, useEffect, useRef, useMemo } from "react";
 import {
   Bot, Settings, Send, Wifi, WifiOff, MessageSquare, Loader2,
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
-  Check, ChevronRight, ChevronLeft, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
+  Check, ChevronRight, ChevronLeft, ChevronDown, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
+  GripVertical, GitBranch, ArrowLeft,
 } from "lucide-react";
+import {
+  DndContext, closestCenter, KeyboardSensor, PointerSensor,
+  useSensor, useSensors, type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext, sortableKeyboardCoordinates, useSortable,
+  verticalListSortingStrategy, arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -25,9 +35,13 @@ import {
   useCalendars,
   useAiPendingSales, useUpdateSale,
   useAppointments, useContacts,
+  useWaSequences, useUpsertWaSequence, useDeleteWaSequence,
+  useWaFlows, useUpsertWaFlow, useDeleteWaFlow, useToggleWaFlow,
+  useInsertLog,
 } from "@/hooks/useCrmData";
+import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { supabase } from "@/lib/supabase";
-import type { CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale, CrmAppointment, CrmContact } from "@/lib/supabase";
+import type { CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale, CrmAppointment, CrmContact, CrmWaSequence, SequenceStep, SequenceStepOption, SequenceStepMedia, CrmWaFlow, CrmWaFlowFinalAction } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
@@ -234,6 +248,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const [responseLengthWiz, setResponseLengthWiz] = useState(existingConfig?.response_length ?? "normal");
   const [emojiLevelWiz, setEmojiLevelWiz]         = useState(existingConfig?.emoji_level ?? "poco");
   const [agentFaqWiz, setAgentFaqWiz]             = useState<{ q: string; a: string }[]>(existingConfig?.agent_faq ?? []);
+  const [useBusinessFaqWiz, setUseBusinessFaqWiz] = useState(existingConfig?.use_business_faq ?? true);
   const [agentDataCollectWiz, setAgentDataCollectWiz] = useState<string[]>(existingConfig?.agent_data_collect ?? []);
   const [customDataFieldWiz, setCustomDataFieldWiz]   = useState("");
 
@@ -334,22 +349,6 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   };
 
   const handleSaveStep2 = async () => {
-    if (!agentName.trim()) { toast.error("El nombre del agente es obligatorio"); return; }
-    await upsert.mutateAsync({
-      agent_name: agentName.trim(),
-      model: "claude-haiku-4-5-20251001",
-      system_prompt: systemPrompt || null,
-      agent_objectives: agentObjectives,
-      agent_personality: agentPersonality || null,
-      agent_proactivity: agentProactivity || null,
-      response_length: responseLengthWiz as "short" | "normal" | "detailed",
-      emoji_level: emojiLevelWiz as "none" | "poco" | "medio" | "mucho",
-      agent_faq: agentFaqWiz.length > 0 ? agentFaqWiz : null,
-    });
-    setStep(3);
-  };
-
-  const handleSaveStep3 = async () => {
     await upsert.mutateAsync({
       can_book_appointments: canBook,
       scheduling_calendar_id: canBook && schedulingCalendarIdWiz ? schedulingCalendarIdWiz : null,
@@ -366,12 +365,29 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
       selected_service_ids: servicesMode === "selected" ? selectedServiceIds : [],
       agent_data_collect: agentDataCollectWiz,
     });
+    setStep(3);
+  };
+
+  const handleSaveStep3 = async () => {
+    if (!agentName.trim()) { toast.error("El nombre del agente es obligatorio"); return; }
+    await upsert.mutateAsync({
+      agent_name: agentName.trim(),
+      model: "claude-haiku-4-5-20251001",
+      system_prompt: systemPrompt || null,
+      agent_objectives: agentObjectives,
+      agent_personality: agentPersonality || null,
+      agent_proactivity: agentProactivity || null,
+      response_length: responseLengthWiz as "short" | "normal" | "detailed",
+      emoji_level: emojiLevelWiz as "none" | "poco" | "medio" | "mucho",
+      agent_faq: agentFaqWiz.length > 0 ? agentFaqWiz : null,
+      use_business_faq: useBusinessFaqWiz,
+    });
     setStep(4);
   };
 
-  const handleSaveStep4 = async () => {
+  const handleSaveStep5 = async () => {
     await upsert.mutateAsync({ schedule, timezone, off_hours_message: offHoursMsg || null });
-    // Cargar perfil actual al avanzar al paso 5
+    // Cargar perfil actual al avanzar al paso 6
     if (phoneNumberId && accessToken) {
       fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/whatsapp_business_profile?fields=about,profile_picture_url`, {
         headers: { Authorization: `Bearer ${accessToken}` },
@@ -383,7 +399,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
         }
       }).catch(() => {});
     }
-    setStep(5);
+    setStep(6);
   };
 
   const handleWizardPhotoUpload = async (file: File) => {
@@ -427,8 +443,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
     } finally { setUploadingPhoto(false); }
   };
 
-  const handleSaveStep5Bio = async () => {
-    if (!phoneNumberId || !accessToken || !bio.trim()) { setStep(6); return; }
+  const handleSaveStep6Bio = async () => {
+    if (!phoneNumberId || !accessToken || !bio.trim()) { setStep(7); return; }
     setSavingBio(true);
     try {
       const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/whatsapp_business_profile`, {
@@ -441,7 +457,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
     } catch (e: any) {
       toast.error(e.message?.slice(0, 100) ?? "Error al guardar bio");
     }
-    finally { setSavingBio(false); setStep(6); }
+    finally { setSavingBio(false); setStep(7); }
   };
 
   const handleActivar = async () => {
@@ -463,7 +479,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
     setTimeout(() => { el.focus(); el.setSelectionRange(start + variable.length, start + variable.length); }, 0);
   };
 
-  const STEP_LABELS = ["Conexión", "Agente", "Capacidades", "Horario", "Perfil WA", "Activar"];
+  const STEP_LABELS = ["Conexión", "Capacidades", "Agente IA", "Flujos", "Horario", "Perfil WA", "Activar"];
 
   return (
     <div className="flex flex-col items-center justify-center min-h-full py-10 px-4">
@@ -474,10 +490,10 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             <Bot size={24} className="text-primary" />
           </div>
           <h1 className="text-lg font-semibold">Configura tu Agente IA</h1>
-          <p className="text-sm text-muted-foreground">{STEP_LABELS[step - 1]} — Paso {step} de 6</p>
+          <p className="text-sm text-muted-foreground">{STEP_LABELS[step - 1]} — Paso {step} de 7</p>
         </div>
 
-        <StepIndicator current={step} total={6} />
+        <StepIndicator current={step} total={7} />
 
         {/* ── Step 1: Conexión ── */}
         {step === 1 && (
@@ -558,11 +574,11 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
 
-        {/* ── Step 2: Agente ── */}
-        {step === 2 && (
+        {/* ── Step 3: Agente IA ── */}
+        {step === 3 && (
           <div className="bg-card border rounded-2xl p-6 space-y-6">
             <div>
-              <h2 className="text-sm font-semibold flex items-center gap-2"><Sparkles size={14} />Configura tu Agente</h2>
+              <h2 className="text-sm font-semibold flex items-center gap-2"><Sparkles size={14} />Agente IA</h2>
               <p className="text-xs text-muted-foreground mt-0.5">Define la estrategia y personalidad de tu asistente.</p>
             </div>
 
@@ -650,8 +666,30 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 
             {/* FAQ */}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">Preguntas frecuentes <span className="text-[10px] text-muted-foreground">(opcional)</span></label>
-              <div className="space-y-2">
+              <label className="text-xs font-medium text-muted-foreground">Preguntas frecuentes</label>
+
+              {/* Toggle: usar FAQs del negocio */}
+              <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2.5">
+                <div>
+                  <p className="text-xs font-medium">Usar FAQs de Mi Negocio</p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    {businessProfile?.agent_faq?.length
+                      ? `${businessProfile.agent_faq.length} pregunta${businessProfile.agent_faq.length !== 1 ? "s" : ""} registrada${businessProfile.agent_faq.length !== 1 ? "s" : ""} en el perfil del negocio`
+                      : "Configúralas en Mi Negocio → Negocio"}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setUseBusinessFaqWiz(v => !v)}
+                  className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${useBusinessFaqWiz ? "bg-primary" : "bg-muted-foreground/30"}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${useBusinessFaqWiz ? "translate-x-4" : "translate-x-0"}`} />
+                </button>
+              </div>
+
+              {/* FAQs específicas del agente */}
+              <div className="space-y-2 pt-1">
+                <p className="text-[10px] text-muted-foreground">Preguntas adicionales — solo para este agente de WhatsApp</p>
                 {agentFaqWiz.map((pair, i) => (
                   <div key={i} className="rounded-lg border p-2.5 space-y-1.5">
                     <div className="flex items-center justify-between">
@@ -691,8 +729,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(1)} className="h-9 text-xs">Atrás</Button>
-              <Button onClick={handleSaveStep2} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
+              <Button variant="outline" onClick={() => setStep(2)} className="h-9 text-xs">Atrás</Button>
+              <Button onClick={handleSaveStep3} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
                 {upsert.isPending && <Loader2 size={13} className="animate-spin" />}
                 Continuar <ChevronRight size={14} />
               </Button>
@@ -700,8 +738,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
 
-        {/* ── Step 3: Capacidades ── */}
-        {step === 3 && (
+        {/* ── Step 2: Capacidades ── */}
+        {step === 2 && (
           <div className="bg-card border rounded-2xl p-6 space-y-4">
             <div>
               <h2 className="text-sm font-semibold flex items-center gap-2"><Zap size={14} />Capacidades</h2>
@@ -968,8 +1006,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             </div>
 
             <div className="flex gap-2 pt-2">
-              <Button variant="outline" onClick={() => setStep(2)} className="h-9 text-xs">Atrás</Button>
-              <Button onClick={handleSaveStep3} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
+              <Button variant="outline" onClick={() => setStep(1)} className="h-9 text-xs">Atrás</Button>
+              <Button onClick={handleSaveStep2} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
                 {upsert.isPending && <Loader2 size={13} className="animate-spin" />}
                 Continuar <ChevronRight size={14} />
               </Button>
@@ -977,8 +1015,45 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
 
-        {/* ── Step 4: Horario ── */}
+        {/* ── Step 4: Flujos ── */}
         {step === 4 && (
+          <div className="bg-card border rounded-2xl p-6 space-y-5">
+            <div>
+              <h2 className="text-sm font-semibold flex items-center gap-2"><GitBranch size={14} />Flujos de WhatsApp</h2>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Los flujos automatizan respuestas según la intención del mensaje: cuando el agente IA detecta que el contacto
+                tiene una intención específica, envía automáticamente una secuencia de mensajes y ejecuta una acción al finalizar.
+              </p>
+            </div>
+            <div className="bg-secondary/40 rounded-xl p-4 space-y-3">
+              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">¿Cómo funcionan?</p>
+              <div className="space-y-2 text-xs text-muted-foreground">
+                <div className="flex items-start gap-2">
+                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+                  <span><strong>Disparador:</strong> El agente IA detecta la intención del mensaje (ej. "cuando el cliente pregunte por precios o quiera cotizar")</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+                  <span><strong>Secuencia:</strong> El asistente envía automáticamente una serie de mensajes predefinidos</span>
+                </div>
+                <div className="flex items-start gap-2">
+                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
+                  <span><strong>Acción final:</strong> Continúa la conversación, transfiere a un humano o agenda una cita</span>
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground">Puedes crear y gestionar tus flujos desde <strong>Configuración → Flujos</strong> después de la activación.</p>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => setStep(3)} className="h-9 text-xs">Atrás</Button>
+              <Button onClick={() => setStep(5)} className="flex-1 h-9 gap-1.5">
+                Continuar <ChevronRight size={14} />
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Step 5: Horario ── */}
+        {step === 5 && (
           <div className="bg-card border rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-sm font-semibold flex items-center gap-2"><Clock size={14} />Horario del Asistente Virtual</h2>
@@ -1002,8 +1077,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 placeholder="Ej: ¡Hola! Estamos fuera de horario. Nuestro equipo te atenderá pronto." />
             </div>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(3)} className="h-9 text-xs">Atrás</Button>
-              <Button onClick={handleSaveStep4} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
+              <Button variant="outline" onClick={() => setStep(4)} className="h-9 text-xs">Atrás</Button>
+              <Button onClick={handleSaveStep5} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
                 {upsert.isPending && <Loader2 size={13} className="animate-spin" />}
                 Continuar <ChevronRight size={14} />
               </Button>
@@ -1011,8 +1086,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
 
-        {/* ── Step 5: Perfil WA ── */}
-        {step === 5 && (
+        {/* ── Step 6: Perfil WA ── */}
+        {step === 6 && (
           <div className="bg-card border rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-sm font-semibold flex items-center gap-2"><User size={14} />Perfil de WhatsApp</h2>
@@ -1075,9 +1150,9 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(4)} className="h-9 text-xs shrink-0">Atrás</Button>
-              <Button variant="outline" onClick={() => setStep(6)} className="h-9 text-xs shrink-0">Omitir</Button>
-              <Button onClick={handleSaveStep5Bio} disabled={savingBio} className="flex-1 h-9 gap-1.5">
+              <Button variant="outline" onClick={() => setStep(5)} className="h-9 text-xs shrink-0">Atrás</Button>
+              <Button variant="outline" onClick={() => setStep(7)} className="h-9 text-xs shrink-0">Omitir</Button>
+              <Button onClick={handleSaveStep6Bio} disabled={savingBio} className="flex-1 h-9 gap-1.5">
                 {savingBio ? <Loader2 size={13} className="animate-spin" /> : <ChevronRight size={14} />}
                 Guardar y continuar
               </Button>
@@ -1085,8 +1160,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
 
-        {/* ── Step 6: Resumen + Activar ── */}
-        {step === 6 && (
+        {/* ── Step 7: Resumen + Activar ── */}
+        {step === 7 && (
           <div className="bg-card border rounded-2xl p-6 space-y-6">
             <div>
               <h2 className="text-sm font-semibold flex items-center gap-2"><CheckCircle2 size={14} />Todo listo para activar</h2>
@@ -1110,7 +1185,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(5)} className="h-9 text-xs shrink-0">Atrás</Button>
+              <Button variant="outline" onClick={() => setStep(6)} className="h-9 text-xs shrink-0">Atrás</Button>
               <Button
                 onClick={handleActivar}
                 disabled={saving}
@@ -1127,6 +1202,610 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   );
 };
 
+// ─── Sequence + Flow Builder helpers ─────────────────────────────────────────
+
+type DraftSequence = { id?: string; name: string; product_id: string | null; steps: SequenceStep[] };
+
+type StepBranchInfo = { label: string; branchIdx: number; pos: number; total: number };
+
+const BRANCH_COLORS = [
+  { bar: "bg-emerald-400", pill: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20", border: "border-emerald-400/30", bg: "bg-emerald-500/5", text: "text-emerald-600 dark:text-emerald-400", hex: "#34d399" },
+  { bar: "bg-rose-400",    pill: "bg-rose-400/10 text-rose-500 dark:text-rose-400 border-rose-400/20",             border: "border-rose-400/30",    bg: "bg-rose-400/5",    text: "text-rose-500 dark:text-rose-400",     hex: "#fb7185" },
+  { bar: "bg-blue-400",    pill: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",             border: "border-blue-400/30",    bg: "bg-blue-400/5",    text: "text-blue-600 dark:text-blue-400",     hex: "#60a5fa" },
+  { bar: "bg-amber-400",   pill: "bg-amber-400/10 text-amber-600 dark:text-amber-400 border-amber-400/20",         border: "border-amber-400/30",   bg: "bg-amber-400/5",   text: "text-amber-600 dark:text-amber-400",   hex: "#fbbf24" },
+  { bar: "bg-purple-400",  pill: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",     border: "border-purple-400/30",  bg: "bg-purple-400/5",  text: "text-purple-600 dark:text-purple-400", hex: "#c084fc" },
+];
+
+type DraftFlow = {
+  id?: string
+  name: string
+  trigger_text: string
+  sequence_id: string | null
+  final_action: CrmWaFlowFinalAction
+  is_active: boolean
+};
+
+const FLOW_FINAL_ACTION_LABELS: Record<CrmWaFlowFinalAction, string> = {
+  nothing:       "Continuar con IA",
+  human_handoff: "Continuar con Humano",
+} as const;
+
+function newDraftFlow(): DraftFlow {
+  return { name: "", trigger_text: "", sequence_id: null, final_action: "nothing", is_active: true };
+}
+
+const STEP_TYPE_LABELS = {
+  message: "Texto", question: "Pregunta",
+  image: "Imagen", video: "Video", audio: "Audio", file: "Archivo", link: "Link",
+} as const;
+
+// WhatsApp Cloud API soporta estos formatos solamente
+const STEP_ACCEPT = {
+  image: "image/jpeg,image/png,.jpg,.jpeg,.png",
+  video: "video/mp4,video/3gpp,.mp4,.3gp",
+  audio: "audio/aac,audio/mp4,audio/mpeg,audio/amr,audio/ogg,audio/x-m4a,.aac,.m4a,.mp3,.amr,.ogg",
+  file: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,.7z",
+} as const;
+
+const WA_FORMAT_HINT: Partial<Record<SequenceStep["type"], string>> = {
+  image: "JPG o PNG · máx 5 MB",
+  video: "MP4 con codec H.264 · máx 16 MB (no MOV, no HEVC)",
+  audio: "MP3, AAC, OGG, AMR o M4A · máx 16 MB",
+  file: "PDF, Word, Excel, ZIP · máx 100 MB",
+};
+
+// Lee los primeros bytes del archivo para detectar el formato real (ignora extensión)
+async function readMagicBytes(file: File): Promise<Uint8Array> {
+  return new Promise(resolve => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(new Uint8Array(e.target?.result as ArrayBuffer));
+    reader.readAsArrayBuffer(file.slice(0, 12));
+  });
+}
+
+// Devuelve el MIME type real del archivo según sus magic bytes, o null si no se puede detectar
+function detectRealMime(bytes: Uint8Array): string | null {
+  // MP3: ID3 tag o sync word FF Fx
+  if (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) return "audio/mpeg";
+  if (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0) return "audio/mpeg";
+  // OGG
+  if (bytes[0] === 0x4F && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53) return "audio/ogg";
+  // FTYP box (MP4 / M4A / MOV / 3GP) — offset 4
+  if (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
+    const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
+    if (brand === "qt  ") return "video/quicktime";           // MOV — no soportado
+    if (brand.startsWith("M4A") || brand.startsWith("M4B")) return "audio/mp4"; // M4A
+    if (brand === "3gp5" || brand === "3gp4" || brand === "3g2a") return "video/3gpp";
+    return "video/mp4"; // isom, mp42, avc1, dash, etc.
+  }
+  // JPEG
+  if (bytes[0] === 0xFF && bytes[1] === 0xD8) return "image/jpeg";
+  // PNG
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return "image/png";
+  return null;
+}
+
+// MIME types aceptados por WhatsApp Cloud API
+const WA_VALID_MIME: Partial<Record<SequenceStep["type"], Set<string>>> = {
+  image: new Set(["image/jpeg", "image/png"]),
+  video: new Set(["video/mp4", "video/3gpp"]),
+  audio: new Set(["audio/aac", "audio/mp4", "audio/mpeg", "audio/amr", "audio/ogg"]),
+};
+
+const MEDIA_TYPES = new Set(["image", "video", "audio", "file"]);
+const LINK_TYPE = "link";
+
+function newStep(type: SequenceStep["type"]): SequenceStep {
+  return {
+    id: crypto.randomUUID(),
+    type,
+    text: "",
+    options: type === "question" ? [{ label: "", next_step_id: null }] : undefined,
+    media: MEDIA_TYPES.has(type) ? [] : undefined,
+  };
+}
+
+function getStepPreview(s: SequenceStep, maxLen: number): string | null {
+  if (s.type === "message" || s.type === "question") return s.text?.trim().slice(0, maxLen) || null;
+  if (s.type === "link") return s.link_url?.slice(0, maxLen) || null;
+  return s.media?.[0]?.name?.slice(0, maxLen) || null;
+}
+
+// Recalcula next_step_id en todos los pasos no-pregunta según la estructura de ramas actual.
+// Reglas: pasos en preludio/shared → cadena secuencial; pasos en rama → apuntan al siguiente
+// de su misma rama o al primer paso compartido; fin de rama → null.
+function computeNextStepIds(steps: SequenceStep[]): SequenceStep[] {
+  // 1. Construir ramas activas (igual que el useMemo activeBranches pero standalone)
+  type Branch = { targetIdx: number; insertBeforeIdx: number | null };
+  const branches: Branch[] = [];
+  for (const s of steps) {
+    if (s.type !== "question") continue;
+    const targets = (s.options ?? [])
+      .filter(o => o.label.trim() && o.next_step_id)
+      .map(o => ({ idx: steps.findIndex(st => st.id === o.next_step_id) }))
+      .filter(t => t.idx >= 0)
+      .sort((a, b) => a.idx - b.idx);
+    const deduped = targets.filter((t, i, arr) => arr.findIndex(x => x.idx === t.idx) === i);
+    for (let i = 0; i < deduped.length; i++) {
+      branches.push({ targetIdx: deduped[i].idx, insertBeforeIdx: deduped[i + 1]?.idx ?? null });
+    }
+  }
+
+  // 2. Asignar rama a cada paso no-compartido (mayor targetIdx gana = rama más interna)
+  const branchMap = new Map<string, number>(); // stepId → branchIdx
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    if (step.shared) continue;
+    let bestBi = -1, bestStart = -1;
+    for (let bi = 0; bi < branches.length; bi++) {
+      const start = branches[bi].targetIdx;
+      const end = branches[bi].insertBeforeIdx ?? steps.length;
+      if (i >= start && i < end && start > bestStart) { bestBi = bi; bestStart = start; }
+    }
+    if (bestBi >= 0) branchMap.set(step.id, bestBi);
+  }
+
+  // 3. Calcular next_step_id para cada paso no-pregunta
+  return steps.map((step, i) => {
+    if (step.type === "question") return step; // la pregunta navega mediante opciones
+    const nextStep = steps[i + 1];
+
+    if (step.shared) {
+      return { ...step, next_step_id: nextStep?.id ?? null };
+    }
+
+    const myBranchIdx = branchMap.get(step.id);
+
+    // Preludio (antes de cualquier rama): cadena secuencial
+    if (myBranchIdx === undefined) {
+      return { ...step, next_step_id: nextStep?.id ?? null };
+    }
+
+    if (!nextStep) return { ...step, next_step_id: null };
+    if (nextStep.shared) return { ...step, next_step_id: nextStep.id };
+
+    // Paso siguiente no-compartido: mismo branchIdx → continuar; distinto → fin de rama
+    const nextBranchIdx = branchMap.get(nextStep.id);
+    if (nextBranchIdx === myBranchIdx) {
+      return { ...step, next_step_id: nextStep.id };
+    }
+
+    // Pregunta anidada dentro del mismo rango de rama
+    if (nextStep.type === "question") {
+      const br = branches[myBranchIdx];
+      if (i + 1 < (br.insertBeforeIdx ?? steps.length)) {
+        return { ...step, next_step_id: nextStep.id };
+      }
+    }
+
+    // Fin de rama: saltar al primer paso compartido, o null
+    const firstShared = steps.slice(i + 1).find(s => s.shared);
+    return { ...step, next_step_id: firstShared?.id ?? null };
+  });
+}
+
+function SortableSequenceStep({
+  step, index, allSteps, onChange, onRemove, userId, branchInfo, isShared, isHighlighted,
+  availableBranches, onMoveToBranch,
+}: {
+  step: SequenceStep; index: number; allSteps: SequenceStep[];
+  onChange: (s: SequenceStep) => void; onRemove: () => void; userId: string;
+  branchInfo?: StepBranchInfo; isShared?: boolean; isHighlighted?: boolean;
+  availableBranches?: Array<{ label: string; branchIdx: number }>;
+  onMoveToBranch?: (target: number | "shared") => void;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: step.id });
+  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [badgeMenuOpen, setBadgeMenuOpen] = useState(false);
+  const badgeMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!badgeMenuOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (badgeMenuRef.current && !badgeMenuRef.current.contains(e.target as Node)) {
+        setBadgeMenuOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [badgeMenuOpen]);
+
+  const isMedia = MEDIA_TYPES.has(step.type);
+
+  const handleTypeChange = (newType: SequenceStep["type"]) => {
+    const nowMedia = MEDIA_TYPES.has(newType);
+    onChange({
+      ...step,
+      type: newType,
+      options: newType === "question" ? (step.options?.length ? step.options : [{ label: "", next_step_id: null }]) : undefined,
+      media: nowMedia ? (step.media ?? []) : undefined,
+    });
+  };
+
+  const handleFiles = async (files: FileList) => {
+    if (!userId) return;
+    setUploading(true);
+    try {
+      const added: SequenceStepMedia[] = [];
+      for (const file of Array.from(files)) {
+        // Detectar formato real leyendo magic bytes (ignora extensión renombrada)
+        const magic = await readMagicBytes(file);
+        const realMime = detectRealMime(magic);
+
+        // Si detectamos MOV (QuickTime), bloquearlo aunque la extensión diga .mp4
+        if (realMime === "video/quicktime") {
+          toast.error(
+            `"${file.name}" es un video MOV/QuickTime — WhatsApp no lo soporta aunque tenga extensión .mp4.\n\nConverti el video a MP4 verdadero (H.264) con QuickTime → Exportar como → 1080p, o usa un convertidor online.`,
+            { duration: 8000 },
+          );
+          continue;
+        }
+
+        // Usar el MIME real si lo detectamos; si no, confiar en file.type pero normalizarlo
+        const effectiveMime = realMime ?? file.type;
+        // Normalizar variantes de M4A → audio/mp4 (es lo que WhatsApp acepta)
+        const normalizedMime = (effectiveMime === "audio/x-m4a" || effectiveMime === "audio/m4a")
+          ? "audio/mp4"
+          : effectiveMime;
+
+        const validMimes = WA_VALID_MIME[step.type];
+        if (validMimes && normalizedMime && !validMimes.has(normalizedMime)) {
+          toast.error(
+            `Formato no compatible con WhatsApp: "${file.name}" (${normalizedMime})\nUsa: ${WA_FORMAT_HINT[step.type]}`,
+            { duration: 6000 },
+          );
+          continue;
+        }
+
+        const safeName = file.name.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9._\-]/g, "_");
+        const path = `wa-sequences/${userId}/${step.id}/${Date.now()}_${safeName}`;
+        const { error } = await supabase.storage.from("form-uploads").upload(path, file, { contentType: normalizedMime || file.type, upsert: true });
+        if (error) { toast.error(`Error al subir ${file.name}: ${error.message}`); continue; }
+        const { data: { publicUrl } } = supabase.storage.from("form-uploads").getPublicUrl(path);
+        added.push({ url: publicUrl, name: file.name, mime_type: normalizedMime || file.type });
+      }
+      // Reemplazar (no acumular): WhatsApp solo envía 1 archivo por mensaje
+      if (added.length) onChange({ ...step, media: added });
+    } finally { setUploading(false); }
+  };
+
+  const setOption = (i: number, patch: Partial<SequenceStepOption>) => {
+    const opts = [...(step.options ?? [])];
+    opts[i] = { ...opts[i], ...patch };
+    onChange({ ...step, options: opts });
+  };
+  const addOption = () => {
+    if ((step.options?.length ?? 0) >= 3) return;
+    onChange({ ...step, options: [...(step.options ?? []), { label: "", next_step_id: null }] });
+  };
+
+  const branchColor = branchInfo ? BRANCH_COLORS[branchInfo.branchIdx % BRANCH_COLORS.length] : null;
+  const hasLeftBar = branchColor || isShared;
+  const leftPad = hasLeftBar ? "pl-4 pr-3" : "px-3";
+
+  return (
+    <div
+      id={`seq-step-${step.id}`}
+      ref={setNodeRef}
+      style={style}
+      className={`rounded-xl border bg-card transition-all duration-500 relative overflow-hidden ${
+        isHighlighted ? "border-primary ring-2 ring-primary/25 shadow-md shadow-primary/10" : "border-border"
+      }`}
+    >
+      {/* Barra lateral: coloreada para ramas, gris punteada para compartido */}
+      {branchColor && (
+        <div className={`absolute left-0 top-0 bottom-0 w-1 ${branchColor.bar} rounded-l-xl`} />
+      )}
+      {isShared && !branchColor && (
+        <div className="absolute left-0 top-0 bottom-0 w-1 bg-border rounded-l-xl" style={{ backgroundImage: "repeating-linear-gradient(to bottom, transparent 0px, transparent 4px, hsl(var(--muted-foreground)/0.3) 4px, hsl(var(--muted-foreground)/0.3) 8px)" }} />
+      )}
+      {/* Header */}
+      <div className={`flex items-center gap-2 py-2 border-b border-border/60 ${leftPad}`}>
+        <button {...attributes} {...listeners} className="cursor-grab text-muted-foreground/65 hover:text-muted-foreground touch-none">
+          <GripVertical size={14} />
+        </button>
+        <span className="text-[11px] font-medium text-muted-foreground shrink-0">Paso {index + 1}</span>
+        {/* Badge clicable: abre menú para cambiar de rama */}
+        {(branchInfo || isShared) && onMoveToBranch ? (
+          <div ref={badgeMenuRef} className="relative shrink-0">
+            <button
+              onClick={() => setBadgeMenuOpen(v => !v)}
+              title="Cambiar de rama"
+              className={`text-[9px] px-1.5 py-0.5 rounded-full border font-semibold cursor-pointer hover:opacity-75 transition-opacity ${
+                branchInfo && branchColor
+                  ? branchColor.pill
+                  : "border-border bg-secondary/60 text-muted-foreground"
+              }`}
+            >
+              {branchInfo
+                ? `${branchInfo.label} · ${branchInfo.pos}/${branchInfo.total}`
+                : "↩ Compartido"}
+            </button>
+            {badgeMenuOpen && (
+              <div className="absolute left-0 top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px]">
+                <p className="text-[9px] text-muted-foreground/70 px-2.5 py-1 border-b border-border/40 font-medium">Mover a:</p>
+                {availableBranches?.filter(b => b.branchIdx !== branchInfo?.branchIdx).map(b => {
+                  const c = BRANCH_COLORS[b.branchIdx % BRANCH_COLORS.length];
+                  return (
+                    <button key={b.branchIdx}
+                      onClick={() => { onMoveToBranch(b.branchIdx); setBadgeMenuOpen(false); }}
+                      className="flex items-center gap-2 w-full px-2.5 py-1.5 text-[10px] hover:bg-secondary/60 transition-colors text-left">
+                      <span className={`w-2 h-2 shrink-0 rounded-full ${c.bar}`} />
+                      <span>Rama "{b.label}"</span>
+                    </button>
+                  );
+                })}
+                {!isShared && (
+                  <button
+                    onClick={() => { onMoveToBranch("shared"); setBadgeMenuOpen(false); }}
+                    className="flex items-center gap-2 w-full px-2.5 py-1.5 text-[10px] hover:bg-secondary/60 transition-colors text-muted-foreground text-left">
+                    <span className="w-2 h-2 shrink-0 rounded-full border border-border bg-muted/50" />
+                    <span>Paso compartido</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        ) : (
+          <>
+            {branchInfo && branchColor && (
+              <span className={`text-[9px] px-1.5 py-0.5 rounded-full border shrink-0 font-semibold tabular-nums ${branchColor.pill}`}>
+                {branchInfo.label} · {branchInfo.pos}/{branchInfo.total}
+              </span>
+            )}
+            {isShared && (
+              <span className="text-[9px] px-1.5 py-0.5 rounded-full border border-border bg-secondary/60 text-muted-foreground shrink-0 font-medium">
+                ↩ Compartido
+              </span>
+            )}
+          </>
+        )}
+        <select
+          value={step.type}
+          onChange={e => handleTypeChange(e.target.value as SequenceStep["type"])}
+          className="ml-1 h-6 px-1.5 text-[10px] rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-primary/30"
+        >
+          {(["message", "question", "link", "image", "video", "audio", "file"] as const).map(t => (
+            <option key={t} value={t}>{STEP_TYPE_LABELS[t]}</option>
+          ))}
+        </select>
+        <button onClick={onRemove} className="ml-auto p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+          <Trash2 size={12} />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div className={`p-3 space-y-2 ${hasLeftBar ? "pl-4" : ""}`}>
+        {/* Texto del mensaje */}
+        {step.type === "message" && (
+          <div className="space-y-1.5">
+            <textarea
+              value={step.text ?? ""}
+              onChange={e => onChange({ ...step, text: e.target.value })}
+              placeholder="Texto del mensaje…"
+              rows={2}
+              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+            />
+            <div
+              role="switch"
+              aria-checked={!!step.ai_enhance}
+              onClick={() => onChange({ ...step, ai_enhance: !step.ai_enhance })}
+              className="flex items-center gap-2 cursor-pointer select-none w-fit group"
+            >
+              <div className={`relative w-8 h-4 rounded-full border transition-colors shrink-0 ${step.ai_enhance ? "bg-primary border-primary" : "bg-muted border-border"}`}>
+                <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform duration-150 ${step.ai_enhance ? "translate-x-4" : "translate-x-0"}`} />
+              </div>
+              <span className={`flex items-center gap-1 text-[10px] transition-colors ${step.ai_enhance ? "text-primary font-medium" : "text-muted-foreground/60"}`}>
+                <Sparkles size={9} />
+                IA personaliza al enviar
+              </span>
+            </div>
+            {step.ai_enhance && (
+              <p className="text-[9px] text-muted-foreground/70 leading-relaxed ml-10">
+                La IA adapta el texto según el contexto de la conversación antes de enviarlo.
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Texto de la pregunta (sin toggle IA — el texto es estructural para el routing) */}
+        {step.type === "question" && (
+          <textarea
+            value={step.text ?? ""}
+            onChange={e => onChange({ ...step, text: e.target.value })}
+            placeholder="Texto de la pregunta…"
+            rows={2}
+            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+          />
+        )}
+
+        {/* Opciones para pregunta */}
+        {step.type === "question" && (
+          <div className="space-y-1.5">
+            {(step.options ?? []).map((opt, i) => (
+              <div key={i} className="rounded-lg border border-border/50 bg-secondary/20 p-2 space-y-1.5">
+                {/* Fila 1: número + input + contador + eliminar */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[10px] text-muted-foreground/70 w-4 shrink-0 font-medium">{i + 1}.</span>
+                  <input
+                    value={opt.label}
+                    onChange={e => setOption(i, { label: e.target.value.slice(0, 20) })}
+                    maxLength={20}
+                    placeholder={`Texto del botón ${i + 1}`}
+                    className="flex-1 h-7 px-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-primary/20 min-w-0"
+                  />
+                  <span className={`text-[10px] tabular-nums shrink-0 ${opt.label.length >= 18 ? "text-amber-500" : "text-muted-foreground/65"}`}>
+                    {opt.label.length}/20
+                  </span>
+                  {(step.options ?? []).length > 1 && (
+                    <button onClick={() => onChange({ ...step, options: (step.options ?? []).filter((_, j) => j !== i) })}
+                      className="p-0.5 text-muted-foreground/65 hover:text-destructive shrink-0">
+                      <X size={11} />
+                    </button>
+                  )}
+                </div>
+                {/* Fila 2: saltar a paso */}
+                <div className="flex items-center gap-1.5 pl-5">
+                  <select
+                    value={opt.next_step_id ?? ""}
+                    onChange={e => setOption(i, { next_step_id: e.target.value || null })}
+                    className={`flex-1 h-6 px-1.5 text-[10px] rounded-md border focus:outline-none bg-background ${
+                      !opt.next_step_id ? "border-amber-400/60 text-amber-600 dark:text-amber-400" : "border-input"
+                    }`}
+                  >
+                    <option value="" disabled>⚠ Selecciona el paso de destino</option>
+                    {allSteps.filter(s => s.id !== step.id).map(s => {
+                      const idx = allSteps.indexOf(s);
+                      const preview = (s.type === "question" || s.type === "message")
+                        ? s.text?.trim().slice(0, 28)
+                        : s.type === "link" ? s.link_url?.slice(0, 28)
+                        : s.media?.[0]?.name?.slice(0, 22) ?? null;
+                      return (
+                        <option key={s.id} value={s.id}>
+                          → Paso {idx + 1} · {STEP_TYPE_LABELS[s.type]}{preview ? `: ${preview}` : ""}
+                        </option>
+                      );
+                    })}
+                  </select>
+                </div>
+              </div>
+            ))}
+            {(step.options?.length ?? 0) < 3 && (
+              <button onClick={addOption} className="flex items-center gap-1 text-[10px] text-primary hover:underline">
+                <Plus size={10} /> Agregar botón
+              </button>
+            )}
+            <p className="text-[10px] text-muted-foreground/65">Botones interactivos · máx. 3 · 20 caracteres c/u</p>
+          </div>
+        )}
+
+        {/* Link con botón CTA */}
+        {step.type === LINK_TYPE && (
+          <div className="space-y-1.5">
+            <input
+              value={step.link_url ?? ""}
+              onChange={e => onChange({ ...step, link_url: e.target.value })}
+              placeholder="https://ejemplo.com"
+              type="url"
+              className="w-full h-7 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            <div className="flex items-center gap-2">
+              <input
+                value={step.link_label ?? ""}
+                onChange={e => onChange({ ...step, link_label: e.target.value.slice(0, 20) })}
+                maxLength={20}
+                placeholder="Texto del botón"
+                className="flex-1 h-7 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-0"
+              />
+              <span className={`text-[10px] tabular-nums shrink-0 ${(step.link_label?.length ?? 0) >= 18 ? "text-amber-500" : "text-muted-foreground/65"}`}>
+                {step.link_label?.length ?? 0}/20
+              </span>
+            </div>
+            <p className="text-[10px] text-muted-foreground/65">Botón CTA WhatsApp · el receptor lo toca y abre el link</p>
+          </div>
+        )}
+
+        {/* Media: imagen / video / audio / archivo */}
+        {isMedia && (
+          <>
+            {/* Lista de archivos subidos */}
+            {(step.media ?? []).length > 0 && (
+              <div className="space-y-1">
+                {(step.media ?? []).map((m, i) => (
+                  <div key={i} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-border/60 bg-secondary/30">
+                    <Paperclip size={11} className="text-muted-foreground/70 shrink-0" />
+                    <span className="flex-1 text-xs truncate text-muted-foreground">{m.name}</span>
+                    <button onClick={() => onChange({ ...step, media: (step.media ?? []).filter((_, j) => j !== i) })}
+                      className="p-0.5 text-muted-foreground/65 hover:text-destructive shrink-0">
+                      <X size={11} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {/* Botón subir */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={STEP_ACCEPT[step.type] ?? "*"}
+              className="hidden"
+              onChange={e => { if (e.target.files?.length) handleFiles(e.target.files); e.target.value = ""; }}
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="flex items-center justify-center gap-1.5 w-full h-8 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors disabled:opacity-50"
+            >
+              {uploading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
+              {uploading ? "Subiendo…" : `+ Agregar ${STEP_TYPE_LABELS[step.type].toLowerCase()}`}
+            </button>
+            {WA_FORMAT_HINT[step.type] && (
+              <p className="text-[10px] text-center text-muted-foreground/70">
+                WhatsApp: {WA_FORMAT_HINT[step.type]}
+              </p>
+            )}
+            {/* Caption opcional (no aplica para audio) */}
+            {step.type !== "audio" && (
+              <div className="space-y-1.5">
+                <input
+                  value={step.text ?? ""}
+                  onChange={e => onChange({ ...step, text: e.target.value })}
+                  placeholder="Caption / texto acompañante (opcional)"
+                  className="w-full h-7 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none"
+                />
+                {step.text?.trim() && (
+                  <div
+                    role="switch"
+                    aria-checked={!!step.ai_enhance}
+                    onClick={() => onChange({ ...step, ai_enhance: !step.ai_enhance })}
+                    className="flex items-center gap-2 cursor-pointer select-none w-fit"
+                  >
+                    <div className={`relative w-8 h-4 rounded-full border transition-colors shrink-0 ${step.ai_enhance ? "bg-primary border-primary" : "bg-muted border-border"}`}>
+                      <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform duration-150 ${step.ai_enhance ? "translate-x-4" : "translate-x-0"}`} />
+                    </div>
+                    <span className={`flex items-center gap-1 text-[10px] transition-colors ${step.ai_enhance ? "text-primary font-medium" : "text-muted-foreground/60"}`}>
+                      <Sparkles size={9} />
+                      IA personaliza al enviar
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* Indicador de siguiente paso explícito (solo pasos no-pregunta) */}
+        {step.type !== "question" && step.next_step_id !== undefined && (
+          <div className="flex items-center gap-1.5 pt-1 border-t border-border/20 mt-1">
+            {step.next_step_id === null ? (
+              <span className="text-[9px] text-muted-foreground/65 flex items-center gap-1">
+                <span className="text-[8px]">⊣</span> Fin de rama
+              </span>
+            ) : (() => {
+              const targetIdx = allSteps.findIndex(s => s.id === step.next_step_id);
+              const target = allSteps[targetIdx];
+              if (!target) return null;
+              const preview = (target.type === "message" || target.type === "question")
+                ? target.text?.trim().slice(0, 22)
+                : target.type === "link" ? target.link_url?.slice(0, 18)
+                : target.media?.[0]?.name?.slice(0, 18) ?? null;
+              return (
+                <span className="text-[9px] text-muted-foreground/65 flex items-center gap-1 truncate">
+                  <ChevronRight size={9} className="shrink-0" />
+                  <span className="shrink-0">Paso {targetIdx + 1}</span>
+                  {preview && <span className="truncate opacity-70">· {preview}</span>}
+                </span>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Settings Panel (slide-over) ──────────────────────────────────────────────
 const LABEL_COLORS = [
   "#6366f1","#8b5cf6","#ec4899","#ef4444","#f97316",
@@ -1140,6 +1819,50 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const { data: labels = [] }  = useWaLabels();
   const upsertLabel            = useUpsertWaLabel();
   const deleteLabel            = useDeleteWaLabel();
+  const { data: sequences = [] } = useWaSequences();
+  const upsertSequence           = useUpsertWaSequence();
+  const deleteSequence           = useDeleteWaSequence();
+  const [editingSeq, setEditingSeq] = useState<DraftSequence | null>(null);
+  const { data: flows = [] }       = useWaFlows();
+  const upsertFlow                 = useUpsertWaFlow();
+  const deleteFlow                 = useDeleteWaFlow();
+  const toggleFlow                 = useToggleWaFlow();
+  const [editingFlow, setEditingFlow] = useState<DraftFlow | null>(null);
+  const insertLog                  = useInsertLog();
+  const [pendingDeleteSeqId, setPendingDeleteSeqId]   = useState<string | null>(null);
+  const [deletingSeq, setDeletingSeq]                 = useState(false);
+  const [pendingDeleteFlowId, setPendingDeleteFlowId] = useState<string | null>(null);
+  const [deletingFlow, setDeletingFlow]               = useState(false);
+
+  const handleDeleteSeq = async () => {
+    if (!pendingDeleteSeqId) return;
+    const seq = sequences.find(s => s.id === pendingDeleteSeqId);
+    setDeletingSeq(true);
+    try {
+      await deleteSequence.mutateAsync(pendingDeleteSeqId);
+      insertLog.mutateAsync({ action: "delete", entity: "wa_sequence", entity_id: pendingDeleteSeqId, description: `Secuencia eliminada: ${seq?.name}` }).catch(() => {});
+      setPendingDeleteSeqId(null);
+    } catch { toast.error("Error al eliminar la secuencia"); }
+    finally { setDeletingSeq(false); }
+  };
+
+  const handleDeleteFlow = async () => {
+    if (!pendingDeleteFlowId) return;
+    const flow = flows.find(f => f.id === pendingDeleteFlowId);
+    setDeletingFlow(true);
+    try {
+      await deleteFlow.mutateAsync(pendingDeleteFlowId);
+      insertLog.mutateAsync({ action: "delete", entity: "wa_flow", entity_id: pendingDeleteFlowId, description: `Flujo eliminado: ${flow?.name}` }).catch(() => {});
+      setPendingDeleteFlowId(null);
+    } catch { toast.error("Error al eliminar el flujo"); }
+    finally { setDeletingFlow(false); }
+  };
+  const [triggerValidation, setTriggerValidation] = useState<{ severity: "valid" | "warn" | "invalid"; category: string | null; reason: string } | null>(null);
+  const [insertAtIdx, setInsertAtIdx] = useState<number | null>(null);
+  const seqSensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const upsert = useUpsertAIAgentConfig();
   const { data: allProducts = [] } = useProducts();
   const { data: allServices = [] } = useServices();
@@ -1189,6 +1912,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [responseLengthSP, setResponseLengthSP]       = useState("normal");
   const [emojiLevelSP, setEmojiLevelSP]               = useState("poco");
   const [agentFaqSP, setAgentFaqSP]                   = useState<{ q: string; a: string }[]>([]);
+  const [useBusinessFaqSP, setUseBusinessFaqSP]       = useState(true);
   const [showCatalogOnAsk, setShowCatalogOnAsk]       = useState(true);
   const [doUpsell, setDoUpsell]                       = useState(false);
   const [confirmSummary, setConfirmSummary]           = useState(true);
@@ -1204,9 +1928,229 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [schedule, setSchedule]           = useState<WeeklySchedule>(DEFAULT_SCHEDULE);
   const [timezone, setTimezone]           = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [offHoursMsg, setOffHoursMsg]     = useState("");
-  const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario"|"perfil"|"etiquetas">("conexion");
+  const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario"|"perfil"|"etiquetas"|"flujos">("conexion");
   const [mobileShowSection, setMobileShowSection] = useState(false);
   const initialized                       = useRef(false);
+
+  const branchTargets = useMemo<Map<string, string[]>>(() => {
+    if (!editingSeq) return new Map();
+    const map = new Map<string, string[]>();
+    for (const s of editingSeq.steps) {
+      if (s.type !== "question") continue;
+      for (const opt of s.options ?? []) {
+        if (opt.next_step_id) {
+          const arr = map.get(opt.next_step_id) ?? [];
+          arr.push(opt.label || "?");
+          map.set(opt.next_step_id, arr);
+        }
+      }
+    }
+    return map;
+  }, [editingSeq]);
+
+  const activeBranches = useMemo(() => {
+    type Branch = { label: string; targetIdx: number; insertBeforeIdx: number | null; questionId: string; isVirtual?: boolean };
+    if (!editingSeq) return [] as Branch[];
+    const result: Branch[] = [];
+
+    for (const s of editingSeq.steps) {
+      if (s.type !== "question") continue;
+      const opts = s.options ?? [];
+      const labeledOpts = opts.filter(o => o.label.trim());
+      if (labeledOpts.length === 0) continue;
+
+      const questionIdx = editingSeq.steps.indexOf(s);
+
+      // Ramas reales: botones con next_step_id configurado
+      const realTargets = labeledOpts
+        .filter(o => o.next_step_id)
+        .map(o => ({ label: o.label, idx: editingSeq.steps.findIndex(st => st.id === o.next_step_id) }))
+        .filter(t => t.idx >= 0 && t.idx < editingSeq.steps.length)
+        .sort((a, b) => a.idx - b.idx);
+      const dedupedReal = realTargets.filter((t, i, arr) => arr.findIndex(x => x.idx === t.idx) === i);
+      for (let i = 0; i < dedupedReal.length; i++) {
+        result.push({ label: dedupedReal[i].label, targetIdx: dedupedReal[i].idx, insertBeforeIdx: dedupedReal[i + 1]?.idx ?? null, questionId: s.id });
+      }
+
+      // Ramas pendientes: botones con etiqueta pero sin next_step_id
+      // Al agregar un paso se auto-enlaza el botón (ya no existe "Continuar al siguiente paso")
+      for (const opt of labeledOpts.filter(o => !o.next_step_id)) {
+        result.push({ label: opt.label, targetIdx: questionIdx + 1, insertBeforeIdx: null, questionId: s.id, isVirtual: true });
+      }
+    }
+    return result;
+  }, [editingSeq]);
+
+  const stepBranchMap = useMemo<Map<string, StepBranchInfo>>(() => {
+    if (!editingSeq || activeBranches.length === 0) return new Map();
+    const map = new Map<string, StepBranchInfo>();
+    // Primera pasada: asignar rama a cada paso no compartido
+    for (let i = 0; i < editingSeq.steps.length; i++) {
+      const step = editingSeq.steps[i];
+      if (step.shared) continue; // pasos compartidos no pertenecen a ninguna rama
+      // Buscar la rama más específica (mayor targetIdx que cubre este paso)
+      let bestBi = -1, bestStart = -1;
+      for (let bi = 0; bi < activeBranches.length; bi++) {
+        if (activeBranches[bi].isVirtual) continue;
+        const start = activeBranches[bi].targetIdx;
+        const end = activeBranches[bi].insertBeforeIdx ?? editingSeq.steps.length;
+        if (i >= start && i < end && start > bestStart) {
+          bestBi = bi;
+          bestStart = start;
+        }
+      }
+      if (bestBi >= 0) {
+        map.set(step.id, { label: activeBranches[bestBi].label, branchIdx: bestBi, pos: 0, total: 0 });
+      }
+    }
+    // Segunda pasada: calcular posición y total reales (solo pasos no-compartidos de esa rama)
+    const branchSteps = new Map<number, string[]>();
+    for (const [id, info] of map) {
+      const list = branchSteps.get(info.branchIdx) ?? [];
+      list.push(id);
+      branchSteps.set(info.branchIdx, list);
+    }
+    for (const [bi, ids] of branchSteps) {
+      ids.forEach((id, idx) => {
+        const info = map.get(id)!;
+        map.set(id, { ...info, pos: idx + 1, total: ids.length });
+      });
+    }
+    return map;
+  }, [editingSeq, activeBranches]);
+
+  const [addBranchTarget, setAddBranchTarget] = useState<number | "shared">("shared");
+  const [highlightStepId, setHighlightStepId] = useState<string | null>(null);
+  const [treeOpen, setTreeOpen] = useState(false);
+
+  const flashStep = (id: string) => {
+    setHighlightStepId(id);
+    setTimeout(() => {
+      document.getElementById(`seq-step-${id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }, 30);
+    setTimeout(() => setHighlightStepId(null), 1800);
+  };
+
+  const handleMoveToBranch = (stepId: string, target: number | "shared") => {
+    const branch = typeof target === "number" ? activeBranches[target] : null;
+    setEditingSeq(seq => {
+      if (!seq) return seq;
+      const stepIdx = seq.steps.findIndex(s => s.id === stepId);
+      if (stepIdx === -1) return seq;
+      const step = { ...seq.steps[stepIdx] };
+      const steps = seq.steps.filter((_, i) => i !== stepIdx);
+
+      if (target === "shared") {
+        const movedSteps = [...steps, { ...step, shared: true }];
+        return { ...seq, steps: computeNextStepIds(movedSteps) };
+      }
+      if (!branch) return seq;
+
+      let insertIdx: number;
+      if (branch.isVirtual && branch.questionId) {
+        const realSiblings = activeBranches.filter(b => !b.isVirtual && b.questionId === branch.questionId);
+        if (realSiblings.length > 0) {
+          const maxEnd = realSiblings.reduce((acc, b) => {
+            const end = b.insertBeforeIdx ?? steps.length + 1;
+            return end > acc ? end : acc;
+          }, 0);
+          insertIdx = maxEnd - (stepIdx < maxEnd ? 1 : 0);
+        } else {
+          const qi = steps.findIndex(s => s.id === branch.questionId);
+          insertIdx = qi >= 0 ? qi + 1 : steps.length;
+        }
+      } else if (branch.insertBeforeIdx === null) {
+        const firstShared = steps.findIndex(s => s.shared);
+        insertIdx = firstShared === -1 ? steps.length : firstShared;
+      } else {
+        insertIdx = branch.insertBeforeIdx - (stepIdx < branch.insertBeforeIdx ? 1 : 0);
+      }
+      const newSteps = [...steps];
+      newSteps.splice(insertIdx, 0, { ...step, shared: false });
+
+      if (branch.isVirtual && branch.questionId) {
+        const linked = newSteps.map(st => st.id !== branch.questionId ? st : {
+          ...st,
+          options: st.options?.map(o => o.label === branch.label && !o.next_step_id ? { ...o, next_step_id: step.id } : o),
+        });
+        return { ...seq, steps: computeNextStepIds(linked) };
+      }
+      return { ...seq, steps: computeNextStepIds(newSteps) };
+    });
+    setTimeout(() => flashStep(stepId), 50);
+  };
+
+  const treeData = useMemo(() => {
+    if (!editingSeq || activeBranches.length === 0) return null;
+
+    // Agrupar ramas por questionId (reales y virtuales separadas)
+    type BE = { label: string; bi: number; targetIdx: number; insertBeforeIdx: number | null; questionId: string; isVirtual?: boolean };
+    const qMap = new Map<string, { real: BE[]; virt: BE[] }>();
+    activeBranches.forEach((b, bi) => {
+      const entry = qMap.get(b.questionId) ?? { real: [], virt: [] };
+      (b.isVirtual ? entry.virt : entry.real).push({ ...b, bi });
+      qMap.set(b.questionId, entry);
+    });
+
+    // Ordenar preguntas por posición en la secuencia (solo las que tienen ramas reales)
+    const orderedQ = [...qMap.entries()]
+      .filter(([, v]) => v.real.length > 0)
+      .map(([qId, v]) => ({
+        qId,
+        qIdx: editingSeq.steps.findIndex(s => s.id === qId),
+        real: v.real.sort((a, b) => a.targetIdx - b.targetIdx),
+        virt: v.virt,
+      }))
+      .filter(q => q.qIdx >= 0)
+      .sort((a, b) => a.qIdx - b.qIdx);
+
+    if (orderedQ.length === 0) return null;
+
+    type StepNode = { step: SequenceStep; idx: number };
+    type BranchDef = { label: string; bi: number; steps: StepNode[] };
+    type Seg = { kind: "trunk"; steps: StepNode[] } | { kind: "fork"; qIdx: number; branches: BranchDef[] };
+
+    const segs: Seg[] = [];
+    let cur = 0;
+
+    for (const { qIdx, real, virt } of orderedQ) {
+      // Tronco desde cursor hasta la pregunta (inclusive)
+      const trunk: StepNode[] = editingSeq.steps
+        .slice(cur, qIdx + 1)
+        .map((s, i) => ({ step: s, idx: cur + i }));
+      if (trunk.length > 0) segs.push({ kind: "trunk", steps: trunk });
+
+      // Fin de las ramas de esta pregunta
+      const lastReal = real[real.length - 1];
+      const firstSharedAfter = editingSeq.steps.findIndex((s, i) => s.shared && i > lastReal.targetIdx);
+      const branchEnd = lastReal.insertBeforeIdx ?? (firstSharedAfter >= 0 ? firstSharedAfter : editingSeq.steps.length);
+
+      const branches: BranchDef[] = [
+        ...real.map(b => ({
+          label: b.label,
+          bi: b.bi,
+          steps: editingSeq.steps
+            .slice(b.targetIdx, b.insertBeforeIdx ?? branchEnd)
+            .map((s, i) => ({ step: s, idx: b.targetIdx + i }))
+            .filter(n => !n.step.shared),
+        })),
+        ...virt.map(b => ({ label: b.label, bi: b.bi, steps: [] as StepNode[] })),
+      ];
+
+      segs.push({ kind: "fork", qIdx, branches });
+      cur = branchEnd;
+    }
+
+    // Cola (pasos después de todas las ramas)
+    if (cur < editingSeq.steps.length) {
+      const tail: StepNode[] = editingSeq.steps
+        .slice(cur)
+        .map((s, i) => ({ step: s, idx: cur + i }));
+      if (tail.length > 0) segs.push({ kind: "trunk", steps: tail });
+    }
+
+    return segs.length > 0 ? segs : null;
+  }, [editingSeq, activeBranches]);
 
   // Perfil de WhatsApp
   const [bio, setBio]                     = useState("");
@@ -1249,6 +2193,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setResponseLengthSP(config.response_length ?? "normal");
     setEmojiLevelSP(config.emoji_level ?? "poco");
     setAgentFaqSP(config.agent_faq ?? []);
+    setUseBusinessFaqSP(config.use_business_faq ?? true);
     setShowCatalogOnAsk(config.show_catalog_on_ask ?? true);
     setDoUpsell(config.do_upsell ?? false);
     setConfirmSummary(config.confirm_summary ?? true);
@@ -1263,6 +2208,56 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     if (!notifyEmail && fallback) setNotifyEmail(fallback);
     if (!paymentEmailSP && fallback) { setPaymentEmailSP(fallback); }
   }, [businessProfile?.contact_email, user?.email]);
+
+  // Clasifica el trigger localmente — instantáneo, sin API.
+  // Solo bloquea lo que confundiría al usuario (tiempo, llamadas):
+  // triggers inválidos que pasen no hacen daño — simplemente nunca se activan
+  // porque el sistema evalúa triggers SOLO cuando llega un mensaje de WhatsApp.
+  const classifyTrigger = (raw: string): { severity: "valid" | "warn" | "invalid"; category: string | null; reason: string } => {
+    const t = raw.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+
+    // ── BLOQUEOS DUROS: casos que confunden al usuario creyendo que es un scheduler ──
+    const hardBlocks: Array<[RegExp, (m: string) => string]> = [
+      [/\b(a\s*las\s*\d+|\d+\s*:\s*\d+\s*(am|pm)?|cada\s+\d+\s*(hora|dia|semana|mes)|diario\s*a\s*las|programar\s*para)\b/i,
+        m => `"${m}" es una hora programada — este trigger no es un scheduler. El flujo solo se activa cuando el usuario envía un mensaje.`],
+      [/\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/,
+        m => `"${m}" es un día de la semana — los flujos no tienen scheduler. Solo se activan cuando llega un mensaje.`],
+      [/\b(cumpleanos|aniversario)\b/,
+        m => `"${m}" requiere conocer la fecha del contacto — usa los Recordatorios para envíos programados.`],
+      [/\b(llamada[s]?|llame[ns]?|llamar[ae]?|videollamada)\b/,
+        m => `"${m}" es una llamada de voz — los flujos solo detectan mensajes de texto en WhatsApp.`],
+    ];
+
+    for (const [regex, label] of hardBlocks) {
+      const m = t.match(regex);
+      if (m) return { severity: "invalid", category: null, reason: label(m[0].trim()) };
+    }
+
+    // ── VÁLIDOS RECONOCIDOS ──────────────────────────────────────────────────
+    if (/\b(primer.?mensaje|primera.?vez|primer.?contacto|nuevo.?contacto|contacto.?nuevo)\b/.test(t))
+      return { severity: "valid", category: "Primer contacto", reason: "Se activa cuando alguien escribe por primera vez" };
+    if (/\b(precio[s]?|cotiz|comprar|contratar|adquirir|tarifa|cuanto.?(cuesta|vale)|costo\b|presupuesto)\b/.test(t))
+      return { severity: "valid", category: "Intención de compra", reason: "Detecta cuando el usuario quiere comprar o cotizar" };
+    if (/\b(descuento|rebaja|regatear?|negociar?|mas.?barato|precio.?especial|promocion)\b/.test(t))
+      return { severity: "valid", category: "Negociación", reason: "Detecta cuando el usuario intenta negociar precio" };
+    if (/\b(no.?(me|le)?.?interesa|muy.?caro|demasiado.?caro|no.?gracias|no.?quiero|objecion)\b/.test(t))
+      return { severity: "valid", category: "Objeción / Rechazo", reason: "Detecta cuando el usuario rechaza u objeta" };
+    if (/\b(pregunte?|consulte?|informacion\b|horario|ubicacion|como.?funciona|que.?(es|son|ofrece)|donde.?(esta|queda))\b/.test(t))
+      return { severity: "valid", category: "Pregunta frecuente", reason: "Detecta preguntas comunes sobre el negocio" };
+    if (/\b(emoji\b|palabra.?clave|keyword|cuando.?(diga|escriba|mande)\b|diga\b|escriba\b|mande\b)\b/.test(t))
+      return { severity: "valid", category: "Palabra clave / Emoji", reason: "Detecta una palabra o emoji específico" };
+    if (/\b(responde?.?(la\s*)?propuesta|acepta?.?(la\s*)?propuesta|responde?.?(la\s*)?cotizacion)\b/.test(t))
+      return { severity: "valid", category: "Respuesta a propuesta", reason: "Detecta cuando el usuario responde a una oferta" };
+
+    // ── DESCONOCIDO: se permite guardar con advertencia ──────────────────────
+    return { severity: "warn", category: null, reason: "No reconocido como categoría estándar — si el usuario no puede expresarlo en un mensaje, el flujo no se activará" };
+  };
+
+  useEffect(() => {
+    const text = editingFlow?.trigger_text?.trim() ?? "";
+    if (text.length < 10) { setTriggerValidation(null); return; }
+    setTriggerValidation(classifyTrigger(text));
+  }, [editingFlow?.trigger_text]);
 
   // Verify password and execute action
   const handleVerifyPassword = async () => {
@@ -1331,6 +2326,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         response_length: responseLengthSP as "short" | "normal" | "detailed",
         emoji_level: emojiLevelSP as "none" | "poco" | "medio" | "mucho",
         agent_faq: agentFaqSP.length > 0 ? agentFaqSP : null,
+        use_business_faq: useBusinessFaqSP,
         show_catalog_on_ask: showCatalogOnAsk,
         do_upsell: doUpsell,
         confirm_summary: confirmSummary,
@@ -1487,16 +2483,31 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const maskValue = (v: string) => v ? "•".repeat(Math.min(v.length || 16, 24)) : "No configurado";
 
   const SECTIONS = [
-    { id: "conexion" as const,    label: "Conexión",    icon: Wifi,     desc: "Meta Cloud API" },
-    { id: "agente" as const,      label: "Agente IA",   icon: Sparkles, desc: "Nombre, prompt, idioma" },
-    { id: "capacidades" as const, label: "Capacidades", icon: Zap,      desc: "Herramientas del agente" },
-    { id: "horario" as const,     label: "Horario",     icon: Clock,    desc: "Disponibilidad y timezone" },
-    { id: "perfil" as const,      label: "Perfil WA",   icon: User,     desc: "Foto y bio de WhatsApp" },
-    { id: "etiquetas" as const,   label: "Etiquetas",   icon: Tag,      desc: "Gestionar etiquetas" },
+    { id: "conexion" as const,    label: "Conexión",    icon: Wifi,      desc: "Meta Cloud API" },
+    { id: "capacidades" as const, label: "Capacidades", icon: Zap,       desc: "Herramientas del agente" },
+    { id: "agente" as const,      label: "Agente IA",   icon: Sparkles,  desc: "Nombre, prompt, idioma" },
+    { id: "flujos" as const,      label: "Flujos",      icon: GitBranch, desc: "Secuencias y Flujos" },
+    { id: "horario" as const,     label: "Horario",     icon: Clock,     desc: "Disponibilidad y timezone" },
+    { id: "perfil" as const,      label: "Perfil WA",   icon: User,      desc: "Foto y bio de WhatsApp" },
+    { id: "etiquetas" as const,   label: "Etiquetas",   icon: Tag,       desc: "Gestionar etiquetas" },
   ];
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
+      <DeleteConfirmDialog
+        open={!!pendingDeleteSeqId}
+        onOpenChange={open => !open && setPendingDeleteSeqId(null)}
+        onConfirm={handleDeleteSeq}
+        isPending={deletingSeq}
+        description="Se eliminará la secuencia de mensajes permanentemente y dejará de estar disponible en los flujos."
+      />
+      <DeleteConfirmDialog
+        open={!!pendingDeleteFlowId}
+        onOpenChange={open => !open && setPendingDeleteFlowId(null)}
+        onConfirm={handleDeleteFlow}
+        isPending={deletingFlow}
+        description="Se eliminará el flujo de automatización permanentemente."
+      />
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative z-10 w-full sm:max-w-xl bg-card h-full flex shadow-2xl border-l overflow-hidden">
 
@@ -1631,7 +2642,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
           </div>
 
           {/* Content */}
-          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          <div className="flex-1 overflow-y-auto min-h-0">
+          <div className="p-5 space-y-4">
           {section === "conexion" && (
             <>
               {/* Webhook info */}
@@ -1845,8 +2857,30 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
               {/* FAQ */}
               <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">Preguntas frecuentes <span className="text-[10px] text-muted-foreground">(opcional)</span></label>
-                <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">Preguntas frecuentes</label>
+
+                {/* Toggle: usar FAQs del negocio */}
+                <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2.5">
+                  <div>
+                    <p className="text-xs font-medium">Usar FAQs de Mi Negocio</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {businessProfile?.agent_faq?.length
+                        ? `${businessProfile.agent_faq.length} pregunta${businessProfile.agent_faq.length !== 1 ? "s" : ""} registrada${businessProfile.agent_faq.length !== 1 ? "s" : ""} en el perfil del negocio`
+                        : "Configúralas en Mi Negocio → Negocio"}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUseBusinessFaqSP(v => !v)}
+                    className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${useBusinessFaqSP ? "bg-primary" : "bg-muted-foreground/30"}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${useBusinessFaqSP ? "translate-x-4" : "translate-x-0"}`} />
+                  </button>
+                </div>
+
+                {/* FAQs específicas del agente */}
+                <div className="space-y-2 pt-1">
+                  <p className="text-[10px] text-muted-foreground">Preguntas adicionales — solo para este agente de WhatsApp</p>
                   {agentFaqSP.map((pair, i) => (
                     <div key={i} className="rounded-lg border p-2.5 space-y-1.5">
                       <div className="flex items-center justify-between">
@@ -1873,6 +2907,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 <label className="text-xs font-medium text-muted-foreground">Instrucciones adicionales <span className="text-[10px] text-muted-foreground">(opcional)</span></label>
                 <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} className="text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
               </div>
+
 
             </div>
           )}
@@ -2273,7 +3308,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
               )}
             </div>
           )}
-        </div>
 
           {section === "etiquetas" && (
             <div className="space-y-4">
@@ -2378,15 +3412,680 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
             </div>
           )}
 
-        {/* Footer — solo visible en tabs que tienen guardado global */}
-        {section !== "perfil" && section !== "etiquetas" && (
-          <div className="px-5 py-4 border-t shrink-0">
-            <Button onClick={handleSave} disabled={saving} className="w-full h-9 gap-1.5">
-              {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-              Guardar cambios
-            </Button>
-          </div>
-        )}
+          {/* ── Flujos (Secuencias + Flujos) ── */}
+          {section === "flujos" && (
+            <div className="space-y-4">
+
+              {/* ── Sub-sección: Secuencias de Mensajes ── */}
+              {editingFlow === null && <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-secondary/20">
+                  <p className="text-xs font-semibold">Secuencias de Mensajes</p>
+                  <span className="text-[10px] text-muted-foreground/60">Scripts reutilizables</span>
+                </div>
+
+                <div className="p-4 space-y-3">
+                {editingSeq === null ? (
+                  <>
+                    {sequences.length === 0 && (
+                      <p className="text-xs text-muted-foreground/60 italic text-center py-3">Sin secuencias. Crea una abajo.</p>
+                    )}
+                    {sequences.map(seq => (
+                      <div key={seq.id} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-border/60 bg-background">
+                        <MessageSquare size={13} className="text-muted-foreground mt-0.5 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">{seq.name}</p>
+                          <p className="text-[10px] text-muted-foreground/60">
+                            {seq.steps.length} paso{seq.steps.length !== 1 ? "s" : ""}
+                            {seq.product_id && (() => {
+                              const name = allServices.find(s => s.id === seq.product_id)?.name
+                                ?? allProducts.find(p => p.id === seq.product_id)?.name;
+                              return name ? <> · {name}</> : null;
+                            })()}
+                          </p>
+                        </div>
+                        <button onClick={() => { setInsertAtIdx(null); setAddBranchTarget("shared"); setEditingSeq({ id: seq.id, name: seq.name, product_id: seq.product_id, steps: seq.steps }); }}
+                          className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+                          <Pencil size={12} />
+                        </button>
+                        <button onClick={() => setPendingDeleteSeqId(seq.id)}
+                          className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      onClick={() => { setInsertAtIdx(null); setAddBranchTarget("shared"); setEditingSeq({ name: "", product_id: null, steps: [] }); }}
+                      className="flex items-center gap-1.5 w-full px-3 h-9 rounded-xl border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors">
+                      <Plus size={13} /> Nueva secuencia
+                    </button>
+                  </>
+                ) : (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => setEditingSeq(null)} className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+                        <ArrowLeft size={14} />
+                      </button>
+                      <span className="text-xs font-medium">{editingSeq.id ? "Editar secuencia" : "Nueva secuencia"}</span>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Nombre</label>
+                      <input
+                        value={editingSeq.name}
+                        onChange={e => setEditingSeq(s => s ? { ...s, name: e.target.value } : s)}
+                        placeholder="ej: Presentación Paquete Gold"
+                        className="w-full h-8 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-xs font-medium text-muted-foreground">Servicio/Producto asociado <span className="text-muted-foreground/50">(opcional)</span></label>
+                      <select
+                        value={editingSeq.product_id ?? ""}
+                        onChange={e => setEditingSeq(s => s ? { ...s, product_id: e.target.value || null } : s)}
+                        className="w-full h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
+                        <option value="">Sin asociar</option>
+                        {allServices.length > 0 && <option disabled>── Servicios ──</option>}
+                        {allServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        {allProducts.length > 0 && <option disabled>── Productos ──</option>}
+                        {allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Pasos</label>
+                      {editingSeq.steps.length === 0 && (
+                        <p className="text-[11px] text-muted-foreground/50 italic text-center py-3">Sin pasos. Agrega uno abajo.</p>
+                      )}
+                      <DndContext
+                        sensors={seqSensors}
+                        collisionDetection={closestCenter}
+                        onDragEnd={(event: DragEndEvent) => {
+                          const { active, over } = event;
+                          if (!over || active.id === over.id) return;
+                          setEditingSeq(s => {
+                            if (!s) return s;
+                            const oldIdx = s.steps.findIndex(st => st.id === active.id);
+                            const newIdx = s.steps.findIndex(st => st.id === over.id);
+                            const reordered = arrayMove(s.steps, oldIdx, newIdx);
+                            return { ...s, steps: computeNextStepIds(reordered) };
+                          });
+                        }}
+                      >
+                        <SortableContext items={editingSeq.steps.map(s => s.id)} strategy={verticalListSortingStrategy}>
+                          <div className="space-y-0">
+                            {editingSeq.steps.flatMap((step, i) => {
+                              const stepEl = (
+                                <div key={step.id} className="pb-2">
+                                  <SortableSequenceStep
+                                    step={step}
+                                    index={i}
+                                    allSteps={editingSeq.steps}
+                                    onChange={updated => setEditingSeq(s => {
+                                      if (!s) return s;
+                                      const newSteps = s.steps.map(st => st.id === updated.id ? updated : st);
+                                      const prevType = s.steps.find(st => st.id === updated.id)?.type;
+                                      // Recomputar si el paso es/era pregunta (estructura de ramas cambia)
+                                      const needsRecompute = updated.type === "question" || prevType === "question";
+                                      return { ...s, steps: needsRecompute ? computeNextStepIds(newSteps) : newSteps };
+                                    })}
+                                    onRemove={() => setEditingSeq(s => {
+                                      if (!s) return s;
+                                      // Limpiar referencias a este paso en opciones de preguntas
+                                      const cleaned = s.steps
+                                        .filter(st => st.id !== step.id)
+                                        .map(st => ({
+                                          ...st,
+                                          options: st.options?.map(o => o.next_step_id === step.id ? { ...o, next_step_id: null } : o),
+                                        }));
+                                      return { ...s, steps: computeNextStepIds(cleaned) };
+                                    })}
+                                    userId={user?.id ?? ""}
+                                    branchInfo={stepBranchMap.get(step.id)}
+                                    isShared={step.shared === true}
+                                    isHighlighted={step.id === highlightStepId}
+                                    availableBranches={activeBranches.length > 0 ? activeBranches.map((b, bi) => ({ label: b.label, branchIdx: bi })) : undefined}
+                                    onMoveToBranch={activeBranches.length > 0 ? (target) => handleMoveToBranch(step.id, target) : undefined}
+                                  />
+                                </div>
+                              );
+                              if (i === 0) return [stepEl];
+                              const insertBtn = insertAtIdx === i - 1 ? (
+                                <div key={`ins-open-${i}`} className="flex flex-wrap gap-1 py-2 px-2.5 rounded-lg bg-primary/5 border border-primary/20 mb-2">
+                                  <span className="text-[10px] text-muted-foreground/70 w-full">Insertar paso aquí:</span>
+                                  {(["message", "question", "link", "image", "video", "audio", "file"] as const).map(t => (
+                                    <button key={t} onClick={() => {
+                                      const inserted = newStep(t);
+                                      setEditingSeq(s => {
+                                        if (!s) return s;
+                                        const steps = [...s.steps];
+                                        steps.splice(i, 0, inserted);
+                                        return { ...s, steps: computeNextStepIds(steps) };
+                                      });
+                                      setInsertAtIdx(null);
+                                      flashStep(inserted.id);
+                                    }} className="text-[10px] px-2 py-0.5 rounded-md border border-primary/30 bg-background hover:bg-primary/10 text-primary transition-colors">
+                                      + {STEP_TYPE_LABELS[t]}
+                                    </button>
+                                  ))}
+                                  <button onClick={() => setInsertAtIdx(null)} className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground ml-1">✕</button>
+                                </div>
+                              ) : (
+                                <button key={`ins-btn-${i}`} onClick={() => setInsertAtIdx(i - 1)}
+                                  className="w-full flex items-center gap-2 mb-1.5 group cursor-pointer">
+                                  <div className="flex-1 h-px bg-border/20 group-hover:bg-primary/25 transition-colors" />
+                                  <span className="text-[9px] text-muted-foreground/25 group-hover:text-primary/50 transition-colors flex items-center gap-0.5 shrink-0 select-none">
+                                    <Plus size={7} /> insertar
+                                  </span>
+                                  <div className="flex-1 h-px bg-border/20 group-hover:bg-primary/25 transition-colors" />
+                                </button>
+                              );
+                              return [insertBtn, stepEl];
+                            })}
+                          </div>
+                        </SortableContext>
+                      </DndContext>
+                    </div>
+
+                    {branchTargets.size > 0 && (
+                      <div className="rounded-lg border border-border bg-secondary/20 px-3 pt-2.5 pb-2 space-y-2">
+                        <p className="text-[10px] font-semibold text-muted-foreground">Estructura de ramas</p>
+                        <svg viewBox="0 0 310 80" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full" style={{ maxHeight: 72 }}>
+                          <rect x="1" y="27" width="70" height="26" rx="5" fill="#6366f1" fillOpacity="0.14" stroke="#6366f1" strokeOpacity="0.5" strokeWidth="1"/>
+                          <text x="36" y="44" textAnchor="middle" fontSize="9" fill="currentColor" fontFamily="system-ui, sans-serif">Pregunta</text>
+                          <path d="M71 33 L100 18" stroke="#22c55e" strokeWidth="1.5"/>
+                          <text x="78" y="12" fontSize="8" fill="#22c55e" fontWeight="700" fontFamily="system-ui, sans-serif">SI</text>
+                          <rect x="100" y="6" width="96" height="24" rx="5" fill="#22c55e" fillOpacity="0.1" stroke="#22c55e" strokeOpacity="0.5" strokeWidth="1"/>
+                          <text x="148" y="22" textAnchor="middle" fontSize="8" fill="#22c55e" fontFamily="system-ui, sans-serif">pasos rama SI</text>
+                          <path d="M71 47 L100 62" stroke="#ef4444" strokeWidth="1.5"/>
+                          <text x="78" y="76" fontSize="8" fill="#ef4444" fontWeight="700" fontFamily="system-ui, sans-serif">NO</text>
+                          <rect x="100" y="50" width="96" height="24" rx="5" fill="#ef4444" fillOpacity="0.1" stroke="#ef4444" strokeOpacity="0.5" strokeWidth="1"/>
+                          <text x="148" y="66" textAnchor="middle" fontSize="8" fill="#ef4444" fontFamily="system-ui, sans-serif">pasos rama NO</text>
+                          <path d="M196 18 Q214 18 214 40 L228 40" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5"/>
+                          <path d="M196 62 Q214 62 214 40 L228 40" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5"/>
+                          <rect x="228" y="27" width="80" height="26" rx="5" fill="currentColor" fillOpacity="0.05" stroke="currentColor" strokeOpacity="0.2" strokeWidth="1"/>
+                          <text x="268" y="44" textAnchor="middle" fontSize="8" fill="currentColor" fillOpacity="0.5" fontFamily="system-ui, sans-serif">paso compartido</text>
+                        </svg>
+                        <p className="text-[9px] text-muted-foreground/60 leading-relaxed">
+                          Los pasos después de cada destino se ejecutan en cadena. Los pasos al final (compartidos) los ejecutan <em>todas</em> las ramas.
+                        </p>
+                      </div>
+                    )}
+
+                    {activeBranches.length > 0 ? (
+                      <div className="space-y-2">
+                        <div className="space-y-1.5">
+                          <p className="text-[10px] font-medium text-muted-foreground">Agregar nuevo paso a:</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {activeBranches.map((branch, idx) => (
+                              <button key={branch.label + idx}
+                                onClick={() => setAddBranchTarget(idx)}
+                                className={`text-[10px] px-2.5 py-1 rounded-full border font-medium transition-colors ${
+                                  addBranchTarget === idx
+                                    ? "bg-primary text-primary-foreground border-primary"
+                                    : branch.isVirtual
+                                      ? "border-dashed border-amber-400/60 text-amber-600 dark:text-amber-400 hover:border-amber-500"
+                                      : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                                }`}>
+                                {branch.isVirtual ? `⚠ "${branch.label}" sin paso` : `Rama "${branch.label}"`}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => setAddBranchTarget("shared")}
+                              className={`text-[10px] px-2.5 py-1 rounded-full border transition-colors ${
+                                addBranchTarget === "shared"
+                                  ? "bg-secondary border-border text-foreground font-medium"
+                                  : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                              }`}>
+                              Paso compartido
+                            </button>
+                          </div>
+                          {addBranchTarget === "shared" && (
+                            <p className="text-[9px] text-muted-foreground/50">El paso se agrega al final — lo ejecutan todas las ramas (reconvergencia)</p>
+                          )}
+                          {typeof addBranchTarget === "number" && (
+                            <p className="text-[9px] text-muted-foreground/50">El paso se inserta al final de la rama "{activeBranches[addBranchTarget]?.label}"</p>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          {(["message", "question", "link", "image", "video", "audio", "file"] as const).map(t => (
+                            <button key={t}
+                              onClick={() => {
+                                const inserted = addBranchTarget === "shared"
+                                  ? { ...newStep(t), shared: true }
+                                  : newStep(t);
+                                const branch = typeof addBranchTarget === "number" ? activeBranches[addBranchTarget] : null;
+                                setEditingSeq(seq => {
+                                  if (!seq) return seq;
+                                  if (addBranchTarget === "shared") {
+                                    return { ...seq, steps: computeNextStepIds([...seq.steps, inserted]) };
+                                  }
+                                  let insertIdx: number;
+                                  if (branch?.isVirtual && branch.questionId) {
+                                    const realSiblings = activeBranches.filter(b => !b.isVirtual && b.questionId === branch.questionId);
+                                    if (realSiblings.length > 0) {
+                                      const maxEnd = realSiblings.reduce((acc, b) => {
+                                        const end = b.insertBeforeIdx ?? seq.steps.length;
+                                        return end > acc ? end : acc;
+                                      }, 0);
+                                      insertIdx = maxEnd;
+                                    } else {
+                                      const qi = seq.steps.findIndex(s => s.id === branch.questionId);
+                                      insertIdx = qi >= 0 ? qi + 1 : seq.steps.length;
+                                    }
+                                  } else {
+                                    insertIdx = branch?.insertBeforeIdx ?? seq.steps.length;
+                                  }
+                                  const steps = [...seq.steps];
+                                  steps.splice(insertIdx, 0, inserted);
+                                  if (branch?.isVirtual && branch.questionId) {
+                                    const linked = steps.map(st => st.id !== branch.questionId ? st : {
+                                      ...st,
+                                      options: st.options?.map(o => o.label === branch.label && !o.next_step_id ? { ...o, next_step_id: inserted.id } : o),
+                                    });
+                                    return { ...seq, steps: computeNextStepIds(linked) };
+                                  }
+                                  return { ...seq, steps: computeNextStepIds(steps) };
+                                });
+                                flashStep(inserted.id);
+                              }}
+                              className="flex items-center justify-center gap-1 h-8 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors">
+                              <Plus size={10} /> {STEP_TYPE_LABELS[t]}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {(["message", "question", "link", "image", "video", "audio", "file"] as const).map(t => (
+                          <button key={t}
+                            onClick={() => {
+                              const inserted = newStep(t);
+                              setEditingSeq(s => s ? { ...s, steps: computeNextStepIds([...s.steps, inserted]) } : s);
+                              flashStep(inserted.id);
+                            }}
+                            className="flex items-center justify-center gap-1 h-8 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors">
+                            <Plus size={10} /> {STEP_TYPE_LABELS[t]}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* ── Árbol visual de la secuencia ── */}
+                    {activeBranches.length > 0 && treeData && (
+                      <div className="rounded-lg border border-border overflow-hidden">
+                        <button
+                          onClick={() => setTreeOpen(v => !v)}
+                          className="flex items-center justify-between w-full px-3 py-2 text-[11px] font-medium text-muted-foreground hover:bg-secondary/30 transition-colors"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <GitBranch size={11} />
+                            Árbol de la secuencia
+                            <span className="text-[9px] font-normal opacity-50">
+                              {editingSeq.steps.length} pasos · {activeBranches.filter(b => !b.isVirtual).length} ramas
+                            </span>
+                          </span>
+                          <ChevronDown size={12} className={`transition-transform duration-200 ${treeOpen ? "rotate-180" : ""}`} />
+                        </button>
+                        {treeOpen && treeData && (
+                          <div className="bg-secondary/10 border-t border-border/40 overflow-x-auto">
+                            <div
+                              className="p-3 flex flex-col items-center"
+                              style={{
+                                minWidth: `${Math.max(220, treeData.reduce<number>((acc, s) => s.kind === "fork" ? Math.max(acc, s.branches.length) : acc, 1) * 92)}px`,
+                              }}
+                            >
+                              {treeData.map((seg, si) => {
+                                const hasNextSeg = si < treeData.length - 1;
+
+                                if (seg.kind === "trunk") {
+                                  return (
+                                    <div key={`t${si}`} className="flex flex-col items-center w-full">
+                                      {/* Conector de entrada cuando este trunk sigue a un fork */}
+                                      {si > 0 && <div className="w-px h-2 bg-border/60" />}
+                                      {seg.steps.map((node, ni) => {
+                                        const isQ = node.step.type === "question";
+                                        const preview = getStepPreview(node.step, 26);
+                                        return (
+                                          <div key={node.step.id} className="flex flex-col items-center w-full">
+                                            {ni > 0 && <div className="w-px h-2.5 bg-border/60" />}
+                                            <button
+                                              onClick={() => flashStep(node.step.id)}
+                                              className={`flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-lg border text-left w-full max-w-[210px] hover:border-primary/40 hover:bg-primary/5 transition-colors ${isQ ? "border-amber-400/40 bg-amber-400/5" : "border-border/60 bg-background"}`}
+                                            >
+                                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isQ ? "bg-amber-400" : "bg-border"}`} />
+                                              <span className="text-[8px] text-muted-foreground/60 tabular-nums shrink-0 w-3.5">{node.idx + 1}</span>
+                                              <span className={`text-[9px] font-semibold shrink-0 ${isQ ? "text-amber-500 dark:text-amber-400" : "text-foreground/80"}`}>{STEP_TYPE_LABELS[node.step.type]}</span>
+                                              {preview && <span className="text-[8.5px] text-muted-foreground/65 truncate">{preview}</span>}
+                                              {isQ && <span className="ml-auto text-[8px] text-amber-400/70 shrink-0">▼</span>}
+                                            </button>
+                                          </div>
+                                        );
+                                      })}
+                                      {hasNextSeg && <div className="w-px h-2.5 bg-border/60" />}
+                                    </div>
+                                  );
+                                }
+
+                                // Fork: columnas de ramas en paralelo
+                                const isSingle = seg.branches.length === 1;
+                                return (
+                                  <div key={`f${si}`} className="flex flex-col w-full">
+
+                                    {/* Columnas de ramas */}
+                                    <div className="flex w-full">
+                                      {seg.branches.map((branch, bi) => {
+                                        const color = BRANCH_COLORS[branch.bi % BRANCH_COLORS.length];
+                                        const isFirstB = bi === 0;
+                                        const isLastB = bi === seg.branches.length - 1;
+                                        return (
+                                          /* relative: contexto para la línea vertical absoluta */
+                                          <div key={branch.bi} className="relative flex-1 flex flex-col items-center min-w-[84px]">
+
+                                            {/* Línea vertical absoluta: recorre TODO el alto de la columna
+                                                independientemente del contenido — esto garantiza la conexión */}
+                                            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border/55 pointer-events-none" />
+
+                                            {/* T-connector superior: solo líneas horizontales (la vertical ya está arriba) */}
+                                            <div className="relative w-full h-3">
+                                              {!isSingle && !isFirstB && <div className="absolute top-0 left-0 w-1/2 h-px bg-border/60" />}
+                                              {!isSingle && !isLastB && <div className="absolute top-0 right-0 w-1/2 h-px bg-border/60" />}
+                                            </div>
+
+                                            {/* Etiqueta de rama */}
+                                            <span className={`relative z-10 text-[8px] font-bold px-2 py-px rounded-full border truncate max-w-[82px] mb-1.5 ${color.pill}`}>
+                                              {branch.label}
+                                            </span>
+
+                                            {/* Pasos de esta rama — z-10 para rendir encima de la línea absoluta */}
+                                            <div className="relative z-10 flex flex-col items-center w-full px-1 pb-3">
+                                              {branch.steps.length === 0 ? (
+                                                <span className="text-[8px] text-muted-foreground/50 italic py-1">(vacío)</span>
+                                              ) : branch.steps.map((node, ni) => {
+                                                const isNestedQ = node.step.type === "question";
+                                                const preview = getStepPreview(node.step, 10);
+                                                return (
+                                                  <div key={node.step.id} className="flex flex-col items-center w-full">
+                                                    {ni > 0 && <div className={`w-px h-1.5 ${color.bar} opacity-50`} />}
+                                                    <button
+                                                      onClick={() => flashStep(node.step.id)}
+                                                      className={`w-full text-left rounded-md border px-1.5 py-0.5 hover:bg-primary/5 hover:border-primary/40 transition-colors ${isNestedQ ? "border-amber-400/40 bg-amber-400/5" : `${color.border} bg-background/80`}`}
+                                                    >
+                                                      <div className="flex items-center gap-0.5">
+                                                        <span className="text-[7.5px] text-muted-foreground/55 tabular-nums shrink-0">{node.idx + 1}</span>
+                                                        <span className={`text-[8.5px] font-semibold shrink-0 ${isNestedQ ? "text-amber-500 dark:text-amber-400" : color.text}`}>{STEP_TYPE_LABELS[node.step.type]}</span>
+                                                      </div>
+                                                      {preview && <div className="text-[7.5px] text-muted-foreground/60 truncate leading-tight">{preview}</div>}
+                                                    </button>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+
+                                    {/* Línea de merge horizontal — justo debajo de las columnas */}
+                                    {hasNextSeg && (
+                                      <div className="flex w-full" style={{ height: "1px" }}>
+                                        {seg.branches.map((branch, bi) => {
+                                          const isFirstB = bi === 0;
+                                          const isLastB = bi === seg.branches.length - 1;
+                                          return (
+                                            <div key={`m${branch.bi}`} className="flex-1 relative" style={{ height: "1px" }}>
+                                              {!isSingle && !isFirstB && <div className="absolute inset-y-0 left-0 right-1/2 bg-border/60" />}
+                                              {!isSingle && !isLastB && <div className="absolute inset-y-0 right-0 left-1/2 bg-border/60" />}
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    <button
+                      disabled={!editingSeq.name.trim() || upsertSequence.isPending}
+                      onClick={async () => {
+                        if (!editingSeq.name.trim()) return;
+                        try {
+                          await upsertSequence.mutateAsync(editingSeq);
+                          setEditingSeq(null);
+                          toast.success(editingSeq.id ? "Secuencia actualizada" : "Secuencia creada");
+                        } catch (e: any) {
+                          toast.error(e?.message?.slice(0, 120) ?? "Error al guardar la secuencia");
+                        }
+                      }}
+                      className="w-full h-9 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity">
+                      {upsertSequence.isPending ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                      Guardar secuencia
+                    </button>
+                  </div>
+                )}
+                </div>
+              </div>}
+
+              {/* ── Sub-sección: Flujos ── */}
+              {editingSeq === null && (
+                <div className="rounded-xl border border-border bg-card overflow-hidden">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-secondary/20">
+                    <p className="text-xs font-semibold">Flujos</p>
+                    <span className="text-[10px] text-muted-foreground/60">Trigger → Secuencia → Acción</span>
+                  </div>
+
+                  <div className="p-4 space-y-3">
+                  {editingFlow === null ? (
+                    <>
+                      {flows.length === 0 && (
+                        <p className="text-xs text-muted-foreground/60 italic text-center py-3">Sin flujos. Crea uno abajo.</p>
+                      )}
+                      {flows.map(flow => {
+                        const seqName = sequences.find(s => s.id === flow.sequence_id)?.name;
+                        return (
+                          <div key={flow.id} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-border/60 bg-background">
+                            <GitBranch size={13} className="text-muted-foreground mt-0.5 shrink-0" />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{flow.name}</p>
+                              <p className="text-[10px] text-muted-foreground/60 truncate">
+                                {flow.trigger_text || <em>Sin trigger</em>}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground/50">
+                                {seqName ? `→ ${seqName}` : "→ Sin secuencia"}
+                                {" · "}
+                                {FLOW_FINAL_ACTION_LABELS[flow.final_action]}
+                              </p>
+                            </div>
+                            {/* Toggle activo */}
+                            <button
+                              onClick={() => toggleFlow.mutate({ id: flow.id, is_active: !flow.is_active })}
+                              className={`w-8 h-5 shrink-0 rounded-full transition-colors flex items-center px-0.5 mt-0.5 ${flow.is_active ? "bg-emerald-500" : "bg-muted-foreground/30"}`}
+                            >
+                              <span className={`w-3 h-3 rounded-full bg-white shadow transition-transform ${flow.is_active ? "translate-x-3.5" : "translate-x-0"}`} />
+                            </button>
+                            <button
+                              onClick={() => { setTriggerValidation(null); setEditingFlow({ id: flow.id, name: flow.name, trigger_text: flow.trigger_text, sequence_id: flow.sequence_id, final_action: flow.final_action, is_active: flow.is_active }); }}
+                              className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0">
+                              <Pencil size={12} />
+                            </button>
+                            <button
+                              onClick={() => setPendingDeleteFlowId(flow.id)}
+                              className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                      <button
+                        onClick={() => { setTriggerValidation(null); setEditingFlow(newDraftFlow()); }}
+                        className="flex items-center gap-1.5 w-full px-3 h-9 rounded-xl border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors">
+                        <Plus size={13} /> Nuevo flujo
+                      </button>
+                    </>
+                  ) : (
+                    /* ── Editor de flujo ── */
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => { setTriggerValidation(null); setEditingFlow(null); }} className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+                          <ArrowLeft size={14} />
+                        </button>
+                        <span className="text-xs font-medium">{editingFlow.id ? "Editar flujo" : "Nuevo flujo"}</span>
+                      </div>
+
+                      {/* Nombre */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Nombre</label>
+                        <input
+                          value={editingFlow.name}
+                          onChange={e => setEditingFlow(f => f ? { ...f, name: e.target.value } : f)}
+                          placeholder="ej: Consulta de precios"
+                          className="w-full h-8 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                      </div>
+
+                      {/* Trigger */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">
+                          Trigger <span className="text-muted-foreground/50 font-normal">— cuándo se activa</span>
+                        </label>
+                        <textarea
+                          value={editingFlow.trigger_text}
+                          onChange={e => setEditingFlow(f => f ? { ...f, trigger_text: e.target.value } : f)}
+                          placeholder="Describe en lenguaje natural la intención del usuario que activa este flujo. Ej: «cuando el usuario pregunta por precios, planes o quiere cotizar»"
+                          rows={3}
+                          className={`w-full px-2.5 py-1.5 text-xs rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed transition-colors ${
+                            triggerValidation
+                              ? triggerValidation.severity === "valid"
+                                ? "border-emerald-400/70"
+                                : triggerValidation.severity === "warn"
+                                  ? "border-amber-400/70"
+                                  : "border-red-400/70"
+                              : "border-input"
+                          }`}
+                        />
+                        {/* Inline validation result */}
+                        {triggerValidation ? (
+                          <div className={`rounded-md px-2 py-1.5 text-[10px] leading-snug mt-1 ${
+                            triggerValidation.severity === "valid"
+                              ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400"
+                              : triggerValidation.severity === "warn"
+                                ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400"
+                                : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"
+                          }`}>
+                            <span className="font-semibold mr-1">
+                              {triggerValidation.severity === "valid" ? "✓ Válido" : triggerValidation.severity === "warn" ? "⚠ Advertencia" : "✗ No válido"}
+                            </span>
+                            {triggerValidation.category && <span className="opacity-75">({triggerValidation.category}) </span>}
+                            <span className="opacity-80">{triggerValidation.reason}</span>
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-muted-foreground/50 mt-1">El agente IA evalúa esta intención en cada mensaje entrante.</p>
+                        )}
+                        {/* Guía rápida */}
+                        <div className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 mt-1 space-y-1.5">
+                          <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Funciona: </span>
+                            intención de compra, FAQ, objeción, negociación, primer contacto, palabra clave o emoji
+                          </p>
+                          <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                            <span className="text-red-500 font-medium">✗ Bloqueado: </span>
+                            horas programadas, días de la semana, llamadas de voz
+                          </p>
+                          <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80 leading-relaxed border-t border-border/40 pt-1.5">
+                            El trigger se evalúa en cada mensaje entrante. Si describes algo que el usuario no puede expresar escribiendo en WhatsApp, el flujo simplemente no se activará.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Secuencia */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Secuencia a ejecutar</label>
+                        <select
+                          value={editingFlow.sequence_id ?? ""}
+                          onChange={e => setEditingFlow(f => f ? { ...f, sequence_id: e.target.value || null } : f)}
+                          className="w-full h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
+                          <option value="">Sin secuencia</option>
+                          {sequences.map(s => (
+                            <option key={s.id} value={s.id}>{s.name} ({s.steps.length} pasos)</option>
+                          ))}
+                        </select>
+                        {sequences.length === 0 && (
+                          <p className="text-[10px] text-amber-600">No hay secuencias creadas. Crea una en la sección de arriba primero.</p>
+                        )}
+                      </div>
+
+                      {/* Acción final */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">Acción al terminar</label>
+                        <select
+                          value={editingFlow.final_action}
+                          onChange={e => setEditingFlow(f => f ? { ...f, final_action: e.target.value as CrmWaFlowFinalAction } : f)}
+                          className="w-full h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
+                          {(Object.entries(FLOW_FINAL_ACTION_LABELS) as [CrmWaFlowFinalAction, string][]).map(([k, v]) => (
+                            <option key={k} value={k}>{v}</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {/* Activo */}
+                      <div className="flex items-center justify-between py-1">
+                        <label className="text-xs font-medium text-muted-foreground">Flujo activo</label>
+                        <button
+                          onClick={() => setEditingFlow(f => f ? { ...f, is_active: !f.is_active } : f)}
+                          className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${editingFlow.is_active ? "bg-emerald-500" : "bg-muted-foreground/30"}`}
+                        >
+                          <span className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${editingFlow.is_active ? "translate-x-4" : "translate-x-0"}`} />
+                        </button>
+                      </div>
+
+                      {/* Guardar */}
+                      <button
+                        disabled={!editingFlow.name.trim() || !editingFlow.trigger_text.trim() || upsertFlow.isPending}
+                        onClick={async () => {
+                          if (!editingFlow.name.trim() || !editingFlow.trigger_text.trim()) return;
+                          const validation = triggerValidation ?? classifyTrigger(editingFlow.trigger_text.trim());
+                          if (!triggerValidation) setTriggerValidation(validation);
+                          if (validation.severity === "invalid") {
+                            toast.error("Corrige el trigger antes de guardar.");
+                            return;
+                          }
+                          try {
+                            await upsertFlow.mutateAsync(editingFlow);
+                            setTriggerValidation(null); setEditingFlow(null);
+                            toast.success(editingFlow.id ? "Flujo actualizado" : "Flujo creado");
+                          } catch (e: any) {
+                            toast.error(e?.message?.slice(0, 120) ?? "Error al guardar el flujo");
+                          }
+                        }}
+                        className="w-full h-9 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity">
+                        {upsertFlow.isPending ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                        Guardar flujo
+                      </button>
+                    </div>
+                  )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          </div>{/* end inner padding wrapper */}
+          </div>{/* end scrollable area */}
+
+          {/* Footer — fijo en la base, fuera del scroll */}
+          {section !== "perfil" && section !== "etiquetas" && section !== "flujos" && (
+            <div className="px-5 py-4 border-t shrink-0">
+              <Button onClick={handleSave} disabled={saving} className="w-full h-9 gap-1.5">
+                {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                Guardar cambios
+              </Button>
+            </div>
+          )}
         </div>{/* end content column */}
       </div>
     </div>
@@ -2435,36 +4134,99 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
           )}
           {/* Documento */}
           {msg.media_type === "document" && msg.media_url && (
-            <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
-              className={`flex items-center gap-2.5 px-3.5 py-3 font-medium ${isIncoming ? "text-primary" : "text-white"}`}>
-              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base ${isIncoming ? "bg-primary/10" : "bg-white/20"}`}>
-                📄
-              </div>
-              <span className="text-sm truncate">{displayContent.replace(/^\[PDF: /, "").replace(/\]$/, "")}</span>
-            </a>
+            <div>
+              <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+                className={`flex items-center gap-2.5 px-3.5 py-3 font-medium ${isIncoming ? "text-primary" : "text-white"}`}>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base ${isIncoming ? "bg-primary/10" : "bg-white/20"}`}>
+                  📄
+                </div>
+                <span className="text-sm truncate">{displayContent.replace(/^\[PDF: /, "").replace(/\]$/, "")}</span>
+              </a>
+              {msg.send_error && (
+                <div className={`flex items-center gap-1 px-3.5 pb-2 text-[10px] ${isIncoming ? "text-destructive" : "text-red-300"}`}>
+                  <AlertTriangle size={9} />
+                  No se pudo entregar al destinatario
+                </div>
+              )}
+            </div>
+          )}
+          {/* Video */}
+          {msg.media_type === "video" && msg.media_url && (
+            <div>
+              <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+                className={`flex items-center gap-2.5 px-3.5 py-3 font-medium ${isIncoming ? "text-primary" : "text-white"}`}>
+                <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base ${isIncoming ? "bg-primary/10" : "bg-white/20"}`}>
+                  📹
+                </div>
+                <span className="text-sm truncate">{displayContent !== "[video]" ? displayContent : "Video"}</span>
+              </a>
+              {msg.send_error && (
+                <div className={`flex items-center gap-1 px-3.5 pb-2 text-[10px] ${isIncoming ? "text-destructive" : "text-red-300"}`}>
+                  <AlertTriangle size={9} />
+                  No se pudo entregar al destinatario
+                </div>
+              )}
+            </div>
           )}
           {/* Audio */}
           {msg.media_type === "audio" && (
-            <div className={`flex items-start gap-2.5 px-3.5 py-3 ${isIncoming ? "text-muted-foreground" : "text-white/90"}`}>
-              <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-base mt-0.5 ${isIncoming ? "bg-secondary" : "bg-white/20"}`}>
-                🎤
+            <div>
+              <div className={`flex items-start gap-2.5 px-3.5 py-3 ${isIncoming ? "text-muted-foreground" : "text-white/90"}`}>
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-base mt-0.5 ${isIncoming ? "bg-secondary" : "bg-white/20"}`}>
+                  🎤
+                </div>
+                <div className="flex-1 min-w-0">
+                  {msg.transcription ? (
+                    <p className="text-sm italic leading-relaxed break-words">{msg.transcription}</p>
+                  ) : (
+                    <span className={`text-sm ${isIncoming ? "opacity-60" : "opacity-70"}`}>
+                      {msg.content !== "[Mensaje de voz]" ? msg.content : "Mensaje de voz"}
+                    </span>
+                  )}
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                {msg.transcription ? (
-                  <p className="text-sm italic leading-relaxed break-words">{msg.transcription}</p>
-                ) : (
-                  <span className={`text-sm ${isIncoming ? "opacity-60" : "opacity-70"}`}>
-                    {msg.content !== "[Mensaje de voz]" ? msg.content : "Mensaje de voz"}
-                  </span>
-                )}
+              {msg.send_error && (
+                <div className={`flex items-center gap-1 px-3.5 pb-2 text-[10px] ${isIncoming ? "text-destructive" : "text-red-300"}`}>
+                  <AlertTriangle size={9} />
+                  No se pudo entregar al destinatario
+                </div>
+              )}
+            </div>
+          )}
+          {/* Pregunta interactiva (flujo) */}
+          {msg.media_type === "interactive_question" && (
+            <div className="px-3.5 py-2.5 space-y-2">
+              <p className="whitespace-pre-wrap break-words text-sm font-medium">{displayContent}</p>
+              {msg.interactive_options && msg.interactive_options.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pt-0.5">
+                  {msg.interactive_options.map((opt, i) => (
+                    <span key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium bg-white/20 border border-white/30">
+                      {opt.label}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className={`flex items-center justify-end gap-1 mt-1 text-white/60`}>
+                <span className="text-[10px]">{time}</span>
+                <Check size={10} className="opacity-80" />
               </div>
             </div>
           )}
           {/* Texto */}
-          {!(msg.media_type === "document" || msg.media_type === "audio") && (
+          {!(msg.media_type === "document" || msg.media_type === "video" || msg.media_type === "audio" || msg.media_type === "interactive_question") && (
             <div className="px-3.5 py-2.5 leading-relaxed">
               {displayContent !== "[Imagen]" && (
-                <p className="whitespace-pre-wrap break-words">{displayContent}</p>
+                <>
+                  <p className="whitespace-pre-wrap break-words">{displayContent}</p>
+                  {/* Badge botón — respuesta a pregunta de flujo */}
+                  {msg.button_reply_id && (
+                    <div className="flex items-center gap-1 mt-1.5">
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800">
+                        🔘 Botón seleccionado
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
               {msg.send_error && (
                 <div className={`flex items-center gap-1 mt-1.5 text-[10px] ${isIncoming ? "text-destructive" : "text-white/80"}`}>
@@ -2480,7 +4242,7 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
               </div>
             </div>
           )}
-          {(msg.media_type === "document" || msg.media_type === "audio") && (
+          {(msg.media_type === "document" || msg.media_type === "video" || msg.media_type === "audio") && (
             <div className={`flex justify-end px-3.5 pb-2 text-[10px] ${isIncoming ? "text-muted-foreground/60" : "text-white/60"}`}>
               {time}
             </div>

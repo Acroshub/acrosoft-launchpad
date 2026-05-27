@@ -108,7 +108,7 @@ export function canAccessItem(
  */
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
-    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings", "soporte", "videos", "agente_ia"]);
+    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings", "soporte", "tutoriales", "cursos", "agente_ia"]);
   }
 
   const can = buildPermChecker(staffRecord);
