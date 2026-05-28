@@ -10,31 +10,6 @@ import type { CrmCourse, CrmCourseLesson, CrmCourseModule } from "@/lib/supabase
 const FUNCTIONS_URL    = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 const BUNNY_LIBRARY_ID = import.meta.env.VITE_BUNNY_STREAM_LIBRARY_ID ?? import.meta.env.VITE_BUNNY_LIBRARY_ID ?? "628395";
 
-const PREVIEW_DATA: { course: CrmCourse; modules: CrmCourseModule[]; lessons: CrmCourseLesson[] } = {
-  course: {
-    id: "preview", user_id: "preview", slug: "preview",
-    title: "Marketing Digital para Emprendedores",
-    description: "Aprende a posicionar tu negocio en redes sociales y generar ventas desde cero.",
-    thumbnail_url: null, is_published: true, price: 297,
-    created_at: "", updated_at: "",
-  },
-  modules: [
-    { id: "m1", course_id: "preview", user_id: "preview", title: "Fundamentos del Marketing Digital", sort_order: 0, created_at: "" },
-    { id: "m2", course_id: "preview", user_id: "preview", title: "Redes Sociales y Contenido", sort_order: 1, created_at: "" },
-    { id: "m3", course_id: "preview", user_id: "preview", title: "Publicidad Pagada", sort_order: 2, created_at: "" },
-  ],
-  lessons: [
-    { id: "l1", course_id: "preview", module_id: "m1", title: "¿Qué es el Marketing Digital?", content: "El marketing digital es el conjunto de estrategias de promoción de productos y servicios usando canales digitales como internet, redes sociales, email y más.\n\nEn esta lección veremos los conceptos fundamentales que necesitas dominar antes de arrancar.", bunny_video_id: null, video_duration_seconds: null, video_status: "none", attachment_url: null, attachment_name: null, sort_order: 0, created_at: "" },
-    { id: "l2", course_id: "preview", module_id: "m1", title: "Buyer Persona: conoce a tu cliente ideal", content: "Antes de crear cualquier contenido o campaña, necesitas saber exactamente a quién le estás hablando.", bunny_video_id: "demo-video-id", video_duration_seconds: 480, video_status: "ready", attachment_url: null, attachment_name: null, sort_order: 1, created_at: "" },
-    { id: "l3", course_id: "preview", module_id: "m1", title: "Embudo de ventas digital", content: null, bunny_video_id: "demo-video-id-2", video_duration_seconds: 720, video_status: "ready", attachment_url: null, attachment_name: null, sort_order: 2, created_at: "" },
-    { id: "l4", course_id: "preview", module_id: "m2", title: "Instagram para negocios", content: "Instagram sigue siendo la plataforma más poderosa para negocios visuales. Aprende a optimizar tu perfil y crear contenido que convierta.", bunny_video_id: null, video_duration_seconds: null, video_status: "none", attachment_url: "https://example.com/guia-instagram.pdf", attachment_name: "Guía Instagram Pro.pdf", sort_order: 0, created_at: "" },
-    { id: "l5", course_id: "preview", module_id: "m2", title: "TikTok: contenido viral para ventas", content: null, bunny_video_id: "demo-video-tiktok", video_duration_seconds: 600, video_status: "ready", attachment_url: null, attachment_name: null, sort_order: 1, created_at: "" },
-    { id: "l6", course_id: "preview", module_id: "m2", title: "Copywriting que vende", content: "Las palabras correctas pueden multiplicar tus conversiones por 3x o más. En esta lección aprenderás las fórmulas de copywriting más efectivas.", bunny_video_id: null, video_duration_seconds: null, video_status: "none", attachment_url: null, attachment_name: null, sort_order: 2, created_at: "" },
-    { id: "l7", course_id: "preview", module_id: "m3", title: "Introducción a Facebook Ads", content: null, bunny_video_id: "demo-fb-ads", video_duration_seconds: 900, video_status: "ready", attachment_url: null, attachment_name: null, sort_order: 0, created_at: "" },
-    { id: "l8", course_id: "preview", module_id: "m3", title: "Segmentación avanzada de audiencias", content: "La segmentación es la clave del éxito en publicidad pagada. Aprende a crear audiencias personalizadas, similares y de retargeting.", bunny_video_id: "demo-segmentacion", video_duration_seconds: 1080, video_status: "ready", attachment_url: "https://example.com/plantilla-audiencias.xlsx", attachment_name: "Plantilla de Audiencias.xlsx", sort_order: 1, created_at: "" },
-  ],
-};
-
 async function fetchCourseContent(
   sessionToken: string,
 ): Promise<{ course: CrmCourse; modules: CrmCourseModule[]; lessons: CrmCourseLesson[] } | null> {
@@ -78,19 +53,6 @@ export default function CoursePlayer() {
   }, [activeLesson?.module_id]);
 
   useEffect(() => {
-    if (searchParams.get("preview") === "true") {
-      const d = PREVIEW_DATA;
-      setCourse(d.course);
-      setModules(d.modules);
-      setLessons(d.lessons);
-      const ordered = [...d.modules]
-        .sort((a, b) => a.sort_order - b.sort_order)
-        .flatMap(mod => d.lessons.filter(l => l.module_id === mod.id).sort((a, b) => a.sort_order - b.sort_order));
-      setActiveLesson(ordered[0] ?? null);
-      setLoading(false);
-      return;
-    }
-
     const magicToken = searchParams.get("token");
     if (magicToken) {
       fetch(`${FUNCTIONS_URL}/verify-course-magic-link`, {
