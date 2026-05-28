@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
     });
 
     // Construir URL del magic link
-    const appUrl = Deno.env.get("APP_URL") ?? "https://app.acrosoftlabs.com";
+    const appUrl = Deno.env.get("APP_URL") ?? "https://acrosoftlabs.com";
     const magicUrl = `${appUrl}/curso/${course_slug}/ver?token=${token}`;
 
     // Enviar email
