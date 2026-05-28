@@ -18,19 +18,13 @@ import { toast } from "sonner";
 import SalesTable from "@/components/crm/SalesTable";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
+import { CURRENCIES, formatAmount, getCurrencyFlag, getCurrencyFromPhone } from "@/lib/currencies";
+import { usePricesByEntity } from "@/hooks/useCrmData";
 
 const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: "$", EUR: "€", GBP: "£",
-  BOB: "Bs.", PEN: "S/", COP: "COP$",
-  MXN: "MX$", ARS: "ARS$", CLP: "CLP$",
-};
-
-const fmtSaleAmt = (amount: number, currency?: string | null, decimals = 2) => {
-  const cur = (currency ?? "USD").toUpperCase();
-  return `${CURRENCY_SYMBOLS[cur] ?? `${cur} `}${amount.toFixed(decimals)}`;
-};
+const fmtSaleAmt = (amount: number, currency?: string | null, decimals = 2) =>
+  formatAmount(amount, currency, decimals);
 
 function getAvatarColor(str: string) {
   const colors = ["#1877F2","#0a57d0","#00a884","#9B59B6","#E67E22","#E91E63","#3498DB","#2ECC71"];
@@ -136,11 +130,18 @@ const VendorSalesView = ({ vendorProfile }: { vendorProfile: CrmVendor }) => {
     .reduce((s, x) => s + (x.amount * effectivePct(x) / 100), 0);
   const totalComisiones = comisionesIniciales + comisionesRecurrentes;
 
+  const vendorCurrency = useMemo(() => {
+    if (!salesData.length) return "USD";
+    const counts: Record<string, number> = {};
+    for (const s of salesData) counts[s.currency] = (counts[s.currency] || 0) + 1;
+    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "USD";
+  }, [salesData]);
+
   const KPIS = [
-    { icon: TrendingUp,  label: "Ventas totales",              value: String(totalVentas),                    iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
-    { icon: DollarSign,  label: `Total comisiones (${commissionPct}%)`, value: `$${totalComisiones.toFixed(0)}`,       iconCls: "text-primary",          bgCls: "bg-primary/10" },
-    { icon: Percent,     label: `Iniciales · ${initialSales.length} vta${initialSales.length !== 1 ? "s" : ""}`,    value: `$${comisionesIniciales.toFixed(0)}`,   iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
-    { icon: RefreshCcw,  label: `Mantenimientos · ${recurringSales.length} activo${recurringSales.length !== 1 ? "s" : ""}`, value: `$${comisionesRecurrentes.toFixed(0)}`, iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
+    { icon: TrendingUp,  label: "Ventas totales",              value: String(totalVentas),                                      iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
+    { icon: DollarSign,  label: `Total comisiones (${commissionPct}%)`, value: fmtSaleAmt(totalComisiones, vendorCurrency, 0),   iconCls: "text-primary",          bgCls: "bg-primary/10" },
+    { icon: Percent,     label: `Iniciales · ${initialSales.length} vta${initialSales.length !== 1 ? "s" : ""}`, value: fmtSaleAmt(comisionesIniciales, vendorCurrency, 0),   iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
+    { icon: RefreshCcw,  label: `Mantenimientos · ${recurringSales.length} activo${recurringSales.length !== 1 ? "s" : ""}`, value: fmtSaleAmt(comisionesRecurrentes, vendorCurrency, 0), iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
   ];
 
   return (
@@ -219,7 +220,7 @@ const VendorSalesView = ({ vendorProfile }: { vendorProfile: CrmVendor }) => {
                       <td className="px-5 py-3.5 text-right">
                         {isFirstRec
                           ? <span className="text-[10px] text-muted-foreground italic">Incluido en inicial</span>
-                          : <span className="font-semibold text-emerald-600">${commission.toFixed(2)}</span>}
+                          : <span className="font-semibold text-emerald-600">{fmtSaleAmt(commission, sale.currency, 2)}</span>}
                       </td>
                       <td className="px-5 py-3.5">
                         {sale.is_paid ? (
@@ -271,8 +272,8 @@ const VendorSalesView = ({ vendorProfile }: { vendorProfile: CrmVendor }) => {
                 {maint.map(m => (
                   <tr key={m.id} className="hover:bg-secondary/20 transition-colors">
                     <td className="px-5 py-3.5 font-medium">{m.month}</td>
-                    <td className="px-5 py-3.5 text-right">${m.amount.toFixed(2)}</td>
-                    <td className="px-5 py-3.5 text-right font-semibold text-emerald-600">${m.commission_amount.toFixed(2)}</td>
+                    <td className="px-5 py-3.5 text-right">{fmtSaleAmt(m.amount, undefined, 2)}</td>
+                    <td className="px-5 py-3.5 text-right font-semibold text-emerald-600">{fmtSaleAmt(m.commission_amount, undefined, 2)}</td>
                     <td className="px-5 py-3.5">
                       {m.is_paid ? (
                         <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
@@ -438,6 +439,26 @@ const CrmVentas = ({
   );
   const selectedProductObj = useMemo(() => activeProducts.find(p => p.id === selectedProduct), [activeProducts, selectedProduct]);
 
+  // Multi-currency auto-select
+  const { data: servicePrices = [] } = usePricesByEntity("service", selectedService || null);
+  const { data: productPrices = [] } = usePricesByEntity("product", selectedProduct || null);
+  const getContactCurrency = (contactId: string) => {
+    const contact = contacts.find(c => c.id === contactId);
+    return contact?.phone ? getCurrencyFromPhone(contact.phone) : null;
+  };
+  const getPriceForCurrency = (
+    prices: { currency: string; price: number }[],
+    defaultPrice: number,
+    defaultCurrency: string,
+    currency: string | null
+  ) => {
+    if (!currency) return defaultPrice;
+    const cur = currency.toUpperCase();
+    const match = prices.find(p => p.currency.toUpperCase() === cur);
+    if (match) return match.price;
+    return defaultPrice;
+  };
+
   const calcProductPrice = (prod: typeof activeProducts[0], variant?: typeof productVariants[0]) => {
     if (variant) {
       const base = variant.price_override != null ? variant.price_override : prod.price;
@@ -453,14 +474,35 @@ const CrmVentas = ({
     const s = services.find(x => x.id === sId);
     if (!s) { setSaleAmount(""); return; }
     const discountPct = (s as any).discount_pct ?? 0;
-    setSaleAmount(discountPct > 0 ? +(s.price * (1 - discountPct / 100)).toFixed(2) : s.price);
+    const defaultAmt = discountPct > 0 ? +(s.price * (1 - discountPct / 100)).toFixed(2) : s.price;
+    const cur = getContactCurrency(selectedContact);
+    setSaleAmount(getPriceForCurrency(servicePrices, defaultAmt, s.currency, cur));
   };
 
   const handleProductChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const pId = e.target.value; setSelectedProduct(pId); setSelectedVariant(""); setSaleAmount("");
     const p = activeProducts.find(x => x.id === pId);
     if (!p) return;
-    if (!p.has_variants) setSaleAmount(calcProductPrice(p));
+    if (!p.has_variants) {
+      const cur = getContactCurrency(selectedContact);
+      setSaleAmount(getPriceForCurrency(productPrices, calcProductPrice(p), p.currency, cur));
+    }
+  };
+
+  const handleContactChange = (contactId: string) => {
+    setSelectedContact(contactId);
+    if (saleItemType === "service" && selectedService) {
+      const s = services.find(x => x.id === selectedService);
+      if (s) {
+        const discountPct = (s as any).discount_pct ?? 0;
+        const defaultAmt = discountPct > 0 ? +(s.price * (1 - discountPct / 100)).toFixed(2) : s.price;
+        const cur = contactId ? getContactCurrency(contactId) : null;
+        setSaleAmount(getPriceForCurrency(servicePrices, defaultAmt, s.currency, cur));
+      }
+    } else if (saleItemType === "product" && selectedProduct && selectedProductObj && !selectedProductObj.has_variants) {
+      const cur = contactId ? getContactCurrency(contactId) : null;
+      setSaleAmount(getPriceForCurrency(productPrices, calcProductPrice(selectedProductObj), selectedProductObj.currency, cur));
+    }
   };
 
   const handleVariantChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -828,10 +870,10 @@ const CrmVentas = ({
               <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1 text-sm">
                 <p className="font-medium">{payModal.contact_name ?? "—"}</p>
                 <p className="text-muted-foreground text-xs">{payModal.product_name ?? payModal.service_name ?? "—"}</p>
-                <p className="text-primary font-semibold">${payModal.amount.toFixed(2)}</p>
+                <p className="text-primary font-semibold">{fmtSaleAmt(payModal.amount, payModal.currency, 2)}</p>
                 {payModal.vendor_id && vendorMap[payModal.vendor_id] && (
                   <p className="text-[11px] text-muted-foreground">
-                    Vendedor: {vendorMap[payModal.vendor_id].name} · Comisión: ${(payModal.amount * (payModal.commission_pct || vendorMap[payModal.vendor_id].commission_pct) / 100).toFixed(2)}
+                    Vendedor: {vendorMap[payModal.vendor_id].name} · Comisión: {fmtSaleAmt(payModal.amount * (payModal.commission_pct || vendorMap[payModal.vendor_id].commission_pct) / 100, payModal.currency, 2)}
                   </p>
                 )}
               </div>
@@ -861,8 +903,8 @@ const CrmVentas = ({
               <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1 text-sm">
                 <p className="font-medium">{maintModal.vendor.name}</p>
                 <p className="text-muted-foreground text-xs">Mes: {maintModal.month}</p>
-                <p className="font-semibold">Total: ${maintModal.amount.toFixed(2)}</p>
-                <p className="text-emerald-600 text-xs font-semibold">Comisión a pagar: ${maintModal.commissionAmount.toFixed(2)} ({maintModal.vendor.commission_pct}%)</p>
+                <p className="font-semibold">Total: {fmtSaleAmt(maintModal.amount, undefined, 2)}</p>
+                <p className="text-emerald-600 text-xs font-semibold">Comisión a pagar: {fmtSaleAmt(maintModal.commissionAmount, undefined, 2)} ({maintModal.vendor.commission_pct}%)</p>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Comprobante</label>
@@ -891,29 +933,33 @@ const CrmVentas = ({
 
         {/* ── KPI Cards ── */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Total vendido */}
-          <div className="bg-card border rounded-2xl p-4">
-            <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center mb-3">
-              <DollarSign size={15} className="text-primary" />
+          {/* Total vendido — un card por moneda */}
+          {(totalPorMoneda.length === 0 ? [["USD", 0]] as [string, number][] : totalPorMoneda).map(([cur, total]) => (
+            <div key={`total-${cur}`} className="bg-card border rounded-2xl p-4">
+              <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center mb-3">
+                <DollarSign size={15} className="text-primary" />
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
+                <p className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">Total {cur}</p>
             </div>
-            {totalPorMoneda.length === 0
-              ? <p className="text-2xl font-bold">$0</p>
-              : totalPorMoneda.map(([cur, total]) => <p key={cur} className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>)
-            }
-            <p className="text-xs text-muted-foreground mt-1">Total vendido</p>
-          </div>
+          ))}
 
-          {/* Ingresos del mes */}
-          <div className="bg-card border rounded-2xl p-4">
-            <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
-              <Calendar size={15} className="text-muted-foreground" />
+          {/* Ingresos del mes — un card por moneda */}
+          {(ingresoMesPorMoneda.length === 0 ? [["USD", 0]] as [string, number][] : ingresoMesPorMoneda).map(([cur, total]) => (
+            <div key={`mes-${cur}`} className="bg-card border rounded-2xl p-4">
+              <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
+                <Calendar size={15} className="text-muted-foreground" />
+              </div>
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
+                <p className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">{MONTHS_ES[new Date().getMonth()]} {cur}</p>
             </div>
-            {ingresoMesPorMoneda.length === 0
-              ? <p className="text-2xl font-bold">$0</p>
-              : ingresoMesPorMoneda.map(([cur, total]) => <p key={cur} className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>)
-            }
-            <p className="text-xs text-muted-foreground mt-1">Ingresos en {MONTHS_ES[new Date().getMonth()]}</p>
-          </div>
+          ))}
 
           {/* Ventas este mes */}
           <div className="bg-card border rounded-2xl p-4">
@@ -924,32 +970,35 @@ const CrmVentas = ({
             <p className="text-xs text-muted-foreground mt-1">Ventas este mes</p>
           </div>
 
-          {/* Ganancia neta (si hay comisiones) */}
-          {isSuperAdmin && totalComisiones > 0 && (
-            <div className="bg-card border rounded-2xl p-4">
+          {/* Ganancia neta — un card por moneda */}
+          {isSuperAdmin && totalComisiones > 0 && gananciaPorMoneda.map(([cur, total]) => (
+            <div key={`ganancia-${cur}`} className="bg-card border rounded-2xl p-4">
               <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
                 <Percent size={15} className="text-muted-foreground" />
               </div>
-              {gananciaPorMoneda.map(([cur, total]) => <p key={cur} className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>)}
-              <p className="text-xs text-muted-foreground mt-1">Tu ganancia neta</p>
-              {comisionesPorMoneda.length > 0 && (
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  Comis: {comisionesPorMoneda.map(([cur, t]) => fmtSaleAmt(t, cur, 0)).join(" · ")}
-                </p>
-              )}
-            </div>
-          )}
-
-          {/* IRE por intervalo */}
-          {isSuperAdmin && recurringByInterval.map(({ interval, byCurrency }) => (
-            <div key={`ire-${interval}`} className="bg-card border rounded-2xl p-4">
-              <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
-                <RefreshCcw size={15} className="text-muted-foreground" />
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
+                <p className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
               </div>
-              {byCurrency.map(([cur, total]) => <p key={cur} className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>)}
-              <p className="text-xs text-muted-foreground mt-1">IRE {INTERVAL_LABELS[interval] ?? interval}</p>
+              <p className="text-xs text-muted-foreground mt-1">Ganancia {cur}</p>
             </div>
           ))}
+
+          {/* IRE — un card por intervalo */}
+          {isSuperAdmin && recurringByInterval.map(({ interval, byCurrency }) =>
+            (byCurrency.length === 0 ? [["USD", 0]] as [string, number][] : byCurrency).map(([cur, total]) => (
+              <div key={`ire-${interval}-${cur}`} className="bg-card border rounded-2xl p-4">
+                <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
+                  <RefreshCcw size={15} className="text-muted-foreground" />
+                </div>
+                <div className="flex items-baseline gap-1.5">
+                  <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
+                  <p className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">IRE {INTERVAL_LABELS[interval] ?? interval} {cur}</p>
+              </div>
+            ))
+          )}
         </div>
 
         {/* ── Ventas IA pendientes ── */}
@@ -1147,7 +1196,7 @@ const CrmVentas = ({
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contacto</label>
                 <div className="relative">
-                  <select className={SELECT_CLS} value={selectedContact} onChange={(e) => setSelectedContact(e.target.value)}>
+                  <select className={SELECT_CLS} value={selectedContact} onChange={(e) => handleContactChange(e.target.value)}>
                     <option value="">Seleccionar contacto...</option>
                     {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </select>
@@ -1252,9 +1301,12 @@ const CrmVentas = ({
               <div className="grid sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                    {saleItemType === "service"
-                      ? `Monto${selectedService ? ` (${services.find(x => x.id === selectedService)?.currency ?? "USD"})` : ""}`
-                      : `Monto${selectedProduct ? ` (${activeProducts.find(x => x.id === selectedProduct)?.currency ?? "USD"})` : ""}`}
+                    {(() => {
+                      const cur = saleItemType === "service"
+                        ? (services.find(x => x.id === selectedService)?.currency ?? "")
+                        : (activeProducts.find(x => x.id === selectedProduct)?.currency ?? "");
+                      return cur ? `Monto ${getCurrencyFlag(cur)} ${cur}` : "Monto";
+                    })()}
                   </label>
                   <input type="number" value={saleAmount} onChange={(e) => setSaleAmount(e.target.value as any)} min={0} placeholder="0.00" className={INPUT_CLS} />
                 </div>
@@ -1358,7 +1410,7 @@ const CrmVentas = ({
                   <div className="relative">
                     <select className={F_SELECT} value={filterCurrency} onChange={(e) => setFilterCurrency(e.target.value)}>
                       <option value="">Todas</option>
-                      {availableCurrencies.map(c => <option key={c} value={c}>{c} ({CURRENCY_SYMBOLS[c] ?? c})</option>)}
+                      {availableCurrencies.map(c => <option key={c} value={c}>{getCurrencyFlag(c)} {c} — {formatAmount(1, c, 0).replace("1", "").trim()}</option>)}
                     </select>
                     <Chevron />
                   </div>

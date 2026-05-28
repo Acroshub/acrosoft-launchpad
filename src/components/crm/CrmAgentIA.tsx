@@ -4,7 +4,7 @@ import {
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, ChevronLeft, ChevronDown, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
-  GripVertical, GitBranch, ArrowLeft,
+  GripVertical, GitBranch, ArrowLeft, Megaphone,
 } from "lucide-react";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
@@ -38,12 +38,16 @@ import {
   useWaSequences, useUpsertWaSequence, useDeleteWaSequence,
   useWaFlows, useUpsertWaFlow, useDeleteWaFlow, useToggleWaFlow,
   useInsertLog,
+  useCourses,
 } from "@/hooks/useCrmData";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+import CrmWaTemplates from "@/components/crm/CrmWaTemplates";
+import CrmWaCampaigns from "@/components/crm/CrmWaCampaigns";
 import { supabase } from "@/lib/supabase";
 import type { CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale, CrmAppointment, CrmContact, CrmWaSequence, SequenceStep, SequenceStepOption, SequenceStepMedia, CrmWaFlow, CrmWaFlowFinalAction } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { formatAmount } from "@/lib/currencies";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const WEBHOOK_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-webhook`;
@@ -130,14 +134,8 @@ function formatTime(iso: string | null): string {
   return d.toLocaleDateString("es-ES", { day: "numeric", month: "short" });
 }
 
-const CURRENCY_SYMBOLS_UI: Record<string, string> = {
-  USD: "$", EUR: "€", GBP: "£", BOB: "Bs.", PEN: "S/", COP: "COP$",
-  MXN: "MX$", ARS: "ARS$", CLP: "CLP$", BRL: "R$",
-};
 function formatSaleAmount(amount: number, currency: string | null): string {
-  const cur = (currency ?? "USD").toUpperCase();
-  const sym = CURRENCY_SYMBOLS_UI[cur] ?? `${cur} `;
-  return `${sym}${Number(amount).toFixed(2)}`;
+  return formatAmount(Number(amount), currency, 2);
 }
 
 function copyToClipboard(text: string, label: string) {
@@ -253,7 +251,6 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const [customDataFieldWiz, setCustomDataFieldWiz]   = useState("");
 
   // Step 3 — Capacidades
-  const [canBook, setCanBook]                       = useState(existingConfig?.can_book_appointments ?? false);
   const [schedulingCalendarIdWiz, setSchedulingCalendarIdWiz] = useState<string>(existingConfig?.scheduling_calendar_id ?? "");
   const [canContacts, setCanContacts]               = useState(existingConfig?.can_create_contacts ?? true);
   const [canServices, setCanServices]         = useState(existingConfig?.can_answer_services ?? true);
@@ -268,6 +265,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const [selectedProductIds, setSelectedProductIds]   = useState<string[]>(existingConfig?.selected_product_ids ?? []);
   const [servicesMode, setServicesMode]               = useState<"all"|"selected"|"none">(existingConfig?.services_mode ?? "all");
   const [selectedServiceIds, setSelectedServiceIds]   = useState<string[]>(existingConfig?.selected_service_ids ?? []);
+  const [coursesMode, setCoursesMode]                 = useState<"all"|"selected"|"none">(existingConfig?.courses_mode ?? "none");
+  const [selectedCourseIds, setSelectedCourseIds]     = useState<string[]>(existingConfig?.selected_course_ids ?? []);
 
   // Step 4 — Horario
   const [schedule, setSchedule]     = useState<WeeklySchedule>(
@@ -350,8 +349,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 
   const handleSaveStep2 = async () => {
     await upsert.mutateAsync({
-      can_book_appointments: canBook,
-      scheduling_calendar_id: canBook && schedulingCalendarIdWiz ? schedulingCalendarIdWiz : null,
+      can_book_appointments: !!schedulingCalendarIdWiz,
+      scheduling_calendar_id: schedulingCalendarIdWiz || null,
       can_create_contacts: canContacts,
       can_answer_services: canServices,
       can_transfer_human: canTransfer,
@@ -363,6 +362,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
       selected_product_ids: productsMode === "selected" ? selectedProductIds : [],
       services_mode: servicesMode,
       selected_service_ids: servicesMode === "selected" ? selectedServiceIds : [],
+      courses_mode: coursesMode,
+      selected_course_ids: coursesMode === "selected" ? selectedCourseIds : [],
       agent_data_collect: agentDataCollectWiz,
     });
     setStep(3);
@@ -748,41 +749,20 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             <div className="divide-y">
               {/* Agendar citas */}
               <div className="py-3 space-y-2">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium">Agendar citas</p>
-                    <p className="text-xs text-muted-foreground">Detecta intención de agendar y crea citas en el calendario</p>
-                  </div>
-                  <button
-                    onClick={() => { if (schedulingCalendarIdWiz) setCanBook(v => !v); }}
-                    disabled={!schedulingCalendarIdWiz}
-                    className={`relative shrink-0 rounded-full transition-opacity ${!schedulingCalendarIdWiz ? "opacity-40 cursor-not-allowed" : ""}`}
-                    style={{ width: 40, height: 22 }}
-                  >
-                    <span className={`absolute inset-0 rounded-full transition-colors ${canBook && schedulingCalendarIdWiz ? "bg-primary" : "bg-secondary border"}`} />
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${canBook && schedulingCalendarIdWiz ? "left-[22px]" : "left-0.5"}`} />
-                  </button>
+                <div>
+                  <p className="text-sm font-medium">Agendar citas</p>
+                  <p className="text-xs text-muted-foreground">Detecta intención de agendar y crea citas en el calendario</p>
                 </div>
-                {/* Selector de calendario — siempre visible en esta fila */}
-                <div className="pl-0">
-                  <select
-                    value={schedulingCalendarIdWiz}
-                    onChange={e => {
-                      const val = e.target.value;
-                      setSchedulingCalendarIdWiz(val);
-                      if (!val) setCanBook(false);
-                    }}
-                    className="w-full text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
-                  >
-                    <option value="">— Selecciona un calendario —</option>
-                    {calendars.map(cal => (
-                      <option key={cal.id} value={cal.id}>{cal.name ?? cal.slug ?? cal.id}</option>
-                    ))}
-                  </select>
-                  {!schedulingCalendarIdWiz && (
-                    <p className="text-[10px] text-muted-foreground mt-1">Selecciona un calendario para activar el agendamiento.</p>
-                  )}
-                </div>
+                <select
+                  value={schedulingCalendarIdWiz}
+                  onChange={e => setSchedulingCalendarIdWiz(e.target.value)}
+                  className="w-full text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+                >
+                  <option value="">Ninguno</option>
+                  {calendars.map(cal => (
+                    <option key={cal.id} value={cal.id}>{cal.name ?? cal.slug ?? cal.id}</option>
+                  ))}
+                </select>
               </div>
               {/* Crear contactos + datos a recopilar */}
               <div className="py-3">
@@ -1003,6 +983,34 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                   </div>
                 )}
               </div>
+
+              {/* Cursos */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Cursos</p>
+                <div className="flex gap-3">
+                  {(["all", "selected", "none"] as const).map(mode => (
+                    <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="wiz-courses-mode" checked={coursesMode === mode} onChange={() => setCoursesMode(mode)} className="accent-primary" />
+                      <span className="text-sm">{mode === "all" ? "Todos" : mode === "selected" ? "Solo seleccionados" : "Ninguno"}</span>
+                    </label>
+                  ))}
+                </div>
+                {coursesMode === "selected" && (
+                  <div className="mt-1 border rounded-lg divide-y max-h-40 overflow-y-auto bg-background">
+                    {allCourses.filter(c => c.is_published).length === 0
+                      ? <p className="px-3 py-2 text-xs text-muted-foreground">No hay cursos publicados</p>
+                      : allCourses.filter(c => c.is_published).map(c => (
+                          <label key={c.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-secondary/40 transition-colors">
+                            <input type="checkbox" checked={selectedCourseIds.includes(c.id)}
+                              onChange={e => setSelectedCourseIds(prev => e.target.checked ? [...prev, c.id] : prev.filter(id => id !== c.id))}
+                              className="accent-primary shrink-0" />
+                            <span className="text-sm">{c.title}</span>
+                          </label>
+                        ))
+                    }
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="flex gap-2 pt-2">
@@ -1174,7 +1182,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 { label: "Número de WhatsApp", value: testResult?.phone ?? existingConfig?.phone_number_id ?? "—" },
                 { label: "Nombre del asistente", value: agentName },
                 { label: "Modelo", value: "Claude Haiku" },
-                { label: "Capacidades", value: [canBook && "Citas", canContacts && "Contactos", canServices && "Servicios", canTransfer && "Transfer"].filter(Boolean).join(" · ") || "Solo responder preguntas" },
+                { label: "Capacidades", value: [!!schedulingCalendarIdWiz && "Citas", canContacts && "Contactos", canServices && "Servicios", canTransfer && "Transfer"].filter(Boolean).join(" · ") || "Solo responder preguntas" },
                 { label: "Zona horaria", value: timezone },
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-start justify-between gap-4 py-2 border-b last:border-0">
@@ -1866,6 +1874,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const upsert = useUpsertAIAgentConfig();
   const { data: allProducts = [] } = useProducts();
   const { data: allServices = [] } = useServices();
+  const { data: allCourses  = [] } = useCourses();
   const { data: catalogs = [] } = useCatalogs();
   const { data: catalogProductsMap = new Map() } = useCatalogProductsMap();
   const { data: calendars = [] } = useCalendars();
@@ -1891,7 +1900,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [agentName, setAgentName]         = useState("Asistente");
   const [systemPrompt, setSystemPrompt]   = useState("");
   const [isActive, setIsActive]           = useState(false);
-  const [canBook, setCanBook]                         = useState(false);
   const [schedulingCalendarId, setSchedulingCalendarId] = useState("");
   const [canContacts, setCanContacts]                 = useState(true);
   const [canServices, setCanServices]                 = useState(true);
@@ -1905,6 +1913,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [spSelectedProductIds, setSpSelectedProductIds] = useState<string[]>([]);
   const [spServicesMode, setSpServicesMode]           = useState<"all"|"selected"|"none">("all");
   const [spSelectedServiceIds, setSpSelectedServiceIds] = useState<string[]>([]);
+  const [spCoursesMode, setSpCoursesMode]             = useState<"all"|"selected"|"none">("none");
+  const [spSelectedCourseIds, setSpSelectedCourseIds] = useState<string[]>([]);
   // Config estratégica B15-1
   const [agentObjectivesSP, setAgentObjectivesSP]     = useState<string[]>([]);
   const [agentPersonalitySP, setAgentPersonalitySP]   = useState("");
@@ -1928,7 +1938,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [schedule, setSchedule]           = useState<WeeklySchedule>(DEFAULT_SCHEDULE);
   const [timezone, setTimezone]           = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [offHoursMsg, setOffHoursMsg]     = useState("");
-  const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario"|"perfil"|"etiquetas"|"flujos">("conexion");
+  const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario"|"perfil"|"etiquetas"|"flujos"|"plantillas"|"campanias">("conexion");
   const [mobileShowSection, setMobileShowSection] = useState(false);
   const initialized                       = useRef(false);
 
@@ -2170,7 +2180,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setAgentName(config.agent_name ?? "Asistente");
     setSystemPrompt(config.system_prompt ?? "");
     setIsActive(config.is_active ?? false);
-    setCanBook(config.can_book_appointments ?? false);
     setSchedulingCalendarId(config.scheduling_calendar_id ?? "");
     setCanContacts(config.can_create_contacts ?? true);
     setCanServices(config.can_answer_services ?? true);
@@ -2183,6 +2192,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setSpSelectedProductIds(config.selected_product_ids ?? []);
     setSpServicesMode(config.services_mode ?? "all");
     setSpSelectedServiceIds(config.selected_service_ids ?? []);
+    setSpCoursesMode(config.courses_mode ?? "none");
+    setSpSelectedCourseIds(config.selected_course_ids ?? []);
     setNotifyEmail(config.notify_email ?? "");
     setSchedule((config.schedule as WeeklySchedule | null) ?? DEFAULT_SCHEDULE);
     setTimezone(config.timezone ?? businessProfile?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -2304,8 +2315,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         model: "claude-haiku-4-5-20251001",
         system_prompt: systemPrompt || null,
         is_active: isActive,
-        can_book_appointments: canBook,
-        scheduling_calendar_id: canBook && schedulingCalendarId ? schedulingCalendarId : null,
+        can_book_appointments: !!schedulingCalendarId,
+        scheduling_calendar_id: schedulingCalendarId || null,
         can_create_contacts: canContacts,
         can_answer_services: canServices,
         can_transfer_human: canTransfer,
@@ -2317,6 +2328,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         selected_product_ids: spProductsMode === "selected" ? spSelectedProductIds : [],
         services_mode: spServicesMode,
         selected_service_ids: spServicesMode === "selected" ? spSelectedServiceIds : [],
+        courses_mode: spCoursesMode,
+        selected_course_ids: spCoursesMode === "selected" ? spSelectedCourseIds : [],
         schedule,
         timezone,
         off_hours_message: offHoursMsg || null,
@@ -2490,6 +2503,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     { id: "horario" as const,     label: "Horario",     icon: Clock,     desc: "Disponibilidad y timezone" },
     { id: "perfil" as const,      label: "Perfil WA",   icon: User,      desc: "Foto y bio de WhatsApp" },
     { id: "etiquetas" as const,   label: "Etiquetas",   icon: Tag,       desc: "Gestionar etiquetas" },
+    { id: "plantillas" as const,  label: "Plantillas",  icon: Megaphone, desc: "Remarketing fuera de 24h" },
+    { id: "campanias" as const,   label: "Campañas",    icon: Send,      desc: "Enviar plantillas aprobadas" },
   ];
 
   return (
@@ -2915,40 +2930,22 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
           {section === "capacidades" && (
             <>
             <div className="divide-y">
-              {/* Agendar citas — requiere calendario seleccionado */}
+              {/* Agendar citas */}
               <div className="py-3 space-y-2">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium">Agendar citas</p>
-                    <p className="text-xs text-muted-foreground">Detecta intención de agendar y crea citas en el calendario</p>
-                  </div>
-                  <button
-                    onClick={() => { if (schedulingCalendarId) setCanBook(v => !v); }}
-                    disabled={!schedulingCalendarId}
-                    className={`relative shrink-0 rounded-full transition-opacity ${!schedulingCalendarId ? "opacity-40 cursor-not-allowed" : ""}`}
-                    style={{ width: 40, height: 22 }}
-                  >
-                    <span className={`absolute inset-0 rounded-full transition-colors ${canBook && schedulingCalendarId ? "bg-primary" : "bg-secondary border"}`} />
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${canBook && schedulingCalendarId ? "left-[22px]" : "left-0.5"}`} />
-                  </button>
+                <div>
+                  <p className="text-sm font-medium">Agendar citas</p>
+                  <p className="text-xs text-muted-foreground">Detecta intención de agendar y crea citas en el calendario</p>
                 </div>
                 <select
                   value={schedulingCalendarId}
-                  onChange={e => {
-                    const val = e.target.value;
-                    setSchedulingCalendarId(val);
-                    if (!val) setCanBook(false);
-                  }}
+                  onChange={e => setSchedulingCalendarId(e.target.value)}
                   className="w-full text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
                 >
-                  <option value="">— Selecciona un calendario —</option>
+                  <option value="">Ninguno</option>
                   {calendars.map(cal => (
                     <option key={cal.id} value={cal.id}>{cal.name ?? cal.slug ?? cal.id}</option>
                   ))}
                 </select>
-                {!schedulingCalendarId && (
-                  <p className="text-[10px] text-muted-foreground">Selecciona un calendario para activar el agendamiento.</p>
-                )}
               </div>
               {/* Crear contactos + datos a recopilar */}
               <div className="py-3">
@@ -3203,6 +3200,34 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   </div>
                 )}
               </div>
+
+              {/* Cursos */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Cursos</p>
+                <div className="flex gap-3">
+                  {(["all", "selected", "none"] as const).map(mode => (
+                    <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="sp-courses-mode" checked={spCoursesMode === mode} onChange={() => setSpCoursesMode(mode)} className="accent-primary" />
+                      <span className="text-sm">{mode === "all" ? "Todos" : mode === "selected" ? "Solo seleccionados" : "Ninguno"}</span>
+                    </label>
+                  ))}
+                </div>
+                {spCoursesMode === "selected" && (
+                  <div className="mt-1 border rounded-lg divide-y max-h-40 overflow-y-auto bg-background">
+                    {allCourses.filter(c => c.is_published).length === 0
+                      ? <p className="px-3 py-2 text-xs text-muted-foreground">No hay cursos publicados</p>
+                      : allCourses.filter(c => c.is_published).map(c => (
+                          <label key={c.id} className="flex items-center gap-2.5 px-3 py-2 cursor-pointer hover:bg-secondary/40 transition-colors">
+                            <input type="checkbox" checked={spSelectedCourseIds.includes(c.id)}
+                              onChange={e => setSpSelectedCourseIds(prev => e.target.checked ? [...prev, c.id] : prev.filter(id => id !== c.id))}
+                              className="accent-primary shrink-0" />
+                            <span className="text-sm">{c.title}</span>
+                          </label>
+                        ))
+                    }
+                  </div>
+                )}
+              </div>
             </div>
             </>
           )}
@@ -3353,7 +3378,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                       </div>
                     ) : (
                       <>
-                        <span className="w-3.5 h-3.5 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                        <Tag size={13} className="shrink-0" style={{ color: l.color }} />
                         <div className="flex-1 min-w-0">
                           <span className="text-sm">{l.name}</span>
                           {l.hint && <p className="text-[10px] text-muted-foreground/70 truncate">{l.hint}</p>}
@@ -4074,11 +4099,27 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
             </div>
           )}
 
+          {/* ── Plantillas / Remarketing ── */}
+          {section === "plantillas" && (
+            <CrmWaTemplates
+              context="remarketing"
+              forcedCategory="MARKETING"
+              associationOptions={[
+                ...allProducts.map(p => ({ id: p.id, label: p.name, type: "product" as const, entityId: p.id })),
+                ...allServices.map(s => ({ id: s.id, label: s.name, type: "service" as const, entityId: s.id })),
+                ...allCourses.map(c  => ({ id: c.id, label: c.title, type: "course" as const, entityId: c.id })),
+              ]}
+            />
+          )}
+
+          {/* ── Campañas ── */}
+          {section === "campanias" && <CrmWaCampaigns />}
+
           </div>{/* end inner padding wrapper */}
           </div>{/* end scrollable area */}
 
           {/* Footer — fijo en la base, fuera del scroll */}
-          {section !== "perfil" && section !== "etiquetas" && section !== "flujos" && (
+          {section !== "perfil" && section !== "etiquetas" && section !== "flujos" && section !== "plantillas" && section !== "campanias" && (
             <div className="px-5 py-4 border-t shrink-0">
               <Button onClick={handleSave} disabled={saving} className="w-full h-9 gap-1.5">
                 {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
@@ -4482,7 +4523,7 @@ const ChatPanel = ({
                           onClick={() => toggleLabel.mutate({ conversationId: conv.id, labelId: l.id, active: !active })}
                           className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/60 transition-colors"
                         >
-                          <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                          <Tag size={12} className="shrink-0" style={{ color: l.color }} />
                           <span className="text-sm flex-1 text-left">{l.name}</span>
                           {active && <Check size={13} className="text-primary shrink-0" />}
                         </button>
@@ -5138,7 +5179,7 @@ const CrmAgentIA = ({
                         : { backgroundColor: `${l.color}18`, color: l.color, border: `1px solid ${l.color}30` }
                       }
                     >
-                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: labelFilter === l.id ? "#fff" : l.color }} />
+                      <Tag size={10} className="shrink-0" style={{ color: labelFilter === l.id ? "#fff" : l.color }} />
                       {l.name}
                     </button>
                   ))}
@@ -5240,7 +5281,7 @@ const CrmAgentIA = ({
                           {(convLabelsMap[conv.id] ?? []).length > 0 && (
                             <div className="flex items-center gap-1 mt-1">
                               {(convLabelsMap[conv.id] ?? []).slice(0, 5).map(l => (
-                                <span key={l.id} className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: l.color }} title={l.name} />
+                                <Tag key={l.id} size={10} className="shrink-0" style={{ color: l.color }} title={l.name} />
                               ))}
                               {(convLabelsMap[conv.id] ?? []).length > 5 && (
                                 <span className="text-[9px] text-muted-foreground">+{(convLabelsMap[conv.id] ?? []).length - 5}</span>

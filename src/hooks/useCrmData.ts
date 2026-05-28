@@ -46,6 +46,15 @@ import type {
   CrmCourseModule,
   CrmCourseLesson,
   CrmCourseAccess,
+  CrmPrice,
+  CrmWaTemplate,
+  WaTemplateContext,
+  WaTemplateButton,
+  CrmWaCampaign,
+  CrmWaCampaignLog,
+  WaVarMap,
+  WaAudienceFilter,
+  WaCampaignStatus,
 } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "./useAuth";
 
@@ -1302,6 +1311,7 @@ export const useLandingServices = () =>
         .select("*")
         .eq("user_id", profile.user_id)
         .eq("active", true)
+        .eq("show_on_landing", true)
         .order("sort_order", { ascending: true });
       if (error) throw error;
       return (data ?? []) as CrmService[];
@@ -3572,3 +3582,228 @@ export const useContactCourseAccess = (email: string | null | undefined) =>
     enabled: !!email,
     staleTime: 30_000,
   });
+
+// ─── Multi-currency prices ────────────────────────────────────────────────────
+
+export const usePricesByEntity = (entityType: CrmPrice["entity_type"], entityId: string | null | undefined) => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useQuery({
+    queryKey: ["crm_prices", entityType, entityId],
+    enabled: !!(uid && entityId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_prices")
+        .select("*")
+        .eq("entity_type", entityType)
+        .eq("entity_id", entityId!)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmPrice[];
+    },
+  });
+};
+
+export const useUpsertPrices = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async ({
+      entityType,
+      entityId,
+      prices,
+    }: {
+      entityType: CrmPrice["entity_type"];
+      entityId: string;
+      prices: { currency: string; price: number }[];
+    }) => {
+      if (!user?.id) throw new Error("No user");
+      // Delete all existing prices for this entity, then insert fresh
+      await supabase.from("crm_prices").delete().eq("entity_id", entityId).eq("entity_type", entityType);
+      if (prices.length === 0) return;
+      const { error } = await supabase.from("crm_prices").insert(
+        prices.map((p, i) => ({
+          user_id: user.id,
+          entity_type: entityType,
+          entity_id: entityId,
+          currency: p.currency,
+          price: p.price,
+          sort_order: i,
+        }))
+      );
+      if (error) throw error;
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["crm_prices", vars.entityType, vars.entityId] });
+    },
+  });
+};
+
+// ─── WhatsApp Templates ───────────────────────────────────────────────────────
+
+export const useWaTemplates = (context?: WaTemplateContext) => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const effectiveId = ownerUserId ?? user?.id;
+  return useQuery({
+    queryKey: ["crm_wa_templates", effectiveId, context ?? "all"],
+    enabled: !!effectiveId,
+    queryFn: async () => {
+      let q = supabase
+        .from("crm_wa_templates")
+        .select("*")
+        .eq("user_id", effectiveId!)
+        .order("created_at", { ascending: false });
+      if (context) q = q.eq("usage_context", context);
+      const { data, error } = await q;
+      if (error) throw error;
+      return (data ?? []) as CrmWaTemplate[];
+    },
+  });
+};
+
+export const useCreateWaTemplate = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const effectiveId = ownerUserId ?? user?.id;
+  return useMutation({
+    mutationFn: async (template: Omit<CrmWaTemplate, "id" | "user_id" | "created_at" | "updated_at" | "meta_template_id" | "meta_status" | "rejection_reason">) => {
+      if (!effectiveId) throw new Error("No user");
+      const { data, error } = await supabase
+        .from("crm_wa_templates")
+        .insert({ ...template, user_id: effectiveId })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmWaTemplate;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_templates", effectiveId] }),
+  });
+};
+
+export const useUpdateWaTemplate = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const effectiveId = ownerUserId ?? user?.id;
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: Partial<CrmWaTemplate> & { id: string }) => {
+      const { data, error } = await supabase
+        .from("crm_wa_templates")
+        .update({ ...patch, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmWaTemplate;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_templates", effectiveId] }),
+  });
+};
+
+export const useDeleteWaTemplate = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const effectiveId = ownerUserId ?? user?.id;
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_wa_templates").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_templates", effectiveId] }),
+  });
+};
+
+// ─── WA Campaigns ─────────────────────────────────────────────────────────────
+
+export const useWaCampaigns = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["wa_campaigns", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_campaigns")
+        .select("*, crm_wa_templates(name, body_text, language)")
+        .eq("user_id", user!.id)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CrmWaCampaign[];
+    },
+  });
+};
+
+export const useWaCampaignLogs = (campaignId: string | null) => {
+  return useQuery({
+    queryKey: ["wa_campaign_logs", campaignId],
+    enabled: !!campaignId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_campaign_logs")
+        .select("*")
+        .eq("campaign_id", campaignId!)
+        .order("sent_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CrmWaCampaignLog[];
+    },
+  });
+};
+
+type CreateCampaignPayload = {
+  template_id: string;
+  name: string;
+  variable_map: WaVarMap;
+  audience_type: "all" | "include" | "exclude";
+  audience_filters: WaAudienceFilter[];
+};
+
+export const useCreateWaCampaign = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (payload: CreateCampaignPayload) => {
+      const { data, error } = await supabase
+        .from("crm_wa_campaigns")
+        .insert({ ...payload, user_id: user!.id, status: "draft" })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmWaCampaign;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_campaigns", user?.id] }),
+  });
+};
+
+export const useUpdateWaCampaignStatus = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async ({ id, status, sent_count, failed_count, total_contacts, completed_at }: {
+      id: string; status: WaCampaignStatus;
+      sent_count?: number; failed_count?: number;
+      total_contacts?: number; completed_at?: string;
+    }) => {
+      const { error } = await supabase
+        .from("crm_wa_campaigns")
+        .update({ status, sent_count, failed_count, total_contacts, completed_at })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_campaigns", user?.id] }),
+  });
+};
+
+export const useDeleteWaCampaign = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_wa_campaigns").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_campaigns", user?.id] }),
+  });
+};

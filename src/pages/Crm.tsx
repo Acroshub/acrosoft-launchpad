@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList,
   Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle,
-  PlayCircle, Link, Bot, GraduationCap, Menu, X, ChevronRight, BookOpen, Video,
+  PlayCircle, Link, Bot, GraduationCap, Menu, X, ChevronRight, BookOpen, Video, SendHorizonal,
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
@@ -38,7 +38,7 @@ const navItems: { id: View; label: string; icon: React.ElementType; group: strin
   { id: "forms",        label: "Formularios",         icon: ClipboardList,   group: "CRM"        },
   { id: "calendar",     label: "Calendarios",         icon: CalendarDays,    group: "CRM"        },
   { id: "pipeline",     label: "Pipeline",            icon: Kanban,          group: "CRM"        },
-  { id: "reminders",    label: "Notificaciones",      icon: Bell,            group: "CRM"        },
+  { id: "reminders",    label: "Envíos",               icon: SendHorizonal,   group: "CRM"        },
   { id: "agente_ia",    label: "Agente IA",           icon: Bot,             group: "CRM"        },
   { id: "vendor_links", label: "Links",               icon: Link,            group: "CRM"        },
   { id: "cursos",        label: "Cursos",              icon: BookOpen,        group: "CRM"        },

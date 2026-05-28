@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabasePublic } from "@/lib/supabase";
 import { Loader2, BookOpen, Mail, ArrowRight, CheckCircle2 } from "lucide-react";
 import type { CrmCourse } from "@/lib/supabase";
+import { formatAmount, getCurrencyFlag } from "@/lib/currencies";
 
 const FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
@@ -29,7 +30,7 @@ export default function CourseAccess() {
     // tenantSlug is the user_id (UUID) of the course owner
     supabasePublic
       .from("crm_courses")
-      .select("id, title, description, thumbnail_url, slug, is_published")
+      .select("id, title, description, thumbnail_url, slug, is_published, price, currency")
       .eq("user_id", tenantSlug!)
       .eq("slug", courseSlug!)
       .eq("is_published", true)

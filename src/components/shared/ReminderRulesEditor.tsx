@@ -7,9 +7,11 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Plus, Trash2, Mail, Clock, User, Building2, Bell, Pencil, ChevronDown,
+  MessageSquare,
 } from "lucide-react";
-import { useStaff, useBusinessProfile, useVendorProfile } from "@/hooks/useCrmData";
+import { useStaff, useBusinessProfile, useVendorProfile, useWaTemplates } from "@/hooks/useCrmData";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+import type { ReminderWaVarSource, ReminderWaVarMap } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -17,6 +19,7 @@ export type ReminderRecipient = "contact" | "business";
 export type ReminderChannel   = "email" | "whatsapp";
 export type ReminderTiming    = "before" | "after" | "on_booking";
 export type ReminderUnit      = "minutes" | "hours" | "days";
+export type ReminderEditorMode = "calendar" | "form";
 
 export interface ReminderRule {
   id: string;
@@ -35,6 +38,8 @@ export interface ReminderRule {
   unit:             ReminderUnit;
   subject?:         string;
   content?:         string;
+  whatsapp_template_id?:  string | null;
+  whatsapp_variable_map?: ReminderWaVarMap | null;
 }
 
 /** Normalize old single businessTarget to the new array */
@@ -44,13 +49,13 @@ const getTargets = (rule: ReminderRule): string[] => {
   return ["admin"];
 };
 
-/** Get effective channels — WhatsApp disabled, legacy WA rules treated as email */
+/** Get effective channels */
 const getChannels = (rule: ReminderRule): { email: boolean; whatsapp: boolean } => {
-  if (rule.channels) return { email: rule.channels.email || rule.channels.whatsapp, whatsapp: false };
+  if (rule.channels) return { email: !!rule.channels.email, whatsapp: !!rule.channels.whatsapp };
   return { email: true, whatsapp: false };
 };
 
-// ─── Variables disponibles ────────────────────────────────────────────────────
+// ─── Variables disponibles (email) ────────────────────────────────────────────
 
 const VARIABLES = [
   { label: "Nombre del contacto",   value: "{{contact.name}}" },
@@ -62,6 +67,31 @@ const VARIABLES = [
   { label: "Nombre del calendario", value: "{{calendar.name}}" },
   { label: "Nombre del negocio",    value: "{{business.name}}" },
 ];
+
+// ─── WA variable options (reminder context) ───────────────────────────────────
+
+const WA_VAR_OPTIONS: { label: string; value: Omit<ReminderWaVarSource, "value"> }[] = [
+  { label: "Nombre del contacto",   value: { source: "contact_field",     field: "name"    } },
+  { label: "Email del contacto",    value: { source: "contact_field",     field: "email"   } },
+  { label: "Teléfono del contacto", value: { source: "contact_field",     field: "phone"   } },
+  { label: "Fecha de la cita",      value: { source: "appointment_field", field: "date"    } },
+  { label: "Hora de la cita",       value: { source: "appointment_field", field: "time"    } },
+  { label: "Servicio de la cita",   value: { source: "appointment_field", field: "service" } },
+  { label: "Nombre del calendario", value: { source: "calendar_field",    field: "name"    } },
+  { label: "Nombre del negocio",    value: { source: "business_field",    field: "name"    } },
+  { label: "Texto fijo",            value: { source: "fixed" } },
+];
+
+function extractVarNums(text: string): number[] {
+  const nums = new Set<number>();
+  for (const m of text.matchAll(/\{\{(\d+)\}\}/g)) nums.add(Number(m[1]));
+  return Array.from(nums).sort((a, b) => a - b);
+}
+
+function varSourceKey(src: ReminderWaVarSource): string {
+  if (src.source === "fixed") return "fixed";
+  return `${src.source}:${(src as any).field}`;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -78,6 +108,8 @@ const DEFAULT_RULE: Omit<ReminderRule, "id"> = {
   unit:             "hours",
   subject:          "Recordatorio de tu cita — {{appointment.date}}",
   content:          "Hola {{contact.name}}, te recordamos tu cita el {{appointment.date}} a las {{appointment.time}}.",
+  whatsapp_template_id:  null,
+  whatsapp_variable_map: null,
 };
 
 const UNITS: { value: ReminderUnit; label: string }[] = [
@@ -93,7 +125,7 @@ const pill = (active: boolean) =>
       : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
   }`;
 
-// ─── Selector de variables ────────────────────────────────────────────────────
+// ─── Selector de variables (email) ────────────────────────────────────────────
 
 const VariablePicker = ({ onSelect }: { onSelect: (v: string) => void }) => {
   const [open, setOpen] = useState(false);
@@ -127,6 +159,78 @@ const VariablePicker = ({ onSelect }: { onSelect: (v: string) => void }) => {
   );
 };
 
+// ─── WA Variable Mapper ───────────────────────────────────────────────────────
+
+const WaVarMapper = ({
+  varNums,
+  varMap,
+  onChange,
+}: {
+  varNums: number[];
+  varMap: ReminderWaVarMap;
+  onChange: (map: ReminderWaVarMap) => void;
+}) => {
+  if (!varNums.length) return null;
+
+  const updateVar = (num: number, src: ReminderWaVarSource) => {
+    onChange({ ...varMap, [String(num)]: src });
+  };
+
+  const getSourceKey = (num: number): string => {
+    const entry = varMap[String(num)];
+    if (!entry) return "";
+    return varSourceKey(entry);
+  };
+
+  const handleSelect = (num: number, key: string) => {
+    if (key === "fixed") {
+      updateVar(num, { source: "fixed", value: "" });
+    } else {
+      const opt = WA_VAR_OPTIONS.find(o => varSourceKey(o.value as ReminderWaVarSource) === key);
+      if (opt) updateVar(num, opt.value as ReminderWaVarSource);
+    }
+  };
+
+  return (
+    <div className="space-y-2 rounded-xl border border-border/50 bg-secondary/20 p-3">
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">
+        Variables de la plantilla
+      </p>
+      {varNums.map((num) => {
+        const entry = varMap[String(num)];
+        const selectedKey = getSourceKey(num);
+
+        return (
+          <div key={num} className="flex items-center gap-2">
+            <span className="text-[11px] font-mono text-muted-foreground w-8 shrink-0">
+              {`{{${num}}}`}
+            </span>
+            <select
+              value={selectedKey}
+              onChange={(e) => handleSelect(num, e.target.value)}
+              className="flex-1 h-7 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+            >
+              <option value="">— elegir —</option>
+              {WA_VAR_OPTIONS.map((opt) => {
+                const key = varSourceKey(opt.value as ReminderWaVarSource);
+                return <option key={key} value={key}>{opt.label}</option>;
+              })}
+            </select>
+            {entry?.source === "fixed" && (
+              <Input
+                value={(entry as any).value ?? ""}
+                onChange={(e) => updateVar(num, { source: "fixed", value: e.target.value })}
+                placeholder="Texto fijo"
+                className="flex-1 h-7 text-xs"
+              />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 // ─── Read-only Summary Card ───────────────────────────────────────────────────
 
 const RuleSummaryCard = ({
@@ -154,21 +258,25 @@ const RuleSummaryCard = ({
     ? "Al reservar"
     : `${rule.amount} ${UNITS.find(u => u.value === rule.unit)?.label ?? rule.unit} ${rule.timing === "before" ? "antes" : "después"} de la cita`;
 
-  const channelLabel = "Email";
-
   return (
     <div className="border border-border/60 rounded-xl px-3.5 py-3 bg-card flex items-center gap-3">
       <div className="flex-1 min-w-0 space-y-1">
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[11px] font-medium">
-            <Mail size={10} />
-            {channelLabel}
-          </span>
+          {channels.email && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-primary/10 text-primary text-[11px] font-medium">
+              <Mail size={10} /> Email
+            </span>
+          )}
+          {channels.whatsapp && (
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-100 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400 text-[11px] font-medium">
+              <MessageSquare size={10} /> WhatsApp
+            </span>
+          )}
           <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
             {rule.recipient === "contact" ? <User size={10} /> : <Building2 size={10} />}
             {recipientLabel}
           </span>
-          {rule.subject && (
+          {channels.email && rule.subject && (
             <span className="text-[10px] text-muted-foreground/60 italic truncate max-w-[120px]">
               "{rule.subject}"
             </span>
@@ -213,20 +321,30 @@ const RuleForm = ({
   businessName,
   adminEmail,
   adminPhone,
+  mode = "calendar",
   onChange,
 }: {
   rule:          ReminderRule;
   businessName?: string;
   adminEmail?:   string | null;
   adminPhone?:   string | null;
+  mode?:         ReminderEditorMode;
   onChange:      (patch: Partial<ReminderRule>) => void;
 }) => {
-  const { data: staffList = [] } = useStaff();
-  const { data: profile }        = useBusinessProfile();
-  const { data: vendorProfile }  = useVendorProfile();
-  const isVendor                 = !!vendorProfile;
+  const { data: staffList = [] }   = useStaff();
+  const { data: profile }          = useBusinessProfile();
+  const { data: vendorProfile }    = useVendorProfile();
+  const { data: allTemplates = [] } = useWaTemplates();
+  const isVendor                   = !!vendorProfile;
 
   const channels = getChannels(rule);
+
+  const utilityApprovedTemplates = allTemplates.filter(
+    t => t.category === "UTILITY" && t.meta_status === "APPROVED",
+  );
+
+  const selectedTemplate = utilityApprovedTemplates.find(t => t.id === rule.whatsapp_template_id);
+  const templateVarNums  = selectedTemplate ? extractVarNums(selectedTemplate.body_text) : [];
 
   const subjectRef = useRef<HTMLInputElement>(null);
   const contentRef = useRef<HTMLTextAreaElement>(null);
@@ -243,7 +361,6 @@ const RuleForm = ({
   const toggleTarget = (id: string) => {
     const current = new Set(targets);
     if (current.has(id)) {
-      // Don't allow deselecting the last target
       if (current.size === 1) return;
       current.delete(id);
     } else {
@@ -251,6 +368,20 @@ const RuleForm = ({
     }
     const next = Array.from(current);
     onChange({ businessTargets: next, businessTarget: next[0] });
+  };
+
+  const toggleChannel = (ch: "email" | "whatsapp") => {
+    const next = { ...channels, [ch]: !channels[ch] };
+    if (!next.email && !next.whatsapp) return; // must keep at least one
+    const patch: Partial<ReminderRule> = {
+      channels: next,
+      channel: next.email ? "email" : "whatsapp",
+    };
+    if (!next.whatsapp) {
+      patch.whatsapp_template_id  = null;
+      patch.whatsapp_variable_map = null;
+    }
+    onChange(patch);
   };
 
   const insertVariable = (variable: string) => {
@@ -277,7 +408,6 @@ const RuleForm = ({
     }
   };
 
-  // Resolve display info for each target
   const recipientInfo = () => {
     if (rule.recipient === "contact") return ["Email del contacto"];
     return targets.flatMap((targetId) => {
@@ -383,13 +513,20 @@ const RuleForm = ({
         </div>
       )}
 
-      {/* ── Canal: solo Email ─────────────────────────────────────────────── */}
+      {/* ── Canal ─────────────────────────────────────────────────────────── */}
       <div className="space-y-2">
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Canal</p>
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-primary bg-primary text-primary-foreground text-xs font-medium w-fit">
-          <Mail size={11} /> Email
+        <div className="flex gap-2 flex-wrap">
+          <button type="button" onClick={() => toggleChannel("email")} className={pill(channels.email)}>
+            <Mail size={11} /> Email
+          </button>
+          <button type="button" onClick={() => toggleChannel("whatsapp")} className={pill(channels.whatsapp)}>
+            <MessageSquare size={11} /> WhatsApp
+          </button>
         </div>
-        {(() => {
+
+        {/* Email recipient info */}
+        {channels.email && (() => {
           const lines = recipientInfo();
           if (!lines.length) return null;
           return (
@@ -400,6 +537,54 @@ const RuleForm = ({
             </div>
           );
         })()}
+
+        {/* WhatsApp: template selector */}
+        {channels.whatsapp && (
+          <div className="space-y-2 rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/20 p-3">
+            <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">
+              Plantilla UTILITY aprobada
+            </p>
+            {utilityApprovedTemplates.length === 0 ? (
+              <p className="text-[11px] text-muted-foreground italic">
+                No tienes plantillas UTILITY aprobadas. Créalas en Plantillas WhatsApp.
+              </p>
+            ) : (
+              <select
+                value={rule.whatsapp_template_id ?? ""}
+                onChange={(e) => {
+                  const id = e.target.value || null;
+                  onChange({
+                    whatsapp_template_id:  id,
+                    whatsapp_variable_map: id ? {} : null,
+                  });
+                }}
+                className="w-full h-8 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+              >
+                <option value="">— selecciona una plantilla —</option>
+                {utilityApprovedTemplates.map(t => (
+                  <option key={t.id} value={t.id}>
+                    {t.name} ({t.language})
+                  </option>
+                ))}
+              </select>
+            )}
+
+            {selectedTemplate && (
+              <div className="space-y-2">
+                <p className="text-[10px] text-muted-foreground/70 italic leading-relaxed line-clamp-3">
+                  "{selectedTemplate.body_text}"
+                </p>
+                {templateVarNums.length > 0 && (
+                  <WaVarMapper
+                    varNums={templateVarNums}
+                    varMap={rule.whatsapp_variable_map ?? {}}
+                    onChange={(map) => onChange({ whatsapp_variable_map: map })}
+                  />
+                )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* ── Timing ────────────────────────────────────────────────────────── */}
@@ -407,14 +592,16 @@ const RuleForm = ({
         <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">Cuándo</p>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex gap-2 flex-wrap">
-            <button type="button" onClick={() => onChange({ timing: "before" })} className={pill(rule.timing === "before")}>
-              <Clock size={11} /> Antes
-            </button>
+            {mode === "calendar" && (
+              <button type="button" onClick={() => onChange({ timing: "before" })} className={pill(rule.timing === "before")}>
+                <Clock size={11} /> Antes
+              </button>
+            )}
             <button type="button" onClick={() => onChange({ timing: "after" })} className={pill(rule.timing === "after")}>
-              <Clock size={11} /> Después
+              <Clock size={11} /> {mode === "form" ? "Tiempo después" : "Después"}
             </button>
             <button type="button" onClick={() => onChange({ timing: "on_booking" })} className={pill(rule.timing === "on_booking")}>
-              <Bell size={11} /> Al reservar
+              <Bell size={11} /> {mode === "form" ? "Al enviar" : "Al reservar"}
             </button>
           </div>
           {rule.timing !== "on_booking" && (
@@ -436,25 +623,31 @@ const RuleForm = ({
                   <option key={u.value} value={u.value}>{u.label}</option>
                 ))}
               </select>
-              <span className="text-xs text-muted-foreground">de la cita</span>
+              <span className="text-xs text-muted-foreground">
+                {mode === "form" ? "del envío" : "de la cita"}
+              </span>
             </div>
           )}
           {rule.timing === "on_booking" && (
-            <p className="text-xs text-muted-foreground">Se envía en el momento exacto de la reserva.</p>
+            <p className="text-xs text-muted-foreground">
+              {mode === "form"
+                ? "Se envía en el momento exacto en que se envía el formulario."
+                : "Se envía en el momento exacto de la reserva."}
+            </p>
           )}
         </div>
       </div>
 
-      {/* ── Subject + Content ─────────────────────────────────────────────── */}
-      <div className="space-y-3">
-        <div className="space-y-1.5">
-          <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Mensaje</p>
-          <VariablePicker onSelect={insertVariable} />
-        </div>
+      {/* ── Email: Subject + Content ───────────────────────────────────────── */}
+      {channels.email && (
+        <div className="space-y-3">
+          <div className="space-y-1.5">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Mensaje (email)</p>
+            <VariablePicker onSelect={insertVariable} />
+          </div>
 
-        {channels.email && (
           <div>
-            <p className="text-[10px] text-muted-foreground mb-1">Asunto (email)</p>
+            <p className="text-[10px] text-muted-foreground mb-1">Asunto</p>
             <Input
               ref={subjectRef}
               value={rule.subject ?? ""}
@@ -464,30 +657,24 @@ const RuleForm = ({
               className="h-8 text-xs"
             />
           </div>
-        )}
 
-        <div>
-          <p className="text-[10px] text-muted-foreground mb-1">
-            Contenido
-          </p>
-          <Textarea
-            ref={contentRef}
-            value={rule.content ?? ""}
-            onChange={(e) => onChange({ content: e.target.value })}
-            onFocus={() => setActiveField("content")}
-            placeholder={
-              channels.email
-                ? "Hola {{contact.name}}, te recordamos tu cita el {{appointment.date}} a las {{appointment.time}}."
-                : "Hola {{contact.name}}, tu cita es el {{appointment.date}} a las {{appointment.time}}."
-            }
-            rows={3}
-            className="text-xs resize-none"
-          />
-          <p className="text-[10px] text-muted-foreground/50 mt-1">
-            Si lo dejas vacío se usará el mensaje por defecto del sistema.
-          </p>
+          <div>
+            <p className="text-[10px] text-muted-foreground mb-1">Contenido</p>
+            <Textarea
+              ref={contentRef}
+              value={rule.content ?? ""}
+              onChange={(e) => onChange({ content: e.target.value })}
+              onFocus={() => setActiveField("content")}
+              placeholder="Hola {{contact.name}}, te recordamos tu cita el {{appointment.date}} a las {{appointment.time}}."
+              rows={3}
+              className="text-xs resize-none"
+            />
+            <p className="text-[10px] text-muted-foreground/50 mt-1">
+              Si lo dejas vacío se usará el mensaje por defecto del sistema.
+            </p>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
@@ -498,6 +685,7 @@ interface Props {
   rules:         ReminderRule[];
   onChange:      (rules: ReminderRule[]) => void;
   businessName?: string;
+  mode?:         ReminderEditorMode;
 }
 
 interface EditingState {
@@ -505,7 +693,7 @@ interface EditingState {
   isNew: boolean;
 }
 
-const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
+const ReminderRulesEditor = ({ rules, onChange, businessName, mode = "calendar" }: Props) => {
   const { data: profile }     = useBusinessProfile();
   const [editing, setEditing] = useState<EditingState | null>(null);
 
@@ -531,8 +719,6 @@ const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
 
   const patchEditing = (patch: Partial<ReminderRule>) =>
     setEditing((prev) => prev ? { ...prev, rule: { ...prev.rule, ...patch } } : prev);
-
-  const isSaveDisabled = false;
 
   return (
     <div className="space-y-3">
@@ -577,6 +763,7 @@ const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
               businessName={businessName}
               adminEmail={profile?.contact_email}
               adminPhone={profile?.contact_phone ?? profile?.whatsapp}
+              mode={mode}
               onChange={patchEditing}
             />
           )}
@@ -589,7 +776,7 @@ const ReminderRulesEditor = ({ rules, onChange, businessName }: Props) => {
               type="button"
               size="sm"
               onClick={saveDialog}
-              disabled={isSaveDisabled}
+              disabled={!!(editing && getChannels(editing.rule).whatsapp && !editing.rule.whatsapp_template_id)}
             >
               Guardar notificación
             </Button>

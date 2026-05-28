@@ -23,9 +23,13 @@ import {
   useCourseLessons, useUpsertCourseLesson, useDeleteCourseLesson,
   useCourseAccess, useGrantCourseAccess, useRevokeCourseAccess,
   useContacts, useCreateContact, useInsertLog, useCreateSale,
+  usePricesByEntity, useUpsertPrices,
 } from "@/hooks/useCrmData";
 import type { CrmCourse, CrmCourseModule, CrmCourseLesson, CrmCourseAccess } from "@/lib/supabase";
+import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 import { VideoUploadProvider, useVideoUpload } from "@/contexts/VideoUploadContext";
+
+import { CURRENCIES, formatAmount, getCurrencyFlag } from "@/lib/currencies";
 
 const APP_URL          = import.meta.env.VITE_APP_URL ?? "https://acrosoftlabs.com";
 const BUNNY_LIBRARY_ID = import.meta.env.VITE_BUNNY_STREAM_LIBRARY_ID ?? import.meta.env.VITE_BUNNY_LIBRARY_ID ?? "628395";
@@ -46,16 +50,19 @@ function CrmCoursesContent() {
   const { data: courses = [], isLoading } = useCourses();
   const upsertCourse  = useUpsertCourse();
   const deleteCourse  = useDeleteCourse();
+  const upsertPrices  = useUpsertPrices();
 
   const [selected, setSelected]     = useState<CrmCourse | null>(null);
   const [activeTab, setActiveTab]   = useState<"contenido" | "alumnos">("contenido");
   const [creating, setCreating]     = useState(false);
-  const [form, setForm]             = useState({ title: "", description: "", slug: "", price: "" });
+  const [form, setForm]             = useState({ title: "", description: "", slug: "", price: "", currency: "USD" });
+  const [formPrices, setFormPrices] = useState<PriceEntry[]>([]);
   const [saving, setSaving]         = useState(false);
   const [copiedSlug, setCopiedSlug] = useState(false);
 
   const openNew = () => {
-    setForm({ title: "", description: "", slug: "", price: "" });
+    setForm({ title: "", description: "", slug: "", price: "", currency: "USD" });
+    setFormPrices([]);
     setCreating(true);
   };
 
@@ -64,7 +71,10 @@ function CrmCoursesContent() {
     setSaving(true);
     try {
       const price = form.price ? parseFloat(form.price) : null;
-      const course = await upsertCourse.mutateAsync({ title: form.title.trim(), description: form.description || null, slug: form.slug.trim(), is_published: false, price });
+      const course = await upsertCourse.mutateAsync({ title: form.title.trim(), description: form.description || null, slug: form.slug.trim(), is_published: false, price, currency: form.currency });
+      if (formPrices.length > 0) {
+        await upsertPrices.mutateAsync({ entityType: "course", entityId: course.id, prices: formPrices });
+      }
       setCreating(false);
       setSelected(course);
       setActiveTab("contenido");
@@ -173,8 +183,16 @@ function CrmCoursesContent() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Precio <span className="text-[10px]">(opcional — vacío = gratuito)</span></label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 text-xs pointer-events-none">$</span>
+                <div className="flex gap-2">
+                  <select
+                    value={form.currency}
+                    onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}
+                    className="h-9 rounded-xl border border-border bg-background text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all shrink-0"
+                  >
+                    {CURRENCIES.map(c => (
+                      <option key={c.code} value={c.code}>{c.flag} {c.code}</option>
+                    ))}
+                  </select>
                   <Input
                     type="number"
                     min="0"
@@ -182,10 +200,15 @@ function CrmCoursesContent() {
                     value={form.price}
                     onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
                     placeholder="0.00"
-                    className="h-9 text-sm pl-6"
+                    className="h-9 text-sm flex-1"
                   />
                 </div>
               </div>
+              <PriceListEditor
+                value={formPrices}
+                onChange={setFormPrices}
+                baseCurrency={form.currency}
+              />
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setCreating(false)} className="flex-1">Cancelar</Button>
@@ -243,7 +266,7 @@ function CrmCoursesContent() {
                 {course.price != null && (
                   <div className="absolute top-2.5 right-2.5">
                     <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-primary/90 text-white backdrop-blur-sm">
-                      ${course.price}
+                      {getCurrencyFlag(course.currency ?? "USD")} {formatAmount(course.price, course.currency)}
                     </span>
                   </div>
                 )}
@@ -306,6 +329,7 @@ function CourseDetail({
   const upsertCourse  = useUpsertCourse();
   const deleteCourse  = useDeleteCourse();
   const insertLog     = useInsertLog();
+  const upsertPrices  = useUpsertPrices();
   const thumbInputRef = useRef<HTMLInputElement>(null);
 
   // Local display state (se actualiza tras guardar sin esperar re-render del padre)
@@ -318,15 +342,22 @@ function CourseDetail({
 
   // Edición de metadatos
   const [editingMeta, setEditingMeta] = useState(false);
-  const [editForm, setEditForm]       = useState({ title: course.title, description: course.description ?? "", slug: course.slug, price: course.price?.toString() ?? "" });
+  const [editForm, setEditForm]       = useState({ title: course.title, description: course.description ?? "", slug: course.slug, price: course.price?.toString() ?? "", currency: course.currency ?? "USD" });
   const [savingMeta, setSavingMeta]   = useState(false);
+
+  // Precios multi-moneda
+  const { data: existingPrices = [] } = usePricesByEntity("course", course.id);
+  const [editPrices, setEditPrices]   = useState<PriceEntry[]>([]);
+  useEffect(() => {
+    setEditPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price })));
+  }, [existingPrices]);
 
   // Eliminar curso
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting]           = useState(false);
 
   const openEdit = () => {
-    setEditForm({ title: localTitle, description: course.description ?? "", slug: localSlug, price: course.price?.toString() ?? "" });
+    setEditForm({ title: localTitle, description: course.description ?? "", slug: localSlug, price: course.price?.toString() ?? "", currency: course.currency ?? "USD" });
     setEditingMeta(true);
   };
 
@@ -335,7 +366,8 @@ function CourseDetail({
     setSavingMeta(true);
     try {
       const price = editForm.price ? parseFloat(editForm.price) : null;
-      await upsertCourse.mutateAsync({ id: course.id, title: editForm.title.trim(), description: editForm.description || null, slug: editForm.slug.trim(), price });
+      await upsertCourse.mutateAsync({ id: course.id, title: editForm.title.trim(), description: editForm.description || null, slug: editForm.slug.trim(), price, currency: editForm.currency });
+      await upsertPrices.mutateAsync({ entityType: "course", entityId: course.id, prices: editPrices });
       setLocalTitle(editForm.title.trim());
       setLocalSlug(editForm.slug.trim());
       setEditingMeta(false);
@@ -407,11 +439,20 @@ function CourseDetail({
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Precio <span className="text-[10px]">(vacío = gratuito)</span></label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50 text-xs pointer-events-none">$</span>
-                  <Input type="number" min="0" step="0.01" value={editForm.price} onChange={e => setEditForm(f => ({ ...f, price: e.target.value }))} placeholder="0.00" className="h-9 text-sm pl-6" />
+                <div className="flex gap-2">
+                  <select
+                    value={editForm.currency}
+                    onChange={e => setEditForm(f => ({ ...f, currency: e.target.value }))}
+                    className="h-9 rounded-xl border border-border bg-background text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all shrink-0"
+                  >
+                    {CURRENCIES.map(c => (
+                      <option key={c.code} value={c.code}>{c.flag} {c.code}</option>
+                    ))}
+                  </select>
+                  <Input type="number" min="0" step="0.01" value={editForm.price} onChange={e => setEditForm(f => ({ ...f, price: e.target.value }))} placeholder="0.00" className="h-9 text-sm flex-1" />
                 </div>
               </div>
+              <PriceListEditor value={editPrices} onChange={setEditPrices} baseCurrency={editForm.currency} />
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setEditingMeta(false)} className="flex-1">Cancelar</Button>
@@ -451,7 +492,7 @@ function CourseDetail({
             </span>
             {course.price != null && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
-                ${course.price}
+                {getCurrencyFlag(course.currency ?? "USD")} {formatAmount(course.price, course.currency)}
               </span>
             )}
           </div>

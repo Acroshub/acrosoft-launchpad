@@ -2,19 +2,21 @@ import { useState } from "react";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import {
   Bell, CalendarDays, ClipboardList, User, ChevronRight, ArrowLeft,
-  Loader2, Plus, Clock, CheckCircle2, AlertCircle, BellOff, Mail, Send, Trash2,
+  Loader2, Plus, Clock, CheckCircle2, AlertCircle, BellOff, Mail, Send, Trash2, Megaphone,
+  MessageSquare,
 } from "lucide-react";
+import CrmWaTemplates from "@/components/crm/CrmWaTemplates";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   useCalendars, useForms, useUpdateForm, useStaff, useBusinessProfile,
   usePersonalReminders, useCreateReminder,
-  useDeleteReminder, useVendorProfile,
+  useDeleteReminder, useVendorProfile, useWaTemplates,
 } from "@/hooks/useCrmData";
 import ReminderRulesEditor, { ReminderRule } from "@/components/shared/ReminderRulesEditor";
 import CrmCalendarConfig from "./CrmCalendarConfig";
 import CrmForms from "./CrmForms";
-import type { CrmCalendarConfig as CalendarData, CrmReminder } from "@/lib/supabase";
+import type { CrmCalendarConfig as CalendarData, CrmReminder, ReminderWaVarMap } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 
@@ -197,12 +199,37 @@ const pill = (active: boolean) =>
       : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
   }`;
 
+// ─── WA variable options (personal context: no appointment) ──────────────────
+
+const PERSONAL_WA_VAR_OPTIONS: { label: string; key: string }[] = [
+  { label: "Nombre del negocio", key: "business_field:name" },
+  { label: "Texto fijo",         key: "fixed" },
+];
+
+function extractVarNumsPersonal(text: string): number[] {
+  const nums = new Set<number>();
+  for (const m of text.matchAll(/\{\{(\d+)\}\}/g)) nums.add(Number(m[1]));
+  return Array.from(nums).sort((a, b) => a - b);
+}
+
+const pillCls = (active: boolean) =>
+  `flex items-center gap-1.5 px-2.5 py-1 rounded-lg border text-xs font-medium transition-all cursor-pointer ${
+    active
+      ? "bg-primary text-primary-foreground border-primary"
+      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+  }`;
+
 const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSaved: () => void }) => {
-  const { data: staffList = [] }   = useStaff();
-  const { data: profile }          = useBusinessProfile();
-  const { data: vendorProfile }    = useVendorProfile();
-  const isVendor                   = !!vendorProfile;
-  const createReminder             = useCreateReminder();
+  const { data: staffList = [] }      = useStaff();
+  const { data: profile }             = useBusinessProfile();
+  const { data: vendorProfile }       = useVendorProfile();
+  const { data: allTemplates = [] }   = useWaTemplates();
+  const isVendor                      = !!vendorProfile;
+  const createReminder                = useCreateReminder();
+
+  const utilityTemplates = allTemplates.filter(
+    t => t.category === "UTILITY" && t.meta_status === "APPROVED",
+  );
 
   const adminLabel = (() => {
     const name = [profile?.first_name, profile?.last_name].filter(Boolean).join(" ");
@@ -210,17 +237,29 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     return profile?.role ? `${name} (${profile.role})` : name;
   })();
 
-  const [note, setNote]             = useState("");
-  const [subject, setSubject]       = useState("");
-  const [dateStr, setDateStr]       = useState("");
-  const [timeStr, setTimeStr]       = useState("");
-  const [targets, setTargets]       = useState<string[]>(["admin"]);
-  const [sending, setSending]                       = useState(false);
+  const [note, setNote]                       = useState("");
+  const [subject, setSubject]                 = useState("");
+  const [dateStr, setDateStr]                 = useState("");
+  const [timeStr, setTimeStr]                 = useState("");
+  const [targets, setTargets]                 = useState<string[]>(["admin"]);
+  const [channels, setChannels]               = useState<{ email: boolean; whatsapp: boolean }>({ email: true, whatsapp: false });
+  const [waTemplateId, setWaTemplateId]       = useState<string>("");
+  const [waVarMap, setWaVarMap]               = useState<ReminderWaVarMap>({});
+  const [sending, setSending]                 = useState(false);
+
+  const selectedTemplate = utilityTemplates.find(t => t.id === waTemplateId);
+  const templateVarNums  = selectedTemplate ? extractVarNumsPersonal(selectedTemplate.body_text) : [];
 
   const resolveEmail = (targetId: string): string => {
     if (isVendor) return vendorProfile?.email ?? "";
     if (targetId === "admin") return profile?.contact_email ?? "";
     return staffList.find(s => s.id === targetId)?.email ?? "";
+  };
+
+  const resolvePhone = (targetId: string): string => {
+    if (isVendor) return "";
+    if (targetId === "admin") return (profile as any)?.contact_phone ?? (profile as any)?.whatsapp ?? "";
+    return (staffList.find(s => s.id === targetId) as any)?.phone ?? "";
   };
 
   const toggleTarget = (id: string) => {
@@ -233,23 +272,35 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     });
   };
 
+  const toggleChannel = (ch: "email" | "whatsapp") => {
+    setChannels(prev => {
+      const next = { ...prev, [ch]: !prev[ch] };
+      if (!next.email && !next.whatsapp) return prev;
+      if (!next.whatsapp) { setWaTemplateId(""); setWaVarMap({}); }
+      return next;
+    });
+  };
+
   const buildReminderPayloads = (scheduledAt: string, msg: string) =>
     targets.map((targetId) => {
-      const email = resolveEmail(targetId);
+      const email = channels.email ? resolveEmail(targetId) : null;
+      const phone = channels.whatsapp ? resolvePhone(targetId) : null;
       return createReminder.mutateAsync({
-        contact_id:      null,
-        appointment_id:  null,
-        type:            "email",
-        channels:        { email: true, whatsapp: false },
-        recipient_email: email || null,
-        recipient_phone: null,
-        scheduled_at:    scheduledAt,
-        subject:         subject.trim() || null,
-        message:         msg,
-        is_auto:         false,
-        is_personal:     true,
-        staff_id:        (targetId !== "admin" ? targetId : null) as any,
-        business_target: targetId,
+        contact_id:             null,
+        appointment_id:         null,
+        type:                   channels.email ? "email" : "whatsapp",
+        channels,
+        recipient_email:        email || null,
+        recipient_phone:        phone || null,
+        scheduled_at:           scheduledAt,
+        subject:                subject.trim() || null,
+        message:                msg,
+        is_auto:                false,
+        is_personal:            true,
+        staff_id:               (targetId !== "admin" ? targetId : null) as any,
+        business_target:        targetId,
+        whatsapp_template_id:   (channels.whatsapp && waTemplateId) ? waTemplateId : null,
+        whatsapp_variable_map:  (channels.whatsapp && waTemplateId) ? waVarMap : null,
       } as any);
     });
 
@@ -289,8 +340,9 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
     }
   };
 
-  const canSchedule = !!note.trim() && !!dateStr && !!timeStr && targets.length > 0;
-  const canSendNow  = !!note.trim() && targets.length > 0;
+  const waValid     = !channels.whatsapp || !!waTemplateId;
+  const canSchedule = !!note.trim() && !!dateStr && !!timeStr && targets.length > 0 && waValid;
+  const canSendNow  = !!note.trim() && targets.length > 0 && waValid;
 
   return (
     <div className="space-y-6">
@@ -312,17 +364,6 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
             rows={3}
             placeholder="Ej: Llamar al cliente Martínez para hacer seguimiento..."
             className="w-full rounded-xl border border-input bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
-          />
-        </div>
-
-        {/* Subject */}
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Asunto del email <span className="text-muted-foreground/60">(opcional)</span></label>
-          <Input
-            value={subject}
-            onChange={(e) => setSubject(e.target.value)}
-            placeholder="Tienes una notificación"
-            className="rounded-xl text-sm"
           />
         </div>
 
@@ -381,15 +422,128 @@ const NewPersonalReminderForm = ({ onBack, onSaved }: { onBack: () => void; onSa
           )}
         </div>
 
-        {/* Canal: solo Email */}
-        <div className="space-y-1">
+        {/* Canal */}
+        <div className="space-y-2">
           <p className="text-xs font-medium text-muted-foreground">Canal de envío</p>
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-            <Mail size={11} className="shrink-0" />
-            <span className="truncate">
-              {targets.map(t => resolveEmail(t)).filter(Boolean).join(", ") || "—"}
-            </span>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => toggleChannel("email")} className={pillCls(channels.email)}>
+              <Mail size={11} /> Email
+            </button>
+            <button type="button" onClick={() => toggleChannel("whatsapp")} className={pillCls(channels.whatsapp)}>
+              <MessageSquare size={11} /> WhatsApp
+            </button>
           </div>
+
+          {channels.email && (
+            <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+              <Mail size={10} className="shrink-0" />
+              <span className="truncate">
+                {targets.map(t => resolveEmail(t)).filter(Boolean).join(", ") || "—"}
+              </span>
+            </div>
+          )}
+
+          {channels.email && (
+            <div className="space-y-1.5 pt-1">
+              <label className="text-xs font-medium text-muted-foreground">Asunto del email <span className="text-muted-foreground/60">(opcional)</span></label>
+              <Input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                placeholder="Tienes una notificación"
+                className="rounded-xl text-sm"
+              />
+            </div>
+          )}
+
+          {channels.whatsapp && (
+            <div className="space-y-2 rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/20 p-3">
+              <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-medium">
+                Plantilla UTILITY aprobada
+              </p>
+              {utilityTemplates.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground italic">
+                  No tienes plantillas UTILITY aprobadas. Créalas en Plantillas WhatsApp.
+                </p>
+              ) : (
+                <select
+                  value={waTemplateId}
+                  onChange={(e) => { setWaTemplateId(e.target.value); setWaVarMap({}); }}
+                  className="w-full h-8 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                >
+                  <option value="">— selecciona una plantilla —</option>
+                  {utilityTemplates.map(t => (
+                    <option key={t.id} value={t.id}>{t.name} ({t.language})</option>
+                  ))}
+                </select>
+              )}
+
+              {selectedTemplate && (
+                <div className="space-y-2">
+                  <p className="text-[10px] text-muted-foreground/70 italic leading-relaxed line-clamp-3">
+                    "{selectedTemplate.body_text}"
+                  </p>
+                  {templateVarNums.length > 0 && (
+                    <div className="space-y-2 rounded-xl border border-border/50 bg-secondary/20 p-3">
+                      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">
+                        Variables de la plantilla
+                      </p>
+                      {templateVarNums.map(num => {
+                        const entry = waVarMap[String(num)];
+                        const selectedKey = entry
+                          ? (entry.source === "fixed" ? "fixed" : `${entry.source}:${(entry as any).field ?? "name"}`)
+                          : "";
+                        return (
+                          <div key={num} className="flex items-center gap-2">
+                            <span className="text-[11px] font-mono text-muted-foreground w-8 shrink-0">
+                              {`{{${num}}}`}
+                            </span>
+                            <select
+                              value={selectedKey}
+                              onChange={(e) => {
+                                const k = e.target.value;
+                                if (!k) { const m = { ...waVarMap }; delete m[String(num)]; setWaVarMap(m); return; }
+                                if (k === "fixed") {
+                                  setWaVarMap(prev => ({ ...prev, [String(num)]: { source: "fixed", value: "" } }));
+                                } else {
+                                  const opt = PERSONAL_WA_VAR_OPTIONS.find(o => o.key === k);
+                                  if (opt) {
+                                    const [src, fld] = opt.key.split(":");
+                                    setWaVarMap(prev => ({ ...prev, [String(num)]: { source: src, field: fld } as any }));
+                                  }
+                                }
+                              }}
+                              className="flex-1 h-7 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                            >
+                              <option value="">— elegir —</option>
+                              {PERSONAL_WA_VAR_OPTIONS.map(o => (
+                                <option key={o.key} value={o.key}>{o.label}</option>
+                              ))}
+                            </select>
+                            {entry?.source === "fixed" && (
+                              <Input
+                                value={(entry as any).value ?? ""}
+                                onChange={(e) => setWaVarMap(prev => ({ ...prev, [String(num)]: { source: "fixed", value: e.target.value } }))}
+                                placeholder="Texto fijo"
+                                className="flex-1 h-7 text-xs"
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {/* Phones */}
+                  <div className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                    <MessageSquare size={10} className="shrink-0" />
+                    <span className="truncate">
+                      {targets.map(t => resolvePhone(t)).filter(Boolean).join(", ") || "Sin teléfono configurado"}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Date + Time */}
@@ -536,35 +690,62 @@ const PersonalReminderPanel = ({ onBack }: { onBack: () => void }) => {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
-type Panel = "menu" | "calendar" | "form" | "personal";
+type Panel = "menu" | "calendar" | "form" | "personal" | "plantillas";
 
 const CrmReminders = () => {
   const [panel, setPanel] = useState<Panel>("menu");
 
-  if (panel === "calendar") return <CalendarReminderPanel onBack={() => setPanel("menu")} />;
-  if (panel === "form")     return <FormReminderPanel     onBack={() => setPanel("menu")} />;
-  if (panel === "personal") return <PersonalReminderPanel onBack={() => setPanel("menu")} />;
+  if (panel === "calendar")   return <CalendarReminderPanel onBack={() => setPanel("menu")} />;
+  if (panel === "form")       return <FormReminderPanel     onBack={() => setPanel("menu")} />;
+  if (panel === "personal")   return <PersonalReminderPanel onBack={() => setPanel("menu")} />;
+  if (panel === "plantillas") return (
+    <div className="space-y-4">
+      <button
+        onClick={() => setPanel("menu")}
+        className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft size={14} /> Volver
+      </button>
+      <div>
+        <h2 className="text-lg font-semibold flex items-center gap-2">
+          <Megaphone size={16} className="text-primary" /> Plantillas de WhatsApp
+        </h2>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          Plantillas transaccionales (UTILITY) para recordatorios y seguimientos automatizados.
+        </p>
+      </div>
+      <CrmWaTemplates
+        context="notification"
+        forcedCategory="UTILITY"
+        associationOptions={[
+          { id: "calendar", label: "Recordatorio de cita",       type: "calendar" as const, entityId: null },
+          { id: "form",     label: "Seguimiento de formulario",  type: "form"     as const, entityId: null },
+          { id: "general",  label: "Envío general",              type: "general"  as const, entityId: null },
+        ]}
+      />
+    </div>
+  );
 
   return (
     <div className="space-y-8">
       <div>
         <h1 className="text-xl font-semibold flex items-center gap-2">
-          <Bell size={18} className="text-primary" /> Notificaciones
+          <Send size={18} className="text-primary" /> Envíos
         </h1>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Gestiona notificaciones de calendarios, formularios y personales.
+          Configura envíos automáticos de recordatorios y confirmaciones a tus contactos.
         </p>
       </div>
 
-      <div className="grid sm:grid-cols-3 gap-4">
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <button onClick={() => setPanel("calendar")}
           className="flex flex-col items-start gap-3 p-5 bg-card border rounded-2xl hover:border-primary/40 hover:bg-secondary/30 transition-all text-left">
           <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center">
             <CalendarDays size={18} className="text-primary" />
           </div>
           <div>
-            <p className="text-sm font-semibold">Calendario</p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Notificaciones antes o después de citas agendadas.</p>
+            <p className="text-sm font-semibold">Citas</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Envía recordatorios y confirmaciones antes o después de una cita.</p>
           </div>
           <ChevronRight size={13} className="text-muted-foreground mt-auto self-end" />
         </button>
@@ -575,8 +756,8 @@ const CrmReminders = () => {
             <ClipboardList size={18} className="text-blue-600 dark:text-blue-400" />
           </div>
           <div>
-            <p className="text-sm font-semibold">Formulario</p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Notificaciones tras completar un formulario.</p>
+            <p className="text-sm font-semibold">Formularios</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Envía un mensaje de seguimiento cuando alguien completa un formulario.</p>
           </div>
           <ChevronRight size={13} className="text-muted-foreground mt-auto self-end" />
         </button>
@@ -588,7 +769,19 @@ const CrmReminders = () => {
           </div>
           <div>
             <p className="text-sm font-semibold">Personal</p>
-            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Notas programadas para ti o tu equipo.</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Programa envíos manuales para ti o tu equipo.</p>
+          </div>
+          <ChevronRight size={13} className="text-muted-foreground mt-auto self-end" />
+        </button>
+
+        <button onClick={() => setPanel("plantillas")}
+          className="flex flex-col items-start gap-3 p-5 bg-card border rounded-2xl hover:border-primary/40 hover:bg-secondary/30 transition-all text-left">
+          <div className="w-10 h-10 rounded-xl bg-green-50 dark:bg-green-950/30 flex items-center justify-center">
+            <Megaphone size={18} className="text-green-600 dark:text-green-400" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold">Plantillas WhatsApp</p>
+            <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">Plantillas UTILITY para envíos fuera de las 24h.</p>
           </div>
           <ChevronRight size={13} className="text-muted-foreground mt-auto self-end" />
         </button>

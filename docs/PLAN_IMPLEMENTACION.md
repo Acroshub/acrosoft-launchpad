@@ -4068,7 +4068,7 @@ CREATE TABLE crm_course_magic_links (
 
 ### B18-8 · Videos en Cursos via Bunny.net
 
-**Estado:** ⏳ PENDIENTE
+**Estado:** ✅ COMPLETADO
 
 **Dependencias:** B18-7
 

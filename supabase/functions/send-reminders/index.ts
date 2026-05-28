@@ -10,6 +10,8 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
+const GRAPH = "https://graph.facebook.com/v21.0";
+
 function respond(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -17,7 +19,7 @@ function respond(body: unknown, status = 200) {
   });
 }
 
-// ── Variable resolution ────────────────────────────────────────────────────────
+// ── Variable resolution (email templates) ─────────────────────────────────────
 
 interface TemplateVars {
   contact_name?:        string;
@@ -96,7 +98,6 @@ async function buildTemplateVars(reminder: Record<string, any>): Promise<Templat
         ?? undefined;
     }
 
-    // Resolve vendor name if this reminder belongs to a vendor's calendar
     const { data: vendor } = await supabase
       .from("crm_vendors")
       .select("name")
@@ -106,6 +107,49 @@ async function buildTemplateVars(reminder: Record<string, any>): Promise<Templat
   }
 
   return vars;
+}
+
+// ── WA template variable resolution ──────────────────────────────────────────
+
+function resolveWaVars(
+  varMap: Record<string, any>,
+  vars: TemplateVars,
+): string[] {
+  const varNums = Object.keys(varMap).map(Number).sort((a, b) => a - b);
+  return varNums.map(num => {
+    const entry = varMap[String(num)];
+    if (!entry) return "";
+    switch (entry.source) {
+      case "contact_field":
+        return String((vars as any)[`contact_${entry.field}`] ?? "");
+      case "appointment_field":
+        return String((vars as any)[`appointment_${entry.field}`] ?? "");
+      case "calendar_field":
+        return String(vars.calendar_name ?? "");
+      case "business_field":
+        return String(vars.business_name ?? "");
+      case "fixed":
+        return String(entry.value ?? "");
+      default:
+        return "";
+    }
+  });
+}
+
+// ── WABA config cache (per-user per-invocation) ───────────────────────────────
+
+const wabaConfigCache = new Map<string, { phone_number_id: string; access_token: string } | null>();
+
+async function getWabaConfig(userId: string) {
+  if (wabaConfigCache.has(userId)) return wabaConfigCache.get(userId)!;
+  const { data } = await supabase
+    .from("crm_ai_agent_config")
+    .select("phone_number_id, access_token")
+    .eq("user_id", userId)
+    .maybeSingle();
+  const cfg = (data?.phone_number_id && data?.access_token) ? data : null;
+  wabaConfigCache.set(userId, cfg);
+  return cfg;
 }
 
 Deno.serve(async (req) => {
@@ -168,7 +212,6 @@ Deno.serve(async (req) => {
       .eq("id", item.id);
 
     try {
-      // ── Resolve template variables ──────────────────────────────────────────
       const vars = await buildTemplateVars(reminder);
 
       const resolvedMessage = resolveVariables(reminder.message ?? "", vars);
@@ -176,12 +219,15 @@ Deno.serve(async (req) => {
         ? resolveVariables(reminder.subject, vars)
         : "Tienes una notificación";
 
-      // WhatsApp deshabilitado. Reglas legacy con solo WhatsApp se tratan como email.
       const channels = reminder.channels as { email?: boolean; whatsapp?: boolean } | null;
-      const sendEmail    = channels
-        ? (!!channels.email || !!channels.whatsapp) // WA-only legacy → fallback a email
-        : reminder.type === "email" || reminder.type === "whatsapp";
-      const sendWhatsapp = false;
+      const sendEmail    = channels ? !!channels.email : (reminder.type === "email");
+      const sendWhatsapp = channels
+        ? (!!channels.whatsapp && !!reminder.whatsapp_template_id && !!reminder.recipient_phone)
+        : false;
+
+      if (!sendEmail && !sendWhatsapp) {
+        throw new Error(`No active channels in reminder ${reminder.id}`);
+      }
 
       const errors: string[] = [];
 
@@ -213,12 +259,66 @@ Deno.serve(async (req) => {
         }
       }
 
-      if (!sendEmail) {
-        throw new Error(`No active channels in reminder ${reminder.id}`);
+      // ── Canal: WhatsApp template ────────────────────────────────────────────
+      if (sendWhatsapp) {
+        const wabaCfg = await getWabaConfig(reminder.user_id);
+        if (!wabaCfg) {
+          errors.push("WABA not configured for user");
+        } else {
+          const { data: template } = await supabase
+            .from("crm_wa_templates")
+            .select("name, language")
+            .eq("id", reminder.whatsapp_template_id)
+            .single();
+
+          if (!template) {
+            errors.push(`WA template ${reminder.whatsapp_template_id} not found`);
+          } else {
+            const phone = String(reminder.recipient_phone).replace(/\D/g, "");
+            if (phone.length < 7) {
+              errors.push(`Número de teléfono inválido para WhatsApp: "${reminder.recipient_phone}"`);
+            } else {
+              const varMap = (reminder.whatsapp_variable_map as Record<string, any>) ?? {};
+              const resolvedValues = resolveWaVars(varMap, vars);
+
+              const msgPayload: any = {
+                messaging_product: "whatsapp",
+                to: phone,
+                type: "template",
+                template: {
+                  name:     template.name,
+                  language: { code: template.language },
+                },
+              };
+
+              if (resolvedValues.length > 0) {
+                msgPayload.template.components = [{
+                  type:       "body",
+                  parameters: resolvedValues.map(v => ({ type: "text", text: v || " " })),
+                }];
+              }
+
+              const waRes = await fetch(`${GRAPH}/${wabaCfg.phone_number_id}/messages`, {
+                method:  "POST",
+                headers: {
+                  Authorization:  `Bearer ${wabaCfg.access_token}`,
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify(msgPayload),
+              });
+
+              if (!waRes.ok) {
+                const waErr = await waRes.json().catch(() => ({}));
+                const errMsg = (waErr as any)?.error?.message ?? `Meta ${waRes.status}`;
+                errors.push(`WhatsApp error: ${errMsg}`);
+                console.error("[send-reminders] Meta error:", JSON.stringify(waErr));
+              }
+            }
+          }
+        }
       }
 
       if (errors.length > 0) {
-        // Canal email falló
         throw new Error(errors.join(" | "));
       }
 

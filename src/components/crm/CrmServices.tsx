@@ -1,24 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, GripVertical, Tag, CreditCard } from "lucide-react";
-import { useServices, useCreateService, useUpdateService, useDeleteService } from "@/hooks/useCrmData";
+import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, GripVertical, Tag, CreditCard, Globe } from "lucide-react";
+import { useServices, useCreateService, useUpdateService, useDeleteService, usePricesByEntity, useUpsertPrices } from "@/hooks/useCrmData";
 import type { CrmService } from "@/lib/supabase";
+import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import PaymentMethodsEditor from "@/components/shared/PaymentMethodsEditor";
 
-const CURRENCIES = [
-  { value: "USD", label: "$ USD — Dólar" },
-  { value: "BOB", label: "Bs. BOB — Boliviano" },
-  { value: "PEN", label: "S/ PEN — Sol" },
-];
-
-const CURRENCY_SYMBOLS: Record<string, string> = { USD: "$", BOB: "Bs.", PEN: "S/" };
-const fmtSvc = (amount: number, currency?: string | null) => {
-  const sym = CURRENCY_SYMBOLS[(currency ?? "USD").toUpperCase()] ?? "$";
-  return `${sym}${amount.toFixed(2)}`;
-};
+import { CURRENCIES, formatAmount } from "@/lib/currencies";
+const fmtSvc = (amount: number, currency?: string | null) => formatAmount(amount, currency);
 import {
   DndContext,
   closestCenter,
@@ -64,6 +56,29 @@ const ServiceEditor = ({
   const [discountPct, setDiscountPct]                   = useState(service.discount_pct ?? 0);
   const [recurringDiscountPct, setRecurringDiscountPct] = useState(service.recurring_discount_pct ?? 0);
   const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  // Multi-currency prices
+  const upsertPrices = useUpsertPrices();
+  const { data: existingPrices = [] } = usePricesByEntity("service", service.id);
+  const [prices, setPrices] = useState<PriceEntry[]>([]);
+  const pricesRef            = useRef(prices);
+  const pricesSaveTimer      = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price })));
+  }, [existingPrices]);
+  const handlePricesChange = (next: PriceEntry[]) => {
+    setPrices(next);
+    pricesRef.current = next;
+    clearTimeout(pricesSaveTimer.current);
+    pricesSaveTimer.current = setTimeout(() => {
+      upsertPrices.mutate(
+        { entityType: "service", entityId: service.id, prices: pricesRef.current },
+        { onError: () => toast.error("Error al guardar los precios adicionales") }
+      );
+    }, 800);
+  };
+
+  useEffect(() => () => clearTimeout(pricesSaveTimer.current), []);
 
   const discountedPrice          = discountPct > 0 ? price * (1 - discountPct / 100) : null;
   const discountedRecurringPrice = recurringPrice > 0 && recurringDiscountPct > 0
@@ -202,7 +217,7 @@ const ServiceEditor = ({
                 onChange={e => setCurrency(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                {CURRENCIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code} — {c.name.split(" (")[0]}</option>)}
               </select>
             </div>
 
@@ -230,6 +245,9 @@ const ServiceEditor = ({
               )}
             </div>
           </div>
+
+          {/* Precios multi-moneda */}
+          <PriceListEditor value={prices} onChange={handlePricesChange} baseCurrency={currency} />
 
           {/* Cobro recurrente */}
           <div className="space-y-3">
@@ -391,16 +409,20 @@ const SortableServiceItem = ({
   svc,
   handleEdit,
   handleDelete,
+  handleToggleLanding,
   canEdit,
   canDelete,
   canReorder,
+  isSuperAdmin,
 }: {
   svc: CrmService;
   handleEdit: (id: string) => void;
   handleDelete: (id: string) => void;
+  handleToggleLanding: (id: string, value: boolean) => void;
   canEdit: boolean;
   canDelete: boolean;
   canReorder: boolean;
+  isSuperAdmin: boolean;
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: svc.id });
 
@@ -507,6 +529,12 @@ const SortableServiceItem = ({
                   Destacado
                 </span>
               )}
+              {isSuperAdmin && (
+                <span className={`flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${svc.show_on_landing ? "text-sky-600 bg-sky-500/10" : "text-muted-foreground bg-secondary"}`}>
+                  <Globe size={9} />
+                  {svc.show_on_landing ? "Landing" : "Sin landing"}
+                </span>
+              )}
               {(svc.benefits?.filter(Boolean).length ?? 0) > 0 && (
                 <span className="text-[9px] text-muted-foreground/70">
                   {svc.benefits?.filter(Boolean).length} beneficios
@@ -517,8 +545,17 @@ const SortableServiceItem = ({
         </div>
 
         {/* Actions */}
-        {(canEdit || canDelete) && (
+        {(canEdit || canDelete || isSuperAdmin) && (
           <div className="flex items-center gap-0.5 px-2 border-l">
+            {isSuperAdmin && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleToggleLanding(svc.id, !svc.show_on_landing); }}
+                title={svc.show_on_landing ? "Quitar de Landing Page" : "Mostrar en Landing Page"}
+                className={`w-9 h-9 flex items-center justify-center rounded-xl transition-colors ${svc.show_on_landing ? "text-sky-500 hover:bg-sky-500/10" : "text-muted-foreground/40 hover:bg-secondary hover:text-muted-foreground"}`}
+              >
+                <Globe size={14} />
+              </button>
+            )}
             {canEdit && (
               <Button
                 variant="ghost"
@@ -622,6 +659,14 @@ const CrmServices = ({
       toast.error("Error al eliminar");
     } finally {
       setDeleteTarget(null);
+    }
+  };
+
+  const handleToggleLanding = async (id: string, value: boolean) => {
+    try {
+      await updateService.mutateAsync({ id, show_on_landing: value });
+    } catch {
+      toast.error("Error al actualizar");
     }
   };
 
@@ -736,9 +781,11 @@ const CrmServices = ({
                     svc={svc}
                     handleEdit={handleEdit}
                     handleDelete={handleDelete}
+                    handleToggleLanding={handleToggleLanding}
                     canEdit={canEdit}
                     canDelete={canDelete}
                     canReorder={canReorder}
+                    isSuperAdmin={isSuperAdmin}
                   />
                 ))}
               </div>

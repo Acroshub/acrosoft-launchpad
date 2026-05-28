@@ -197,6 +197,7 @@ export type CrmService = {
   is_saas: boolean
   discount_pct: number
   recurring_discount_pct: number
+  show_on_landing: boolean
 }
 
 export type CrmSale = {
@@ -227,6 +228,17 @@ export type CrmSale = {
   deliverable_sent_at: string | null
   payment_method_type: string | null
   product_name: string | null
+}
+
+export type CrmPrice = {
+  id: string
+  user_id: string
+  entity_type: 'product' | 'service' | 'course'
+  entity_id: string
+  currency: string
+  price: number
+  sort_order: number
+  created_at: string
 }
 
 export type CrmContactNote = {
@@ -300,6 +312,8 @@ export type CrmReminder = {
   is_personal?: boolean
   staff_id?: string | null
   business_target?: string | null
+  whatsapp_template_id?: string | null
+  whatsapp_variable_map?: ReminderWaVarMap | null
 }
 
 export type CrmVideoCourse = {
@@ -346,6 +360,7 @@ export type CrmCourse = {
   thumbnail_url: string | null
   is_published: boolean
   price: number | null
+  currency: string
   created_at: string
   updated_at: string
 }
@@ -578,6 +593,8 @@ export type CrmAIAgentConfig = {
   selected_product_ids: string[]
   services_mode: 'all' | 'selected' | 'none'
   selected_service_ids: string[]
+  courses_mode: 'all' | 'selected' | 'none'
+  selected_course_ids: string[]
   auto_detect_payments: boolean
   payment_notify_email: string | null
   // Configuración estratégica B15-1
@@ -753,5 +770,106 @@ export type CrmWaFlow = {
   is_active: boolean
   created_at: string
   updated_at: string
+}
+
+// ─── WhatsApp Templates (HSM) ─────────────────────────────────────────────────
+
+export type WaTemplateButton =
+  | { type: 'QUICK_REPLY'; text: string }
+  | { type: 'URL';         text: string; url: string }
+  | { type: 'PHONE_NUMBER'; text: string; phone_number: string }
+
+export type WaTemplateHeaderType = 'NONE' | 'TEXT' | 'IMAGE' | 'VIDEO' | 'DOCUMENT'
+export type WaTemplateCategory   = 'MARKETING' | 'UTILITY'
+export type WaTemplateStatus     = 'DRAFT' | 'PENDING' | 'APPROVED' | 'REJECTED' | 'PAUSED'
+export type WaTemplateContext    = 'remarketing' | 'notification'
+export type WaTemplateAssocType  = 'product' | 'service' | 'course' | 'calendar' | 'form' | 'general'
+
+export type CrmWaTemplate = {
+  id: string
+  user_id: string
+  meta_template_id: string | null
+  name: string
+  category: WaTemplateCategory
+  language: string
+  header_type: WaTemplateHeaderType
+  header_text: string | null
+  body_text: string
+  footer_text: string | null
+  buttons: WaTemplateButton[]
+  variable_labels: string[]
+  usage_context: WaTemplateContext
+  association_type: WaTemplateAssocType | null
+  association_id: string | null
+  local_status: WaTemplateStatus
+  meta_status: string | null
+  rejection_reason: string | null
+  created_at: string
+  updated_at: string
+}
+
+// ─── WA Campaigns ─────────────────────────────────────────────────────────────
+
+export type WaVarSource =
+  | { source: "contact_field"; field: "name" | "email" | "phone" | "company" }
+  | { source: "fixed"; value: string }
+  | { source: "product_field"; entityId: string; entityName: string; field: "name" | "price" }
+  | { source: "service_field"; entityId: string; entityName: string; field: "name" | "price" }
+  | { source: "course_field";  entityId: string; entityName: string; field: "title" | "price" }
+
+export type WaVarMap = Record<string, WaVarSource>
+
+// Reminder-specific WA variable sources (context: contact + appointment + calendar + business)
+export type ReminderWaVarSource =
+  | { source: "contact_field";     field: "name" | "email" | "phone" }
+  | { source: "appointment_field"; field: "date" | "time" | "service" }
+  | { source: "calendar_field";    field: "name" }
+  | { source: "business_field";    field: "name" }
+  | { source: "fixed";             value: string }
+
+export type ReminderWaVarMap = Record<string, ReminderWaVarSource>
+
+export type WaAudienceFilter =
+  | { type: "tag";                    value: string }
+  | { type: "wa_label";               labelId: string;    labelName: string }
+  | { type: "pipeline_stage";         pipelineId: string; pipelineName: string; stage: string }
+  | { type: "has_sale_any" }
+  | { type: "has_sale_product";       productId: string;  productName: string }
+  | { type: "has_sale_service";       serviceId: string;  serviceName: string }
+  | { type: "no_sale" }
+  | { type: "has_appointment_ever" }
+  | { type: "has_appointment_recent"; days: number }
+  | { type: "has_wa_conversation" }
+
+export type WaCampaignStatus = "draft" | "processing" | "completed" | "failed" | "cancelled"
+
+export type CrmWaCampaign = {
+  id: string
+  user_id: string
+  template_id: string
+  name: string
+  variable_map: WaVarMap
+  audience_type: "all" | "include" | "exclude"
+  audience_filters: WaAudienceFilter[]
+  status: WaCampaignStatus
+  total_contacts: number | null
+  sent_count: number
+  failed_count: number
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+  // joined
+  crm_wa_templates?: { name: string; body_text: string; language: string } | null
+}
+
+export type CrmWaCampaignLog = {
+  id: string
+  campaign_id: string
+  contact_id: string | null
+  phone: string
+  contact_name: string | null
+  status: "pending" | "sent" | "failed"
+  error_message: string | null
+  sent_at: string | null
 }
 

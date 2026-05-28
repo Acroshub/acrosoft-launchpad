@@ -584,6 +584,8 @@ Deno.serve(async (req) => {
                 recipient_phone: hasPhone ? phoneVal : null,
                 scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
                 business_target: marker,
+                whatsapp_template_id:  rule.whatsapp_template_id ?? null,
+                whatsapp_variable_map: rule.whatsapp_variable_map ?? null,
               }).select("id").single();
               if (rem?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: rem.id }); queued++; }
 
@@ -631,6 +633,8 @@ Deno.serve(async (req) => {
                   recipient_phone: hasPhone ? phoneVal : null,
                   scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
                   business_target: marker,
+                  whatsapp_template_id:  rule.whatsapp_template_id ?? null,
+                  whatsapp_variable_map: rule.whatsapp_variable_map ?? null,
                 }).select("id").single();
                 if (rem?.id) { await supabase.from("crm_reminder_queue").insert({ reminder_id: rem.id }); queued++; }
               }

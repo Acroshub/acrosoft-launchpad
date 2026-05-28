@@ -86,7 +86,7 @@ async function uploadMedia(buffer: ArrayBuffer, path: string, mimeType: string):
   }
 }
 
-// ─── POST — incoming messages ─────────────────────────────────────────────────
+// ─── POST — incoming messages + template status updates ──────────────────────
 async function handlePost(req: Request): Promise<Response> {
   const rawBody = await req.text();
   const signatureHeader = req.headers.get("x-hub-signature-256");
@@ -97,28 +97,90 @@ async function handlePost(req: Request): Promise<Response> {
 
   if (payload?.object !== "whatsapp_business_account") return new Response("ok", { status: 200 });
 
-  const phoneNumberId = payload?.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
-  if (!phoneNumberId) return new Response("ok", { status: 200 });
+  // Detect event type from first change field
+  const firstChange = payload?.entry?.[0]?.changes?.[0];
+  const isTemplateEvent = firstChange?.field === "message_template_status_update";
 
-  const { data: config } = await supabase
-    .from("crm_ai_agent_config")
-    .select("user_id, app_secret, access_token, is_active")
-    .eq("phone_number_id", phoneNumberId)
-    .maybeSingle();
+  // Look up tenant config — by waba_id for template events, by phone_number_id for messages
+  let config: { user_id: string; app_secret: string | null; access_token: string | null; is_active: boolean } | null = null;
+
+  if (isTemplateEvent) {
+    const wabaId = payload?.entry?.[0]?.id;
+    if (wabaId) {
+      const { data } = await supabase
+        .from("crm_ai_agent_config")
+        .select("user_id, app_secret, access_token, is_active")
+        .eq("waba_id", wabaId)
+        .maybeSingle();
+      config = data ?? null;
+    }
+  } else {
+    const phoneNumberId = firstChange?.value?.metadata?.phone_number_id;
+    if (phoneNumberId) {
+      const { data } = await supabase
+        .from("crm_ai_agent_config")
+        .select("user_id, app_secret, access_token, is_active")
+        .eq("phone_number_id", phoneNumberId)
+        .maybeSingle();
+      config = data ?? null;
+    }
+  }
 
   if (!config?.app_secret) return new Response("ok", { status: 200 });
 
   const valid = await verifySignature(rawBody, signatureHeader, config.app_secret);
   if (!valid) return new Response("invalid signature", { status: 401 });
 
-  // Respond 200 immediately, process async
-  processPayload(payload, config.user_id, config.is_active, config.access_token ?? "").catch((err) =>
-    console.error("[webhook] error procesando payload:", err)
-  );
+  if (isTemplateEvent) {
+    // Process template status updates async
+    processTemplateStatusUpdates(payload, config.user_id).catch((err) =>
+      console.error("[webhook] error procesando template status:", err)
+    );
+  } else {
+    // Respond 200 immediately, process messages async
+    processPayload(payload, config.user_id, config.is_active, config.access_token ?? "").catch((err) =>
+      console.error("[webhook] error procesando payload:", err)
+    );
+  }
 
   return new Response(JSON.stringify({ ok: true }), {
     status: 200, headers: { "Content-Type": "application/json" },
   });
+}
+
+// ─── Template status auto-sync from Meta webhook ─────────────────────────────
+async function processTemplateStatusUpdates(payload: any, tenantUserId: string): Promise<void> {
+  for (const entry of payload.entry ?? []) {
+    for (const change of entry.changes ?? []) {
+      if (change.field !== "message_template_status_update") continue;
+      const val = change.value ?? {};
+
+      const metaTemplateId = String(val.message_template_id ?? "");
+      const metaStatus: string = val.event ?? "";      // APPROVED, REJECTED, FLAGGED, PAUSED, etc.
+      const rejectedReason: string | null = val.reason && val.reason !== "NONE" ? val.reason : null;
+
+      if (!metaTemplateId || !metaStatus) continue;
+
+      const localStatus =
+        metaStatus === "APPROVED"  ? "APPROVED"  :
+        metaStatus === "REJECTED"  ? "REJECTED"  :
+        metaStatus === "PAUSED"    ? "PAUSED"    :
+        metaStatus === "FLAGGED"   ? "REJECTED"  : "PENDING";
+
+      await supabase
+        .from("crm_wa_templates")
+        .update({
+          local_status: localStatus,
+          meta_status:  metaStatus,
+          rejection_reason: rejectedReason,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", tenantUserId)
+        .eq("meta_template_id", metaTemplateId);
+
+      console.log(`[webhook] template ${metaTemplateId} → ${localStatus}`);
+    }
+  }
 }
 
 // ─── Async payload processing ─────────────────────────────────────────────────
@@ -406,6 +468,25 @@ async function sendAutoReply(phone: string, text: string, tenantUserId: string, 
   await supabase.from("crm_wa_conversations").update({ last_message_at: new Date().toISOString() }).eq("id", conversationId);
 }
 
+async function invokeAgentWithRetry(
+  url: string,
+  body: string,
+  headers: Record<string, string>,
+  maxAttempts = 2,
+): Promise<void> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, { method: "POST", headers, body });
+      if (res.ok || res.status < 500) return;
+      console.warn(`[webhook] ai-agent intento ${attempt}/${maxAttempts} → status ${res.status}`);
+    } catch (err) {
+      console.warn(`[webhook] ai-agent intento ${attempt}/${maxAttempts} → error:`, err);
+    }
+    if (attempt < maxAttempts) await new Promise((r) => setTimeout(r, 1000 * attempt));
+  }
+  console.error("[webhook] ai-agent falló después de todos los intentos");
+}
+
 async function maybeInvokeAgent(
   conv: { id: string; mode: string },
   tenantUserId: string,
@@ -424,15 +505,15 @@ async function maybeInvokeAgent(
 
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-  fetch(`${supabaseUrl}/functions/v1/ai-agent`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${serviceKey}`,
-      "apikey": serviceKey,
-    },
-    body: JSON.stringify({ conversation_id: conv.id, tenant_user_id: tenantUserId, phone, ...extra }),
-  }).catch((err) => console.error("[webhook] error invocando ai-agent:", err));
+  const headers = {
+    "Content-Type": "application/json",
+    "Authorization": `Bearer ${serviceKey}`,
+    "apikey": serviceKey,
+  };
+  const body = JSON.stringify({ conversation_id: conv.id, tenant_user_id: tenantUserId, phone, ...extra });
+
+  invokeAgentWithRetry(`${supabaseUrl}/functions/v1/ai-agent`, body, headers)
+    .catch((err) => console.error("[webhook] error inesperado en retry:", err));
 }
 
 // ─── Entry point ───────────────────────────────────────────────────────────────

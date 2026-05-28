@@ -1343,11 +1343,11 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
               <div>
                 <h2 className="text-sm font-semibold flex items-center gap-2">
                   <span className="w-5 h-5 rounded-lg bg-amber-100 flex items-center justify-center text-amber-600 text-xs">🔔</span>
-                  Recordatorios automáticos
+                  Notificaciones automáticas
                 </h2>
-                <p className="text-xs text-muted-foreground mt-1">Se enviarán automáticamente después de que alguien complete este formulario o agende una cita vinculada.</p>
+                <p className="text-xs text-muted-foreground mt-1">Se enviarán automáticamente cuando alguien complete este formulario.</p>
               </div>
-              <ReminderRulesEditor rules={reminderRules} onChange={handleRulesChange} />
+              <ReminderRulesEditor rules={reminderRules} onChange={handleRulesChange} mode="form" />
             </div>
           )}
           {formTab === "notificaciones" && !canEditReminders && (

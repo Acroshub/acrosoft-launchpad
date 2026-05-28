@@ -1831,30 +1831,9 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-semibold text-sm truncate">{detail.name}</p>
-                    {/* Badge de estado — clickable para cambiar si puede editar */}
-                    {canEditCalendar ? (
-                      <div className="relative mt-1 inline-block">
-                        <select
-                          value={detail.status}
-                          onChange={async (e) => {
-                            const newStatus = e.target.value === "Cancelada" ? "cancelled" : "confirmed";
-                            try {
-                              await updateAppointment.mutateAsync({ id: detail.id, status: newStatus });
-                              toast.success("Estado actualizado");
-                            } catch { toast.error("Error al actualizar"); }
-                          }}
-                          className={`text-[10px] appearance-none bg-background border px-2.5 py-1 rounded-full pr-6 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 font-semibold ${statusStyles[detail.status] || ""}`}
-                        >
-                          <option value="Confirmada">Confirmada</option>
-                          <option value="Cancelada">Cancelada</option>
-                        </select>
-                        <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
-                      </div>
-                    ) : (
-                      <span className={`mt-1 inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full border ${statusStyles[detail.status] || ""}`}>
-                        {detail.status}
-                      </span>
-                    )}
+                    <span className={`mt-1 inline-block text-[10px] font-semibold px-2.5 py-1 rounded-full border ${statusStyles[detail.status] || ""}`}>
+                      {detail.status}
+                    </span>
                   </div>
                   {canEditCalendar && (
                     <div className="flex items-center gap-0.5 mt-0.5 shrink-0">
@@ -2157,30 +2136,9 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                       </div>
                       <div className="flex-1 min-w-0 pt-0.5">
                         <p className="font-semibold text-base truncate leading-tight">{detail.name}</p>
-                        {/* Badge de estado */}
-                        {canEditCalendar ? (
-                          <div className="relative mt-1.5 inline-block">
-                            <select
-                              value={detail.status}
-                              onChange={async (e) => {
-                                const newStatus = e.target.value === "Cancelada" ? "cancelled" : "confirmed";
-                                try {
-                                  await updateAppointment.mutateAsync({ id: detail.id, status: newStatus });
-                                  toast.success("Estado actualizado");
-                                } catch { toast.error("Error al actualizar"); }
-                              }}
-                              className={`text-xs appearance-none bg-background border px-3 py-1 rounded-full pr-7 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 font-semibold ${statusStyles[detail.status] || ""}`}
-                            >
-                              <option value="Confirmada">Confirmada</option>
-                              <option value="Cancelada">Cancelada</option>
-                            </select>
-                            <ChevronDown size={11} className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
-                          </div>
-                        ) : (
-                          <span className={`mt-1.5 inline-block text-xs font-semibold px-3 py-1 rounded-full border ${statusStyles[detail.status] || ""}`}>
-                            {detail.status}
-                          </span>
-                        )}
+                        <span className={`mt-1.5 inline-block text-xs font-semibold px-3 py-1 rounded-full border ${statusStyles[detail.status] || ""}`}>
+                          {detail.status}
+                        </span>
                       </div>
                     </div>
 
@@ -2307,24 +2265,9 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
               </div>
 
               <div className="flex items-center gap-2 shrink-0 ml-4">
-                {/* Badge estado con select */}
-                <div className="relative inline-block">
-                  <select
-                    value={detail.status}
-                    onChange={async (e) => {
-                      const newStatus = e.target.value === "Cancelada" ? "cancelled" : "confirmed";
-                      try {
-                        await updateAppointment.mutateAsync({ id: detail.id, status: newStatus });
-                        toast.success("Estado actualizado");
-                      } catch { toast.error("Error al actualizar"); }
-                    }}
-                    className={`text-[10px] appearance-none bg-background border px-2.5 py-1 rounded-full pr-5 cursor-pointer hover:bg-secondary/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary/20 font-semibold ${statusStyles[detail.status] || ""}`}
-                  >
-                    <option value="Confirmada">Confirmada</option>
-                    <option value="Cancelada">Cancelada</option>
-                  </select>
-                  <ChevronDown size={10} className="absolute right-1.5 top-1/2 -translate-y-1/2 pointer-events-none opacity-50" />
-                </div>
+                <span className={`text-[10px] font-semibold px-2.5 py-1 rounded-full border ${statusStyles[detail.status] || ""}`}>
+                  {detail.status}
+                </span>
                 {canEditCalendar && (
                   <div className="flex items-center gap-0.5 border-l pl-2 border-border/40">
                     <button

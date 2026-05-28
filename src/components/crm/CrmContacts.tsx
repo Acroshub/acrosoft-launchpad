@@ -10,13 +10,12 @@ import {
   ArrowLeft, FolderOpen, Star, FileText, MessageSquare,
   TrendingUp, Briefcase, Target, ImagePlus, Plus,
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
-  Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Bell, Upload, FileUp, CheckCircle2, Bot, BookOpen,
+  Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Upload, FileUp, CheckCircle2, Bot, BookOpen,
 } from "lucide-react";
 import Papa from "papaparse";
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess, useContactCourseMap, useContactCourseAccess } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
-import CreateReminderModal from "@/components/shared/CreateReminderModal";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { useStaffPermissions } from "@/hooks/useAuth";
@@ -1704,7 +1703,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
   const canCreate         = can("contactos", "create");
   const canEdit           = can("contactos", "edit");
   const canDelete         = can("contactos", "delete");
-  const canCreateReminder = can("recordatorios", "create");
 
   const { data: contacts = [], isLoading } = useContacts();
   const { data: forms = [] } = useForms();
@@ -1722,8 +1720,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
   const enableClient     = useEnableSaasClient();
 
   const [accessingCrm, setAccessingCrm]       = useState<string | null>(null);
-  const [reminderContact, setReminderContact] = useState<typeof contacts[0] | null>(null);
-
   // Map contact_id → client account for O(1) lookup
   const accountByContact = Object.fromEntries(
     clientAccounts.map((a) => [a.contact_id, a])
@@ -1930,14 +1926,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
       </Dialog>
     )}
 
-    <CreateReminderModal
-      open={!!reminderContact}
-      onOpenChange={(v) => { if (!v) setReminderContact(null); }}
-      contactId={reminderContact?.id}
-      contactEmail={reminderContact?.email}
-      contactPhone={reminderContact?.phone}
-      contactName={reminderContact?.name}
-    />
 
     <ImportWizard
       open={showImport}
@@ -2079,11 +2067,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                     </div>
                   )}
                 </div>
-                {canCreateReminder && (
-                  <button onClick={() => setReminderContact(detail)} className="w-full flex items-center justify-center gap-2 h-9 rounded-xl border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
-                    <Bell size={12} /> Crear recordatorio
-                  </button>
-                )}
                 {(() => {
                   const aiData = Object.entries(detail.ai_collected_data ?? {}).filter(([, v]) => v);
                   if (aiData.length === 0) return null;
@@ -2428,14 +2411,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                     )}
                   </div>
 
-                  {/* Recordatorio rápido */}
-                  {canCreateReminder && (
-                    <div>
-                      <button onClick={() => setReminderContact(detail)} className="w-full flex items-center justify-center gap-2 h-8 rounded-xl border text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
-                        <Bell size={12} /> Crear recordatorio
-                      </button>
-                    </div>
-                  )}
 
                   {/* Datos recopilados por el Agente IA */}
                   {(() => {

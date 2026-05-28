@@ -18,17 +18,13 @@ import {
   useUpsertProduct, useDeleteProduct, useToggleCatalogProduct,
   useProductVariants, useUpsertProductVariant, useDeleteProductVariant,
   useOrphanProducts, useBusinessProfile, useAIAgentConfig,
-  useAllProductVariants,
+  useAllProductVariants, usePricesByEntity, useUpsertPrices,
 } from "@/hooks/useCrmData";
 import type { CrmCatalog, CrmProduct, CrmProductVariant } from "@/lib/supabase";
+import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 
-const CURRENCIES: { value: string; label: string }[] = [
-  { value: "USD", label: "$ USD — Dólar" },
-  { value: "BOB", label: "Bs. BOB — Boliviano" },
-  { value: "PEN", label: "S/ PEN — Sol" },
-];
-const CUR_SYM: Record<string, string> = { USD: "$", BOB: "Bs.", PEN: "S/" };
-const fmtProd = (amount: number, cur: string) => `${CUR_SYM[cur] ?? cur} ${amount.toFixed(2)}`;
+import { CURRENCIES, formatAmount } from "@/lib/currencies";
+const fmtProd = (amount: number, cur: string) => formatAmount(amount, cur);
 
 // ─── Stock badge con tres niveles de color ────────────────────────────────────
 // variantTotal: suma de stocks de variantes (solo para has_variants=true); null = usar product.stock
@@ -355,6 +351,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
   const upsertProduct  = useUpsertProduct();
   const toggleCatalog  = useToggleCatalogProduct();
   const deleteProduct  = useDeleteProduct();
+  const upsertPrices   = useUpsertPrices();
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isNew = !initialProduct;
@@ -382,6 +379,11 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
 
   const { data: savedVariants = [], refetch: refetchVariants } = useProductVariants(product?.id ?? null);
   const { data: memberCatalogIds = [], refetch: refetchCatalogIds } = useProductCatalogIds(product?.id ?? null);
+  const { data: existingPrices = [] } = usePricesByEntity("product", product?.id ?? null);
+  const [prices, setPrices] = useState<PriceEntry[]>([]);
+  useEffect(() => {
+    setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price })));
+  }, [existingPrices]);
 
   const addedToFromCatalog = useRef(false);
   useEffect(() => {
@@ -416,6 +418,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
     try {
       const saved = await upsertProduct.mutateAsync(buildPayload());
       setProduct(saved);
+      await upsertPrices.mutateAsync({ entityType: "product", entityId: saved.id, prices });
       toast.success(product ? "Producto actualizado" : "Producto creado");
       if (andNext) setWizardStep(1);
     } catch (e: any) { toast.error(e.message?.slice(0,100) ?? "Error al guardar"); }
@@ -483,7 +486,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
           <label className="text-xs font-medium text-muted-foreground">Moneda</label>
           <select value={currency} onChange={e => setCurrency(e.target.value)}
             className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            {CURRENCIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+            {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code} — {c.name.split(" (")[0]}</option>)}
           </select>
         </div>
         <div className="space-y-1.5">
@@ -497,6 +500,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
           Precio final: {fmtProd(price * (1 - discountPct / 100), currency)} ({discountPct}% descuento)
         </p>
       )}
+      <PriceListEditor value={prices} onChange={setPrices} baseCurrency={currency} />
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">SKU <span className="text-muted-foreground/50">(opcional)</span></label>
         <Input value={sku} onChange={e => setSku(e.target.value)} placeholder="SKU-001" className="h-9 text-sm font-mono" />

@@ -153,19 +153,21 @@ async function processRules(
         const { data: newReminder } = await supabase
           .from("crm_reminders")
           .insert({
-            user_id:         appt.user_id,
-            appointment_id:  appt.id,
-            contact_id:      appt.contact_id,
-            type:            rule.channel,
-            channels:        ruleChannels,
-            recipient_email: hasEmail ? emailVal : null,
-            recipient_phone: hasPhone ? phoneVal : null,
-            scheduled_at:    scheduledAt.toISOString(),
-            subject:         (rule as any).subject?.trim() || null,
+            user_id:               appt.user_id,
+            appointment_id:        appt.id,
+            contact_id:            appt.contact_id,
+            type:                  rule.channel,
+            channels:              ruleChannels,
+            recipient_email:       hasEmail ? emailVal : null,
+            recipient_phone:       hasPhone ? phoneVal : null,
+            scheduled_at:          scheduledAt.toISOString(),
+            subject:               (rule as any).subject?.trim() || null,
             message,
-            status:          "pending",
-            is_auto:         true,
-            business_target: marker,
+            status:                "pending",
+            is_auto:               true,
+            business_target:       marker,
+            whatsapp_template_id:  (rule as any).whatsapp_template_id ?? null,
+            whatsapp_variable_map: (rule as any).whatsapp_variable_map ?? null,
           })
           .select("id")
           .single();
@@ -224,19 +226,21 @@ async function processRules(
           const { data: newReminder } = await supabase
             .from("crm_reminders")
             .insert({
-              user_id:         appt.user_id,
-              appointment_id:  appt.id,
-              contact_id:      appt.contact_id,
-              type:            rule.channel,
-              channels:        ruleChannels,
-              recipient_email: hasEmail ? emailVal : null,
-              recipient_phone: hasPhone ? phoneVal : null,
-              scheduled_at:    scheduledAt.toISOString(),
-              subject:         (rule as any).subject?.trim() || null,
+              user_id:               appt.user_id,
+              appointment_id:        appt.id,
+              contact_id:            appt.contact_id,
+              type:                  rule.channel,
+              channels:              ruleChannels,
+              recipient_email:       hasEmail ? emailVal : null,
+              recipient_phone:       hasPhone ? phoneVal : null,
+              scheduled_at:          scheduledAt.toISOString(),
+              subject:               (rule as any).subject?.trim() || null,
               message,
-              status:          "pending",
-              is_auto:         true,
-              business_target: marker,
+              status:                "pending",
+              is_auto:               true,
+              business_target:       marker,
+              whatsapp_template_id:  (rule as any).whatsapp_template_id ?? null,
+              whatsapp_variable_map: (rule as any).whatsapp_variable_map ?? null,
             })
             .select("id")
             .single();

@@ -37,16 +37,15 @@ type Props = {
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const CURRENCY_SYMBOLS: Record<string, string> = {
-  USD: "$", EUR: "€", GBP: "£",
-  BOB: "Bs.", PEN: "S/", COP: "COP$",
-  MXN: "$", ARS: "$", CLP: "$", UYU: "$", PYG: "₲",
-};
+import { formatAmount, getCurrencyFlag } from "@/lib/currencies";
 
 export function fmtSaleAmt(amount: number, currency?: string | null) {
-  const sym = CURRENCY_SYMBOLS[currency ?? "USD"] ?? (currency ?? "$");
-  return `${sym}${Number(amount).toFixed(2)}`;
+  return formatAmount(amount, currency);
+}
+
+export function fmtSaleAmtWithFlag(amount: number, currency?: string | null) {
+  const flag = getCurrencyFlag(currency ?? "USD");
+  return `${flag} ${formatAmount(amount, currency)}`;
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────

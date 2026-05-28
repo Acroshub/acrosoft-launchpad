@@ -30,6 +30,8 @@ interface AgentConfig {
   selected_product_ids: string[];
   services_mode: "all" | "selected";
   selected_service_ids: string[];
+  courses_mode: "all" | "selected" | "none";
+  selected_course_ids: string[];
   auto_detect_payments: boolean;
   payment_notify_email: string | null;
   // Configuración estratégica B15-1
@@ -1406,8 +1408,35 @@ async function buildServicesCatalog(config: AgentConfig): Promise<string> {
   return lines.join("\n");
 }
 
+// ─── Cargar catálogo de cursos ────────────────────────────────────────────────
+async function buildCoursesCatalog(config: AgentConfig): Promise<string> {
+  if (config.courses_mode === "none") return "";
+
+  let query = supabase
+    .from("crm_courses")
+    .select("id, title, description, price, currency, is_published")
+    .eq("user_id", config.user_id)
+    .eq("is_published", true)
+    .order("created_at", { ascending: false });
+
+  if (config.courses_mode === "selected" && config.selected_course_ids?.length) {
+    query = query.in("id", config.selected_course_ids);
+  }
+
+  const { data: courses } = await query;
+  if (!courses?.length) return "";
+
+  const lines: string[] = ["CATÁLOGO DE CURSOS:"];
+  for (const c of courses) {
+    const price = c.price != null ? formatPrice(c.price, c.currency) : "Consultar precio";
+    lines.push(`- ${c.title}: ${price} [course_id:${c.id}]`);
+    if (c.description) lines.push(`  Descripción: ${c.description}`);
+  }
+  return lines.join("\n");
+}
+
 // ─── Construir instrucciones estratégicas desde config B15-1 ─────────────────
-function buildStrategicInstructions(config: AgentConfig, businessFaqs: Array<{ q: string; a: string }> = []): string {
+function buildStrategicInstructions(config: AgentConfig, businessFaqs: Array<{ q: string; a: string }> = [], canSchedule = false): string {
   const parts: string[] = [];
 
   // Objectives — primero = CTA implícito
@@ -1419,7 +1448,8 @@ function buildStrategicInstructions(config: AgentConfig, businessFaqs: Array<{ q
       (secondary.length ? ` También puedes: ${secondary.join(", ")}.` : "")
     );
     const ctaMap: Record<string, string> = {
-      "Agendar citas": "Siempre que sea pertinente, invita al cliente a agendar una cita.",
+      // CTA de agendamiento solo se inyecta si hay calendario configurado
+      ...( canSchedule ? { "Agendar citas": "Siempre que sea pertinente, invita al cliente a agendar una cita." } : {}),
       "Vender productos": "Siempre que sea pertinente, orienta al cliente hacia la compra.",
       "Capturar leads": "Procura obtener los datos de contacto del cliente para hacer seguimiento.",
       "Calificar prospectos": "Haz las preguntas necesarias para calificar si el cliente es un prospecto válido.",
@@ -1518,13 +1548,14 @@ async function buildSystemPrompt(
 
   const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: config.timezone ?? "UTC" }).format(new Date());
 
-  const [businessRes, servicesRes, convRes, labelsRes, productsCatalog, servicesCatalog, slotsResult] = await Promise.all([
+  const [businessRes, servicesRes, convRes, labelsRes, productsCatalog, servicesCatalog, coursesCatalog, slotsResult] = await Promise.all([
     supabase.from("crm_business_profile").select("business_name, description, agent_faq").eq("user_id", config.user_id).maybeSingle(),
     supabase.from("crm_services").select("name, price, currency, description, discount_pct, is_recurring, recurring_price, recurring_interval, recurring_label, recurring_discount_pct").eq("user_id", config.user_id).eq("active", true).order("sort_order", { ascending: true }),
     supabase.from("crm_wa_conversations").select("contact_name, contact_id").eq("user_id", config.user_id).eq("phone", phone).maybeSingle(),
     supabase.from("crm_wa_labels").select("id, name, hint").eq("user_id", config.user_id).not("hint", "is", null),
     buildProductsCatalog(config),
     buildServicesCatalog(config),
+    buildCoursesCatalog(config),
     canSchedule ? getAvailableSlots(config.scheduling_calendar_id!) : Promise.resolve({ slots: [], scheduleDesc: "", minAdvHours: 1 } as SlotsResult),
   ]);
 
@@ -1533,7 +1564,7 @@ async function buildSystemPrompt(
   const bizFaqs = config.use_business_faq !== false
     ? ((business as { agent_faq?: Array<{ q: string; a: string }> } | null)?.agent_faq ?? [])
     : [];
-  const strategicInstructions = buildStrategicInstructions(config, bizFaqs);
+  const strategicInstructions = buildStrategicInstructions(config, bizFaqs, canSchedule);
   const hasStrategicConfig = strategicInstructions.length > 0;
   const services = servicesRes.data;
   const conv = convRes.data;
@@ -1575,10 +1606,11 @@ async function buildSystemPrompt(
     ? "\n\nSi el usuario pide explícitamente hablar con una persona, un humano o un agente, responde ÚNICAMENTE con el texto: [TRANSFER]. No agregues nada más."
     : "";
 
-  // Catálogo de productos y servicios con métodos de pago
+  // Catálogo de productos, servicios y cursos
   const catalogSections: string[] = [];
   if (productsCatalog) catalogSections.push(productsCatalog);
   if (servicesCatalog) catalogSections.push(servicesCatalog);
+  if (coursesCatalog) catalogSections.push(coursesCatalog);
 
   let catalogInstruction = "";
   if (catalogSections.length > 0) {

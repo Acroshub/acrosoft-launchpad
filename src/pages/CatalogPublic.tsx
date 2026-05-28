@@ -3,14 +3,14 @@ import { useParams } from "react-router-dom";
 import { X, ChevronLeft, ChevronRight, Package } from "lucide-react";
 import { supabasePublic } from "@/lib/supabase";
 import type { CrmCatalog, CrmProduct, CrmProductVariant, CrmBusinessProfile } from "@/lib/supabase";
+import { getCurrencySymbol } from "@/lib/currencies";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 type BusinessInfo = Pick<CrmBusinessProfile, "business_name" | "whatsapp" | "contact_phone" | "logo_url">;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
-const CURRENCY_SYMBOLS: Record<string, string> = { USD: "$", BOB: "Bs.", PEN: "S/", EUR: "€", GBP: "£" };
 const formatPrice = (price: number, currency: string) => {
-  const sym = CURRENCY_SYMBOLS[(currency ?? "USD").toUpperCase()] ?? currency;
+  const sym = getCurrencySymbol(currency ?? "USD");
   return `${sym} ${price.toLocaleString("es", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 };
 

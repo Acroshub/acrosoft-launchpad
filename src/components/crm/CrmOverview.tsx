@@ -10,14 +10,12 @@ import { supabase } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import SalesTable from "@/components/crm/SalesTable";
+import { formatAmount, getCurrencyFlag, getCurrencyFromPhone } from "@/lib/currencies";
+import { usePricesByEntity } from "@/hooks/useCrmData";
 
 const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
-const CURRENCY_SYMBOLS: Record<string, string> = { USD: "$", BOB: "Bs.", PEN: "S/", EUR: "€", GBP: "£", MXN: "MX$", COP: "COP$" };
-const fmtSaleAmt = (amount: number, currency?: string | null, decimals = 2) => {
-  const cur = (currency ?? "USD").toUpperCase();
-  return `${CURRENCY_SYMBOLS[cur] ?? `${cur} `}${amount.toFixed(decimals)}`;
-};
+const fmtSaleAmt = formatAmount;
 
 function getAvatarColor(str: string) {
   const colors = ["#1877F2","#0a57d0","#00a884","#9B59B6","#E67E22","#E91E63","#3498DB","#2ECC71"];
@@ -170,6 +168,27 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
   );
   const selectedProductObj = useMemo(() => activeProducts.find(p => p.id === selectedProduct), [activeProducts, selectedProduct]);
 
+  // Multi-currency auto-select
+  const { data: servicePrices = [] } = usePricesByEntity("service", selectedService || null);
+  const { data: productPrices = [] } = usePricesByEntity("product", selectedProduct || null);
+  const getContactCurrency = (contactId: string) => {
+    const contact = contacts.find(c => c.id === contactId);
+    return contact?.phone ? getCurrencyFromPhone(contact.phone) : null;
+  };
+  const getPriceForCurrency = (
+    prices: { currency: string; price: number }[],
+    defaultPrice: number,
+    defaultCurrency: string,
+    currency: string | null
+  ) => {
+    if (!currency) return defaultPrice;
+    const cur = currency.toUpperCase();
+    const match = prices.find(p => p.currency.toUpperCase() === cur);
+    if (match) return match.price;
+    if (cur === defaultCurrency.toUpperCase()) return defaultPrice;
+    return defaultPrice;
+  };
+
   const calcProductPrice = (prod: typeof activeProducts[0], variant?: typeof productVariants[0]) => {
     if (variant) {
       const base = variant.price_override != null ? variant.price_override : prod.price;
@@ -227,14 +246,14 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
   }, [confirmedSales]);
 
   const recurringByInterval = useMemo(() => {
-    const serviceInfo: Record<string, { interval: string; recPrice: number }> = {};
+    const serviceInfo: Record<string, { interval: string; recPrice: number; currency: string }> = {};
     for (const s of services) {
       if (s.is_recurring && s.recurring_interval) {
-        serviceInfo[s.id] = { interval: s.recurring_interval, recPrice: s.recurring_price ?? s.price };
+        serviceInfo[s.id] = { interval: s.recurring_interval, recPrice: s.recurring_price ?? s.price, currency: s.currency ?? "USD" };
       }
     }
     const seen = new Set<string>();
-    const totals: Record<string, number> = {};
+    const totals: Record<string, Record<string, number>> = {};
     for (const sale of confirmedSales) {
       if (!sale.service_id || !sale.contact_id) continue;
       const info = serviceInfo[sale.service_id];
@@ -242,9 +261,13 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
       const key = `${sale.contact_id}|${sale.service_id}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      totals[info.interval] = (totals[info.interval] ?? 0) + info.recPrice;
+      if (!totals[info.interval]) totals[info.interval] = {};
+      totals[info.interval][info.currency] = (totals[info.interval][info.currency] ?? 0) + info.recPrice;
     }
-    return Object.entries(totals).map(([interval, total]) => ({ interval, total }));
+    return Object.entries(totals).map(([interval, byCurObj]) => ({
+      interval,
+      byCurrency: Object.entries(byCurObj) as [string, number][],
+    }));
   }, [services, confirmedSales]);
 
   const conversionRate = useMemo(() => {
@@ -271,12 +294,29 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
         return `${dy} ${MONTHS_ES[mo - 1].slice(0,3)} ${hh}:${mm}`;
       }
       case "total-vendido":
-        if (totalPorMoneda.length === 0) return "$0";
+        if (totalPorMoneda.length === 0) return fmtSaleAmt(0, "USD", 0);
         return totalPorMoneda.map(([c, t]) => fmtSaleAmt(t, c, 0)).join(" · ");
       case "conversion": return conversionRate !== null ? `${conversionRate}%` : "—";
       case "ventas-mes": return String(salesThisMonth);
       default: return "—";
     }
+  };
+
+  const getMetricContent = (id: string) => {
+    if (id === "total-vendido") {
+      if (totalPorMoneda.length === 0) return <p className="text-2xl font-bold text-foreground leading-tight">$0</p>;
+      return (
+        <div>
+          {totalPorMoneda.map(([cur, total]) => (
+            <div key={cur} className="flex items-baseline gap-1.5">
+              <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
+              <p className="text-2xl font-bold text-foreground leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return <p className="text-2xl font-bold text-foreground leading-tight">{getMetricValue(id)}</p>;
   };
 
   const calcDiscounted = (price: number, discountPct: number) =>
@@ -287,14 +327,36 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
     setSelectedService(sId);
     setSaleType("initial");
     const s = services.find(x => x.id === sId);
-    setSaleAmount(s ? calcDiscounted(s.price, s.discount_pct) : "");
+    if (!s) { setSaleAmount(""); return; }
+    const contactCur = getContactCurrency(selectedContact);
+    const contactPrice = getPriceForCurrency(servicePrices, calcDiscounted(s.price, s.discount_pct), s.currency, contactCur);
+    setSaleAmount(contactPrice);
   };
 
   const handleProductChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const pId = e.target.value; setSelectedProduct(pId); setSelectedVariant(""); setSaleAmount("");
     const p = activeProducts.find(x => x.id === pId);
     if (!p) return;
-    if (!p.has_variants) setSaleAmount(calcProductPrice(p));
+    if (!p.has_variants) {
+      const contactCur = getContactCurrency(selectedContact);
+      const contactPrice = getPriceForCurrency(productPrices, calcProductPrice(p), p.currency, contactCur);
+      setSaleAmount(contactPrice);
+    }
+  };
+
+  const handleContactChange = (contactId: string) => {
+    setSelectedContact(contactId);
+    // Re-calculate amount with the new contact's currency
+    if (saleItemType === "service" && selectedService) {
+      const s = services.find(x => x.id === selectedService);
+      if (s) {
+        const cur = contactId ? getContactCurrency(contactId) : null;
+        setSaleAmount(getPriceForCurrency(servicePrices, calcDiscounted(s.price, s.discount_pct), s.currency, cur));
+      }
+    } else if (saleItemType === "product" && selectedProduct && selectedProductObj && !selectedProductObj.has_variants) {
+      const cur = contactId ? getContactCurrency(contactId) : null;
+      setSaleAmount(getPriceForCurrency(productPrices, calcProductPrice(selectedProductObj), selectedProductObj.currency, cur));
+    }
   };
 
   const handleVariantChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -511,20 +573,42 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
       {/* ── Metrics Grid ── */}
       <div className={isEditing ? "p-3 border-2 border-dashed border-primary/25 rounded-3xl bg-primary/[0.03]" : ""}>
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {visibleMetrics.map((m) => {
+          {visibleMetrics.flatMap((m) => {
             const colors = METRIC_COLORS[m.id] ?? { icon: "text-muted-foreground", bg: "bg-secondary" };
-            return (
-              <div
-                key={m.id}
-                className={`bg-card border rounded-2xl p-4 relative transition-all ${
-                  isEditing ? "cursor-grab active:cursor-grabbing hover:border-primary/40 shadow-sm" : ""
-                } ${draggedId === m.id ? "opacity-40 scale-95" : ""}`}
-                draggable={isEditing}
-                onDragStart={() => setDraggedId(m.id)}
-                onDragOver={handleDragOver}
-                onDrop={() => handleDrop(m.id)}
-                onDragEnd={() => setDraggedId(null)}
-              >
+            const cardCls = `bg-card border rounded-2xl p-4 relative transition-all ${
+              isEditing ? "cursor-grab active:cursor-grabbing hover:border-primary/40 shadow-sm" : ""
+            } ${draggedId === m.id ? "opacity-40 scale-95" : ""}`;
+            const dragProps = {
+              draggable: isEditing,
+              onDragStart: () => setDraggedId(m.id),
+              onDragOver: handleDragOver,
+              onDrop: () => handleDrop(m.id),
+              onDragEnd: () => setDraggedId(null),
+            };
+
+            if (m.id === "total-vendido") {
+              const entries: [string, number][] = totalPorMoneda.length > 0 ? totalPorMoneda : [["USD", 0]];
+              return entries.map(([cur, total], idx) => (
+                <div key={`total-vendido-${cur}`} className={cardCls} {...dragProps}>
+                  {isEditing && idx === 0 && (
+                    <div className="absolute top-3 right-3 text-muted-foreground/30">
+                      <GripVertical size={14} />
+                    </div>
+                  )}
+                  <div className={`w-8 h-8 rounded-xl ${colors.bg} flex items-center justify-center mb-3`}>
+                    <m.icon size={15} className={colors.icon} />
+                  </div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
+                    <p className="text-2xl font-bold text-foreground leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1 leading-tight">Total {cur}</p>
+                </div>
+              ));
+            }
+
+            return [(
+              <div key={m.id} className={cardCls} {...dragProps}>
                 {isEditing && (
                   <div className="absolute top-3 right-3 text-muted-foreground/30">
                     <GripVertical size={14} />
@@ -533,19 +617,27 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
                 <div className={`w-8 h-8 rounded-xl ${colors.bg} flex items-center justify-center mb-3`}>
                   <m.icon size={15} className={colors.icon} />
                 </div>
-                <p className="text-2xl font-bold text-foreground leading-tight">{getMetricValue(m.id)}</p>
+                {getMetricContent(m.id)}
                 <p className="text-xs text-muted-foreground mt-1 leading-tight">{m.label}</p>
               </div>
-            );
+            )];
           })}
 
           {/* Ingreso Recurrente Estimado */}
-          {isSuperAdmin && recurringByInterval.map(({ interval, total }) => (
+          {isSuperAdmin && recurringByInterval.map(({ interval, byCurrency }) => (
             <div key={`ire-${interval}`} className="bg-card border rounded-2xl p-4 relative">
               <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
                 <RefreshCcw size={15} className="text-muted-foreground" />
               </div>
-              <p className="text-2xl font-bold text-foreground leading-tight">{fmtSaleAmt(total, null, 0)}</p>
+              {byCurrency.length === 0
+                ? <p className="text-2xl font-bold text-foreground leading-tight">$0</p>
+                : byCurrency.map(([cur, total]) => (
+                    <div key={cur} className="flex items-baseline gap-1.5">
+                      <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
+                      <p className="text-2xl font-bold text-foreground leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
+                    </div>
+                  ))
+              }
               <p className="text-xs text-muted-foreground mt-1 leading-tight">
                 IRE {INTERVAL_LABELS[interval] ?? interval}
               </p>
@@ -656,7 +748,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Contacto</label>
               <div className="relative">
-                <select className={selectCls} value={selectedContact} onChange={(e) => setSelectedContact(e.target.value)}>
+                <select className={selectCls} value={selectedContact} onChange={(e) => handleContactChange(e.target.value)}>
                   <option value="">Seleccionar contacto...</option>
                   {contacts.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
@@ -800,9 +892,12 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
             <div className="grid sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  {saleItemType === "service"
-                    ? `Monto${selectedService ? ` (${services.find(x => x.id === selectedService)?.currency ?? "USD"})` : ""}`
-                    : `Monto${selectedProduct ? ` (${activeProducts.find(x => x.id === selectedProduct)?.currency ?? "USD"})` : ""}`}
+                  {(() => {
+                    const cur = saleItemType === "service"
+                      ? (services.find(x => x.id === selectedService)?.currency ?? null)
+                      : (activeProducts.find(x => x.id === selectedProduct)?.currency ?? null);
+                    return cur ? `Monto ${getCurrencyFlag(cur)} ${cur}` : "Monto";
+                  })()}
                 </label>
                 <input
                   type="number"
