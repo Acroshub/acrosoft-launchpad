@@ -27,7 +27,7 @@ async function fetchCourseContent(
 }
 
 export default function CoursePlayer() {
-  const { courseSlug } = useParams<{ courseSlug: string }>();
+  const { tenantSlug, courseSlug } = useParams<{ tenantSlug: string; courseSlug: string }>();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -40,11 +40,11 @@ export default function CoursePlayer() {
   const [sidebarOpen, setSidebarOpen]         = useState(true);
   const [expandedModules, setExpandedModules] = useState<Set<string>>(new Set());
   const [completed, setCompleted]             = useState<Set<string>>(() => {
-    try { return new Set(JSON.parse(localStorage.getItem(`course_done_${courseSlug}`) ?? "[]")); }
+    try { return new Set(JSON.parse(localStorage.getItem(`course_done_${tenantSlug}_${courseSlug}`) ?? "[]")); }
     catch { return new Set(); }
   });
 
-  const storageKey = `course_token_${courseSlug}`;
+  const storageKey = `course_token_${tenantSlug}_${courseSlug}`;
 
   useEffect(() => {
     if (activeLesson?.module_id) {
@@ -64,7 +64,7 @@ export default function CoursePlayer() {
         .then(data => {
           if (data.session_token) {
             localStorage.setItem(storageKey, data.session_token);
-            navigate(`/curso/${courseSlug}/ver`, { replace: true });
+            navigate(`/curso/${tenantSlug}/${courseSlug}/ver`, { replace: true });
           } else {
             setAuthError(data.error ?? "Enlace inválido o expirado");
             setLoading(false);
@@ -76,14 +76,14 @@ export default function CoursePlayer() {
 
     const stored = localStorage.getItem(storageKey);
     if (!stored) {
-      navigate(`/curso/${courseSlug}`, { replace: true });
+      navigate(`/curso/${tenantSlug}/${courseSlug}`, { replace: true });
       return;
     }
 
     fetchCourseContent(stored).then(data => {
       if (!data) {
         localStorage.removeItem(storageKey);
-        navigate(`/curso/${courseSlug}`, { replace: true });
+        navigate(`/curso/${tenantSlug}/${courseSlug}`, { replace: true });
         return;
       }
       setCourse(data.course);
@@ -100,15 +100,15 @@ export default function CoursePlayer() {
       setLoading(false);
     }).catch(() => {
       localStorage.removeItem(storageKey);
-      navigate(`/curso/${courseSlug}`, { replace: true });
+      navigate(`/curso/${tenantSlug}/${courseSlug}`, { replace: true });
     });
-  }, [courseSlug, searchParams, navigate, storageKey]);
+  }, [tenantSlug, courseSlug, searchParams, navigate, storageKey]);
 
   const markCompleted = (lessonId: string) => {
     const next = new Set(completed);
     next.has(lessonId) ? next.delete(lessonId) : next.add(lessonId);
     setCompleted(next);
-    localStorage.setItem(`course_done_${courseSlug}`, JSON.stringify([...next]));
+    localStorage.setItem(`course_done_${tenantSlug}_${courseSlug}`, JSON.stringify([...next]));
   };
 
   const toggleModule = (moduleId: string) => {
@@ -135,7 +135,7 @@ export default function CoursePlayer() {
 
   const handleLogout = () => {
     localStorage.removeItem(storageKey);
-    navigate(`/curso/${courseSlug}`, { replace: true });
+    navigate(`/curso/${tenantSlug}/${courseSlug}`, { replace: true });
   };
 
   // ── Loading ──────────────────────────────────────────────────────────────
@@ -166,7 +166,7 @@ export default function CoursePlayer() {
             <p className="text-xs text-muted-foreground">El enlace puede haber expirado o ya fue utilizado.</p>
           </div>
           <button
-            onClick={() => navigate(`/curso/${courseSlug}`)}
+            onClick={() => navigate(`/curso/${tenantSlug}/${courseSlug}`)}
             className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
           >
             Solicitar nuevo acceso

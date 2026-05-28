@@ -7,7 +7,7 @@ import type { CrmCourse } from "@/lib/supabase";
 const FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
 export default function CourseAccess() {
-  const { courseSlug } = useParams<{ courseSlug: string }>();
+  const { tenantSlug, courseSlug } = useParams<{ tenantSlug: string; courseSlug: string }>();
   const navigate = useNavigate();
 
   const [course, setCourse]   = useState<CrmCourse | null>(null);
@@ -17,18 +17,20 @@ export default function CourseAccess() {
   const [sent, setSent]       = useState(false);
   const [error, setError]     = useState("");
 
-  // Verificar si ya hay sesión activa en localStorage
+  const storageKey = `course_token_${tenantSlug}_${courseSlug}`;
+
   useEffect(() => {
-    const stored = localStorage.getItem(`course_token_${courseSlug}`);
+    const stored = localStorage.getItem(storageKey);
     if (stored) {
-      navigate(`/curso/${courseSlug}/ver`, { replace: true });
+      navigate(`/curso/${tenantSlug}/${courseSlug}/ver`, { replace: true });
       return;
     }
 
-    // Cargar info del curso (solo nombre + thumbnail para la pantalla de acceso)
+    // tenantSlug is the user_id (UUID) of the course owner
     supabasePublic
       .from("crm_courses")
       .select("id, title, description, thumbnail_url, slug, is_published")
+      .eq("user_id", tenantSlug!)
       .eq("slug", courseSlug!)
       .eq("is_published", true)
       .maybeSingle()
@@ -36,7 +38,7 @@ export default function CourseAccess() {
         setCourse(data as CrmCourse | null);
         setLoading(false);
       });
-  }, [courseSlug, navigate]);
+  }, [tenantSlug, courseSlug, navigate, storageKey]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +49,7 @@ export default function CourseAccess() {
       const res = await fetch(`${FUNCTIONS_URL}/request-course-access`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim(), course_slug: courseSlug }),
+        body: JSON.stringify({ email: email.trim(), tenant_id: tenantSlug, course_slug: courseSlug }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Error al enviar");

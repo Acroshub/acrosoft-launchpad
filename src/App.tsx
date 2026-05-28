@@ -51,8 +51,8 @@ const App = () => (
           <Route path="/catalogo/:businessSlug/:catalogSlug" element={<CatalogPublic />} />
 
           {/* Curso — gate de acceso y player (públicos, sin auth Supabase) */}
-          <Route path="/curso/:courseSlug"      element={<CourseAccess />} />
-          <Route path="/curso/:courseSlug/ver"  element={<CoursePlayer />} />
+          <Route path="/curso/:tenantSlug/:courseSlug"      element={<CourseAccess />} />
+          <Route path="/curso/:tenantSlug/:courseSlug/ver"  element={<CoursePlayer />} />
 
           {/* Vendor landing pages — must be before * catch-all */}
           <Route path="/:vendorSlug" element={<VendorLanding />} />

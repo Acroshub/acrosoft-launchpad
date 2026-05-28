@@ -3551,3 +3551,24 @@ export const useContactCourseMap = () =>
     },
     staleTime: 30_000,
   });
+
+export const useContactCourseAccess = (email: string | null | undefined) =>
+  useQuery({
+    queryKey: ["contact_course_access", email],
+    queryFn: async () => {
+      if (!email) return [];
+      const { data } = await supabase
+        .from("crm_course_access")
+        .select("id, status, expires_at, course_id, crm_courses(id, title, user_id, slug, is_published)")
+        .eq("email", email.toLowerCase().trim());
+      return (data ?? []) as Array<{
+        id: string;
+        status: string;
+        expires_at: string | null;
+        course_id: string;
+        crm_courses: { id: string; title: string; user_id: string; slug: string; is_published: boolean } | null;
+      }>;
+    },
+    enabled: !!email,
+    staleTime: 30_000,
+  });

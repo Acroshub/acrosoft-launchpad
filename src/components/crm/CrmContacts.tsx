@@ -10,10 +10,10 @@ import {
   ArrowLeft, FolderOpen, Star, FileText, MessageSquare,
   TrendingUp, Briefcase, Target, ImagePlus, Plus,
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
-  Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Bell, Upload, FileUp, CheckCircle2, Bot,
+  Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Bell, Upload, FileUp, CheckCircle2, Bot, BookOpen,
 } from "lucide-react";
 import Papa from "papaparse";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess, useContactCourseMap } from "@/hooks/useCrmData";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess, useContactCourseMap, useContactCourseAccess } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import CreateReminderModal from "@/components/shared/CreateReminderModal";
@@ -205,6 +205,53 @@ const ContactNotesThread = ({ contactId, canEdit }: { contactId: string; canEdit
           </Button>
         </div>
       )}
+    </div>
+  );
+};
+
+// ─── Contact Courses Panel ────────────────────────────────────────────────────
+const APP_URL_CONTACTS = import.meta.env.VITE_APP_URL ?? "https://acrosoftlabs.com";
+
+const ContactCoursesPanel = ({ email }: { email: string | null | undefined }) => {
+  const { data: accesses = [], isLoading } = useContactCourseAccess(email);
+  if (isLoading || accesses.length === 0) return null;
+
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">
+        Cursos con acceso
+      </p>
+      <div className="space-y-1.5">
+        {accesses.map(access => {
+          const course = access.crm_courses;
+          if (!course) return null;
+          const expired = !!access.expires_at && new Date(access.expires_at) < new Date();
+          const statusColor = expired
+            ? "bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400"
+            : access.status === "active"
+              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+              : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400";
+          const statusLabel = expired ? "Vencido" : access.status === "active" ? "Activo" : "Invitado";
+
+          return (
+            <a
+              key={access.id}
+              href={`${APP_URL_CONTACTS}/curso/${course.user_id}/${course.slug}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2.5 px-3 py-2 rounded-xl border bg-card hover:border-primary/30 hover:bg-primary/5 transition-colors cursor-pointer no-underline group"
+            >
+              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+                <BookOpen size={11} className="text-primary" />
+              </div>
+              <p className="text-xs font-medium text-foreground flex-1 min-w-0 truncate">{course.title}</p>
+              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${statusColor}`}>
+                {statusLabel}
+              </span>
+            </a>
+          );
+        })}
+      </div>
     </div>
   );
 };
@@ -2071,6 +2118,7 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                     </div>
                   );
                 })()}
+                <ContactCoursesPanel email={detail.email} />
                 <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
                 <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
                 {canDelete && (

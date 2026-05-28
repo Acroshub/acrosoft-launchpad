@@ -19,53 +19,56 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { email, course_slug } = await req.json() as { email: string; course_slug: string };
+    const { email, tenant_id, course_slug } = await req.json() as {
+      email: string;
+      tenant_id: string;  // user_id (UUID) of the course owner
+      course_slug: string;
+    };
 
-    if (!email?.trim() || !course_slug?.trim()) {
-      return new Response(JSON.stringify({ error: "email y course_slug son requeridos" }), {
+    if (!email?.trim() || !tenant_id?.trim() || !course_slug?.trim()) {
+      return new Response(JSON.stringify({ error: "email, tenant_id y course_slug son requeridos" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const normalizedEmail = email.toLowerCase().trim();
 
-    // Buscar el curso por slug
-    const { data: course, error: courseErr } = await supabase
+    // Buscar el curso directamente por user_id + slug
+    const { data: course } = await supabase
       .from("crm_courses")
       .select("id, title, user_id, is_published")
+      .eq("user_id", tenant_id)
       .eq("slug", course_slug)
       .eq("is_published", true)
       .maybeSingle();
 
-    if (courseErr || !course) {
-      return new Response(JSON.stringify({ error: "Curso no encontrado" }), {
-        status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+    if (!course) {
+      return new Response(JSON.stringify({ ok: true }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     // Verificar que el email tiene acceso
-    const { data: access, error: accessErr } = await supabase
+    const { data: access } = await supabase
       .from("crm_course_access")
       .select("id, expires_at")
       .eq("course_id", course.id)
       .eq("email", normalizedEmail)
       .maybeSingle();
 
-    if (accessErr || !access) {
-      // Respuesta genérica para no revelar quién tiene acceso
+    if (!access) {
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Verificar que el acceso no haya expirado
     if (access.expires_at && new Date(access.expires_at) < new Date()) {
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Limpiar magic links anteriores no usados para este acceso
+    // Limpiar magic links anteriores no usados
     await supabase
       .from("crm_course_magic_links")
       .delete()
@@ -82,11 +85,9 @@ Deno.serve(async (req) => {
       expires_at: expiresAt,
     });
 
-    // Construir URL del magic link
     const appUrl = Deno.env.get("APP_URL") ?? "https://acrosoftlabs.com";
-    const magicUrl = `${appUrl}/curso/${course_slug}/ver?token=${token}`;
+    const magicUrl = `${appUrl}/curso/${course.user_id}/${course_slug}/ver?token=${token}`;
 
-    // Enviar email
     if (RESEND_API_KEY) {
       await fetch("https://api.resend.com/emails", {
         method: "POST",

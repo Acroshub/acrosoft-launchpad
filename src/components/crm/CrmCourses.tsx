@@ -95,8 +95,8 @@ function CrmCoursesContent() {
     }
   };
 
-  const copyLink = (slug: string) => {
-    navigator.clipboard.writeText(`${APP_URL}/curso/${slug}`);
+  const copyLink = (course: CrmCourse) => {
+    navigator.clipboard.writeText(`${APP_URL}/curso/${course.user_id}/${course.slug}`);
     setCopiedSlug(true);
     setTimeout(() => setCopiedSlug(false), 2000);
   };
@@ -111,7 +111,7 @@ function CrmCoursesContent() {
         onBack={() => setSelected(null)}
         onTogglePublish={() => handleTogglePublish(selected)}
         onDelete={() => { handleDelete(selected.id); }}
-        onCopyLink={() => copyLink(selected.slug)}
+        onCopyLink={() => copyLink(selected)}
         copiedSlug={copiedSlug}
       />
     );
@@ -239,7 +239,7 @@ function CrmCoursesContent() {
                     <Pencil size={11} className="mr-1" /> Editar
                   </Button>
                   <button
-                    onClick={() => copyLink(course.slug)}
+                    onClick={() => copyLink(course)}
                     className="w-8 h-8 rounded-lg border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
                   >
                     {copiedSlug ? <Check size={12} className="text-emerald-500" /> : <Link2 size={12} />}
@@ -413,7 +413,7 @@ function CourseDetail({
             className="w-8 h-8 rounded-xl border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
             {copiedSlug ? <Check size={13} className="text-emerald-500" /> : <Link2 size={13} />}
           </button>
-          <a href={`/curso/${localSlug}`} target="_blank" rel="noopener noreferrer"
+          <a href={`/curso/${course.user_id}/${localSlug}`} target="_blank" rel="noopener noreferrer"
             className="w-8 h-8 rounded-xl border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
             <ExternalLink size={13} />
           </a>
@@ -1142,10 +1142,15 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
   const handleResend = async (access: CrmCourseAccess) => {
     setResendingId(access.id);
     try {
-      await supabase.functions.invoke("send-course-invitation", {
+      const { error } = await supabase.functions.invoke("send-course-invitation", {
         body: { email: access.email, course_id: course.id },
       });
-      toast.success("Invitación reenviada");
+      if (error) {
+        const msg = (error as any)?.message ?? "";
+        toast.error(msg.includes("publicado") ? "Publica el curso antes de enviar invitaciones" : "Error al reenviar");
+      } else {
+        toast.success("Invitación reenviada");
+      }
     } catch { toast.error("Error al reenviar"); }
     finally { setResendingId(null); }
   };
@@ -1185,10 +1190,12 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
         await createContact.mutateAsync({ name: email.split("@")[0], email });
       }
 
-      // Enviar email de invitación (fire-and-forget)
-      supabase.functions.invoke("send-course-invitation", {
-        body: { email, course_id: course.id },
-      }).catch(() => {});
+      // Enviar email de invitación (solo si el curso está publicado)
+      if (course.is_published) {
+        supabase.functions.invoke("send-course-invitation", {
+          body: { email, course_id: course.id },
+        }).catch(() => {});
+      }
 
       // Registrar venta si se solicitó
       if (registerSale && saleAmount && parseFloat(saleAmount) > 0) {
@@ -1205,7 +1212,11 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
       }
 
       resetForm();
-      toast.success("Acceso concedido — se enviará un email de invitación");
+      toast.success(
+        course.is_published
+          ? "Acceso concedido — se enviará un email de invitación"
+          : "Acceso concedido — publica el curso para que el alumno pueda ingresar",
+      );
     } catch (err: any) {
       toast.error(err.message?.includes("unique") ? "Este email ya tiene acceso" : "Error al conceder acceso");
     } finally {

@@ -31,7 +31,7 @@ Deno.serve(async (req) => {
 
     const { data: course } = await supabase
       .from("crm_courses")
-      .select("title, slug, description")
+      .select("title, slug, description, is_published, user_id")
       .eq("id", course_id)
       .single();
 
@@ -41,7 +41,13 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Buscar el registro de acceso para generar el magic link
+    if (!course.is_published) {
+      return new Response(JSON.stringify({ error: "El curso no está publicado aún" }), {
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Buscar el registro de acceso
     const { data: access } = await supabase
       .from("crm_course_access")
       .select("id, expires_at")
@@ -62,7 +68,7 @@ Deno.serve(async (req) => {
       .eq("course_access_id", access.id)
       .is("used_at", null);
 
-    // Generar magic link con expiración de 7 días (invitación, no sesión rápida)
+    // Generar magic link con expiración de 7 días
     const token     = generateToken();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
@@ -72,8 +78,9 @@ Deno.serve(async (req) => {
       expires_at: expiresAt,
     });
 
-    const magicUrl  = `${APP_URL}/curso/${course.slug}/ver?token=${token}`;
-    const courseUrl = `${APP_URL}/curso/${course.slug}`;
+    // URL usa course.user_id como tenant identifier (sin lookup de business profile)
+    const magicUrl  = `${APP_URL}/curso/${course.user_id}/${course.slug}/ver?token=${token}`;
+    const courseUrl = `${APP_URL}/curso/${course.user_id}/${course.slug}`;
 
     if (RESEND_API_KEY) {
       await fetch("https://api.resend.com/emails", {
