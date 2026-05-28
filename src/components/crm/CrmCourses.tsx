@@ -1433,9 +1433,13 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
                   {contact ? (
                     <p className="text-xs font-semibold truncate">{contact.name}</p>
                   ) : null}
-                  <p className={`truncate ${contact ? "text-[11px] text-muted-foreground/60" : "text-xs font-semibold"}`}>{access.email}</p>
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <p className={`truncate ${contact ? "text-[11px] text-muted-foreground/60" : "text-xs font-semibold"}`}>{access.email}</p>
+                    {/* Estado visible en mobile */}
+                    <span className="sm:hidden shrink-0">{getStatusBadge(access)}</span>
+                  </div>
                 </div>
-                {/* Status + expiry */}
+                {/* Status + expiry — solo desktop */}
                 <div className="hidden sm:flex items-center gap-2 shrink-0">
                   {access.expires_at && (
                     <span className={`text-[10px] font-medium ${expired ? "text-red-500" : "text-muted-foreground/50"}`}>

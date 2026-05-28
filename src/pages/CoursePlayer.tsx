@@ -516,8 +516,8 @@ export default function CoursePlayer() {
                   }`}
                 >
                   {completed.has(activeLesson.id)
-                    ? <><CheckCircle2 size={14} /> <span className="hidden xs:inline sm:inline">Completada</span></>
-                    : <><Circle size={14} /> <span className="hidden xs:inline sm:inline">Marcar lista</span></>
+                    ? <><CheckCircle2 size={14} /> Hecha</>
+                    : <><Circle size={14} /> Completar</>
                   }
                 </button>
 
