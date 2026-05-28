@@ -203,47 +203,83 @@ function CrmCoursesContent() {
           <Loader2 size={20} className="animate-spin text-muted-foreground/50" />
         </div>
       ) : courses.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-border py-16 text-center space-y-2">
-          <GraduationCap size={32} className="mx-auto text-muted-foreground/20" />
-          <p className="text-sm font-medium text-muted-foreground">Aún no tienes cursos</p>
-          <p className="text-xs text-muted-foreground/60">Crea tu primer curso y comparte el link con tus alumnos</p>
+        <div className="rounded-2xl border border-dashed border-border py-16 text-center space-y-3">
+          <div className="w-14 h-14 rounded-2xl bg-muted/60 flex items-center justify-center mx-auto">
+            <GraduationCap size={26} className="text-muted-foreground/30" />
+          </div>
+          <div>
+            <p className="text-sm font-semibold text-muted-foreground">Aún no tienes cursos</p>
+            <p className="text-xs text-muted-foreground/50 mt-0.5">Crea tu primer curso y comparte el link con tus alumnos</p>
+          </div>
+          <Button size="sm" onClick={openNew} className="gap-1.5 mx-auto"><Plus size={13} /> Nuevo curso</Button>
         </div>
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {courses.map(course => (
-            <div key={course.id} className="bg-card border rounded-2xl overflow-hidden hover:border-primary/30 transition-colors">
-              {course.thumbnail_url ? (
-                <img src={course.thumbnail_url} alt={course.title} className="w-full h-32 object-cover" />
-              ) : (
-                <div className="w-full h-32 bg-muted flex items-center justify-center">
-                  <BookOpen size={24} className="text-muted-foreground/20" />
-                </div>
-              )}
-              <div className="p-4 space-y-3">
-                <div>
-                  <p className="text-sm font-semibold leading-tight">{course.title}</p>
-                  {course.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{course.description}</p>}
-                </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${course.is_published ? "bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400" : "bg-muted text-muted-foreground"}`}>
+            <div
+              key={course.id}
+              className="group bg-card border rounded-2xl overflow-hidden hover:border-primary/40 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col"
+              onClick={() => { setSelected(course); setActiveTab("contenido"); }}
+            >
+              {/* Thumbnail */}
+              <div className="relative aspect-video bg-muted overflow-hidden">
+                {course.thumbnail_url ? (
+                  <img src={course.thumbnail_url} alt={course.title} className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300" />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/5 to-primary/10">
+                    <BookOpen size={28} className="text-primary/30" />
+                  </div>
+                )}
+                {/* Status badge overlay */}
+                <div className="absolute top-2.5 left-2.5">
+                  <span className={`text-[10px] font-semibold px-2 py-1 rounded-full backdrop-blur-sm ${
+                    course.is_published
+                      ? "bg-emerald-500/90 text-white"
+                      : "bg-black/40 text-white/80"
+                  }`}>
                     {course.is_published ? "Publicado" : "Borrador"}
                   </span>
-                  {course.price != null
-                    ? <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400">${course.price}</span>
-                    : <span className="text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground">Gratis</span>
-                  }
-                  <span className="text-[10px] text-muted-foreground/50">/curso/{course.slug}</span>
                 </div>
-                <div className="flex gap-2">
-                  <Button size="sm" variant="outline" className="flex-1 h-8 text-xs" onClick={() => { setSelected(course); setActiveTab("contenido"); }}>
-                    <Pencil size={11} className="mr-1" /> Editar
-                  </Button>
-                  <button
-                    onClick={() => copyLink(course)}
-                    className="w-8 h-8 rounded-lg border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors"
-                  >
-                    {copiedSlug ? <Check size={12} className="text-emerald-500" /> : <Link2 size={12} />}
-                  </button>
+                {course.price != null && (
+                  <div className="absolute top-2.5 right-2.5">
+                    <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-primary/90 text-white backdrop-blur-sm">
+                      ${course.price}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Content */}
+              <div className="p-4 flex flex-col flex-1 space-y-3">
+                <div className="flex-1 space-y-1">
+                  <p className="text-sm font-semibold leading-snug line-clamp-2">{course.title}</p>
+                  {course.description && (
+                    <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{course.description}</p>
+                  )}
+                </div>
+
+                {/* Footer */}
+                <div className="flex items-center justify-between pt-1 border-t border-border/60">
+                  <span className="text-[10px] text-muted-foreground/50 font-mono truncate max-w-[120px]">{course.slug}</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={e => { e.stopPropagation(); copyLink(course); }}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                      title="Copiar link"
+                    >
+                      {copiedSlug ? <Check size={12} className="text-emerald-500" /> : <Link2 size={12} />}
+                    </button>
+                    <a
+                      href={`/curso/${course.user_id}/${course.slug}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={e => e.stopPropagation()}
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
+                      title="Abrir curso"
+                    >
+                      <ExternalLink size={12} />
+                    </a>
+                  </div>
                 </div>
               </div>
             </div>
@@ -396,74 +432,105 @@ function CourseDetail({
       />
 
       {/* Barra superior */}
-      <div className="flex items-center gap-3">
-        <button onClick={onBack} className="w-8 h-8 rounded-xl border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
+      <div className="flex items-center gap-2 pb-1">
+        <button
+          onClick={onBack}
+          className="w-8 h-8 rounded-xl border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors cursor-pointer shrink-0"
+        >
           <ArrowLeft size={14} />
         </button>
         <div className="flex-1 min-w-0">
-          <h2 className="text-sm font-semibold truncate">{localTitle}</h2>
-          <p className="text-[11px] text-muted-foreground/60">/curso/{localSlug}</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <h2 className="text-sm font-bold truncate max-w-[160px] sm:max-w-none">{localTitle}</h2>
+            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+              course.is_published
+                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+                : "bg-muted text-muted-foreground"
+            }`}>
+              {course.is_published ? "Publicado" : "Borrador"}
+            </span>
+            {course.price != null && (
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
+                ${course.price}
+              </span>
+            )}
+          </div>
+          <p className="text-[10px] text-muted-foreground/40 font-mono mt-0.5 truncate">/…/{localSlug}</p>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <button onClick={openEdit} title="Editar datos del curso"
-            className="w-8 h-8 rounded-xl border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
+        {/* Acciones — compactas en mobile */}
+        <div className="flex items-center gap-0.5 shrink-0">
+          <button onClick={openEdit} title="Editar"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer">
             <Pencil size={13} />
           </button>
-          <button onClick={onCopyLink} title="Copiar link del curso"
-            className="w-8 h-8 rounded-xl border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
+          <button onClick={onCopyLink} title="Copiar link"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer">
             {copiedSlug ? <Check size={13} className="text-emerald-500" /> : <Link2 size={13} />}
           </button>
           <a href={`/curso/${course.user_id}/${localSlug}`} target="_blank" rel="noopener noreferrer"
-            className="w-8 h-8 rounded-xl border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors">
+            className="hidden sm:flex w-8 h-8 rounded-xl items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer">
             <ExternalLink size={13} />
           </a>
-          <Button size="sm" variant={course.is_published ? "outline" : "default"} className="h-8 text-xs" onClick={onTogglePublish}>
-            {course.is_published ? "Despublicar" : "Publicar"}
+          <div className="w-px h-5 bg-border mx-1" />
+          <Button
+            size="sm"
+            variant={course.is_published ? "outline" : "default"}
+            className="h-8 text-xs font-semibold px-2.5 sm:px-3"
+            onClick={onTogglePublish}
+          >
+            {course.is_published ? <span className="hidden sm:inline">Despublicar</span> : <span className="hidden sm:inline">Publicar</span>}
+            <span className="sm:hidden">{course.is_published ? "↓" : "↑"}</span>
           </Button>
-          <button onClick={() => setConfirmDelete(true)} title="Eliminar curso"
-            className="w-8 h-8 rounded-xl border border-transparent flex items-center justify-center text-muted-foreground hover:text-red-500 hover:border-red-200 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
+          <button onClick={() => setConfirmDelete(true)} title="Eliminar"
+            className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors cursor-pointer">
             <Trash2 size={13} />
           </button>
         </div>
       </div>
 
-      {/* Portada */}
-      <div className="space-y-1.5">
+      {/* Portada — compacto */}
+      <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/20">
         <div
-          className={`relative rounded-2xl overflow-hidden border group h-36 sm:h-44 ${thumbLoading ? "cursor-wait" : "cursor-pointer"}`}
+          className={`relative w-28 h-16 sm:w-36 sm:h-20 rounded-lg overflow-hidden border shrink-0 group/thumb ${thumbLoading ? "cursor-wait" : "cursor-pointer"}`}
           onClick={() => !thumbLoading && thumbInputRef.current?.click()}
         >
           {thumbUrl ? (
             <img src={thumbUrl} alt="Portada" className="w-full h-full object-cover" />
           ) : (
-            <div className="w-full h-full bg-muted/40 flex flex-col items-center justify-center gap-2">
-              <ImageIcon size={24} className="text-muted-foreground/25" />
-              <p className="text-xs text-muted-foreground/50">Agregar portada</p>
+            <div className="w-full h-full bg-gradient-to-br from-muted to-muted/60 flex items-center justify-center">
+              <ImageIcon size={14} className="text-muted-foreground/30" />
             </div>
           )}
-          <div className={`absolute inset-0 bg-black/50 transition-opacity flex flex-col items-center justify-center gap-2 ${thumbLoading ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`}>
-            {thumbLoading ? (
-              <><Loader2 size={22} className="text-white animate-spin" /><p className="text-xs text-white/80 font-medium">Subiendo imagen...</p></>
-            ) : (
-              <p className="text-xs text-white font-medium flex items-center gap-1.5">
-                <ImageIcon size={13} />{thumbUrl ? "Cambiar portada" : "Agregar portada"}
-              </p>
-            )}
+          <div className={`absolute inset-0 bg-black/60 transition-opacity flex items-center justify-center ${thumbLoading ? "opacity-100" : "opacity-0 group-hover/thumb:opacity-100"}`}>
+            {thumbLoading
+              ? <Loader2 size={14} className="text-white animate-spin" />
+              : <ImageIcon size={14} className="text-white" />}
           </div>
-          <input ref={thumbInputRef} type="file" accept="image/*" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleThumbChange(f); e.target.value = ""; }} />
         </div>
-        <p className="text-[11px] text-muted-foreground/50 flex items-center gap-1">
-          <ImageIcon size={10} /> JPG o PNG · 1280 × 720 px recomendado · máx 2 MB
-        </p>
+        <div className="flex-1 min-w-0 space-y-1">
+          <p className="text-xs font-semibold text-muted-foreground">Portada del curso</p>
+          <button
+            onClick={() => !thumbLoading && thumbInputRef.current?.click()}
+            className="text-[11px] text-primary hover:text-primary/80 font-medium transition-colors cursor-pointer"
+          >
+            {thumbUrl ? "Cambiar imagen" : "Subir imagen"}
+          </button>
+          <p className="text-[10px] text-muted-foreground/40 leading-tight">1280×720 · JPG o PNG · máx 2 MB</p>
+        </div>
+        <input ref={thumbInputRef} type="file" accept="image/*" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleThumbChange(f); e.target.value = ""; }} />
       </div>
 
-      {/* Tabs */}
-      <div className="flex border-b">
+      {/* Tabs — pill style */}
+      <div className="flex gap-1 p-1 bg-muted/50 rounded-xl border border-border/50">
         {(["contenido", "alumnos"] as const).map(t => (
           <button key={t} onClick={() => onTabChange(t)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium border-b-2 transition-colors ${tab === t ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-            {t === "contenido" ? <BookOpen size={13} /> : <Users size={13} />}
+            className={`flex flex-1 items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
+              tab === t
+                ? "bg-card text-foreground shadow-sm border border-border/40"
+                : "text-muted-foreground hover:text-foreground"
+            }`}>
+            {t === "contenido" ? <BookOpen size={12} /> : <Users size={12} />}
             {t === "contenido" ? "Contenido" : "Alumnos"}
           </button>
         ))}
@@ -803,38 +870,40 @@ function SortableLessonItem({
 
   return (
     <div ref={setNodeRef} style={style}
-      className="flex items-center gap-2 rounded-xl border bg-background px-3 py-2.5 hover:border-primary/30 transition-colors">
+      className="group/lesson flex items-center gap-2 rounded-xl border bg-card px-3 py-2.5 hover:border-primary/30 hover:bg-muted/20 transition-all duration-150">
       <button {...attributes} {...listeners} title="Arrastrar para reordenar"
-        className="cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground touch-none transition-colors shrink-0">
+        className="cursor-grab active:cursor-grabbing text-muted-foreground/20 hover:text-muted-foreground/60 touch-none transition-colors shrink-0">
         <GripVertical size={12} />
       </button>
-      <span className="text-[11px] font-bold text-muted-foreground/40 w-4 text-center shrink-0">{idx + 1}</span>
+      <span className="text-[10px] font-bold text-muted-foreground/30 w-4 text-center shrink-0 tabular-nums">{idx + 1}</span>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium truncate">{lesson.title}</p>
-        {lesson.content && <p className="text-xs text-muted-foreground/60 truncate mt-0.5">{lesson.content.slice(0, 60)}{lesson.content.length > 60 ? "…" : ""}</p>}
+        <p className="text-xs font-semibold truncate">{lesson.title}</p>
+        {lesson.content && <p className="text-[11px] text-muted-foreground/50 truncate mt-0.5">{lesson.content.slice(0, 60)}{lesson.content.length > 60 ? "…" : ""}</p>}
       </div>
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-1 shrink-0">
         {uploadEntry?.uploading && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 flex items-center gap-0.5">
-            <Loader2 size={9} className="animate-spin" /> {uploadEntry.progress}%
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 flex items-center gap-0.5 font-medium">
+            <Loader2 size={8} className="animate-spin" /> {uploadEntry.progress}%
           </span>
         )}
         {!uploadEntry?.uploading && lesson.bunny_video_id && lesson.video_status === "ready" && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 flex items-center gap-0.5">
-            <Video size={9} /> Video
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 flex items-center gap-0.5 font-medium">
+            <Video size={8} /> Video
           </span>
         )}
         {lesson.attachment_url && (
-          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950/40 text-blue-700 dark:text-blue-400 flex items-center gap-0.5">
-            <Paperclip size={9} /> Archivo
+          <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-100 dark:bg-violet-950/40 text-violet-700 dark:text-violet-400 flex items-center gap-0.5 font-medium">
+            <Paperclip size={8} /> PDF
           </span>
         )}
-        <button onClick={onEdit} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-          <Pencil size={12} />
-        </button>
-        <button onClick={onDelete} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
-          <Trash2 size={12} />
-        </button>
+        <div className="flex items-center gap-0.5 opacity-0 group-hover/lesson:opacity-100 transition-opacity">
+          <button onClick={onEdit} className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <Pencil size={11} />
+          </button>
+          <button onClick={onDelete} className="w-6 h-6 rounded-md flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
+            <Trash2 size={11} />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -920,13 +989,26 @@ function ModuleSection({
         description="Se eliminará la lección y su video permanentemente."
       />
       {/* Cabecera del módulo */}
-      <div className="flex items-center gap-2 px-4 py-3 bg-muted/30 border-b">
+      <div className="flex items-center gap-2.5 px-3.5 py-3 bg-muted/20 border-b hover:bg-muted/40 transition-colors">
         <button {...attributes} {...listeners} title="Arrastrar para reordenar"
-          className="cursor-grab active:cursor-grabbing text-muted-foreground/30 hover:text-muted-foreground shrink-0 touch-none transition-colors">
-          <GripVertical size={14} />
+          className="cursor-grab active:cursor-grabbing text-muted-foreground/20 hover:text-muted-foreground/60 shrink-0 touch-none transition-colors">
+          <GripVertical size={13} />
         </button>
-        <button onClick={onToggle} className="text-muted-foreground hover:text-foreground transition-colors shrink-0">
-          {expanded ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        <button onClick={onToggle} className="flex items-center gap-2.5 flex-1 min-w-0 text-left cursor-pointer group/toggle">
+          <div className="w-5 h-5 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+            <span className="text-[10px] font-bold text-primary">{moduleIndex + 1}</span>
+          </div>
+          {editingTitle ? null : (
+            <>
+              <p className="text-sm font-semibold truncate flex-1 group-hover/toggle:text-primary transition-colors">{mod.title}</p>
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground/60 shrink-0">
+                {lessons.length}
+              </span>
+              <span className="text-muted-foreground/40 shrink-0 transition-transform duration-200" style={{ transform: expanded ? "rotate(0deg)" : "rotate(-90deg)" }}>
+                <ChevronDown size={14} />
+              </span>
+            </>
+          )}
         </button>
         {editingTitle ? (
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -938,19 +1020,12 @@ function ModuleSection({
             <button onClick={() => setEditingTitle(false)} className="text-muted-foreground hover:text-foreground transition-colors shrink-0"><X size={13} /></button>
           </div>
         ) : (
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <span className="text-[11px] font-bold text-muted-foreground/50 shrink-0">M{moduleIndex + 1}</span>
-            <p className="text-sm font-semibold truncate flex-1">{mod.title}</p>
-            <span className="text-[10px] text-muted-foreground/40 shrink-0">{lessons.length} lección{lessons.length !== 1 ? "es" : ""}</span>
-          </div>
-        )}
-        {!editingTitle && (
           <div className="flex gap-1 shrink-0">
-            <button onClick={() => setEditingTitle(true)} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-              <Pencil size={12} />
+            <button onClick={() => setEditingTitle(true)} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors">
+              <Pencil size={11} />
             </button>
-            <button onClick={onDelete} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
-              <Trash2 size={12} />
+            <button onClick={onDelete} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground/40 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors">
+              <Trash2 size={11} />
             </button>
           </div>
         )}
@@ -958,7 +1033,7 @@ function ModuleSection({
 
       {/* Lecciones */}
       {expanded && (
-        <div className="p-3 space-y-2">
+        <div className="p-3 space-y-1.5">
           <DndContext sensors={lessonSensors} collisionDetection={closestCenter} onDragEnd={handleLessonDragEnd}>
             <SortableContext
               items={orderedLessons.filter(l => l.id !== draftLessonId).map(l => l.id)}
@@ -1327,61 +1402,64 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
       )}
 
       {accesses.length === 0 && !showForm ? (
-        <div className="rounded-2xl border border-dashed py-10 text-center space-y-2">
-          <Users size={24} className="mx-auto text-muted-foreground/20" />
-          <p className="text-xs text-muted-foreground/60">Aún no has dado acceso a nadie</p>
+        <div className="rounded-2xl border border-dashed py-12 text-center space-y-3">
+          <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center mx-auto">
+            <GraduationCap size={22} className="text-muted-foreground/25" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-muted-foreground/70">Sin alumnos todavía</p>
+            <p className="text-[11px] text-muted-foreground/40 mt-0.5">Da acceso al primer alumno con el botón de arriba</p>
+          </div>
         </div>
       ) : (
-        <div className="rounded-xl border overflow-hidden">
-          <table className="w-full text-xs">
-            <thead className="bg-muted/40 border-b">
-              <tr>
-                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground">Alumno</th>
-                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground hidden sm:table-cell">Vencimiento</th>
-                <th className="text-left px-4 py-2.5 font-medium text-muted-foreground hidden sm:table-cell">Estado</th>
-                <th className="px-4 py-2.5" />
-              </tr>
-            </thead>
-            <tbody className="divide-y">
-              {accesses.map(access => {
-                const contact = contacts.find(c => c.email?.toLowerCase() === access.email.toLowerCase());
-                return (
-                  <tr key={access.id} className="hover:bg-muted/20 transition-colors">
-                    <td className="px-4 py-3">
-                      {contact ? (
-                        <div>
-                          <p className="font-medium">{contact.name}</p>
-                          <p className="text-muted-foreground/60 text-[11px]">{access.email}</p>
-                        </div>
-                      ) : (
-                        <p className="font-medium">{access.email}</p>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-muted-foreground hidden sm:table-cell">
-                      {access.expires_at
-                        ? new Date(access.expires_at).toLocaleDateString("es", { day: "2-digit", month: "short", year: "numeric" })
-                        : <span className="text-muted-foreground/40">Sin límite</span>}
-                    </td>
-                    <td className="px-4 py-3 hidden sm:table-cell">{getStatusBadge(access)}</td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => handleResend(access)} disabled={resendingId === access.id}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 disabled:opacity-40 transition-colors"
-                          title="Reenviar invitación">
-                          {resendingId === access.id ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
-                        </button>
-                        <button onClick={() => handleRevoke(access)}
-                          className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
-                          title="Revocar acceso">
-                          <X size={13} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+        <div className="space-y-1.5">
+          {accesses.map(access => {
+            const contact = contacts.find(c => c.email?.toLowerCase() === access.email.toLowerCase());
+            const initials = (contact?.name ?? access.email).substring(0, 2).toUpperCase();
+            const expired  = !!access.expires_at && new Date(access.expires_at) < new Date();
+            return (
+              <div key={access.id}
+                className="group/row flex items-center gap-3 rounded-xl border bg-card px-3 py-2.5 hover:border-primary/30 hover:bg-muted/10 transition-all duration-150">
+                {/* Avatar */}
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 ${
+                  expired
+                    ? "bg-red-100 dark:bg-red-950/40 text-red-600 dark:text-red-400"
+                    : "bg-primary/10 text-primary"
+                }`}>
+                  {initials}
+                </div>
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  {contact ? (
+                    <p className="text-xs font-semibold truncate">{contact.name}</p>
+                  ) : null}
+                  <p className={`truncate ${contact ? "text-[11px] text-muted-foreground/60" : "text-xs font-semibold"}`}>{access.email}</p>
+                </div>
+                {/* Status + expiry */}
+                <div className="hidden sm:flex items-center gap-2 shrink-0">
+                  {access.expires_at && (
+                    <span className={`text-[10px] font-medium ${expired ? "text-red-500" : "text-muted-foreground/50"}`}>
+                      {expired ? "Venció " : ""}{new Date(access.expires_at).toLocaleDateString("es", { day: "2-digit", month: "short" })}
+                    </span>
+                  )}
+                  {getStatusBadge(access)}
+                </div>
+                {/* Actions */}
+                <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover/row:opacity-100 transition-opacity">
+                  <button onClick={() => handleResend(access)} disabled={resendingId === access.id}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 disabled:opacity-40 transition-colors"
+                    title="Reenviar invitación">
+                    {resendingId === access.id ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                  </button>
+                  <button onClick={() => handleRevoke(access)}
+                    className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors"
+                    title="Revocar acceso">
+                    <X size={12} />
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

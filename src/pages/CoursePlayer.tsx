@@ -226,12 +226,25 @@ export default function CoursePlayer() {
         </button>
       </header>
 
-      <div className="flex flex-1 overflow-hidden">
+      <div className="flex flex-1 overflow-hidden relative">
+
+        {/* ── Mobile backdrop ── */}
+        {sidebarOpen && (
+          <div
+            className="fixed inset-0 z-20 bg-black/50 md:hidden"
+            style={{ top: 56 }}
+            onClick={() => setSidebarOpen(false)}
+          />
+        )}
 
         {/* ── Sidebar ── */}
         <aside
-          className="shrink-0 flex flex-col bg-card border-r border-border overflow-hidden transition-all duration-200"
-          style={{ width: sidebarOpen ? 288 : 0 }}
+          className={[
+            "flex flex-col bg-card border-r border-border overflow-y-auto overflow-x-hidden transition-all duration-200",
+            "fixed top-14 bottom-0 left-0 z-30 w-72",
+            "md:relative md:top-auto md:bottom-auto md:left-auto md:z-auto md:shrink-0",
+            sidebarOpen ? "translate-x-0 md:w-72" : "-translate-x-full md:translate-x-0 md:w-0",
+          ].join(" ")}
         >
           {/* Sidebar header */}
           <div className="shrink-0 px-4 pt-4 pb-3 border-b border-border">
@@ -398,9 +411,9 @@ export default function CoursePlayer() {
         </aside>
 
         {/* ── Main content ── */}
-        <main className="flex-1 overflow-y-auto bg-background">
+        <main className="flex-1 overflow-y-auto bg-background min-w-0">
           {activeLesson ? (
-            <div className="max-w-4xl mx-auto px-5 md:px-10 py-8 space-y-6">
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 md:px-10 py-6 md:py-8 space-y-5 md:space-y-6">
 
               {/* Breadcrumb */}
               <div className="flex items-center gap-2 flex-wrap">
@@ -479,13 +492,13 @@ export default function CoursePlayer() {
               )}
 
               {/* ── Navigation bar ── */}
-              <div className="rounded-2xl flex items-center gap-3 p-3 bg-card border border-border">
+              <div className="rounded-2xl flex items-center gap-2 p-2.5 sm:p-3 bg-card border border-border">
                 {/* Previous */}
                 <div className="flex-1">
                   {activeLessonIdx > 0 && (
                     <button
                       onClick={() => setActiveLesson(orderedLessons[activeLessonIdx - 1])}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/80 hover:text-foreground transition-colors cursor-pointer min-h-[44px] border border-border"
+                      className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-sm font-medium text-muted-foreground bg-muted hover:bg-muted/80 hover:text-foreground transition-colors cursor-pointer min-h-[44px] border border-border"
                     >
                       <ChevronLeft size={15} />
                       <span className="hidden sm:inline">Anterior</span>
@@ -496,15 +509,15 @@ export default function CoursePlayer() {
                 {/* Mark complete */}
                 <button
                   onClick={() => markCompleted(activeLesson.id)}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer min-h-[44px] border ${
+                  className={`flex items-center gap-1.5 sm:gap-2 px-3 sm:px-5 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-colors cursor-pointer min-h-[44px] border ${
                     completed.has(activeLesson.id)
                       ? "bg-emerald-50 border-emerald-200 text-emerald-700 hover:bg-emerald-100"
                       : "bg-muted border-border text-muted-foreground hover:bg-muted/80 hover:text-foreground"
                   }`}
                 >
                   {completed.has(activeLesson.id)
-                    ? <><CheckCircle2 size={15} /> <span className="hidden sm:inline">Completada</span></>
-                    : <><Circle size={15} /> <span className="hidden sm:inline">Marcar completada</span></>
+                    ? <><CheckCircle2 size={14} /> <span className="hidden xs:inline sm:inline">Completada</span></>
+                    : <><Circle size={14} /> <span className="hidden xs:inline sm:inline">Marcar lista</span></>
                   }
                 </button>
 
@@ -513,7 +526,7 @@ export default function CoursePlayer() {
                   {activeLessonIdx < orderedLessons.length - 1 ? (
                     <button
                       onClick={() => setActiveLesson(orderedLessons[activeLessonIdx + 1])}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-primary-foreground bg-primary hover:bg-primary/90 transition-colors cursor-pointer min-h-[44px]"
+                      className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-sm font-semibold text-primary-foreground bg-primary hover:bg-primary/90 transition-colors cursor-pointer min-h-[44px]"
                     >
                       <span className="hidden sm:inline">Siguiente</span>
                       <ChevronRight size={15} />
@@ -521,9 +534,9 @@ export default function CoursePlayer() {
                   ) : (
                     <button
                       onClick={() => markCompleted(activeLesson.id)}
-                      className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors cursor-pointer min-h-[44px]"
+                      className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2.5 rounded-xl text-sm font-semibold text-white bg-emerald-600 hover:bg-emerald-700 transition-colors cursor-pointer min-h-[44px]"
                     >
-                      <CheckCircle2 size={15} />
+                      <CheckCircle2 size={14} />
                       <span className="hidden sm:inline">Finalizar</span>
                     </button>
                   )}

@@ -2481,6 +2481,7 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                     );
                   })()}
 
+                  <ContactCoursesPanel email={detail.email} />
                   <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
                   <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
                 </div>
