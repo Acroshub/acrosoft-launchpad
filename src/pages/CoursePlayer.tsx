@@ -4,14 +4,14 @@ import {
   Loader2, BookOpen, ChevronLeft, ChevronRight, LogOut,
   CheckCircle2, Circle, Menu, X,
 } from "lucide-react";
-import type { CrmCourse, CrmCourseLesson } from "@/lib/supabase";
+import type { CrmCourse, CrmCourseLesson, CrmCourseModule } from "@/lib/supabase";
 
 const FUNCTIONS_URL    = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 const BUNNY_LIBRARY_ID = import.meta.env.VITE_BUNNY_STREAM_LIBRARY_ID ?? import.meta.env.VITE_BUNNY_LIBRARY_ID ?? "628395";
 
 async function fetchCourseContent(
   sessionToken: string,
-): Promise<{ course: CrmCourse; lessons: CrmCourseLesson[] } | null> {
+): Promise<{ course: CrmCourse; modules: CrmCourseModule[]; lessons: CrmCourseLesson[] } | null> {
   try {
     const res = await fetch(`${FUNCTIONS_URL}/get-course-content`, {
       method: "POST",
@@ -33,6 +33,7 @@ export default function CoursePlayer() {
   const [loading, setLoading]           = useState(true);
   const [authError, setAuthError]       = useState("");
   const [course, setCourse]             = useState<CrmCourse | null>(null);
+  const [modules, setModules]           = useState<CrmCourseModule[]>([]);
   const [lessons, setLessons]           = useState<CrmCourseLesson[]>([]);
   const [activeLesson, setActiveLesson] = useState<CrmCourseLesson | null>(null);
   const [sidebarOpen, setSidebarOpen]   = useState(true);
@@ -79,6 +80,7 @@ export default function CoursePlayer() {
         return;
       }
       setCourse(data.course);
+      setModules(data.modules);
       setLessons(data.lessons);
       setActiveLesson(data.lessons[0] ?? null);
       setLoading(false);
@@ -160,26 +162,69 @@ export default function CoursePlayer() {
           <div className="flex-1 overflow-y-auto py-2">
             {lessons.length === 0 ? (
               <p className="text-xs text-muted-foreground/50 text-center py-8">Sin lecciones aún</p>
-            ) : lessons.map((lesson, idx) => (
-              <button
-                key={lesson.id}
-                onClick={() => setActiveLesson(lesson)}
-                className={`w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 ${activeLesson?.id === lesson.id ? "bg-primary/5 border-r-2 border-primary" : ""}`}
-              >
-                <span className="shrink-0 mt-0.5">
-                  {completed.has(lesson.id)
-                    ? <CheckCircle2 size={15} className="text-emerald-500" />
-                    : <Circle size={15} className="text-muted-foreground/30" />
-                  }
-                </span>
-                <span className="flex-1 min-w-0">
-                  <span className="text-[11px] text-muted-foreground/60 block">Lección {idx + 1}</span>
-                  <span className={`text-xs font-medium leading-snug ${activeLesson?.id === lesson.id ? "text-primary" : "text-foreground"}`}>
-                    {lesson.title}
+            ) : modules.length > 0 ? (
+              // Vista agrupada por módulos
+              modules.map((mod) => {
+                const modLessons = lessons
+                  .filter(l => l.module_id === mod.id)
+                  .sort((a, b) => a.sort_order - b.sort_order);
+                if (modLessons.length === 0) return null;
+                return (
+                  <div key={mod.id} className="mb-1">
+                    <div className="px-4 pt-4 pb-1">
+                      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
+                        {mod.title}
+                      </p>
+                    </div>
+                    {modLessons.map((lesson) => {
+                      const globalIdx = lessons.findIndex(l => l.id === lesson.id);
+                      return (
+                        <button
+                          key={lesson.id}
+                          onClick={() => setActiveLesson(lesson)}
+                          className={`w-full flex items-start gap-3 px-4 py-2.5 text-left transition-colors hover:bg-muted/50 ${activeLesson?.id === lesson.id ? "bg-primary/5 border-r-2 border-primary" : ""}`}
+                        >
+                          <span className="shrink-0 mt-0.5">
+                            {completed.has(lesson.id)
+                              ? <CheckCircle2 size={14} className="text-emerald-500" />
+                              : <Circle size={14} className="text-muted-foreground/30" />
+                            }
+                          </span>
+                          <span className="flex-1 min-w-0">
+                            <span className="text-[10px] text-muted-foreground/50 block">{globalIdx + 1}</span>
+                            <span className={`text-xs font-medium leading-snug ${activeLesson?.id === lesson.id ? "text-primary" : "text-foreground"}`}>
+                              {lesson.title}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })
+            ) : (
+              // Sin módulos: lista plana ordenada
+              lessons.map((lesson, idx) => (
+                <button
+                  key={lesson.id}
+                  onClick={() => setActiveLesson(lesson)}
+                  className={`w-full flex items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/50 ${activeLesson?.id === lesson.id ? "bg-primary/5 border-r-2 border-primary" : ""}`}
+                >
+                  <span className="shrink-0 mt-0.5">
+                    {completed.has(lesson.id)
+                      ? <CheckCircle2 size={15} className="text-emerald-500" />
+                      : <Circle size={15} className="text-muted-foreground/30" />
+                    }
                   </span>
-                </span>
-              </button>
-            ))}
+                  <span className="flex-1 min-w-0">
+                    <span className="text-[11px] text-muted-foreground/60 block">Lección {idx + 1}</span>
+                    <span className={`text-xs font-medium leading-snug ${activeLesson?.id === lesson.id ? "text-primary" : "text-foreground"}`}>
+                      {lesson.title}
+                    </span>
+                  </span>
+                </button>
+              ))
+            )}
           </div>
         </aside>
 
@@ -190,6 +235,11 @@ export default function CoursePlayer() {
 
               {/* Título de la lección */}
               <div className="space-y-2">
+                {activeLesson.module_id && modules.length > 0 && (
+                  <p className="text-[11px] font-semibold uppercase tracking-wider text-primary/70">
+                    {modules.find(m => m.id === activeLesson.module_id)?.title}
+                  </p>
+                )}
                 <p className="text-xs text-muted-foreground/60">Lección {activeLessonIdx + 1} de {lessons.length}</p>
                 <h1 className="text-xl font-bold">{activeLesson.title}</h1>
               </div>

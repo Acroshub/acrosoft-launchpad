@@ -76,14 +76,19 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Cargar curso y lecciones
-    const [courseRes, lessonsRes] = await Promise.all([
+    // Cargar curso, módulos y lecciones
+    const [courseRes, modulesRes, lessonsRes] = await Promise.all([
       supabase
         .from("crm_courses")
         .select("*")
         .eq("id", payload.course_id)
         .eq("is_published", true)
         .maybeSingle(),
+      supabase
+        .from("crm_course_modules")
+        .select("*")
+        .eq("course_id", payload.course_id)
+        .order("sort_order"),
       supabase
         .from("crm_course_lessons")
         .select("*")
@@ -98,7 +103,11 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ course: courseRes.data, lessons: lessonsRes.data ?? [] }),
+      JSON.stringify({
+        course: courseRes.data,
+        modules: modulesRes.data ?? [],
+        lessons: lessonsRes.data ?? [],
+      }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
 
