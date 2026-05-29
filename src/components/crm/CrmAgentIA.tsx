@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Bot, Settings, Send, Wifi, WifiOff, MessageSquare, Loader2,
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, ChevronLeft, ChevronDown, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
-  GripVertical, GitBranch, ArrowLeft, Megaphone,
+  GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote,
 } from "lucide-react";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
@@ -4246,6 +4247,14 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   );
 };
 
+// ─── Delivery Tick ────────────────────────────────────────────────────────────
+function DeliveryTick({ status }: { status?: string }) {
+  if (!status || status === "pending") return <Clock size={10} className="text-white/50 shrink-0" />;
+  if (status === "sent")     return <Check size={10} className="text-white/60 shrink-0" />;
+  if (status === "failed")   return <AlertTriangle size={10} className="text-red-300 shrink-0" />;
+  return <CheckCheck size={10} className={status === "read" ? "text-[#53bdeb] shrink-0" : "text-white/60 shrink-0"} />;
+}
+
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: boolean }) => {
   const isUser    = msg.role === "user";
@@ -4253,6 +4262,22 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
   const isHuman   = msg.role === "human";
   const displayContent = isNotif ? msg.content.slice(7) : msg.content;
   const time = new Date(msg.created_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
+
+  // Nota interna — solo visible para el equipo
+  if (msg.is_internal) {
+    return (
+      <div id={`msg-${msg.id}`} className="flex justify-end mb-1.5 px-3">
+        <div className="max-w-[78%] sm:max-w-[65%] bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-2xl rounded-tr-sm px-3 py-2 shadow-sm">
+          <div className="flex items-center gap-1 mb-1">
+            <Lock size={9} className="text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 uppercase tracking-wider">Nota interna</span>
+          </div>
+          <p className="text-sm text-foreground leading-relaxed">{msg.content}</p>
+          <p className="text-[10px] text-amber-600/70 dark:text-amber-400/60 text-right mt-1">{time}</p>
+        </div>
+      </div>
+    );
+  }
 
   // Notificación del sistema — centrada, tipo pill
   if (isNotif) {
@@ -4360,9 +4385,9 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
                   ))}
                 </div>
               )}
-              <div className={`flex items-center justify-end gap-1 mt-1 text-white/60`}>
+              <div className="flex items-center justify-end gap-1 mt-1 text-white/60">
                 <span className="text-[10px]">{time}</span>
-                <Check size={10} className="opacity-80" />
+                <DeliveryTick status={msg.delivery_status} />
               </div>
             </div>
           )}
@@ -4392,13 +4417,14 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
               )}
               <div className={`flex items-center justify-end gap-1 mt-1 ${isIncoming ? "text-muted-foreground/60" : "text-white/60"}`}>
                 <span className="text-[10px]">{time}</span>
-                {!isIncoming && <Check size={10} className="opacity-80" />}
+                {!isIncoming && <DeliveryTick status={msg.delivery_status} />}
               </div>
             </div>
           )}
           {(msg.media_type === "document" || msg.media_type === "video" || msg.media_type === "audio") && (
-            <div className={`flex justify-end px-3.5 pb-2 text-[10px] ${isIncoming ? "text-muted-foreground/60" : "text-white/60"}`}>
-              {time}
+            <div className={`flex items-center justify-end gap-1 px-3.5 pb-2 text-[10px] ${isIncoming ? "text-muted-foreground/60" : "text-white/60"}`}>
+              <span>{time}</span>
+              {!isIncoming && <DeliveryTick status={msg.delivery_status} />}
             </div>
           )}
         </div>
@@ -4435,7 +4461,8 @@ const ChatPanel = ({
   const { data: convLabels = [] }          = useConversationLabels(conv.id);
   const toggleLabel                        = useToggleConversationLabel();
   const assignConv                         = useAssignConversation();
-  const setMode = useSetWaConversationMode();
+  const setMode                            = useSetWaConversationMode();
+  const qc                                 = useQueryClient();
   const updateSale                         = useUpdateSale();
   const [text, setText]             = useState("");
   const [sending, setSending]       = useState(false);
@@ -4444,10 +4471,14 @@ const ChatPanel = ({
   const [showMenu, setShowMenu]     = useState(false);
   const [showLabels, setShowLabels] = useState(false);
   const [showAssign, setShowAssign] = useState(false);
+  const [isInternalMode, setIsInternalMode] = useState(false);
+  const [showNotesLog, setShowNotesLog] = useState(false);
+  const [noteNavId, setNoteNavId] = useState<string | null>(null);
   const [paymentAction, setPaymentAction] = useState<"confirm" | "reject" | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<"confirm" | "reject" | null>(null);
-  const bottomRef    = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const bottomRef       = useRef<HTMLDivElement>(null);
+  const fileInputRef    = useRef<HTMLInputElement>(null);
+  const prevNotesLogRef = useRef(false);
 
   const handleConfirmPayment = async () => {
     if (!pendingSale || paymentAction !== null) return;
@@ -4488,6 +4519,14 @@ const ChatPanel = ({
     finally { setPaymentAction(null); }
   };
 
+  // Reset de estado al cambiar de conversación
+  useEffect(() => {
+    setIsInternalMode(false);
+    setShowNotesLog(false);
+    setNoteNavId(null);
+    setText("");
+  }, [conv.id]);
+
   useEffect(() => {
     if (highlightMessageId) return; // el scroll al mensaje resaltado toma prioridad
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -4496,26 +4535,56 @@ const ChatPanel = ({
   // Scroll al mensaje resaltado cuando los mensajes carguen
   useEffect(() => {
     if (!highlightMessageId || isLoading) return;
-    // Siempre limpiar después de 3s, exista o no el elemento en DOM
     const t = setTimeout(() => onHighlightClear?.(), 3000);
     const el = document.getElementById(`msg-${highlightMessageId}`);
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     return () => clearTimeout(t);
   }, [highlightMessageId, isLoading, messages.length]);
 
+  // Al salir del log de notas: scroll al fondo o al mensaje clickeado
+  useEffect(() => {
+    if (prevNotesLogRef.current && !showNotesLog) {
+      setTimeout(() => {
+        if (noteNavId) {
+          const el = document.getElementById(`msg-${noteNavId}`);
+          if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+          setTimeout(() => setNoteNavId(null), 2500);
+        } else {
+          bottomRef.current?.scrollIntoView({ behavior: "instant" });
+        }
+      }, 60);
+    }
+    prevNotesLogRef.current = showNotesLog;
+  }, [showNotesLog]);
+
   const handleSend = async () => {
     if (!text.trim() || sending) return;
     setSending(true);
     setWindowError(false);
     try {
-      const { data, error } = await supabase.functions.invoke("send-wa-message", {
-        body: { conversation_id: conv.id, text: text.trim() },
-      });
-      if (error || data?.error === "24h_window_expired") {
-        setWindowError(true);
-        if (data?.error !== "24h_window_expired") toast.error("Error al enviar el mensaje");
+      if (isInternalMode) {
+        const { error } = await supabase.from("crm_wa_messages").insert({
+          conversation_id: conv.id,
+          role: "human",
+          content: text.trim(),
+          is_internal: true,
+        });
+        if (error) toast.error("Error al guardar la nota");
+        else {
+          setText("");
+          setIsInternalMode(false);
+          qc.invalidateQueries({ queryKey: ["crm_wa_messages", conv.id] });
+        }
       } else {
-        setText("");
+        const { data, error } = await supabase.functions.invoke("send-wa-message", {
+          body: { conversation_id: conv.id, text: text.trim() },
+        });
+        if (error || data?.error === "24h_window_expired") {
+          setWindowError(true);
+          if (data?.error !== "24h_window_expired") toast.error("Error al enviar el mensaje");
+        } else {
+          setText("");
+        }
       }
     } catch { toast.error("Error al enviar"); }
     finally { setSending(false); }
@@ -4554,7 +4623,6 @@ const ChatPanel = ({
   const handleToggleMode = async () => {
     const next = conv.mode === "AI" ? "HUMAN" : "AI";
     await setMode.mutateAsync({ id: conv.id, mode: next });
-    toast.success(next === "AI" ? "Modo IA activado" : "Modo manual activado");
   };
 
   const contactInitial = (conv.contact_name ?? conv.phone)[0].toUpperCase();
@@ -4591,7 +4659,7 @@ const ChatPanel = ({
           <div className="flex items-center gap-1.5">
             {conv.contact_name && <p className="text-[11px] text-muted-foreground truncate">+{conv.phone}</p>}
             {conv.contact_name && <span className="text-muted-foreground/40">·</span>}
-            <span className={`text-[11px] font-medium ${conv.mode === "AI" ? "text-[#00a884]" : "text-amber-500"}`}>
+            <span className={`text-[11px] font-medium ${conv.mode === "AI" ? "text-[#00a884]" : "text-blue-500"}`}>
               {conv.mode === "AI" ? "IA activa" : "Manual"}
             </span>
           </div>
@@ -4600,53 +4668,14 @@ const ChatPanel = ({
         {/* Action icons — 44px touch targets */}
         <div className="flex items-center gap-0.5 shrink-0">
 
-          {/* Mode toggle */}
+          {/* Notes log */}
           <button
-            onClick={handleToggleMode}
-            disabled={setMode.isPending}
-            title={conv.mode === "AI" ? "Cambiar a modo Manual" : "Cambiar a modo IA"}
-            className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl transition-colors ${setMode.isPending ? "opacity-40" : "hover:bg-secondary"}`}
+            onClick={() => setShowNotesLog(v => !v)}
+            title="Notas internas"
+            className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl transition-colors ${showNotesLog ? "bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
           >
-            {conv.mode === "AI"
-              ? <Bot size={18} className="text-[#00a884]" />
-              : <MessageSquare size={18} className="text-amber-500" />
-            }
+            <StickyNote size={17} />
           </button>
-
-          {/* Labels */}
-          {allLabels.length > 0 && (
-            <div className="relative">
-              <button
-                onClick={() => setShowLabels(v => !v)}
-                className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl transition-colors ${showLabels ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
-                title="Etiquetas"
-              >
-                <Tag size={17} />
-              </button>
-              {showLabels && (
-                <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowLabels(false)} />
-                  <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-2xl shadow-xl py-1.5 min-w-[200px] overflow-hidden">
-                    <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest px-4 py-2">Etiquetas</p>
-                    {allLabels.map(l => {
-                      const active = convLabels.some(cl => cl.id === l.id);
-                      return (
-                        <button
-                          key={l.id}
-                          onClick={() => toggleLabel.mutate({ conversationId: conv.id, labelId: l.id, active: !active })}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/60 transition-colors"
-                        >
-                          <Tag size={12} className="shrink-0" style={{ color: l.color }} />
-                          <span className="text-sm flex-1 text-left">{l.name}</span>
-                          {active && <Check size={13} className="text-primary shrink-0" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-            </div>
-          )}
 
           {/* Assign */}
           {staffList.length > 0 && (
@@ -4828,103 +4857,193 @@ const ChatPanel = ({
         </div>
       )}
 
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto py-3 bg-[#F0F2F5] dark:bg-zinc-900/50" style={{ overscrollBehavior: "contain" }}>
-        {isLoading ? (
-          <div className="flex justify-center pt-10"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
-        ) : messages.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground px-6">
-            <div className="w-14 h-14 rounded-full bg-white dark:bg-zinc-800 border flex items-center justify-center shadow-sm">
-              <MessageSquare size={22} className="opacity-30" />
+      {/* Messages / Notes log */}
+      {showNotesLog ? (
+        <div className="flex-1 overflow-y-auto py-3 bg-amber-50/40 dark:bg-amber-950/10" style={{ overscrollBehavior: "contain" }}>
+          <div className="px-4 pb-3">
+            <div className="flex items-center gap-2 bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2">
+              <StickyNote size={13} className="text-amber-600 dark:text-amber-400 shrink-0" />
+              <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Notas internas</span>
+              <span className="text-xs text-amber-600/60 dark:text-amber-500/60 ml-auto">{messages.filter(m => m.is_internal).length} nota(s)</span>
             </div>
-            <p className="text-sm text-center">Sin mensajes aún.<br />Cuando el contacto escriba, aparecerán aquí.</p>
           </div>
-        ) : (
-          messages.reduce<React.ReactNode[]>((acc, msg, i) => {
-            const prevMsg = messages[i - 1];
-            const showDate = !prevMsg || getDateLabel(msg.created_at) !== getDateLabel(prevMsg.created_at);
-            if (showDate) {
-              acc.push(
-                <div key={`date-${msg.id}`} className="flex justify-center my-3 px-4">
-                  <span className="text-[11px] text-muted-foreground bg-white dark:bg-zinc-800 border border-border/40 px-3 py-1 rounded-full shadow-sm font-medium capitalize">
-                    {getDateLabel(msg.created_at)}
-                  </span>
-                </div>
-              );
-            }
-            acc.push(<MessageBubble key={msg.id} msg={msg} highlight={msg.id === highlightMessageId} />);
-            return acc;
-          }, [])
-        )}
-        <div ref={bottomRef} className="h-2" />
-      </div>
+          {messages.filter(m => m.is_internal).length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-[60%] gap-3 text-muted-foreground px-6">
+              <StickyNote size={24} className="opacity-25" />
+              <p className="text-sm text-center">Sin notas internas aún.<br />Las notas que escribas aparecerán aquí.</p>
+            </div>
+          ) : (
+            messages.filter(m => m.is_internal).map(msg => (
+              <div
+                key={msg.id}
+                onClick={() => { setNoteNavId(msg.id); setShowNotesLog(false); }}
+                className="cursor-pointer hover:opacity-75 transition-opacity"
+                title="Ver en la conversación"
+              >
+                <MessageBubble msg={msg} />
+              </div>
+            ))
+          )}
+          <div ref={bottomRef} className="h-2" />
+        </div>
+      ) : (
+        <div className="flex-1 overflow-y-auto py-3 bg-[#F0F2F5] dark:bg-zinc-900/50" style={{ overscrollBehavior: "contain" }}>
+          {isLoading ? (
+            <div className="flex justify-center pt-10"><Loader2 size={20} className="animate-spin text-muted-foreground" /></div>
+          ) : messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full gap-3 text-muted-foreground px-6">
+              <div className="w-14 h-14 rounded-full bg-white dark:bg-zinc-800 border flex items-center justify-center shadow-sm">
+                <MessageSquare size={22} className="opacity-30" />
+              </div>
+              <p className="text-sm text-center">Sin mensajes aún.<br />Cuando el contacto escriba, aparecerán aquí.</p>
+            </div>
+          ) : (
+            messages.reduce<React.ReactNode[]>((acc, msg, i) => {
+              const prevMsg = messages[i - 1];
+              const showDate = !prevMsg || getDateLabel(msg.created_at) !== getDateLabel(prevMsg.created_at);
+              if (showDate) {
+                acc.push(
+                  <div key={`date-${msg.id}`} className="flex justify-center my-3 px-4">
+                    <span className="text-[11px] text-muted-foreground bg-white dark:bg-zinc-800 border border-border/40 px-3 py-1 rounded-full shadow-sm font-medium capitalize">
+                      {getDateLabel(msg.created_at)}
+                    </span>
+                  </div>
+                );
+              }
+              acc.push(<MessageBubble key={msg.id} msg={msg} highlight={msg.id === highlightMessageId || msg.id === noteNavId} />);
+              return acc;
+            }, [])
+          )}
+          <div ref={bottomRef} className="h-2" />
+        </div>
+      )}
 
       {/* Input */}
-      <div className="px-3 pt-2 pb-3 border-t bg-card shrink-0 space-y-2">
+      <div className="px-3 pt-2 pb-3 border-t bg-card shrink-0">
         {windowError && (
-          <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2">
+          <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2 mb-2">
             <AlertTriangle size={13} className="shrink-0" /> Ventana de 24h expirada — no se pueden enviar mensajes de texto libre.
           </div>
         )}
-        {conv.mode === "AI" ? (
-          <div className="flex items-center gap-2.5 bg-[#00a884]/8 dark:bg-[#00a884]/10 border border-[#00a884]/20 rounded-2xl px-4 py-3">
-            <Bot size={16} className="text-[#00a884] shrink-0" />
-            <p className="text-xs text-muted-foreground">El agente IA responde automáticamente.</p>
-            <button
-              onClick={handleToggleMode}
-              disabled={setMode.isPending}
-              className="ml-auto text-xs font-semibold text-[#1877F2] hover:underline shrink-0"
-            >
-              Tomar control
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-end gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-              className="hidden"
-              onChange={e => {
-                const f = e.target.files?.[0];
-                if (f) handleMediaUpload(f);
-                e.target.value = "";
-              }}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleMediaUpload(f); e.target.value = ""; }}
+        />
+        <div className={`rounded-2xl border transition-colors ${
+          isInternalMode
+            ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60 focus-within:border-amber-400 dark:focus-within:border-amber-600"
+            : "bg-secondary/60 border-border/50 focus-within:border-primary/40 focus-within:bg-background"
+        }`}>
+          <div className="relative">
+            <textarea
+              value={text}
+              onChange={e => { setText(e.target.value); e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`; }}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              placeholder=""
+              rows={1}
+              className="w-full bg-transparent px-4 pt-3 pb-1 text-sm resize-none outline-none leading-relaxed"
+              style={{ maxHeight: 120, touchAction: "manipulation" }}
+              disabled={sending || uploadingMedia || (conv.mode === "AI" && !isInternalMode)}
             />
-            {/* Attach */}
-            <button
-              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors shrink-0 cursor-pointer disabled:opacity-40"
-              disabled={sending || uploadingMedia}
-              onClick={() => fileInputRef.current?.click()}
-              title="Adjuntar archivo"
-            >
-              {uploadingMedia ? <Loader2 size={18} className="animate-spin" /> : <Paperclip size={18} />}
-            </button>
-            {/* Textarea */}
-            <div className="flex-1 min-w-0 bg-secondary/60 rounded-2xl border border-border/50 focus-within:border-primary/40 focus-within:bg-background transition-colors">
-              <textarea
-                value={text}
-                onChange={e => { setText(e.target.value); e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`; }}
-                onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder="Escribe un mensaje..."
-                rows={1}
-                className="w-full bg-transparent px-4 py-3 text-sm resize-none outline-none leading-relaxed placeholder:text-muted-foreground/60"
-                style={{ maxHeight: 120, touchAction: "manipulation" }}
-                disabled={sending || uploadingMedia}
-              />
+            {!text && (
+              <div className="absolute top-3 left-4 right-4 flex items-center gap-1.5 pointer-events-none select-none">
+                {isInternalMode
+                  ? <StickyNote size={13} className="text-amber-500/50 shrink-0" />
+                  : conv.mode === "AI"
+                    ? <Bot size={13} className="text-[#00a884]/50 shrink-0" />
+                    : <Pencil size={13} className="text-blue-500/50 shrink-0" />
+                }
+                <span className="text-sm text-muted-foreground/55 truncate">
+                  {isInternalMode ? "Nota interna — solo visible para el equipo..." : conv.mode === "AI" ? "Activa nota interna o toma el control..." : "Escribe un mensaje..."}
+                </span>
+              </div>
+            )}
+          </div>
+          {/* Toolbar */}
+          <div className="flex items-center justify-between px-2 pb-2 pt-0.5">
+            <div className="flex items-center gap-0.5">
+              {/* Mode switcher */}
+              <button
+                onClick={handleToggleMode}
+                disabled={setMode.isPending}
+                title={conv.mode === "AI" ? "Tomar control manual" : "Activar agente IA"}
+                className={`inline-flex items-center gap-1 px-2 h-7 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
+                  conv.mode === "AI" ? "text-[#00a884] hover:bg-[#00a884]/10" : "text-blue-500 hover:bg-blue-500/10"
+                }`}
+              >
+                {conv.mode === "AI" ? <Bot size={13} /> : <Pencil size={13} />}
+                {conv.mode === "AI" ? "Modo IA" : "Humano"}
+              </button>
+              <div className="w-px h-3.5 bg-border/60 mx-1" />
+              {/* Nota interna */}
+              <button
+                onClick={() => setIsInternalMode(v => !v)}
+                className={`text-xs px-1.5 py-1 rounded transition-colors cursor-pointer ${
+                  isInternalMode ? "text-amber-600 dark:text-amber-400 font-medium" : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                Nota interna
+              </button>
+              <div className="w-px h-3.5 bg-border/60 mx-1" />
+              {/* Attach */}
+              <button
+                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${conv.mode === "AI" ? "text-muted-foreground/30 cursor-not-allowed" : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/8 cursor-pointer"}`}
+                disabled={sending || uploadingMedia || conv.mode === "AI"}
+                onClick={() => fileInputRef.current?.click()}
+                title="Adjuntar archivo"
+              >
+                {uploadingMedia ? <Loader2 size={15} className="animate-spin" /> : <Paperclip size={15} />}
+              </button>
+              {/* Emoji — placeholder B19-8 */}
+              <button className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground/30 cursor-not-allowed" title="Emojis (próximamente)" disabled>
+                <Smile size={15} />
+              </button>
+              {/* Tags */}
+              {allLabels.length > 0 && (
+                <div className="relative">
+                  <button
+                    onClick={() => conv.mode === "HUMAN" && setShowLabels(v => !v)}
+                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${conv.mode === "AI" ? "text-muted-foreground/30 cursor-not-allowed" : showLabels ? "bg-black/5 dark:bg-white/8 text-foreground" : "text-muted-foreground hover:bg-black/5 dark:hover:bg-white/8 hover:text-foreground"}`}
+                    title="Etiquetas"
+                  >
+                    <Tag size={15} />
+                  </button>
+                  {showLabels && conv.mode === "HUMAN" && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowLabels(false)} />
+                      <div className="absolute left-0 bottom-full mb-1.5 z-20 bg-card border rounded-2xl shadow-xl py-1.5 min-w-[200px] overflow-hidden">
+                        <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest px-4 py-2">Etiquetas</p>
+                        {allLabels.map(l => {
+                          const active = convLabels.some(cl => cl.id === l.id);
+                          return (
+                            <button key={l.id} onClick={() => toggleLabel.mutate({ conversationId: conv.id, labelId: l.id, active: !active })} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/60 transition-colors">
+                              <Tag size={12} className="shrink-0" style={{ color: l.color }} />
+                              <span className="text-sm flex-1 text-left">{l.name}</span>
+                              {active && <Check size={13} className="text-primary shrink-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
             {/* Send */}
             <button
               onClick={handleSend}
-              disabled={sending || uploadingMedia || !text.trim()}
+              disabled={sending || uploadingMedia || !text.trim() || (conv.mode === "AI" && !isInternalMode)}
               className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-white transition-all shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ backgroundColor: text.trim() ? "#1877F2" : undefined }}
-              title="Enviar"
+              style={{ backgroundColor: text.trim() && !(conv.mode === "AI" && !isInternalMode) ? (isInternalMode ? "#d97706" : "#1877F2") : undefined }}
+              title={isInternalMode ? "Guardar nota interna" : "Enviar"}
             >
-              {sending ? <Loader2 size={18} className="animate-spin" /> : <Send size={18} />}
+              {sending ? <Loader2 size={18} className="animate-spin" /> : isInternalMode ? <StickyNote size={17} /> : <Send size={18} />}
             </button>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );
@@ -5363,7 +5482,7 @@ const CrmAgentIA = ({
                           )}
                           {/* Mode dot */}
                           <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-background ${
-                            conv.mode === "AI" ? "bg-[#00a884]" : "bg-amber-400"
+                            conv.mode === "AI" ? "bg-[#00a884]" : "bg-blue-500"
                           }`} />
                         </div>
 

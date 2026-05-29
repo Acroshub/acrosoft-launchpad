@@ -90,18 +90,21 @@ function buildSiteStructureInstructions(
 
 **Tipo: Landing Page** — 1 sola página con 7–10 secciones en scroll vertical. Adapta las secciones al rubro del negocio.
 
-Secciones obligatorias (en este orden):
-1. **Hero** — headline impactante, sub-headline, CTA principal
-2. **Propuesta de Valor** — 3 beneficios clave en tarjetas
-3. **Servicios** — los servicios del negocio con descripción y precio
-4. **Sobre Nosotros** — historia, diferenciador, años de experiencia
-5. **Testimonios** — reseñas de clientes (ver instrucciones de generación con IA abajo)
-6. **FAQ** — preguntas frecuentes (ver instrucciones de generación con IA abajo)
-7. **Contacto & CTA Final** — formulario, WhatsApp, mapa si aplica
+Secciones obligatorias **en este orden CRO-optimizado**:
+1. **Hero** — headline orientado al RESULTADO del cliente (no al servicio), sub-headline, CTA principal + CTA secundario WhatsApp
+2. **¿Qué pasa después?** — 3 pasos visuales (agenda → nosotros construimos → tú creces). Reduce ansiedad de contacto
+3. **Antes / Después** — contraste visual del dolor vs. la solución. Máximo impacto emocional
+4. **Testimonios** ← ANTES de precios. La prueba social debe aparecer ANTES del ask económico
+5. **Servicios** — los servicios con descripción, precio y CTA en cada tarjeta
+6. **Cómo Funciona** — pasos del proceso
+7. **Por qué Nosotros** — diferenciador, garantías, checklist de beneficios
+8. **Precios / Planes** — con ancla de valor (precio de mercado tachado o comparación competidores)
+9. **FAQ** ← JUSTO DESPUÉS de precios. Las objeciones se responden en el punto de decisión
+10. **Garantía** — reversal de riesgo antes del CTA final
+11. **CTA Final** — con todos los trust signals (sin contrato, sin tarjeta, etc.)
 
 Secciones opcionales según rubro (agrega si aplica):
 - **Galería / Portfolio** — trabajos o proyectos realizados
-- **Proceso / Cómo funciona** — pasos del servicio
 - **Métricas / Social Proof** — números de clientes, años, proyectos`;
   }
 
@@ -110,44 +113,54 @@ Secciones opcionales según rubro (agrega si aplica):
 
 **Tipo: Website Multi-Página** — 6 páginas independientes. Adapta el contenido de cada página al rubro del negocio.
 
-### Página 1: Home
-- Hero con headline + CTA principal
-- Propuesta de valor (3 beneficios en tarjetas)
-- Preview de servicios (máx 3 destacados con link a /servicios)
-- Testimonios destacados (2-3)
-- CTA final + contacto rápido
+### Página 1: Home (CRO-optimizada)
+- Hero: headline de RESULTADO, CTA principal + CTA secundario WhatsApp
+- Barra "¿Qué pasa después?" — 3 pasos para reducir ansiedad
+- Testimonios destacados (2-3) ← ANTES de la preview de servicios
+- Preview de servicios (máx 3 con link a /servicios)
+- Garantía / trust signals prominentes
+- CTA final con risk reversal
 
 ### Página 2: Servicios
-- Listado completo de todos los servicios con descripción, precio y beneficios
-- Marca el servicio estrella visualmente
+- Ancla de valor al inicio: "Lo que otras agencias cobran vs. nosotros"
+- Listado completo con descripción, precio y beneficios
+- Marca el servicio estrella visualmente con badge
 - CTA en cada tarjeta (WhatsApp / formulario)
+- Risk reversal bajo cada CTA: "Sin contrato · Precio fijo"
 
 ### Página 3: Sobre Nosotros
-- Historia del negocio, misión, visión y valores
-- Diferenciador competitivo y métricas/logros
+- Historia del negocio con detalles específicos (años, logros, número de clientes)
+- Diferenciador competitivo con prueba concreta
+- Fotos reales > ilustraciones (pedir al cliente)
 
 ### Página 4: Galería / Portfolio
-- Grid de trabajos, proyectos o fotos del negocio
+- Grid de trabajos con resultados/métricas donde aplique
 - Ver instrucciones de generación con IA abajo
 
 ### Página 5: Testimonios
-- Todas las reseñas con rating visual y botón Google Reviews
+- Badges de resultado en cada testimonio (ej. "+40% clientes", "Agenda llena")
+- Botón Google Reviews
 - Ver instrucciones de generación con IA abajo
 
 ### Página 6: Contacto
-- Formulario + WhatsApp directo + Email
-- Dirección + Google Maps embed + Horario de atención`;
+- Múltiples canales: Formulario + WhatsApp directo + Email + Tel
+- Dirección + Google Maps embed + Horario de atención
+- "Respondemos en menos de X horas" — expectativa concreta`;
   }
 
   return `## 🏗️ Estructura del Sitio Web
 
 **Tipo: SaaS Booking System** — 6 páginas de website + 7ª página de reservas integrada con CRM.
 
-### Página 1: Home
-- Hero con CTA "Agendar ahora" prominente, propuesta de valor, preview de servicios y testimonios
+### Página 1: Home (CRO-optimizada)
+- Hero con calendario de agendamiento VISIBLE above the fold — es el CTA principal
+- Chip de urgencia/disponibilidad: "X horarios disponibles esta semana"
+- Testimonios (2-3) antes de la preview de servicios
+- Garantía y trust signals prominentes
 
 ### Página 2: Servicios
-- Listado con precios y duración, CTA "Reservar" en cada tarjeta → /agendar
+- Listado con precios, duración y CTA "Reservar" en cada tarjeta → /agendar
+- Ancla de valor vs. competidores si aplica
 
 ### Página 3: Sobre Nosotros
 - Historia, diferenciador, credenciales y métricas de confianza
@@ -156,7 +169,8 @@ Secciones opcionales según rubro (agrega si aplica):
 - Ver instrucciones de generación con IA abajo
 
 ### Página 5: Testimonios
-- Reseñas con botón Google Reviews
+- Badges de resultado en cada testimonio
+- Botón Google Reviews
 - Ver instrucciones de generación con IA abajo
 
 ### Página 6: Contacto
@@ -166,6 +180,88 @@ Secciones opcionales según rubro (agrega si aplica):
 - Componente \`CalendarRenderer\` del proyecto Acrosoft
 - **calendar_id del cliente: \`${calendarId ?? "PENDIENTE — asignar al activar cuenta SaaS"}\`**
 - Disponibilidad en tiempo real, formulario integrado, confirmación automática`;
+}
+
+function buildCROInstructions(serviceType: ServiceType, ctaGoal: string, industry: string): string {
+  const ctaNote = ctaGoal ? `El CTA principal del cliente es: **"${ctaGoal}"**. Todo el CRO debe orientarse a lograr esa acción.` : "";
+
+  return `## 🔥 Reglas CRO Obligatorias (Conversion Rate Optimization)
+
+> Estas reglas son **NO NEGOCIABLES**. Cada una tiene impacto directo en la tasa de conversión. Impleméntalas todas.
+
+${ctaNote}
+
+### 1. Jerarquía de Prueba Social
+- **Testimonios SIEMPRE antes de precios.** La prueba social reduce la resistencia al precio.
+- Cada testimonio debe incluir un **badge de resultado específico** (ej. "+40% clientes", "Agenda llena en 2 semanas", "0 cancelaciones"). El resultado va en un chip de color verde/esmeralda.
+- Usar nombres y ciudades reales/verosímiles. Foto si el cliente la provee; avatar de iniciales si no.
+- Mínimo 3 testimonios. Si el cliente no los da, generarlos con IA específicos para el rubro "${industry}".
+
+### 2. FAQ en el Punto de Decisión
+- Las preguntas frecuentes van **inmediatamente después de los precios/planes**, nunca al final.
+- Las preguntas deben responder las principales objeciones de compra: precio, tiempo de entrega, contrato, propiedad del sitio, soporte.
+- Usar acordeón (expand/collapse) para no saturar visualmente.
+
+### 3. Risk Reversal en Cada CTA
+- **Bajo CADA botón de acción** incluir una línea de micro-copy con trust signals:
+  \`Sin contrato · Sin tarjeta requerida · Respuesta en 24h\`
+- En la sección de precios agregar un trust strip horizontal: 3 íconos con texto (Sin permanencia / Precio fijo / Soporte en español).
+- En el CTA final: lista horizontal con checkmarks verdes de todos los trust signals.
+
+### 4. Ancla de Valor en Precios
+- Antes o junto a los precios, mostrar comparación: *"Agencias americanas cobran $3,000–$10,000. Nosotros lo hacemos por una fracción."*
+- Si el cliente tiene precio de lista y precio con descuento, mostrar el original tachado.
+- Marcar el plan recomendado con badge dorado "MÁS RECOMENDADO" y borde diferenciado.
+
+### 5. Reducir Ansiedad de Contacto
+- Agregar una sección visual **"¿Qué pasa después de contactarnos?"** con 3 pasos simples:
+  1. Agendas la llamada (gratis, 30 min)
+  2. Te contamos el plan (sin presión)
+  3. Tu sitio en X días
+- Ubicarla justo después del Hero o después del primer CTA importante.
+
+### 6. Botón Flotante de WhatsApp
+- Implementar botón fijo (fixed position) en esquina inferior derecha, color #25D366.
+- Solo visible si el cliente tiene número de WhatsApp. Usar SVG oficial de WhatsApp.
+- Mensaje pre-cargado: "Hola, vi su sitio web y me gustaría saber más sobre sus servicios."
+- En mobile: ubicar a \`bottom-20 right-4\` para no tapar la barra sticky.
+
+### 7. Barra Sticky en Mobile
+- En pantallas pequeñas: barra fija en la parte inferior con el CTA principal.
+- Fondo semitransparente con blur. Texto: "Agendar [servicio] Gratis →"
+- Agregar \`pb-16 sm:pb-0\` al contenedor principal para que no tape contenido.
+
+### 8. Headline Orientado al Resultado
+- El headline del Hero NO debe describir el servicio. Debe describir el **resultado que obtiene el cliente**.
+- ❌ Mal: "Creamos sitios web profesionales"
+- ✅ Bien: "Llena tu agenda con clientes nuevos — sin pagar $5,000 a una agencia americana"
+- El sub-headline explica EL CÓMO (bilingüe, rápido, precio justo).
+
+### 9. Urgencia / Escasez Real
+- Agregar un elemento de urgencia creíble: "Agenda disponible esta semana" con punto verde pulsante.
+- No usar contadores falsos. Usar disponibilidad real del calendario si aplica.
+- Para landing de servicios: "Solo atendemos X proyectos por mes" si es verdad.
+
+### 10. Contraste Visual Antes / Después
+- Incluir sección de contraste "Sin nosotros vs. Con nosotros" con listas paralelas.
+- La columna izquierda (dolor) en tonos grises/rojos. La derecha (solución) en azul/verde.
+- Items específicos del rubro "${industry}" — no genéricos.
+
+### 11. Especificidad en Números
+- Usar números exactos cuando sea posible: "53 clientes atendidos" es más creíble que "+50".
+- Tiempo de entrega exacto: "7 días hábiles" > "rápido".
+- Stats en el Hero deben ser verificables y específicos del negocio.
+
+### 12. Múltiples Canales de Contacto
+- Siempre ofrecer al menos 2 formas de contacto: calendario de agendamiento + WhatsApp.
+- El calendario reduce fricción al máximo (no requiere llamar, agenda 24/7).
+- WhatsApp para quienes prefieren texto antes de comprometerse.${serviceType === "booking" ? `
+
+### 13. CRO Específico para Booking Systems
+- El **calendario de disponibilidad debe estar above the fold** en el Hero — es el CTA principal.
+- Mostrar "X horarios disponibles esta semana" para crear urgencia real basada en disponibilidad.
+- Agregar confirmación inmediata post-booking: "Tu cita está confirmada. Recibirás un recordatorio por WhatsApp."
+- En cada tarjeta de servicio: botón "Reservar ahora" → lleva directo al calendario con ese servicio pre-seleccionado.` : ""}`;
 }
 
 function buildPrompt(
@@ -275,6 +371,8 @@ function buildPrompt(
     : "";
 
   const siteStructure = buildSiteStructureInstructions(serviceType, calendarId);
+  const croSection = buildCROInstructions(serviceType, ctaGoal, industry);
+  const uiSkillCommand = `python3 skills/ui-ux-pro-max/scripts/search.py "${industry} service" --design-system -p "${businessName}" --persist`;
 
   return `Eres un experto en diseño y desarrollo web para pequeños negocios del mercado hispano.
 Tu misión: generar un DOCUMENTO MAESTRO en Markdown para que un desarrollador use Claude Code y construya el sitio web de este cliente.
@@ -378,6 +476,29 @@ Describe el tipo de proyecto (${serviceTypeLabel}), el objetivo principal${ctaGo
 (Links clicables en Markdown: [dominio](url))
 
 ${siteStructure}
+
+## 🎨 Skill Obligatoria: UI/UX Pro Max
+
+**ANTES de escribir una sola línea de código**, ejecutar este comando en Claude Code:
+
+\`\`\`bash
+${uiSkillCommand}
+\`\`\`
+
+Este comando genera el **Design System Maestro** (\`design-system/MASTER.md\`) con:
+- Paleta de colores recomendada para el rubro "${industry}"
+- Tipografías de Google Fonts óptimas para el estilo visual
+- Estilo UI (glassmorphism, minimal, neobrutalist, etc.)
+- Anti-patrones a evitar según el tipo de producto
+
+**Reglas de uso del Design System:**
+1. Después de ejecutar el skill, abrir \`design-system/MASTER.md\` y seguir TODAS sus recomendaciones.
+2. Si el cliente especificó colores/tipografía en la sección "Identidad Visual" arriba, esos colores tienen **prioridad** — combinarlos con el Design System generado.
+3. Para páginas individuales con necesidades distintas, ejecutar también: \`python3 skills/ui-ux-pro-max/scripts/search.py "${industry}" --design-system --persist --page "nombre-pagina"\`
+4. Nunca usar emojis como íconos — usar exclusivamente SVG (Heroicons, Lucide, Simple Icons).
+5. Verificar antes de entregar: contraste de color ≥ 4.5:1, touch targets ≥ 44px, sin scroll horizontal en mobile.
+
+${croSection}
 
 ## ✅ Instrucciones para Claude Code
 ⚡ GENERA ESTO CON INTELIGENCIA — instrucciones técnicas profesionales y accionables:

@@ -191,7 +191,17 @@ async function processPayload(payload: any, tenantUserId: string, isActive: bool
       const value = change.value ?? {};
 
       for (const status of value.statuses ?? []) {
-        console.log(`[webhook] status ${status.status} wamid ${status.id}`);
+        const newStatus =
+          status.status === "read"      ? "read"      :
+          status.status === "delivered" ? "delivered" :
+          status.status === "sent"      ? "sent"      :
+          status.status === "failed"    ? "failed"    : null;
+        if (newStatus) {
+          await supabase
+            .from("crm_wa_messages")
+            .update({ delivery_status: newStatus })
+            .eq("wa_message_id", status.id);
+        }
       }
 
       const nameByPhone = new Map<string, string | null>(
