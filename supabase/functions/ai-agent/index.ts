@@ -58,6 +58,7 @@ interface WaLabel {
   id: string;
   name: string;
   hint: string | null;
+  remove_hint: string | null;
 }
 
 interface PaymentMethodRow {
@@ -658,15 +659,29 @@ function parseAndStripNoPayment(text: string): { text: string; hasNoPayment: boo
   return { text: text.replace(/\[NO_PAYMENT\]/gi, "").trim(), hasNoPayment };
 }
 
-// ─── Parsear y quitar la marca |LABELS| de la respuesta de Claude ─────────────
-function parseAndStripLabels(reply: string): { text: string; labelNames: string[] } {
-  const markerIndex = reply.lastIndexOf("|LABELS|");
-  if (markerIndex === -1) return { text: reply, labelNames: [] };
+// ─── Parsear y quitar marcadores |LABELS| y |REMOVE_LABELS| de la respuesta ───
+function parseAndStripLabels(reply: string): { text: string; labelNames: string[]; removeNames: string[] } {
+  let text = reply;
+  let labelNames: string[] = [];
+  let removeNames: string[] = [];
 
-  const text = reply.slice(0, markerIndex).trimEnd();
-  const labelPart = reply.slice(markerIndex + 8).trim();
-  const labelNames = labelPart.split(",").map(n => n.trim()).filter(Boolean);
-  return { text, labelNames };
+  // Strip |REMOVE_LABELS| first (it may appear before or after |LABELS|)
+  const removeIdx = text.lastIndexOf("|REMOVE_LABELS|");
+  if (removeIdx !== -1) {
+    const removePart = text.slice(removeIdx + 15).split("|")[0].trim();
+    removeNames = removePart.split(",").map(n => n.trim()).filter(Boolean);
+    text = text.slice(0, removeIdx).trimEnd();
+  }
+
+  // Strip |LABELS|
+  const addIdx = text.lastIndexOf("|LABELS|");
+  if (addIdx !== -1) {
+    const addPart = text.slice(addIdx + 8).split("|")[0].trim();
+    labelNames = addPart.split(",").map(n => n.trim()).filter(Boolean);
+    text = text.slice(0, addIdx).trimEnd();
+  }
+
+  return { text, labelNames, removeNames };
 }
 
 // ─── Aplicar etiquetas automáticas a la conversación ─────────────────────────
@@ -695,6 +710,35 @@ async function applyAutoLabels(userId: string, conversationId: string, labelName
     .upsert(rows, { onConflict: "conversation_id,label_id" });
 
   console.log(`[ai-agent] auto-labels aplicadas: ${labelNames.join(", ")}`);
+}
+
+// ─── Quitar etiquetas automáticas de la conversación ─────────────────────────
+async function removeAutoLabels(userId: string, conversationId: string, labelNames: string[]): Promise<void> {
+  if (!labelNames.length) return;
+
+  const { data: allLabels } = await supabase
+    .from("crm_wa_labels")
+    .select("id, name")
+    .eq("user_id", userId);
+
+  if (!allLabels?.length) return;
+
+  const labelMap = new Map<string, string>();
+  for (const l of allLabels) labelMap.set(l.name.toLowerCase(), l.id);
+
+  const labelIds = labelNames
+    .map(name => labelMap.get(name.toLowerCase()))
+    .filter((id): id is string => !!id);
+
+  if (!labelIds.length) return;
+
+  await supabase
+    .from("crm_wa_conversation_labels")
+    .delete()
+    .eq("conversation_id", conversationId)
+    .in("label_id", labelIds);
+
+  console.log(`[ai-agent] auto-labels removidas: ${labelNames.join(", ")}`);
 }
 
 // ─── Parsear marcador [CONTACT_DATA|campo:valor|campo:valor] ─────────────────
@@ -1194,7 +1238,6 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
     .from("crm_products")
     .select("id, name, price, discount_pct, currency, description, has_variants, deliverable_type, stock_enabled, stock")
     .eq("user_id", config.user_id)
-    .eq("is_active", true)
     .order("name");
 
   if (config.products_mode === "selected" && config.selected_product_ids?.length) {
@@ -1206,8 +1249,8 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
 
   const allProductIds = allProducts.map(p => p.id);
 
-  // Cargar variantes y métodos de pago en paralelo (variantes necesarias ANTES del filtro — B16-4)
-  const [variantsRes, paymentMethodsRes] = await Promise.all([
+  // Cargar variantes, métodos de pago y FAQs en paralelo
+  const [variantsRes, paymentMethodsRes, faqsRes] = await Promise.all([
     supabase
       .from("crm_product_variants")
       .select("id, product_id, name, price_override, discount_pct, sort_order, stock")
@@ -1219,10 +1262,23 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
       .in("entity_id", allProductIds)
       .eq("entity_type", "product")
       .order("sort_order"),
+    supabase
+      .from("crm_entity_faqs")
+      .select("entity_id, question, answer, sort_order")
+      .in("entity_id", allProductIds)
+      .eq("entity_type", "product")
+      .order("sort_order"),
   ]);
 
   const variants = variantsRes.data ?? [];
   const paymentMethods = paymentMethodsRes.data ?? [];
+  const productFaqs = faqsRes.data ?? [];
+
+  const faqsByProduct = new Map<string, Array<{ question: string; answer: string }>>();
+  for (const f of productFaqs) {
+    if (!faqsByProduct.has(f.entity_id)) faqsByProduct.set(f.entity_id, []);
+    faqsByProduct.get(f.entity_id)!.push({ question: f.question, answer: f.answer });
+  }
 
   // Agrupar variantes por product_id
   const variantsByProduct = new Map<string, typeof variants>();
@@ -1315,6 +1371,16 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
     } else {
       lines.push(`  ⚠️ Sin métodos de pago`);
     }
+
+    // FAQs del producto
+    const faqs = faqsByProduct.get(p.id) ?? [];
+    if (faqs.length > 0) {
+      lines.push(`  Preguntas frecuentes:`);
+      for (const f of faqs) {
+        lines.push(`    · P: ${f.question}`);
+        lines.push(`      R: ${f.answer}`);
+      }
+    }
   }
 
   return lines.join("\n");
@@ -1374,17 +1440,31 @@ async function buildServicesCatalog(config: AgentConfig): Promise<string> {
 
   const serviceIds = services.map(s => s.id);
 
-  const { data: paymentMethods } = await supabase
-    .from("crm_payment_methods")
-    .select("id, entity_id, type, label, content, sort_order")
-    .in("entity_id", serviceIds)
-    .eq("entity_type", "service")
-    .order("sort_order");
+  const [paymentMethodsRes, faqsRes] = await Promise.all([
+    supabase
+      .from("crm_payment_methods")
+      .select("id, entity_id, type, label, content, sort_order")
+      .in("entity_id", serviceIds)
+      .eq("entity_type", "service")
+      .order("sort_order"),
+    supabase
+      .from("crm_entity_faqs")
+      .select("entity_id, question, answer, sort_order")
+      .in("entity_id", serviceIds)
+      .eq("entity_type", "service")
+      .order("sort_order"),
+  ]);
 
   const pmByService = new Map<string, PaymentMethodRow[]>();
-  for (const pm of paymentMethods ?? []) {
+  for (const pm of paymentMethodsRes.data ?? []) {
     if (!pmByService.has(pm.entity_id)) pmByService.set(pm.entity_id, []);
     pmByService.get(pm.entity_id)!.push(pm as PaymentMethodRow);
+  }
+
+  const faqsByService = new Map<string, Array<{ question: string; answer: string }>>();
+  for (const f of faqsRes.data ?? []) {
+    if (!faqsByService.has(f.entity_id)) faqsByService.set(f.entity_id, []);
+    faqsByService.get(f.entity_id)!.push({ question: f.question, answer: f.answer });
   }
 
   const lines: string[] = ["CATÁLOGO DE SERVICIOS:"];
@@ -1402,6 +1482,15 @@ async function buildServicesCatalog(config: AgentConfig): Promise<string> {
       for (const pm of pms) lines.push(`    · ${formatPaymentMethod(pm)}`);
     } else {
       lines.push(`  ⚠️ Sin métodos de pago`);
+    }
+
+    const faqs = faqsByService.get(s.id) ?? [];
+    if (faqs.length > 0) {
+      lines.push(`  Preguntas frecuentes:`);
+      for (const f of faqs) {
+        lines.push(`    · P: ${f.question}`);
+        lines.push(`      R: ${f.answer}`);
+      }
     }
   }
 
@@ -1426,11 +1515,35 @@ async function buildCoursesCatalog(config: AgentConfig): Promise<string> {
   const { data: courses } = await query;
   if (!courses?.length) return "";
 
+  const courseIds = courses.map(c => c.id);
+
+  const { data: courseFaqs } = await supabase
+    .from("crm_entity_faqs")
+    .select("entity_id, question, answer, sort_order")
+    .in("entity_id", courseIds)
+    .eq("entity_type", "course")
+    .order("sort_order");
+
+  const faqsByCourse = new Map<string, Array<{ question: string; answer: string }>>();
+  for (const f of courseFaqs ?? []) {
+    if (!faqsByCourse.has(f.entity_id)) faqsByCourse.set(f.entity_id, []);
+    faqsByCourse.get(f.entity_id)!.push({ question: f.question, answer: f.answer });
+  }
+
   const lines: string[] = ["CATÁLOGO DE CURSOS:"];
   for (const c of courses) {
     const price = c.price != null ? formatPrice(c.price, c.currency) : "Consultar precio";
     lines.push(`- ${c.title}: ${price} [course_id:${c.id}]`);
     if (c.description) lines.push(`  Descripción: ${c.description}`);
+
+    const faqs = faqsByCourse.get(c.id) ?? [];
+    if (faqs.length > 0) {
+      lines.push(`  Preguntas frecuentes:`);
+      for (const f of faqs) {
+        lines.push(`    · P: ${f.question}`);
+        lines.push(`      R: ${f.answer}`);
+      }
+    }
   }
   return lines.join("\n");
 }
@@ -1543,6 +1656,7 @@ async function buildSystemPrompt(
   config: AgentConfig,
   phone: string,
   canTransfer = false,
+  conversationId?: string,
 ): Promise<{ prompt: string; contactId: string | null; contactName: string | null; availableSlots: AvailableSlot[] }> {
   const canSchedule = !!(config.can_book_appointments && config.scheduling_calendar_id);
 
@@ -1552,7 +1666,7 @@ async function buildSystemPrompt(
     supabase.from("crm_business_profile").select("business_name, description, agent_faq").eq("user_id", config.user_id).maybeSingle(),
     supabase.from("crm_services").select("name, price, currency, description, discount_pct, is_recurring, recurring_price, recurring_interval, recurring_label, recurring_discount_pct").eq("user_id", config.user_id).eq("active", true).order("sort_order", { ascending: true }),
     supabase.from("crm_wa_conversations").select("contact_name, contact_id").eq("user_id", config.user_id).eq("phone", phone).maybeSingle(),
-    supabase.from("crm_wa_labels").select("id, name, hint").eq("user_id", config.user_id).not("hint", "is", null),
+    supabase.from("crm_wa_labels").select("id, name, hint, remove_hint").eq("user_id", config.user_id).or("hint.not.is.null,remove_hint.not.is.null"),
     buildProductsCatalog(config),
     buildServicesCatalog(config),
     buildCoursesCatalog(config),
@@ -1587,6 +1701,95 @@ async function buildSystemPrompt(
     existingAppts = (appts ?? []) as typeof existingAppts;
   }
 
+  // Eventos recientes del sistema — para evaluar hints de etiquetas contra acciones CRM
+  let systemEventsInstruction = "";
+  if (contactId || conversationId) {
+    const since7d = new Date(Date.now() - 7 * 86_400_000).toISOString();
+
+    const [salesRes, allApptsRes, dealsRes, calendarsRes, assignedLabelsRes] = await Promise.all([
+      supabase.from("crm_sales")
+        .select("created_at, service_name, product_name, amount, currency, status, is_paid, type")
+        .eq("user_id", config.user_id)
+        .gte("created_at", since7d)
+        .or([
+          conversationId ? `wa_conversation_id.eq.${conversationId}` : null,
+          contactId      ? `contact_id.eq.${contactId}`              : null,
+        ].filter(Boolean).join(","))
+        .order("created_at", { ascending: false })
+        .limit(10),
+      contactId
+        ? supabase.from("crm_appointments")
+            .select("created_at, date, hour, minute, service, status, calendar_id")
+            .eq("user_id", config.user_id)
+            .eq("contact_id", contactId)
+            .gte("created_at", since7d)
+            .order("created_at", { ascending: false })
+            .limit(10)
+        : Promise.resolve({ data: [] }),
+      contactId
+        ? supabase.from("crm_pipeline_deals")
+            .select("created_at, title, stage, value, currency")
+            .eq("user_id", config.user_id)
+            .eq("contact_id", contactId)
+            .gte("created_at", since7d)
+            .order("created_at", { ascending: false })
+            .limit(10)
+        : Promise.resolve({ data: [] }),
+      supabase.from("crm_calendars").select("id, name").eq("user_id", config.user_id),
+      conversationId
+        ? supabase
+            .from("crm_wa_conversation_labels")
+            .select("crm_wa_labels(name)")
+            .eq("conversation_id", conversationId)
+        : Promise.resolve({ data: [] }),
+    ]);
+
+    const calendarMap: Record<string, string> = {};
+    for (const c of calendarsRes.data ?? []) calendarMap[c.id] = c.name;
+
+    const fmtDate = (iso: string) => new Date(iso).toLocaleString("es-ES", {
+      timeZone: config.timezone ?? "UTC", day: "2-digit", month: "2-digit", year: "numeric",
+      hour: "2-digit", minute: "2-digit",
+    });
+
+    const eventLines: string[] = [];
+
+    for (const s of salesRes.data ?? []) {
+      const item   = s.product_name ?? s.service_name ?? "—";
+      const amount = `${s.amount} ${s.currency}`;
+      const paid   = s.is_paid ? "pagado" : (s.status === "pending_review" ? "pendiente de revisión" : s.status);
+      eventLines.push(`[Venta registrada] ${fmtDate(s.created_at)} — ${item} — ${amount} — ${paid}`);
+    }
+
+    for (const a of (allApptsRes as any).data ?? []) {
+      const calName = a.calendar_id ? (calendarMap[a.calendar_id] ?? a.calendar_id) : "—";
+      const dt = new Date(Date.UTC(
+        Number(a.date.slice(0,4)), Number(a.date.slice(5,7))-1, Number(a.date.slice(8,10)),
+        a.hour, a.minute,
+      )).toLocaleString("es-ES", { timeZone: config.timezone ?? "UTC", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+      eventLines.push(`[Cita agendada] ${fmtDate(a.created_at)} — Calendario: "${calName}" — Fecha de cita: ${dt} — Servicio: ${a.service ?? "—"} — Estado: ${a.status}`);
+    }
+
+    for (const d of (dealsRes as any).data ?? []) {
+      eventLines.push(`[Deal en pipeline] ${fmtDate(d.created_at)} — "${d.title}" — Etapa: ${d.stage} — Valor: ${d.value} ${d.currency}`);
+    }
+
+    const assignedLabelNames: string[] = ((assignedLabelsRes as any).data ?? [])
+      .map((r: any) => r.crm_wa_labels?.name)
+      .filter(Boolean);
+
+    const assignedSection = assignedLabelNames.length > 0
+      ? `ETIQUETAS ACTUALMENTE ASIGNADAS A ESTA CONVERSACIÓN: ${assignedLabelNames.join(", ")}\n`
+      : "";
+
+    if (assignedSection || eventLines.length > 0) {
+      const eventsSection = eventLines.length > 0
+        ? `EVENTOS RECIENTES DEL SISTEMA (últimos 7 días):\n${eventLines.join("\n")}`
+        : "";
+      systemEventsInstruction = `\n\n${[assignedSection, eventsSection].filter(Boolean).join("\n")}`;
+    }
+  }
+
   const now = new Date().toLocaleDateString("es-ES", {
     timeZone: config.timezone,
     weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -1618,12 +1821,29 @@ async function buildSystemPrompt(
     catalogInstruction += "\n\nREGLA DE PAGO:\n- Si el producto/servicio SÍ tiene métodos de pago: compártelos directamente. Si hay [SEND_QR:xxx], inclúyelo tal cual en tu respuesta — el sistema enviará la imagen automáticamente.\n- Si tiene ⚠️ Sin métodos de pago: escribe SOLO algo como «Perfecto, en breve te pasamos los datos para el pago 😊» (máx 1 línea, sin explicar nada más) y añade [NO_PAYMENT] al final. NUNCA uses palabras como 'asesor', 'representante', 'comunicará', 'configurado', 'sistema'.";
   }
 
-  // Instrucción de etiquetas automáticas
+  // Instrucción de etiquetas automáticas (añadir y quitar)
   let labelInstruction = "";
-  const activeLabels = (labelsRes.data ?? []).filter((l: WaLabel) => l.hint?.trim());
-  if (activeLabels.length > 0) {
-    const labelList = activeLabels.map(l => `- ${l.name}: ${l.hint}`).join("\n");
-    labelInstruction = `\n\nETIQUETADO AUTOMÁTICO: Si la conversación actual encaja claramente en alguna de las siguientes categorías, añade al FINAL de tu respuesta (después del mensaje al usuario) la marca: |LABELS|NombreEtiqueta\nSi aplica más de una, sepáralas con coma: |LABELS|Etiqueta1,Etiqueta2\nSolo añade la marca si hay una coincidencia clara. Si no aplica ninguna, no añadas nada.\n\nCategorías disponibles:\n${labelList}`;
+  const allLabelData = (labelsRes.data ?? []) as WaLabel[];
+  const addLabels    = allLabelData.filter(l => l.hint?.trim());
+  const removeLabels = allLabelData.filter(l => l.remove_hint?.trim());
+
+  if (addLabels.length > 0 || removeLabels.length > 0) {
+    const normalize = (raw: string) => raw.trim().replace(/^(cuando|si|al)\s+/i, "").trim();
+
+    const addList = addLabels.map(l =>
+      `- ${l.name}: Añade esta etiqueta EN ESTA MISMA RESPUESTA cuando ${normalize(l.hint!)}. No esperes al siguiente mensaje.`
+    ).join("\n");
+
+    const removeList = removeLabels.map(l =>
+      `- ${l.name}: Quita esta etiqueta EN ESTA MISMA RESPUESTA cuando ${normalize(l.remove_hint!)}. No esperes al siguiente mensaje.`
+    ).join("\n");
+
+    const sections = [
+      addLabels.length    ? `ETIQUETAS PARA AÑADIR (marca: |LABELS|Nombre):\n${addList}`          : "",
+      removeLabels.length ? `ETIQUETAS PARA QUITAR (marca: |REMOVE_LABELS|Nombre):\n${removeList}` : "",
+    ].filter(Boolean).join("\n\n");
+
+    labelInstruction = `\n\nETIQUETADO AUTOMÁTICO — OBLIGATORIO: En cada respuesta evalúa si debes añadir o quitar etiquetas según las reglas. Los hints pueden referirse al contenido del chat, a las ETIQUETAS ACTUALMENTE ASIGNADAS o a los EVENTOS RECIENTES DEL SISTEMA (ventas registradas, citas agendadas, deals en pipeline). Añade las marcas al FINAL del mensaje (después del texto al cliente, nunca mezcladas).\nPuedes combinar ambas en la misma respuesta: |LABELS|EtiquetaA|REMOVE_LABELS|EtiquetaB\nSi no aplica ninguna, no añadas nada.\n\n${sections}`;
   }
 
   // Instrucciones globales fijas — aplican a TODOS los tenants, sin excepción
@@ -1723,6 +1943,7 @@ REGLAS:
     + paymentInstruction
     + transferInstruction
     + schedulingInstruction
+    + systemEventsInstruction
     + labelInstruction;
 
   const contactName = conv?.contact_name ?? null;
@@ -2360,7 +2581,7 @@ Deno.serve(async (req: Request) => {
     // 4. Construir system prompt con catálogo, variables y etiquetas
     const t0 = Date.now();
     const { prompt: systemPrompt, contactId: convContactId, contactName: convContactName, availableSlots: preloadedSlots } =
-      await buildSystemPrompt(config as AgentConfig, phone, config.can_transfer_human ?? false);
+      await buildSystemPrompt(config as AgentConfig, phone, config.can_transfer_human ?? false, conversation_id);
 
     // 5. Llamar a Claude — con tool use para agendamiento, sin tools para el resto
     const model = "claude-haiku-4-5-20251001";
@@ -2394,7 +2615,7 @@ Deno.serve(async (req: Request) => {
     const { text: withoutNoPayment, hasNoPayment } = parseAndStripNoPayment(withoutPayment);
     const { text: withoutQr, qrIds } = parseAndStripQrMarkers(withoutNoPayment);
     const { text: withoutContactData, contactData } = parseAndStripContactData(withoutQr);
-    const { text: replyRaw, labelNames } = parseAndStripLabels(withoutContactData);
+    const { text: replyRaw, labelNames, removeNames } = parseAndStripLabels(withoutContactData);
 
     // 6a. [TRANSFER] — verificar sobre el texto limpio (sin marcadores ni etiquetas)
     if (config.can_transfer_human && /^\[TRANSFER\]\s*$/i.test(replyRaw.trim())) {
@@ -2446,6 +2667,11 @@ Deno.serve(async (req: Request) => {
     if (labelNames.length > 0) {
       applyAutoLabels(tenant_user_id, conversation_id, labelNames).catch(err =>
         console.error("[ai-agent] error labels:", err.message)
+      );
+    }
+    if (removeNames.length > 0) {
+      removeAutoLabels(tenant_user_id, conversation_id, removeNames).catch(err =>
+        console.error("[ai-agent] removeAutoLabels error:", err.message)
       );
     }
 

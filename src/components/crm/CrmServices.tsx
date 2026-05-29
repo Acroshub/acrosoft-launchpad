@@ -2,9 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, GripVertical, Tag, CreditCard, Globe } from "lucide-react";
-import { useServices, useCreateService, useUpdateService, useDeleteService, usePricesByEntity, useUpsertPrices } from "@/hooks/useCrmData";
+import { useServices, useCreateService, useUpdateService, useDeleteService, usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs } from "@/hooks/useCrmData";
 import type { CrmService } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
+import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import PaymentMethodsEditor from "@/components/shared/PaymentMethodsEditor";
@@ -79,6 +80,28 @@ const ServiceEditor = ({
   };
 
   useEffect(() => () => clearTimeout(pricesSaveTimer.current), []);
+
+  // FAQs
+  const upsertFaqs = useUpsertFaqs();
+  const { data: existingFaqs = [] } = useFaqsByEntity("service", service.id);
+  const [faqs, setFaqs] = useState<FaqEntry[]>([]);
+  const faqsRef          = useRef(faqs);
+  const faqsSaveTimer    = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    setFaqs(existingFaqs.map(f => ({ question: f.question, answer: f.answer })));
+  }, [existingFaqs]);
+  const handleFaqsChange = (next: FaqEntry[]) => {
+    setFaqs(next);
+    faqsRef.current = next;
+    clearTimeout(faqsSaveTimer.current);
+    faqsSaveTimer.current = setTimeout(() => {
+      upsertFaqs.mutate(
+        { entityType: "service", entityId: service.id, faqs: faqsRef.current },
+        { onError: () => toast.error("Error al guardar las FAQs") }
+      );
+    }, 800);
+  };
+  useEffect(() => () => clearTimeout(faqsSaveTimer.current), []);
 
   const discountedPrice          = discountPct > 0 ? price * (1 - discountPct / 100) : null;
   const discountedRecurringPrice = recurringPrice > 0 && recurringDiscountPct > 0
@@ -248,6 +271,9 @@ const ServiceEditor = ({
 
           {/* Precios multi-moneda */}
           <PriceListEditor value={prices} onChange={handlePricesChange} baseCurrency={currency} />
+
+          {/* FAQs */}
+          <FaqEditor value={faqs} onChange={handleFaqsChange} />
 
           {/* Cobro recurrente */}
           <div className="space-y-3">

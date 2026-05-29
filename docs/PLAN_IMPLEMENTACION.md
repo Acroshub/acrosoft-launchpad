@@ -4125,6 +4125,8 @@ ALTER TABLE crm_course_lessons
 
 ---
 
+
+
 ---
 
 ## BLOQUE 19 — Agente IA: Experiencia WhatsApp Nativa

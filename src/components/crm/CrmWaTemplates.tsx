@@ -762,6 +762,27 @@ export default function CrmWaTemplates({ context, forcedCategory, associationOpt
         </div>
       )}
 
+      {/* Meta marketing messages activation notice */}
+      <div className="flex items-start gap-2.5 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40">
+        <Info size={14} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+        <div className="flex-1 min-w-0 space-y-1">
+          <p className="text-xs text-amber-800 dark:text-amber-300 font-medium">
+            Paso previo: activa los mensajes de marketing en tu cuenta de Meta
+          </p>
+          <p className="text-xs text-amber-700 dark:text-amber-400/80">
+            Antes de que Meta apruebe tus plantillas, debes completar el onboarding de mensajes de marketing en tu Ads Manager. Entra al link, busca el aviso "<strong>Activar mensajes de marketing</strong>" y sigue los pasos.
+          </p>
+          <a
+            href="https://business.facebook.com/adsmanager/manage/accounts"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 text-xs font-semibold text-amber-800 dark:text-amber-300 hover:underline mt-0.5"
+          >
+            Ir a Meta Ads Manager <ExternalLink size={11} />
+          </a>
+        </div>
+      </div>
+
       {/* Pricing info */}
       <PricingInfo
         collapsed={pricingOpen}

@@ -241,6 +241,17 @@ export type CrmPrice = {
   created_at: string
 }
 
+export type CrmEntityFaq = {
+  id: string
+  user_id: string
+  entity_type: 'product' | 'service' | 'course'
+  entity_id: string
+  question: string
+  answer: string
+  sort_order: number
+  created_at: string
+}
+
 export type CrmContactNote = {
   id: string
   created_at: string
@@ -871,5 +882,76 @@ export type CrmWaCampaignLog = {
   status: "pending" | "sent" | "failed"
   error_message: string | null
   sent_at: string | null
+}
+
+export type CrmWaInstantCampaign = {
+  id: string
+  user_id: string
+  name: string
+  message_text: string
+  window_hours: number
+  label_ids: string[]
+  country_codes: string[]
+  audience_type: "all" | "labels" | "countries" | "combined"
+  send_mode: "instant" | "scheduled"
+  timezone_mode: "user" | "contact" | null
+  target_local_time: string | null
+  target_date: string | null
+  user_timezone: string | null
+  scheduled_at: string | null
+  status: "draft" | "scheduled" | "processing" | "completed" | "failed"
+  total_contacts: number | null
+  sent_count: number
+  failed_count: number
+  created_at: string
+}
+
+export type CrmWaInstantCampaignLog = {
+  id: string
+  campaign_id: string
+  conversation_id: string | null
+  phone: string | null
+  contact_name: string | null
+  status: "sent" | "failed" | "skipped"
+  error_message: string | null
+  created_at: string
+}
+
+// ─── WA Automations ───────────────────────────────────────────────────────────
+
+export type WaAutomationTrigger = "new_conversation" | "label_assigned" | "inactivity"
+export type WaAutomationMsgType = "free_text" | "template" | "free_text_with_fallback"
+export type WaAutomationQueueStatus = "pending" | "sent" | "failed" | "skipped" | "cancelled"
+
+export type CrmWaAutomation = {
+  id: string
+  user_id: string
+  name: string
+  is_active: boolean
+  trigger_type: WaAutomationTrigger
+  trigger_label_ids: string[]
+  trigger_country_codes: string[]
+  trigger_inactivity_hours: number | null
+  delay_hours: number
+  message_type: WaAutomationMsgType
+  message_text: string | null
+  template_id: string | null
+  template_var_map: Record<string, any>
+  sent_count: number
+  skipped_count: number
+  failed_count: number
+  created_at: string
+}
+
+export type CrmWaAutomationQueueItem = {
+  id: string
+  user_id: string
+  automation_id: string
+  conversation_id: string
+  scheduled_at: string
+  status: WaAutomationQueueStatus
+  error_message: string | null
+  sent_at: string | null
+  created_at: string
 }
 

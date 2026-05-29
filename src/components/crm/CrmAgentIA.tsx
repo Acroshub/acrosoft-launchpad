@@ -929,7 +929,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                   <div className="mt-1 border rounded-lg divide-y bg-background max-h-52 overflow-y-auto">
                     {catalogs.map(cat => {
                       const catProductIds = catalogProductsMap.get(cat.id) ?? [];
-                      const catProducts = allProducts.filter(p => catProductIds.includes(p.id) && p.is_active);
+                      const catProducts = allProducts.filter(p => catProductIds.includes(p.id));
                       if (catProducts.length === 0) return null;
                       const allSelected = catProducts.every(p => selectedProductIds.includes(p.id));
                       const someSelected = catProducts.some(p => selectedProductIds.includes(p.id));
@@ -950,7 +950,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                               <input type="checkbox" checked={selectedProductIds.includes(p.id)}
                                 onChange={e => setSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
                                 className="accent-primary shrink-0" />
-                              <span className="text-sm">{p.name}</span>
+                              <span className="text-sm">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
                             </label>
                           ))}
                         </div>
@@ -959,7 +959,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                     {/* Productos sin catálogo */}
                     {(() => {
                       const allCatProductIds = new Set(Array.from(catalogProductsMap.values()).flat());
-                      const orphans = allProducts.filter(p => !allCatProductIds.has(p.id) && p.is_active);
+                      const orphans = allProducts.filter(p => !allCatProductIds.has(p.id));
                       if (orphans.length === 0) return null;
                       return (
                         <div>
@@ -971,14 +971,14 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                               <input type="checkbox" checked={selectedProductIds.includes(p.id)}
                                 onChange={e => setSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
                                 className="accent-primary shrink-0" />
-                              <span className="text-sm">{p.name}</span>
+                              <span className="text-sm">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
                             </label>
                           ))}
                         </div>
                       );
                     })()}
-                    {catalogs.length === 0 && allProducts.filter(p => p.is_active).length === 0 && (
-                      <p className="px-3 py-2 text-xs text-muted-foreground">No hay productos activos</p>
+                    {catalogs.length === 0 && allProducts.length === 0 && (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">No hay productos</p>
                     )}
                   </div>
                 )}
@@ -1931,10 +1931,15 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [notifyEmail, setNotifyEmail]             = useState("");
   const [editingNotifyEmail, setEditingNotifyEmail] = useState(false);
   // Label form state
-  const [newLabelName, setNewLabelName]   = useState("");
-  const [newLabelColor, setNewLabelColor] = useState(LABEL_COLORS[0]);
-  const [newLabelHint, setNewLabelHint]   = useState("");
-  const [editingLabel, setEditingLabel]   = useState<{ id: string; name: string; color: string; hint: string | null } | null>(null);
+  const [newLabelName, setNewLabelName]         = useState("");
+  const [newLabelColor, setNewLabelColor]       = useState(LABEL_COLORS[0]);
+  const [newLabelHint, setNewLabelHint]         = useState("");
+  const [newLabelRemoveHint, setNewLabelRemoveHint] = useState("");
+  const [editingLabel, setEditingLabel]         = useState<{ id: string; name: string; color: string; hint: string | null; remove_hint: string | null } | null>(null);
+  const [improvingHintNew, setImprovingHintNew]       = useState(false);
+  const [improvingHintEdit, setImprovingHintEdit]     = useState(false);
+  const [improvingRemoveNew, setImprovingRemoveNew]   = useState(false);
+  const [improvingRemoveEdit, setImprovingRemoveEdit] = useState(false);
   const [schedule, setSchedule]           = useState<WeeklySchedule>(DEFAULT_SCHEDULE);
   const [timezone, setTimezone]           = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [offHoursMsg, setOffHoursMsg]     = useState("");
@@ -2504,7 +2509,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     { id: "perfil" as const,      label: "Perfil WA",   icon: User,      desc: "Foto y bio de WhatsApp" },
     { id: "etiquetas" as const,   label: "Etiquetas",   icon: Tag,       desc: "Gestionar etiquetas" },
     { id: "plantillas" as const,  label: "Plantillas",  icon: Megaphone, desc: "Remarketing fuera de 24h" },
-    { id: "campanias" as const,   label: "Campañas",    icon: Send,      desc: "Enviar plantillas aprobadas" },
+    { id: "campanias" as const,   label: "Envío Masivo", icon: Send,     desc: "Envíos pasados y dentro de 24h" },
   ];
 
   return (
@@ -3146,7 +3151,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   <div className="mt-1 border rounded-lg divide-y bg-background max-h-52 overflow-y-auto">
                     {catalogs.map(cat => {
                       const catProductIds = catalogProductsMap.get(cat.id) ?? [];
-                      const catProducts = allProducts.filter(p => catProductIds.includes(p.id) && p.is_active);
+                      const catProducts = allProducts.filter(p => catProductIds.includes(p.id));
                       if (catProducts.length === 0) return null;
                       const allSelected = catProducts.every(p => spSelectedProductIds.includes(p.id));
                       const someSelected = catProducts.some(p => spSelectedProductIds.includes(p.id));
@@ -3167,7 +3172,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                               <input type="checkbox" checked={spSelectedProductIds.includes(p.id)}
                                 onChange={e => setSpSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
                                 className="accent-primary shrink-0" />
-                              <span className="text-sm">{p.name}</span>
+                              <span className="text-sm">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
                             </label>
                           ))}
                         </div>
@@ -3176,7 +3181,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     {/* Productos sin catálogo */}
                     {(() => {
                       const allCatProductIds = new Set(Array.from(catalogProductsMap.values()).flat());
-                      const orphans = allProducts.filter(p => !allCatProductIds.has(p.id) && p.is_active);
+                      const orphans = allProducts.filter(p => !allCatProductIds.has(p.id));
                       if (orphans.length === 0) return null;
                       return (
                         <div>
@@ -3188,14 +3193,14 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                               <input type="checkbox" checked={spSelectedProductIds.includes(p.id)}
                                 onChange={e => setSpSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
                                 className="accent-primary shrink-0" />
-                              <span className="text-sm">{p.name}</span>
+                              <span className="text-sm">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
                             </label>
                           ))}
                         </div>
                       );
                     })()}
-                    {catalogs.length === 0 && allProducts.filter(p => p.is_active).length === 0 && (
-                      <p className="px-3 py-2 text-xs text-muted-foreground">No hay productos activos</p>
+                    {catalogs.length === 0 && allProducts.length === 0 && (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">No hay productos</p>
                     )}
                   </div>
                 )}
@@ -3360,13 +3365,66 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                           placeholder="Nombre"
                           autoFocus
                         />
-                        <textarea
-                          value={editingLabel.hint ?? ""}
-                          onChange={e => setEditingLabel(prev => prev ? { ...prev, hint: e.target.value } : null)}
-                          placeholder="Sugerencia para IA (opcional) — ej: «cuando el usuario pregunta por precios o quiere comprar»"
-                          rows={2}
-                          className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
-                        />
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Cuándo asignar</label>
+                          <textarea
+                            value={editingLabel.hint ?? ""}
+                            onChange={e => setEditingLabel(prev => prev ? { ...prev, hint: e.target.value } : null)}
+                            placeholder="ej: cuando el usuario pregunta por precios o quiere comprar"
+                            rows={2}
+                            className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
+                          />
+                          {editingLabel.hint?.trim() && (
+                            <button
+                              type="button"
+                              disabled={improvingHintEdit}
+                              onClick={async () => {
+                                setImprovingHintEdit(true);
+                                try {
+                                  const { data, error } = await supabase.functions.invoke("improve-label-hint", {
+                                    body: { hint: editingLabel.hint, labelName: editingLabel.name },
+                                  });
+                                  if (error) { toast.error("No se pudo mejorar la sugerencia"); return; }
+                                  if (data?.improved) setEditingLabel(prev => prev ? { ...prev, hint: data.improved } : null);
+                                } finally { setImprovingHintEdit(false); }
+                              }}
+                              className="flex items-center gap-1 text-[10px] text-primary hover:underline disabled:opacity-50"
+                            >
+                              {improvingHintEdit ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                              {improvingHintEdit ? "Mejorando..." : "Mejorar con IA"}
+                            </button>
+                          )}
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Cuándo quitar</label>
+                          <textarea
+                            value={editingLabel.remove_hint ?? ""}
+                            onChange={e => setEditingLabel(prev => prev ? { ...prev, remove_hint: e.target.value } : null)}
+                            placeholder="ej: cuando el usuario envía comprobante de pago o confirma el pago"
+                            rows={2}
+                            className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
+                          />
+                          {editingLabel.remove_hint?.trim() && (
+                            <button
+                              type="button"
+                              disabled={improvingRemoveEdit}
+                              onClick={async () => {
+                                setImprovingRemoveEdit(true);
+                                try {
+                                  const { data, error } = await supabase.functions.invoke("improve-label-hint", {
+                                    body: { hint: editingLabel.remove_hint, labelName: editingLabel.name, type: "remove" },
+                                  });
+                                  if (error) { toast.error("No se pudo mejorar la sugerencia"); return; }
+                                  if (data?.improved) setEditingLabel(prev => prev ? { ...prev, remove_hint: data.improved } : null);
+                                } finally { setImprovingRemoveEdit(false); }
+                              }}
+                              className="flex items-center gap-1 text-[10px] text-primary hover:underline disabled:opacity-50"
+                            >
+                              {improvingRemoveEdit ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                              {improvingRemoveEdit ? "Mejorando..." : "Mejorar con IA"}
+                            </button>
+                          )}
+                        </div>
                         <div className="flex gap-2">
                           <button onClick={async () => { await upsertLabel.mutateAsync(editingLabel); setEditingLabel(null); }}
                             disabled={!editingLabel.name.trim() || upsertLabel.isPending}
@@ -3381,9 +3439,10 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         <Tag size={13} className="shrink-0" style={{ color: l.color }} />
                         <div className="flex-1 min-w-0">
                           <span className="text-sm">{l.name}</span>
-                          {l.hint && <p className="text-[10px] text-muted-foreground/70 truncate">{l.hint}</p>}
+                          {l.hint && <p className="text-[10px] text-muted-foreground/70 truncate">+ {l.hint}</p>}
+                          {(l as any).remove_hint && <p className="text-[10px] text-destructive/60 truncate">− {(l as any).remove_hint}</p>}
                         </div>
-                        <button onClick={() => setEditingLabel({ id: l.id, name: l.name, color: l.color, hint: l.hint ?? null })}
+                        <button onClick={() => setEditingLabel({ id: l.id, name: l.name, color: l.color, hint: l.hint ?? null, remove_hint: (l as any).remove_hint ?? null })}
                           className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
                           <Pencil size={12} />
                         </button>
@@ -3414,19 +3473,73 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   placeholder="Nombre de la etiqueta"
                   className="w-full h-8 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
-                <textarea
-                  value={newLabelHint}
-                  onChange={e => setNewLabelHint(e.target.value)}
-                  placeholder="Sugerencia para IA (opcional) — ej: «cuando el usuario pregunta por precios o quiere comprar»"
-                  rows={2}
-                  className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                />
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Cuándo asignar</label>
+                  <textarea
+                    value={newLabelHint}
+                    onChange={e => setNewLabelHint(e.target.value)}
+                    placeholder="ej: cuando el usuario pregunta por precios o quiere comprar"
+                    rows={2}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                  />
+                  {newLabelHint.trim() && (
+                    <button
+                      type="button"
+                      disabled={improvingHintNew}
+                      onClick={async () => {
+                        setImprovingHintNew(true);
+                        try {
+                          const { data, error } = await supabase.functions.invoke("improve-label-hint", {
+                            body: { hint: newLabelHint, labelName: newLabelName || "etiqueta" },
+                          });
+                          if (error) { toast.error("No se pudo mejorar la sugerencia"); return; }
+                          if (data?.improved) setNewLabelHint(data.improved);
+                        } finally { setImprovingHintNew(false); }
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-primary hover:underline disabled:opacity-50"
+                    >
+                      {improvingHintNew ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                      {improvingHintNew ? "Mejorando..." : "Mejorar con IA"}
+                    </button>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Cuándo quitar</label>
+                  <textarea
+                    value={newLabelRemoveHint}
+                    onChange={e => setNewLabelRemoveHint(e.target.value)}
+                    placeholder="ej: cuando el usuario envía comprobante de pago o confirma el pago"
+                    rows={2}
+                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                  />
+                  {newLabelRemoveHint.trim() && (
+                    <button
+                      type="button"
+                      disabled={improvingRemoveNew}
+                      onClick={async () => {
+                        setImprovingRemoveNew(true);
+                        try {
+                          const { data, error } = await supabase.functions.invoke("improve-label-hint", {
+                            body: { hint: newLabelRemoveHint, labelName: newLabelName || "etiqueta", type: "remove" },
+                          });
+                          if (error) { toast.error("No se pudo mejorar la sugerencia"); return; }
+                          if (data?.improved) setNewLabelRemoveHint(data.improved);
+                        } finally { setImprovingRemoveNew(false); }
+                      }}
+                      className="flex items-center gap-1 text-[10px] text-primary hover:underline disabled:opacity-50"
+                    >
+                      {improvingRemoveNew ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
+                      {improvingRemoveNew ? "Mejorando..." : "Mejorar con IA"}
+                    </button>
+                  )}
+                </div>
                 <button
                   onClick={async () => {
                     if (!newLabelName.trim()) return;
-                    await upsertLabel.mutateAsync({ name: newLabelName.trim(), color: newLabelColor, hint: newLabelHint.trim() || null });
+                    await upsertLabel.mutateAsync({ name: newLabelName.trim(), color: newLabelColor, hint: newLabelHint.trim() || null, remove_hint: newLabelRemoveHint.trim() || null });
                     setNewLabelName("");
                     setNewLabelHint("");
+                    setNewLabelRemoveHint("");
                   }}
                   disabled={!newLabelName.trim() || upsertLabel.isPending}
                   className="flex items-center gap-1 px-3 h-8 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40"

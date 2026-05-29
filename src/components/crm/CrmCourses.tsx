@@ -23,10 +23,11 @@ import {
   useCourseLessons, useUpsertCourseLesson, useDeleteCourseLesson,
   useCourseAccess, useGrantCourseAccess, useRevokeCourseAccess,
   useContacts, useCreateContact, useInsertLog, useCreateSale,
-  usePricesByEntity, useUpsertPrices,
+  usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs,
 } from "@/hooks/useCrmData";
 import type { CrmCourse, CrmCourseModule, CrmCourseLesson, CrmCourseAccess } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
+import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
 import { VideoUploadProvider, useVideoUpload } from "@/contexts/VideoUploadContext";
 
 import { CURRENCIES, formatAmount, getCurrencyFlag } from "@/lib/currencies";
@@ -352,6 +353,13 @@ function CourseDetail({
     setEditPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price })));
   }, [existingPrices]);
 
+  // FAQs
+  const { data: existingFaqs = [] } = useFaqsByEntity("course", course.id);
+  const [editFaqs, setEditFaqs]     = useState<FaqEntry[]>([]);
+  useEffect(() => {
+    setEditFaqs(existingFaqs.map(f => ({ question: f.question, answer: f.answer })));
+  }, [existingFaqs]);
+
   // Eliminar curso
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting]           = useState(false);
@@ -367,7 +375,10 @@ function CourseDetail({
     try {
       const price = editForm.price ? parseFloat(editForm.price) : null;
       await upsertCourse.mutateAsync({ id: course.id, title: editForm.title.trim(), description: editForm.description || null, slug: editForm.slug.trim(), price, currency: editForm.currency });
-      await upsertPrices.mutateAsync({ entityType: "course", entityId: course.id, prices: editPrices });
+      await Promise.all([
+        upsertPrices.mutateAsync({ entityType: "course", entityId: course.id, prices: editPrices }),
+        upsertFaqs.mutateAsync({ entityType: "course", entityId: course.id, faqs: editFaqs }),
+      ]);
       setLocalTitle(editForm.title.trim());
       setLocalSlug(editForm.slug.trim());
       setEditingMeta(false);
@@ -453,6 +464,7 @@ function CourseDetail({
                 </div>
               </div>
               <PriceListEditor value={editPrices} onChange={setEditPrices} baseCurrency={editForm.currency} />
+              <FaqEditor value={editFaqs} onChange={setEditFaqs} />
             </div>
             <div className="flex gap-2">
               <Button variant="outline" size="sm" onClick={() => setEditingMeta(false)} className="flex-1">Cancelar</Button>

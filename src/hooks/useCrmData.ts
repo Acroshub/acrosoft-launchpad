@@ -47,11 +47,14 @@ import type {
   CrmCourseLesson,
   CrmCourseAccess,
   CrmPrice,
+  CrmEntityFaq,
   CrmWaTemplate,
   WaTemplateContext,
   WaTemplateButton,
   CrmWaCampaign,
   CrmWaCampaignLog,
+  CrmWaInstantCampaign,
+  CrmWaInstantCampaignLog,
   WaVarMap,
   WaAudienceFilter,
   WaCampaignStatus,
@@ -2565,11 +2568,11 @@ export const useUpsertWaLabel = () => {
   const { user } = useCurrentUser();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (label: { id?: string; name: string; color: string; hint?: string | null }) => {
+    mutationFn: async (label: { id?: string; name: string; color: string; hint?: string | null; remove_hint?: string | null }) => {
       if (label.id) {
         const { data, error } = await supabase
           .from("crm_wa_labels")
-          .update({ name: label.name, color: label.color, hint: label.hint ?? null })
+          .update({ name: label.name, color: label.color, hint: label.hint ?? null, remove_hint: label.remove_hint ?? null })
           .eq("id", label.id)
           .select()
           .single();
@@ -2578,7 +2581,7 @@ export const useUpsertWaLabel = () => {
       } else {
         const { data, error } = await supabase
           .from("crm_wa_labels")
-          .insert({ name: label.name, color: label.color, hint: label.hint ?? null, user_id: user!.id })
+          .insert({ name: label.name, color: label.color, hint: label.hint ?? null, remove_hint: label.remove_hint ?? null, user_id: user!.id })
           .select()
           .single();
         if (error) throw error;
@@ -3640,6 +3643,62 @@ export const useUpsertPrices = () => {
   });
 };
 
+// ─── Entity FAQs ─────────────────────────────────────────────────────────────
+
+export const useFaqsByEntity = (entityType: CrmEntityFaq["entity_type"], entityId: string | null | undefined) => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useQuery({
+    queryKey: ["crm_entity_faqs", entityType, entityId],
+    enabled: !!(uid && entityId),
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_entity_faqs")
+        .select("*")
+        .eq("entity_type", entityType)
+        .eq("entity_id", entityId!)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmEntityFaq[];
+    },
+  });
+};
+
+export const useUpsertFaqs = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async ({
+      entityType,
+      entityId,
+      faqs,
+    }: {
+      entityType: CrmEntityFaq["entity_type"];
+      entityId: string;
+      faqs: { question: string; answer: string }[];
+    }) => {
+      if (!user?.id) throw new Error("No user");
+      await supabase.from("crm_entity_faqs").delete().eq("entity_id", entityId).eq("entity_type", entityType);
+      if (faqs.length === 0) return;
+      const { error } = await supabase.from("crm_entity_faqs").insert(
+        faqs.map((f, i) => ({
+          user_id: user.id,
+          entity_type: entityType,
+          entity_id: entityId,
+          question: f.question,
+          answer: f.answer,
+          sort_order: i,
+        }))
+      );
+      if (error) throw error;
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["crm_entity_faqs", vars.entityType, vars.entityId] });
+    },
+  });
+};
+
 // ─── WhatsApp Templates ───────────────────────────────────────────────────────
 
 export const useWaTemplates = (context?: WaTemplateContext) => {
@@ -3805,5 +3864,219 @@ export const useDeleteWaCampaign = () => {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_campaigns", user?.id] }),
+  });
+};
+
+// ─── Instant Campaigns (Dentro de 24h) ───────────────────────────────────────
+
+export type ActiveConv = { id: string; phone: string; contact_name: string | null; label_ids: string[] }
+
+export const useWaActiveConversations = (windowHours: number) => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  const cutoff = new Date(Date.now() - windowHours * 60 * 60 * 1000).toISOString();
+  return useQuery({
+    queryKey: ["wa_active_conversations", uid, windowHours],
+    enabled: !!uid,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data: convs } = await supabase
+        .from("crm_wa_conversations")
+        .select("id, phone, contact_name")
+        .eq("user_id", uid!)
+        .gt("last_message_at", cutoff);
+
+      if (!convs?.length) return [] as ActiveConv[];
+
+      const { data: labelLinks } = await supabase
+        .from("crm_wa_conversation_labels")
+        .select("conversation_id, label_id")
+        .in("conversation_id", convs.map(c => c.id));
+
+      const labelsByConv = new Map<string, string[]>();
+      for (const link of labelLinks ?? []) {
+        const arr = labelsByConv.get(link.conversation_id) ?? [];
+        arr.push(link.label_id);
+        labelsByConv.set(link.conversation_id, arr);
+      }
+
+      return convs.map(c => ({
+        ...c,
+        label_ids: labelsByConv.get(c.id) ?? [],
+      })) as ActiveConv[];
+    },
+  });
+};
+
+export const useInstantCampaigns = () => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useQuery({
+    queryKey: ["wa_instant_campaigns", uid],
+    enabled: !!uid,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_instant_campaigns")
+        .select("*")
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CrmWaInstantCampaign[];
+    },
+  });
+};
+
+export const useInstantCampaignLogs = (campaignId: string | null) => {
+  return useQuery({
+    queryKey: ["wa_instant_campaign_logs", campaignId],
+    enabled: !!campaignId,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_instant_campaign_logs")
+        .select("*")
+        .eq("campaign_id", campaignId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmWaInstantCampaignLog[];
+    },
+  });
+};
+
+export const useCreateInstantCampaign = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useMutation({
+    mutationFn: async (payload: Omit<CrmWaInstantCampaign, "id" | "user_id" | "total_contacts" | "sent_count" | "failed_count" | "created_at">) => {
+      if (!uid) throw new Error("No user");
+      const { data, error } = await supabase
+        .from("crm_wa_instant_campaigns")
+        .insert({ ...payload, user_id: uid })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmWaInstantCampaign;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_instant_campaigns", uid] }),
+  });
+};
+
+export const useDeleteInstantCampaign = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_wa_instant_campaigns").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_instant_campaigns", uid] }),
+  });
+};
+
+// ─── WA Automations ───────────────────────────────────────────────────────────
+
+import type { CrmWaAutomation, CrmWaAutomationQueueItem } from "@/lib/supabase";
+
+export const useWaAutomations = () => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useQuery({
+    queryKey: ["wa_automations", uid],
+    enabled: !!uid,
+    staleTime: 30_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_automations")
+        .select("*")
+        .eq("user_id", uid!)
+        .order("created_at", { ascending: false });
+      if (error) throw error;
+      return (data ?? []) as CrmWaAutomation[];
+    },
+  });
+};
+
+export const useCreateWaAutomation = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useMutation({
+    mutationFn: async (payload: Omit<CrmWaAutomation, "id" | "user_id" | "sent_count" | "skipped_count" | "failed_count" | "created_at">) => {
+      if (!uid) throw new Error("No user");
+      const { data, error } = await supabase
+        .from("crm_wa_automations")
+        .insert({ ...payload, user_id: uid })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmWaAutomation;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_automations", uid] }),
+  });
+};
+
+export const useUpdateWaAutomation = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useMutation({
+    mutationFn: async ({ id, ...patch }: Partial<CrmWaAutomation> & { id: string }) => {
+      const { data, error } = await supabase
+        .from("crm_wa_automations")
+        .update(patch)
+        .eq("id", id)
+        .eq("user_id", uid!)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmWaAutomation;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_automations", uid] }),
+  });
+};
+
+export const useDeleteWaAutomation = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("crm_wa_automations")
+        .delete()
+        .eq("id", id)
+        .eq("user_id", uid!);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_automations", uid] }),
+  });
+};
+
+export const useAutomationQueue = (automationId: string | null) => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useQuery({
+    queryKey: ["wa_automation_queue", uid, automationId],
+    enabled: !!uid && !!automationId,
+    staleTime: 15_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_automation_queue")
+        .select("*")
+        .eq("automation_id", automationId!)
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (error) throw error;
+      return (data ?? []) as CrmWaAutomationQueueItem[];
+    },
   });
 };

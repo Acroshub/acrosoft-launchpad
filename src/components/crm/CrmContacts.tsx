@@ -6,11 +6,11 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
-  Search, Users, Mail, Phone, Calendar, X, Eye,
+  Search, Users, User, Mail, Phone, Calendar, X, Eye,
   ArrowLeft, FolderOpen, Star, FileText, MessageSquare,
   TrendingUp, Briefcase, Target, ImagePlus, Plus,
   Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
-  Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Upload, FileUp, CheckCircle2, Bot, BookOpen,
+  Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Upload, FileUp, CheckCircle2, Bot, BookOpen, GitMerge,
 } from "lucide-react";
 import Papa from "papaparse";
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess, useContactCourseMap, useContactCourseAccess } from "@/hooks/useCrmData";
@@ -754,6 +754,122 @@ function getContactColor(str: string) {
   for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
   return CONTACT_COLORS[Math.abs(h) % CONTACT_COLORS.length];
 }
+
+// ─── Merge Contact Dialog ─────────────────────────────────────────────────────
+const MergeContactDialog = ({
+  open,
+  primary,
+  allContacts,
+  onMerge,
+  onClose,
+}: {
+  open: boolean;
+  primary: CrmContact;
+  allContacts: CrmContact[];
+  onMerge: (secondaryId: string) => Promise<void>;
+  onClose: () => void;
+}) => {
+  const [mergeSearch, setMergeSearch] = useState("");
+  const [mergeSelected, setMergeSelected] = useState<string | null>(null);
+  const [merging, setMerging] = useState(false);
+
+  const q = mergeSearch.toLowerCase();
+  const candidates = allContacts
+    .filter(
+      (c) =>
+        c.id !== primary.id &&
+        (c.name.toLowerCase().includes(q) ||
+          (c.email ?? "").toLowerCase().includes(q) ||
+          (c.phone ?? "").includes(mergeSearch))
+    )
+    .slice(0, 8);
+
+  const secondary = allContacts.find((c) => c.id === mergeSelected);
+
+  const handleMerge = async () => {
+    if (!mergeSelected) return;
+    setMerging(true);
+    try {
+      await onMerge(mergeSelected);
+      onClose();
+    } catch {
+      setMerging(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Fusionar contacto</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4 py-1">
+          <div className="p-3 rounded-xl bg-secondary/50 text-xs">
+            <p className="text-muted-foreground mb-1">Contacto principal (se conserva)</p>
+            <p className="font-semibold">{primary.name}</p>
+            {primary.email && <p className="text-muted-foreground">{primary.email}</p>}
+            {primary.phone && <p className="text-muted-foreground">{primary.phone}</p>}
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground mb-2">Buscar contacto a fusionar (se eliminará)</p>
+            <div className="relative">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Nombre, email o teléfono..."
+                value={mergeSearch}
+                onChange={(e) => { setMergeSearch(e.target.value); setMergeSelected(null); }}
+                className="pl-9 h-9 text-xs"
+              />
+            </div>
+            {mergeSearch && (
+              <div className="mt-2 border rounded-xl overflow-hidden divide-y max-h-48 overflow-y-auto">
+                {candidates.length === 0 ? (
+                  <p className="p-3 text-xs text-muted-foreground text-center">Sin resultados</p>
+                ) : candidates.map((c) => (
+                  <button
+                    key={c.id}
+                    onClick={() => setMergeSelected(c.id)}
+                    className={`w-full px-3 py-2.5 text-left text-xs flex items-center gap-2.5 hover:bg-secondary/50 transition-colors ${mergeSelected === c.id ? "bg-primary/5 border-l-2 border-primary" : ""}`}
+                  >
+                    <div
+                      className="w-7 h-7 rounded-lg flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                      style={{ backgroundColor: getContactColor(c.id) }}
+                    >
+                      {c.name.substring(0, 2).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">{c.name}</p>
+                      {(c.email || c.phone) && (
+                        <p className="text-muted-foreground truncate">{c.email ?? c.phone}</p>
+                      )}
+                    </div>
+                    {mergeSelected === c.id && <CheckCircle2 size={13} className="text-primary shrink-0" />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {secondary && (
+            <div className="p-3 rounded-xl bg-destructive/5 border border-destructive/20 text-xs space-y-1">
+              <p className="text-destructive font-medium">Se eliminará: {secondary.name}</p>
+              <p className="text-muted-foreground">Sus conversaciones, ventas, citas y deals pasarán al contacto principal.</p>
+              {(secondary.tags?.length ?? 0) > 0 && (
+                <p className="text-muted-foreground">Etiquetas que se unirán: {secondary.tags?.join(", ")}</p>
+              )}
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={merging}>Cancelar</Button>
+          <Button variant="destructive" disabled={!mergeSelected || merging} onClick={handleMerge}>
+            {merging && <Loader2 size={13} className="animate-spin mr-1" />}
+            Fusionar y eliminar
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+};
 
 const parseCustomFields = (cf: unknown): Record<string, unknown> => {
   if (!cf || typeof cf !== "object" || Array.isArray(cf)) return {};
@@ -1757,6 +1873,9 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
   const [disableSaasTarget, setDisableSaasTarget] = useState<{ id: string; name: string } | null>(null);
   const [mobileShowDetail, setMobileShowDetail] = useState(!!initialContactId);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [editingName, setEditingName] = useState(false);
+  const [nameVal, setNameVal] = useState("");
 
   // Abrir contacto automáticamente al navegar desde otra sección
   useEffect(() => {
@@ -1883,6 +2002,46 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
     toast.success("Datos guardados");
   };
 
+  const handleSaveName = async (id: string, name: string) => {
+    if (!name.trim()) return;
+    await updateContact.mutateAsync({ id, name: name.trim() });
+    setEditingName(false);
+    toast.success("Nombre actualizado");
+  };
+
+  const handleMerge = async (secondaryId: string) => {
+    if (!detail) return;
+    const secondary = contacts.find((c) => c.id === secondaryId);
+    if (!secondary) return;
+    try {
+      await Promise.all([
+        supabase.from("crm_wa_conversations").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
+        supabase.from("crm_pipeline_deals").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
+        supabase.from("crm_sales").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
+        supabase.from("crm_appointments").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
+        supabase.from("crm_contact_notes").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
+      ]);
+      // Scalar fields: primary wins, secondary fills gaps
+      const merged: Partial<CrmContact> = {
+        email: detail.email || secondary.email || null,
+        phone: detail.phone || secondary.phone || null,
+        company: detail.company || secondary.company || null,
+        stage: detail.stage || secondary.stage || null,
+        profile_pic_url: detail.profile_pic_url || secondary.profile_pic_url || null,
+        // Arrays/objects: union / deep merge, primary takes precedence on conflicts
+        tags: [...new Set([...(detail.tags ?? []), ...(secondary.tags ?? [])])],
+        ai_collected_data: { ...(secondary.ai_collected_data ?? {}), ...(detail.ai_collected_data ?? {}) },
+        custom_fields: { ...(secondary.custom_fields ?? {}), ...(detail.custom_fields ?? {}) },
+      };
+      await updateContact.mutateAsync({ id: detail.id, ...merged });
+      await deleteContact.mutateAsync({ id: secondaryId, name: secondary.name });
+      toast.success(`${secondary.name} fusionado con ${detail.name}`);
+    } catch {
+      toast.error("Error al fusionar contactos");
+      throw new Error("merge failed");
+    }
+  };
+
   return (
     <>
     <DeleteConfirmDialog
@@ -1892,6 +2051,16 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
       isPending={deleteContact.isPending}
       description="Se eliminará el contacto y todos sus datos permanentemente."
     />
+
+    {detail && mergeOpen && (
+      <MergeContactDialog
+        open={mergeOpen}
+        primary={detail}
+        allContacts={contacts}
+        onMerge={handleMerge}
+        onClose={() => setMergeOpen(false)}
+      />
+    )}
 
     {disableSaasTarget && (
       <Dialog open onOpenChange={(open) => { if (!open) setDisableSaasTarget(null); }}>
@@ -2000,7 +2169,29 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                     <span>{detail.name.substring(0, 2).toUpperCase()}</span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-bold text-base">{detail.name}</p>
+                    {canEdit && editingName ? (
+                      <div className="flex items-center gap-1.5">
+                        <Input
+                          autoFocus
+                          value={nameVal}
+                          onChange={(e) => setNameVal(e.target.value)}
+                          onBlur={() => handleSaveName(detail.id, nameVal)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSaveName(detail.id, nameVal);
+                            if (e.key === "Escape") setEditingName(false);
+                          }}
+                          className="h-8 text-sm font-bold flex-1"
+                        />
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => { if (canEdit) { setNameVal(detail.name); setEditingName(true); } }}
+                        className={`group flex items-center gap-1.5 font-bold text-base text-left w-full ${canEdit ? "hover:text-primary transition-colors" : ""}`}
+                      >
+                        <span className="truncate">{detail.name}</span>
+                        {canEdit && <Pencil size={11} className="shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" />}
+                      </button>
+                    )}
                     <p className="text-[10px] text-muted-foreground mt-0.5">
                       Desde {new Date(detail.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
                     </p>
@@ -2036,15 +2227,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                 <div className="space-y-2">
                   <InlineEdit icon={Mail} value={detail.email} placeholder="Añadir email" type="email" readOnly={!canEdit} onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})} />
                   <InlineEdit icon={Phone} value={detail.phone} placeholder="Añadir teléfono" type="tel" readOnly={!canEdit} onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})} />
-                  <InlineEdit icon={ImageIcon} value={detail.profile_pic_url ?? null} placeholder="URL foto de perfil" type="url" readOnly={!canEdit}
-                    onSave={async (v) => {
-                      await updateContact.mutateAsync({ id: detail.id, profile_pic_url: v || null });
-                      if (detail.phone) {
-                        const normalized = detail.phone.replace(/\D/g, "");
-                        await supabase.from("crm_wa_conversations").update({ contact_profile_pic: v || null }).eq("user_id", detail.user_id).or(`phone.eq.${detail.phone},phone.eq.+${normalized},phone.eq.${normalized}`);
-                      }
-                    }}
-                  />
                 </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Etiquetas</p>
@@ -2104,11 +2286,18 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                 <ContactCoursesPanel email={detail.email} />
                 <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
                 <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
-                {canDelete && (
-                  <div className="pt-2 border-t">
-                    <button onClick={() => setDeleteTarget({ id: detail.id, name: detail.name })} className="w-full h-10 rounded-xl text-xs font-medium text-destructive border border-destructive/20 hover:bg-destructive/5 transition-colors flex items-center justify-center gap-2">
-                      <Trash2 size={13} /> Eliminar contacto
-                    </button>
+                {(canDelete || canEdit) && (
+                  <div className="pt-2 border-t space-y-2">
+                    {canEdit && (
+                      <button onClick={() => setMergeOpen(true)} className="w-full h-10 rounded-xl text-xs font-medium text-muted-foreground border border-border hover:bg-secondary/50 transition-colors flex items-center justify-center gap-2">
+                        <GitMerge size={13} /> Fusionar contacto
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button onClick={() => setDeleteTarget({ id: detail.id, name: detail.name })} className="w-full h-10 rounded-xl text-xs font-medium text-destructive border border-destructive/20 hover:bg-destructive/5 transition-colors flex items-center justify-center gap-2">
+                        <Trash2 size={13} /> Eliminar contacto
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -2284,8 +2473,28 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                           ) : null}
                           <span>{detail.name.substring(0, 2).toUpperCase()}</span>
                         </div>
-                        <div>
-                          <p className="font-semibold text-sm">{detail.name}</p>
+                        <div className="flex-1 min-w-0">
+                          {canEdit && editingName ? (
+                            <Input
+                              autoFocus
+                              value={nameVal}
+                              onChange={(e) => setNameVal(e.target.value)}
+                              onBlur={() => handleSaveName(detail.id, nameVal)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveName(detail.id, nameVal);
+                                if (e.key === "Escape") setEditingName(false);
+                              }}
+                              className="h-7 text-sm font-semibold"
+                            />
+                          ) : (
+                            <button
+                              onClick={() => { if (canEdit) { setNameVal(detail.name); setEditingName(true); } }}
+                              className={`group flex items-center gap-1.5 font-semibold text-sm text-left w-full truncate ${canEdit ? "hover:text-primary transition-colors" : ""}`}
+                            >
+                              <span className="truncate">{detail.name}</span>
+                              {canEdit && <Pencil size={10} className="shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" />}
+                            </button>
+                          )}
                           <p className="text-[10px] text-muted-foreground mt-0.5">
                             Desde{" "}
                             {new Date(detail.created_at).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" })}
@@ -2359,24 +2568,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                       type="tel"
                       readOnly={!canEdit}
                       onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})}
-                    />
-                    <InlineEdit
-                      icon={ImageIcon}
-                      value={detail.profile_pic_url ?? null}
-                      placeholder="URL foto de perfil"
-                      type="url"
-                      readOnly={!canEdit}
-                      onSave={async (v) => {
-                        await updateContact.mutateAsync({ id: detail.id, profile_pic_url: v || null });
-                        if (detail.phone) {
-                          const normalized = detail.phone.replace(/\D/g, "");
-                          await supabase
-                            .from("crm_wa_conversations")
-                            .update({ contact_profile_pic: v || null })
-                            .eq("user_id", detail.user_id)
-                            .or(`phone.eq.${detail.phone},phone.eq.+${normalized},phone.eq.${normalized}`);
-                        }
-                      }}
                     />
                   </div>
 
@@ -2459,6 +2650,20 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                   <ContactCoursesPanel email={detail.email} />
                   <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
                   <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
+                  {(canDelete || canEdit) && (
+                    <div className="pt-2 border-t space-y-2">
+                      {canEdit && (
+                        <button onClick={() => setMergeOpen(true)} className="w-full h-10 rounded-xl text-xs font-medium text-muted-foreground border border-border hover:bg-secondary/50 transition-colors flex items-center justify-center gap-2">
+                          <GitMerge size={13} /> Fusionar contacto
+                        </button>
+                      )}
+                      {canDelete && (
+                        <button onClick={() => setDeleteTarget({ id: detail.id, name: detail.name })} className="w-full h-10 rounded-xl text-xs font-medium text-destructive border border-destructive/20 hover:bg-destructive/5 transition-colors flex items-center justify-center gap-2">
+                          <Trash2 size={13} /> Eliminar contacto
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 </>
               ) : (

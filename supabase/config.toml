@@ -10,3 +10,14 @@ verify_jwt = false
 [functions.whatsapp-webhook]
 # verify_jwt false — receives unauthenticated requests from Meta Cloud API (HMAC-verified internally)
 verify_jwt = false
+
+[functions.improve-label-hint]
+verify_jwt = false
+
+[functions.send-wa-instant-scheduler]
+# verify_jwt false — invocado internamente por pg_cron, no lleva JWT de usuario
+verify_jwt = false
+
+[functions.process-wa-automations]
+# verify_jwt false — invocado por pg_cron, no lleva JWT de usuario
+verify_jwt = false

@@ -18,10 +18,11 @@ import {
   useUpsertProduct, useDeleteProduct, useToggleCatalogProduct,
   useProductVariants, useUpsertProductVariant, useDeleteProductVariant,
   useOrphanProducts, useBusinessProfile, useAIAgentConfig,
-  useAllProductVariants, usePricesByEntity, useUpsertPrices,
+  useAllProductVariants, usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs,
 } from "@/hooks/useCrmData";
 import type { CrmCatalog, CrmProduct, CrmProductVariant } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
+import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
 
 import { CURRENCIES, formatAmount } from "@/lib/currencies";
 const fmtProd = (amount: number, cur: string) => formatAmount(amount, cur);
@@ -385,6 +386,13 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
     setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price })));
   }, [existingPrices]);
 
+  const upsertFaqs = useUpsertFaqs();
+  const { data: existingFaqs = [] } = useFaqsByEntity("product", product?.id ?? null);
+  const [faqs, setFaqs] = useState<FaqEntry[]>([]);
+  useEffect(() => {
+    setFaqs(existingFaqs.map(f => ({ question: f.question, answer: f.answer })));
+  }, [existingFaqs]);
+
   const addedToFromCatalog = useRef(false);
   useEffect(() => {
     if (product?.id && fromCatalogId && !addedToFromCatalog.current) {
@@ -418,7 +426,10 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
     try {
       const saved = await upsertProduct.mutateAsync(buildPayload());
       setProduct(saved);
-      await upsertPrices.mutateAsync({ entityType: "product", entityId: saved.id, prices });
+      await Promise.all([
+        upsertPrices.mutateAsync({ entityType: "product", entityId: saved.id, prices }),
+        upsertFaqs.mutateAsync({ entityType: "product", entityId: saved.id, faqs }),
+      ]);
       toast.success(product ? "Producto actualizado" : "Producto creado");
       if (andNext) setWizardStep(1);
     } catch (e: any) { toast.error(e.message?.slice(0,100) ?? "Error al guardar"); }
@@ -501,6 +512,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
         </p>
       )}
       <PriceListEditor value={prices} onChange={setPrices} baseCurrency={currency} />
+      <FaqEditor value={faqs} onChange={setFaqs} />
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">SKU <span className="text-muted-foreground/50">(opcional)</span></label>
         <Input value={sku} onChange={e => setSku(e.target.value)} placeholder="SKU-001" className="h-9 text-sm font-mono" />
