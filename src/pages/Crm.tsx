@@ -67,10 +67,19 @@ const Crm = () => {
   const brandLogo    = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
 
-  const [view, setView]                           = useState<View>("overview");
+  const VALID_VIEWS: View[] = ["overview","business","calendar","forms","contacts","pipeline","ventas","reminders","settings","soporte","tutoriales","vendor_links","vendors","agente_ia","cursos"];
+  const [view, setViewRaw]                         = useState<View>(() => {
+    const saved = localStorage.getItem("crm_view") as View | null;
+    return saved && VALID_VIEWS.includes(saved) ? saved : "overview";
+  });
   const [pendingBusinessTab, setPendingBusinessTab] = useState<string | undefined>(undefined);
   const [pendingContactId, setPendingContactId]   = useState<string | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen]             = useState(false);
+
+  const setView = (v: View) => {
+    localStorage.setItem("crm_view", v);
+    setViewRaw(v);
+  };
 
   const navigateTo = (v: View, tab?: string) => {
     setView(v);

@@ -5117,7 +5117,12 @@ const CrmAgentIA = ({
     return result;
   }, [appointments, allContacts, conversations]);
 
-  const [selectedId, setSelectedId]           = useState<string | null>(null);
+  const [selectedId, setSelectedId]           = useState<string | null>(() => localStorage.getItem("crm_agente_conv"));
+
+  useEffect(() => {
+    if (selectedId) localStorage.setItem("crm_agente_conv", selectedId);
+    else localStorage.removeItem("crm_agente_conv");
+  }, [selectedId]);
   const [highlightMessageId, setHighlightMessageId] = useState<string | null>(null);
   const [mobileShowChat, setMobileShowChat]   = useState(false);
   const [showSettings, setShowSettings]       = useState(false);
@@ -5192,10 +5197,12 @@ const CrmAgentIA = ({
 
   const { data: msgResults = [], isFetching: searchingMsgs } = useSearchWaMessages(debouncedSearch);
 
-  // Auto-select first conversation
+  // Auto-select first conversation (or restore saved one)
   useEffect(() => {
-    if (!selectedId && conversations.length > 0) setSelectedId(conversations[0].id);
-  }, [conversations, selectedId]);
+    if (conversations.length === 0) return;
+    const exists = selectedId && conversations.some(c => c.id === selectedId);
+    if (!exists) setSelectedId(conversations[0].id);
+  }, [conversations]);
 
   // Re-registrar número y re-suscribir WABA al montar — restaura entrega y recepción silenciosamente
   const wabaSubscribed = useRef(false);
