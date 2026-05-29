@@ -1232,6 +1232,8 @@ type DraftFlow = {
   sequence_id: string | null
   final_action: CrmWaFlowFinalAction
   is_active: boolean
+  trigger_once: boolean
+  flow_trigger_type: "new_conversation" | "intent"
 };
 
 const FLOW_FINAL_ACTION_LABELS: Record<CrmWaFlowFinalAction, string> = {
@@ -1240,7 +1242,7 @@ const FLOW_FINAL_ACTION_LABELS: Record<CrmWaFlowFinalAction, string> = {
 } as const;
 
 function newDraftFlow(): DraftFlow {
-  return { name: "", trigger_text: "", sequence_id: null, final_action: "nothing", is_active: true };
+  return { name: "", trigger_text: "", sequence_id: null, final_action: "nothing", is_active: true, trigger_once: true, flow_trigger_type: "new_conversation" };
 }
 
 const STEP_TYPE_LABELS = {
@@ -4033,12 +4035,17 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">{flow.name}</p>
                               <p className="text-[10px] text-muted-foreground/60 truncate">
-                                {flow.trigger_text || <em>Sin trigger</em>}
+                                {(flow.flow_trigger_type ?? "intent") === "new_conversation"
+                                  ? "Conversación nueva"
+                                  : flow.trigger_text || <em>Sin trigger</em>}
                               </p>
                               <p className="text-[10px] text-muted-foreground/50">
                                 {seqName ? `→ ${seqName}` : "→ Sin secuencia"}
                                 {" · "}
                                 {FLOW_FINAL_ACTION_LABELS[flow.final_action]}
+                                {(flow.flow_trigger_type ?? "intent") === "intent" && (
+                                  <> · {(flow.trigger_once ?? true) ? "1 vez" : "múltiples veces"}</>
+                                )}
                               </p>
                             </div>
                             {/* Toggle activo */}
@@ -4049,7 +4056,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                               <span className={`w-3 h-3 rounded-full bg-white shadow transition-transform ${flow.is_active ? "translate-x-3.5" : "translate-x-0"}`} />
                             </button>
                             <button
-                              onClick={() => { setTriggerValidation(null); setEditingFlow({ id: flow.id, name: flow.name, trigger_text: flow.trigger_text, sequence_id: flow.sequence_id, final_action: flow.final_action, is_active: flow.is_active }); }}
+                              onClick={() => { setTriggerValidation(null); setEditingFlow({ id: flow.id, name: flow.name, trigger_text: flow.trigger_text, sequence_id: flow.sequence_id, final_action: flow.final_action, is_active: flow.is_active, trigger_once: flow.trigger_once ?? true, flow_trigger_type: flow.flow_trigger_type ?? "intent" }); }}
                               className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0">
                               <Pencil size={12} />
                             </button>
@@ -4088,59 +4095,102 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         />
                       </div>
 
-                      {/* Trigger */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-muted-foreground">
-                          Trigger <span className="text-muted-foreground/50 font-normal">— cuándo se activa</span>
-                        </label>
-                        <textarea
-                          value={editingFlow.trigger_text}
-                          onChange={e => setEditingFlow(f => f ? { ...f, trigger_text: e.target.value } : f)}
-                          placeholder="Describe en lenguaje natural la intención del usuario que activa este flujo. Ej: «cuando el usuario pregunta por precios, planes o quiere cotizar»"
-                          rows={3}
-                          className={`w-full px-2.5 py-1.5 text-xs rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed transition-colors ${
-                            triggerValidation
-                              ? triggerValidation.severity === "valid"
-                                ? "border-emerald-400/70"
-                                : triggerValidation.severity === "warn"
-                                  ? "border-amber-400/70"
-                                  : "border-red-400/70"
-                              : "border-input"
-                          }`}
-                        />
-                        {/* Inline validation result */}
-                        {triggerValidation ? (
-                          <div className={`rounded-md px-2 py-1.5 text-[10px] leading-snug mt-1 ${
-                            triggerValidation.severity === "valid"
-                              ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400"
-                              : triggerValidation.severity === "warn"
-                                ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400"
-                                : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"
-                          }`}>
-                            <span className="font-semibold mr-1">
-                              {triggerValidation.severity === "valid" ? "✓ Válido" : triggerValidation.severity === "warn" ? "⚠ Advertencia" : "✗ No válido"}
-                            </span>
-                            {triggerValidation.category && <span className="opacity-75">({triggerValidation.category}) </span>}
-                            <span className="opacity-80">{triggerValidation.reason}</span>
-                          </div>
-                        ) : (
-                          <p className="text-[10px] text-muted-foreground/50 mt-1">El agente IA evalúa esta intención en cada mensaje entrante.</p>
-                        )}
-                        {/* Guía rápida */}
-                        <div className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 mt-1 space-y-1.5">
-                          <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
-                            <span className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Funciona: </span>
-                            intención de compra, FAQ, objeción, negociación, primer contacto, palabra clave o emoji
-                          </p>
-                          <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
-                            <span className="text-red-500 font-medium">✗ Bloqueado: </span>
-                            horas programadas, días de la semana, llamadas de voz
-                          </p>
-                          <p className="text-[10px] text-amber-600/80 dark:text-amber-400/80 leading-relaxed border-t border-border/40 pt-1.5">
-                            El trigger se evalúa en cada mensaje entrante. Si describes algo que el usuario no puede expresar escribiendo en WhatsApp, el flujo simplemente no se activará.
-                          </p>
+                      {/* Tipo de trigger */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">¿Cuándo se activa?</label>
+                        <div className="grid grid-cols-1 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setEditingFlow(f => f ? { ...f, flow_trigger_type: "new_conversation" } : f)}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${editingFlow.flow_trigger_type === "new_conversation" ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/40 hover:bg-muted/30"}`}
+                          >
+                            <p className="text-xs font-semibold">Conversación Nueva</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">Se envía 1 sola vez cuando el contacto escribe por primera vez al agente IA</p>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingFlow(f => f ? { ...f, flow_trigger_type: "intent" } : f)}
+                            className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${editingFlow.flow_trigger_type === "intent" ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/40 hover:bg-muted/30"}`}
+                          >
+                            <p className="text-xs font-semibold">Comportamiento</p>
+                            <p className="text-[10px] text-muted-foreground mt-0.5">Se activa cuando la IA detecta una intención específica en el mensaje del contacto</p>
+                          </button>
                         </div>
                       </div>
+
+                      {/* Intent config — solo si trigger_type = "intent" */}
+                      {editingFlow.flow_trigger_type === "intent" && (
+                        <div className="space-y-2 pl-0.5">
+                          <div className="space-y-1">
+                            <label className="text-xs font-medium text-muted-foreground">
+                              ¿Qué comportamiento activa el flujo?
+                            </label>
+                            <textarea
+                              value={editingFlow.trigger_text}
+                              onChange={e => setEditingFlow(f => f ? { ...f, trigger_text: e.target.value } : f)}
+                              placeholder="Describe en lenguaje natural la intención del usuario. Ej: «cuando el usuario pregunta por precios, planes o quiere cotizar»"
+                              rows={3}
+                              className={`w-full px-2.5 py-1.5 text-xs rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed transition-colors ${
+                                triggerValidation
+                                  ? triggerValidation.severity === "valid"
+                                    ? "border-emerald-400/70"
+                                    : triggerValidation.severity === "warn"
+                                      ? "border-amber-400/70"
+                                      : "border-red-400/70"
+                                  : "border-input"
+                              }`}
+                            />
+                            {triggerValidation ? (
+                              <div className={`rounded-md px-2 py-1.5 text-[10px] leading-snug mt-1 ${
+                                triggerValidation.severity === "valid"
+                                  ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400"
+                                  : triggerValidation.severity === "warn"
+                                    ? "bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400"
+                                    : "bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-400"
+                              }`}>
+                                <span className="font-semibold mr-1">
+                                  {triggerValidation.severity === "valid" ? "✓ Válido" : triggerValidation.severity === "warn" ? "⚠ Advertencia" : "✗ No válido"}
+                                </span>
+                                {triggerValidation.category && <span className="opacity-75">({triggerValidation.category}) </span>}
+                                <span className="opacity-80">{triggerValidation.reason}</span>
+                              </div>
+                            ) : (
+                              <p className="text-[10px] text-muted-foreground/50 mt-1">La IA evalúa esta intención en cada mensaje entrante.</p>
+                            )}
+                            <div className="rounded-lg border border-border/50 bg-muted/30 px-3 py-2 mt-1 space-y-1.5">
+                              <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                                <span className="text-emerald-600 dark:text-emerald-400 font-medium">✓ Funciona: </span>
+                                intención de compra, FAQ, objeción, negociación, palabra clave o emoji
+                              </p>
+                              <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                                <span className="text-red-500 font-medium">✗ Bloqueado: </span>
+                                horas programadas, días de la semana, llamadas de voz
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* ¿Cuántas veces? */}
+                          <div className="rounded-xl border border-border/60 bg-muted/20 px-3 py-2.5 space-y-1.5">
+                            <p className="text-xs font-medium">¿Cuántas veces puede activarse?</p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setEditingFlow(f => f ? { ...f, trigger_once: true } : f)}
+                                className={`flex-1 text-[10px] py-1.5 rounded-lg border transition-all ${editingFlow.trigger_once ? "border-primary bg-primary/8 text-primary font-medium" : "border-border text-muted-foreground hover:border-primary/40"}`}
+                              >
+                                1 sola vez por conversación
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingFlow(f => f ? { ...f, trigger_once: false } : f)}
+                                className={`flex-1 text-[10px] py-1.5 rounded-lg border transition-all ${!editingFlow.trigger_once ? "border-primary bg-primary/8 text-primary font-medium" : "border-border text-muted-foreground hover:border-primary/40"}`}
+                              >
+                                Múltiples veces
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
 
                       {/* Secuencia */}
                       <div className="space-y-1">
@@ -4183,16 +4233,20 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         </button>
                       </div>
 
+
                       {/* Guardar */}
                       <button
-                        disabled={!editingFlow.name.trim() || !editingFlow.trigger_text.trim() || upsertFlow.isPending}
+                        disabled={!editingFlow.name.trim() || (editingFlow.flow_trigger_type === "intent" && !editingFlow.trigger_text.trim()) || upsertFlow.isPending}
                         onClick={async () => {
-                          if (!editingFlow.name.trim() || !editingFlow.trigger_text.trim()) return;
-                          const validation = triggerValidation ?? classifyTrigger(editingFlow.trigger_text.trim());
-                          if (!triggerValidation) setTriggerValidation(validation);
-                          if (validation.severity === "invalid") {
-                            toast.error("Corrige el trigger antes de guardar.");
-                            return;
+                          if (!editingFlow.name.trim()) return;
+                          if (editingFlow.flow_trigger_type === "intent") {
+                            if (!editingFlow.trigger_text.trim()) return;
+                            const validation = triggerValidation ?? classifyTrigger(editingFlow.trigger_text.trim());
+                            if (!triggerValidation) setTriggerValidation(validation);
+                            if (validation.severity === "invalid") {
+                              toast.error("Corrige el trigger antes de guardar.");
+                              return;
+                            }
                           }
                           try {
                             await upsertFlow.mutateAsync(editingFlow);

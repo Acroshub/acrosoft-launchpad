@@ -2380,13 +2380,14 @@ Deno.serve(async (req: Request) => {
     // ── B18-6: Cargar estado de conversación (mode, active_flow_id, flow_step) ──
     const { data: convState } = await supabase
       .from("crm_wa_conversations")
-      .select("mode, active_flow_id, flow_step")
+      .select("mode, active_flow_id, flow_step, triggered_flow_ids")
       .eq("id", conversation_id)
       .single();
 
     const convMode = convState?.mode ?? "AI";
     const activeFlowId = convState?.active_flow_id ?? null;
     const currentFlowStep = convState?.flow_step ?? 0;
+    const triggeredFlowIds: string[] = convState?.triggered_flow_ids ?? [];
 
     // ── B18-6: Modo FLOW activo ──
     // Usar activeFlowId como indicador primario — si hay un flujo activo se procesa
@@ -2502,82 +2503,111 @@ Deno.serve(async (req: Request) => {
     if (convMode === "AI" && lastUserMsg) {
       const { data: activeFlows } = await supabase
         .from("crm_wa_flows")
-        .select("id, sequence_id, final_action, trigger_text")
+        .select("id, sequence_id, final_action, trigger_text, trigger_once, flow_trigger_type")
         .eq("user_id", tenant_user_id)
         .eq("is_active", true);
 
       if (activeFlows && activeFlows.length > 0) {
-        // Evaluar intenciones con Claude Haiku (un solo llamado con todos los triggers)
-        const intentList = activeFlows
-          .filter(f => f.trigger_text?.trim())
-          .map((f, i) => `${i + 1}. [id:${f.id}] ${f.trigger_text}`)
-          .join("\n");
+        const isFirstMessage = history.length === 1;
 
-        let matchedId: string | null = null;
-        try {
-          const intentRes = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "x-api-key": ANTHROPIC_API_KEY,
-              "anthropic-version": "2023-06-01",
-              "content-type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "claude-haiku-4-5-20251001",
-              max_tokens: 64,
-              system: "Eres un clasificador de intenciones. Responde SOLO con el id entre corchetes de la intención activada, o con la palabra null. Sin explicación, sin puntuación extra.",
-              messages: [{
-                role: "user",
-                content: `Intenciones configuradas:\n${intentList}\n\nMensaje del cliente: "${lastUserMsg}"\n\n¿Cuál intención se activa? Responde solo con el id (ej: abc123) o null.`,
-              }],
-            }),
-          });
-          if (intentRes.ok) {
-            const intentJson = await intentRes.json();
-            const raw = (intentJson.content?.[0]?.text ?? "").trim().toLowerCase();
-            if (raw !== "null" && raw !== "") {
-              // Buscar el id en la respuesta (puede venir como "abc123" o "[id:abc123]")
-              const idMatch = raw.match(/[a-f0-9\-]{8,}/);
-              if (idMatch) matchedId = idMatch[0];
-            }
-          }
-        } catch (e) {
-          console.error("[flow] error evaluando intenciones:", e);
-        }
-
-        const matched = matchedId ? activeFlows.find(f => f.id === matchedId) : null;
-
-        if (matched && matched.sequence_id) {
+        // Helper para ejecutar un flujo encontrado
+        async function triggerFlow(matched: typeof activeFlows[0], markOnce: boolean) {
+          if (!matched.sequence_id) return false;
           const { data: seq } = await supabase
             .from("crm_wa_sequences").select("steps").eq("id", matched.sequence_id).single();
           const steps: FlowStep[] = (seq?.steps as FlowStep[]) ?? [];
+          if (!steps.length) return false;
 
-          if (steps.length > 0) {
-            await supabase.from("crm_wa_conversations")
-              .update({ active_flow_id: matched.id, flow_step: 0 })
-              .eq("id", conversation_id);
-
-            try {
-              const { newStep, completed } = await executeFlowSteps(
-                steps, 0, "", phone, config as AgentConfig, conversation_id, false,
-              );
-              if (completed) {
-                await executeFinalAction(matched, phone, conversation_id, config as AgentConfig);
-                await supabase.from("crm_wa_conversations")
-                  .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
-                  .eq("id", conversation_id);
-              } else {
-                await supabase.from("crm_wa_conversations")
-                  .update({ flow_step: newStep, last_message_at: new Date().toISOString() })
-                  .eq("id", conversation_id);
-              }
-            } catch (flowErr) {
-              console.error("[flow_trigger] error ejecutando pasos:", flowErr);
+          const newTriggeredIds = markOnce
+            ? [...new Set([...triggeredFlowIds, matched.id])]
+            : triggeredFlowIds;
+          await supabase.from("crm_wa_conversations")
+            .update({ active_flow_id: matched.id, flow_step: 0, triggered_flow_ids: newTriggeredIds })
+            .eq("id", conversation_id);
+          try {
+            const { newStep, completed } = await executeFlowSteps(
+              steps, 0, "", phone, config as AgentConfig, conversation_id, false,
+            );
+            if (completed) {
+              await executeFinalAction(matched, phone, conversation_id, config as AgentConfig);
               await supabase.from("crm_wa_conversations")
-                .update({ last_message_at: new Date().toISOString() })
+                .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+                .eq("id", conversation_id);
+            } else {
+              await supabase.from("crm_wa_conversations")
+                .update({ flow_step: newStep, last_message_at: new Date().toISOString() })
                 .eq("id", conversation_id);
             }
-            return new Response(JSON.stringify({ ok: true, reason: "flow_triggered" }), { status: 200 });
+          } catch (flowErr) {
+            console.error("[flow_trigger] error ejecutando pasos:", flowErr);
+            await supabase.from("crm_wa_conversations")
+              .update({ last_message_at: new Date().toISOString() })
+              .eq("id", conversation_id);
+          }
+          return true;
+        }
+
+        // ── 1. Flujos de "Conversación Nueva" ──
+        // Se activan solo en el primer mensaje y solo 1 vez por conversación
+        const newConvFlows = activeFlows.filter(f =>
+          (f.flow_trigger_type ?? "intent") === "new_conversation" &&
+          !triggeredFlowIds.includes(f.id)
+        );
+        if (isFirstMessage && newConvFlows.length > 0) {
+          const triggered = await triggerFlow(newConvFlows[0], true);
+          if (triggered) return new Response(JSON.stringify({ ok: true, reason: "flow_triggered_new_conv" }), { status: 200 });
+        }
+
+        // ── 2. Flujos de "Comportamiento" (intención detectada por IA) ──
+        const intentFlows = activeFlows.filter(f =>
+          (f.flow_trigger_type ?? "intent") === "intent" && f.trigger_text?.trim()
+        );
+
+        if (intentFlows.length > 0) {
+          const intentList = intentFlows
+            .map((f, i) => `${i + 1}. [id:${f.id}] ${f.trigger_text}`)
+            .join("\n");
+
+          let matchedId: string | null = null;
+          try {
+            const intentRes = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "x-api-key": ANTHROPIC_API_KEY,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+              },
+              body: JSON.stringify({
+                model: "claude-haiku-4-5-20251001",
+                max_tokens: 64,
+                system: "Eres un clasificador de intenciones. Responde SOLO con el id entre corchetes de la intención activada, o con la palabra null. Sin explicación, sin puntuación extra.",
+                messages: [{
+                  role: "user",
+                  content: `Intenciones configuradas:\n${intentList}\n\nMensaje del cliente: "${lastUserMsg}"\n\n¿Cuál intención se activa? Responde solo con el id (ej: abc123) o null.`,
+                }],
+              }),
+            });
+            if (intentRes.ok) {
+              const intentJson = await intentRes.json();
+              const raw = (intentJson.content?.[0]?.text ?? "").trim().toLowerCase();
+              if (raw !== "null" && raw !== "") {
+                const idMatch = raw.match(/[a-f0-9\-]{8,}/);
+                if (idMatch) matchedId = idMatch[0];
+              }
+            }
+          } catch (e) {
+            console.error("[flow] error evaluando intenciones:", e);
+          }
+
+          const matched = matchedId ? intentFlows.find(f => f.id === matchedId) : null;
+          if (matched) {
+            const triggerOnce = matched.trigger_once ?? true;
+            if (triggerOnce && triggeredFlowIds.includes(matched.id)) {
+              console.log(`[flow_trigger] flujo ${matched.id} ya fue activado (trigger_once=true), omitiendo`);
+            } else {
+              const triggered = await triggerFlow(matched, triggerOnce);
+              if (triggered) return new Response(JSON.stringify({ ok: true, reason: "flow_triggered" }), { status: 200 });
+            }
           }
         }
       }

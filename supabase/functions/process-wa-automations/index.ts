@@ -123,7 +123,7 @@ async function sendTemplate(
 async function detectInactivity() {
   const { data: automations } = await supabase
     .from("crm_wa_automations")
-    .select("id, user_id, trigger_inactivity_hours, trigger_country_codes, delay_hours")
+    .select("id, user_id, trigger_inactivity_hours, trigger_country_codes, trigger_label_ids, delay_hours")
     .eq("is_active", true)
     .eq("trigger_type", "inactivity");
 
@@ -162,11 +162,26 @@ async function detectInactivity() {
       .eq("user_id", auto.user_id)
       .in("id", eligibleConvIds);
 
+    // Filtro por etiquetas: si se configuraron, obtener qué conversaciones las tienen
+    const labelFilterIds: string[] = auto.trigger_label_ids ?? [];
+    let convIdsWithLabel: Set<string> | null = null;
+    if (labelFilterIds.length > 0) {
+      const { data: convLabels } = await supabase
+        .from("crm_wa_conversation_labels")
+        .select("conversation_id")
+        .in("label_id", labelFilterIds)
+        .in("conversation_id", (convs ?? []).map(c => c.id));
+      convIdsWithLabel = new Set((convLabels ?? []).map(r => r.conversation_id));
+    }
+
     for (const conv of convs ?? []) {
       if (
         (auto.trigger_country_codes?.length ?? 0) > 0 &&
         !auto.trigger_country_codes.includes(getPhonePrefix(conv.phone))
       ) continue;
+
+      // Filtro por etiquetas
+      if (convIdsWithLabel !== null && !convIdsWithLabel.has(conv.id)) continue;
 
       const { data: existing } = await supabase
         .from("crm_wa_automation_queue")

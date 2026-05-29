@@ -187,7 +187,7 @@ function emptyForm(): FormState {
   return {
     name: "",
     is_active: true,
-    trigger_type: "new_conversation",
+    trigger_type: "inactivity",
     trigger_label_ids: [],
     trigger_inactivity_hours: "6",
     trigger_country_codes: [],
@@ -204,7 +204,7 @@ function automationToForm(a: CrmWaAutomation): FormState {
   return {
     name: a.name,
     is_active: a.is_active,
-    trigger_type: a.trigger_type,
+    trigger_type: "inactivity",
     trigger_label_ids: a.trigger_label_ids ?? [],
     trigger_inactivity_hours: String(a.trigger_inactivity_hours ?? 6),
     trigger_country_codes: a.trigger_country_codes ?? [],
@@ -243,7 +243,7 @@ function AutomationForm({
 
   const isValid = useMemo(() => {
     if (!form.name.trim()) return false;
-    if (form.trigger_type === "inactivity" && (!form.trigger_inactivity_hours || Number(form.trigger_inactivity_hours) < 1)) return false;
+    if (!form.trigger_inactivity_hours || Number(form.trigger_inactivity_hours) < 1) return false;
     if (needsText && !form.message_text.trim()) return false;
     if (needsTemplate && !form.template_id) return false;
     return true;
@@ -256,9 +256,9 @@ function AutomationForm({
     const payload: Omit<CrmWaAutomation, "id" | "user_id" | "sent_count" | "skipped_count" | "failed_count" | "created_at"> = {
       name: form.name.trim(),
       is_active: form.is_active,
-      trigger_type: form.trigger_type,
-      trigger_label_ids: form.trigger_type === "label_assigned" ? form.trigger_label_ids : [],
-      trigger_inactivity_hours: form.trigger_type === "inactivity" ? Number(form.trigger_inactivity_hours) : null,
+      trigger_type: "inactivity",
+      trigger_label_ids: form.trigger_label_ids,
+      trigger_inactivity_hours: Number(form.trigger_inactivity_hours),
       trigger_country_codes: form.trigger_country_codes,
       delay_hours: Number(form.delay_hours) || 0,
       message_type: form.message_type,
@@ -312,77 +312,55 @@ function AutomationForm({
         />
       </div>
 
-      {/* Trigger */}
+      {/* Trigger — solo inactividad */}
       <div className="space-y-2">
         <label className="text-xs font-semibold text-foreground">Disparador</label>
-        <p className="text-[11px] text-muted-foreground">¿Qué evento activa esta automatización?</p>
-        <div className="grid grid-cols-1 gap-2">
-          {([
-            { value: "new_conversation", label: "Conversación nueva", desc: "Cuando alguien te escribe por primera vez" },
-            { value: "label_assigned", label: "Etiqueta asignada",  desc: "Cuando el Agente IA le asigna una etiqueta a un contacto" },
-            { value: "inactivity",      label: "Inactividad",        desc: "Cuando un contacto no ha escrito en X horas" },
-          ] as const).map(opt => (
-            <button
-              key={opt.value} type="button"
-              onClick={() => set({ trigger_type: opt.value })}
-              className={`w-full text-left p-3 rounded-xl border transition-all ${
-                form.trigger_type === opt.value
-                  ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                  : "border-border hover:border-primary/40 hover:bg-muted/30"
-              }`}
-            >
-              <p className="text-xs font-semibold">{opt.label}</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">{opt.desc}</p>
-            </button>
-          ))}
+        <div className="p-3 rounded-xl border border-primary bg-primary/5 ring-1 ring-primary/30">
+          <p className="text-xs font-semibold">Inactividad</p>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Se activa cuando un contacto no ha escrito en X horas</p>
         </div>
+        <div className="flex items-center gap-2 pt-1">
+          <label className="text-xs text-muted-foreground shrink-0">Horas sin actividad:</label>
+          <input
+            type="number" min="1" max="720"
+            value={form.trigger_inactivity_hours}
+            onChange={e => set({ trigger_inactivity_hours: e.target.value })}
+            className="w-24 h-8 px-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 text-center"
+          />
+          <span className="text-xs text-muted-foreground">horas</span>
+        </div>
+      </div>
 
-        {/* Label selector */}
-        {form.trigger_type === "label_assigned" && (
-          <div className="mt-2 space-y-1.5">
-            <p className="text-[11px] text-muted-foreground">Selecciona las etiquetas (dejar vacío = cualquier etiqueta):</p>
-            {labels.length === 0
-              ? <p className="text-xs text-muted-foreground/70">No hay etiquetas disponibles.</p>
-              : (
-                <div className="flex flex-wrap gap-1.5">
-                  {labels.map(lbl => {
-                    const selected = form.trigger_label_ids.includes(lbl.id);
-                    return (
-                      <button key={lbl.id} type="button"
-                        onClick={() => set({
-                          trigger_label_ids: selected
-                            ? form.trigger_label_ids.filter(id => id !== lbl.id)
-                            : [...form.trigger_label_ids, lbl.id],
-                        })}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
-                          selected
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40"
-                        }`}
-                      >
-                        {lbl.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )
-            }
-          </div>
-        )}
-
-        {/* Inactivity hours */}
-        {form.trigger_type === "inactivity" && (
-          <div className="mt-2 flex items-center gap-2">
-            <label className="text-xs text-muted-foreground shrink-0">Horas sin actividad:</label>
-            <input
-              type="number" min="1" max="720"
-              value={form.trigger_inactivity_hours}
-              onChange={e => set({ trigger_inactivity_hours: e.target.value })}
-              className="w-24 h-8 px-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 text-center"
-            />
-            <span className="text-xs text-muted-foreground">horas</span>
-          </div>
-        )}
+      {/* Filtro por etiquetas */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-semibold text-foreground">Filtro por etiquetas <span className="text-muted-foreground font-normal">(opcional)</span></label>
+        <p className="text-[11px] text-muted-foreground">Solo se enviará a contactos que tengan al menos una de estas etiquetas. Dejar vacío = todos los contactos.</p>
+        {labels.length === 0
+          ? <p className="text-xs text-muted-foreground/70">No hay etiquetas disponibles.</p>
+          : (
+            <div className="flex flex-wrap gap-1.5">
+              {labels.map(lbl => {
+                const selected = form.trigger_label_ids.includes(lbl.id);
+                return (
+                  <button key={lbl.id} type="button"
+                    onClick={() => set({
+                      trigger_label_ids: selected
+                        ? form.trigger_label_ids.filter(id => id !== lbl.id)
+                        : [...form.trigger_label_ids, lbl.id],
+                    })}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                      selected
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40"
+                    }`}
+                  >
+                    {lbl.name}
+                  </button>
+                );
+              })}
+            </div>
+          )
+        }
       </div>
 
       {/* Country filter */}

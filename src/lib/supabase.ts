@@ -718,6 +718,7 @@ export type CrmWaConversation = {
   last_message_at: string | null
   created_at: string
   unread_count: number
+  triggered_flow_ids: string[]
 }
 
 export type CrmWaMessage = {
@@ -772,6 +773,7 @@ export type CrmWaSequence = {
 }
 
 export type CrmWaFlowFinalAction = 'nothing' | 'human_handoff'
+export type CrmWaFlowTriggerType = 'new_conversation' | 'intent'
 
 export type CrmWaFlow = {
   id: string
@@ -781,6 +783,8 @@ export type CrmWaFlow = {
   sequence_id: string | null
   final_action: CrmWaFlowFinalAction
   is_active: boolean
+  trigger_once: boolean
+  flow_trigger_type: CrmWaFlowTriggerType
   created_at: string
   updated_at: string
 }

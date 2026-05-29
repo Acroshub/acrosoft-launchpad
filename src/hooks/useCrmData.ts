@@ -3283,6 +3283,8 @@ export const useUpsertWaFlow = () => {
       sequence_id: string | null
       final_action: CrmWaFlowFinalAction
       is_active: boolean
+      trigger_once: boolean
+      flow_trigger_type: "new_conversation" | "intent"
     }) => {
       if (flow.id) {
         const { data, error } = await supabase
@@ -3293,6 +3295,8 @@ export const useUpsertWaFlow = () => {
             sequence_id: flow.sequence_id,
             final_action: flow.final_action,
             is_active: flow.is_active,
+            trigger_once: flow.trigger_once,
+            flow_trigger_type: flow.flow_trigger_type,
             updated_at: new Date().toISOString(),
           })
           .eq("id", flow.id)
@@ -3309,6 +3313,8 @@ export const useUpsertWaFlow = () => {
             sequence_id: flow.sequence_id,
             final_action: flow.final_action,
             is_active: flow.is_active,
+            trigger_once: flow.trigger_once,
+            flow_trigger_type: flow.flow_trigger_type,
             user_id: user!.id,
           })
           .select()
