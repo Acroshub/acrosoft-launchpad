@@ -2530,6 +2530,20 @@ export const useDeleteWaConversation = () => {
   });
 };
 
+export const useToggleFavorite = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      const { error } = await supabase
+        .from("crm_wa_conversations")
+        .update({ is_favorite: value })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+  });
+};
+
 export const useAssignConversation = () => {
   const qc = useQueryClient();
   return useMutation({

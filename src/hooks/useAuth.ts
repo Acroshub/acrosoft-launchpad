@@ -23,13 +23,29 @@ export const useCurrentUser = () => {
       setLoading(false)
     })
 
-    // Listen to auth state changes (login / logout / token refresh)
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      setSession(newSession)
-      setUser(newSession?.user ?? null)
+    // Listen to auth state changes (login / logout / token refresh).
+    // Use a short debounce so that a transient SIGNED_OUT fired immediately before
+    // TOKEN_REFRESHED (which can happen on some Supabase versions during tab focus)
+    // doesn't flash the entire component tree into an unauthenticated state.
+    let signedOutTimer: ReturnType<typeof setTimeout> | null = null;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (signedOutTimer) { clearTimeout(signedOutTimer); signedOutTimer = null; }
+      if (event === 'SIGNED_OUT') {
+        // Delay clearing the user to absorb a quick SIGNED_OUT + TOKEN_REFRESHED pair
+        signedOutTimer = setTimeout(() => {
+          setSession(null)
+          setUser(null)
+        }, 200)
+      } else {
+        setSession(newSession)
+        setUser(newSession?.user ?? null)
+      }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      if (signedOutTimer) clearTimeout(signedOutTimer)
+      subscription.unsubscribe()
+    }
   }, [])
 
   return { user, session, loading }

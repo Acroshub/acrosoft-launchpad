@@ -783,11 +783,14 @@ const CrmBusiness = ({ initialTab }: { initialTab?: Tab }) => {
       })
     : tabs;
 
-  const [tab, setTab] = useState<Tab>(() => {
+  const [tab, setTabRaw] = useState<Tab>(() => {
     const resolvedTab = initialTab === "colores" ? "logo" : initialTab;
     if (resolvedTab && tabs.find(t => t.id === resolvedTab)) return resolvedTab as Tab;
+    const saved = localStorage.getItem("crm_business_tab") as Tab | null;
+    if (saved && tabs.find(t => t.id === saved)) return saved;
     return visibleTabs.length > 0 ? visibleTabs[0].id : "personal";
   });
+  const setTab = (t: Tab) => { localStorage.setItem("crm_business_tab", t); setTabRaw(t); };
 
   // Mobile: muestra el contenido de la sección seleccionada (oculta el menú)
   const [mobileShowContent, setMobileShowContent] = useState(() => !!initialTab);
@@ -821,8 +824,12 @@ const CrmBusiness = ({ initialTab }: { initialTab?: Tab }) => {
     );
   }
 
-  // ── Contenido del tab activo (reutilizado en mobile y desktop) ──────────────
-  const TabContent = () => (
+  // ── Contenido del tab activo ─────────────────────────────────────────────────
+  // IMPORTANT: this must be JSX, NOT a component defined inside the render function.
+  // Defining a component inline (const TabContent = () => ...) causes React to
+  // unmount + remount the entire subtree on every re-render of CrmBusiness,
+  // destroying all child state (e.g. CrmProductos' form wizard progress).
+  const tabContent = (
     <>
       {activeTab === "personal" && (
         isStaff && staffRecord
@@ -902,7 +909,7 @@ const CrmBusiness = ({ initialTab }: { initialTab?: Tab }) => {
             </span>
           )}
         </button>
-        <TabContent />
+        {tabContent}
       </div>
 
       {/* ══════════════════════════════════════════════════════════
@@ -934,7 +941,7 @@ const CrmBusiness = ({ initialTab }: { initialTab?: Tab }) => {
         </div>
 
         {/* Content */}
-        <TabContent />
+        {tabContent}
       </div>
 
     </div>

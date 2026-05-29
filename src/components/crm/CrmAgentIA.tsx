@@ -5,7 +5,7 @@ import {
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, ChevronLeft, ChevronDown, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
-  GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote,
+  GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star,
 } from "lucide-react";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
@@ -40,6 +40,7 @@ import {
   useWaFlows, useUpsertWaFlow, useDeleteWaFlow, useToggleWaFlow,
   useInsertLog,
   useCourses,
+  useToggleFavorite,
 } from "@/hooks/useCrmData";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import CrmWaTemplates from "@/components/crm/CrmWaTemplates";
@@ -209,7 +210,7 @@ const StepIndicator = ({ current, total }: { current: number; total: number }) =
 const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const upsert = useUpsertAIAgentConfig();
   const { user: wizardUser } = useCurrentUser();
-  const { data: existingConfig } = useAIAgentConfig();
+  const { data: existingConfig, isLoading: configLoading } = useAIAgentConfig();
   const { data: businessProfile } = useBusinessProfile();
   const { data: allProducts = [] } = useProducts();
   const { data: allServices = [] } = useServices();
@@ -284,13 +285,14 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const wizardPhotoRef                  = useRef<HTMLInputElement>(null);
 
-  // Auto-crear fila en DB al montar para generar el verify_token de inmediato
+  // Auto-crear fila en DB para generar el verify_token. Espera a que el query
+  // termine (existingConfig === null, no undefined) y a que user esté disponible,
+  // para evitar que user!.id falle silenciosamente en el primer render.
   useEffect(() => {
-    if (!existingConfig) {
+    if (!configLoading && existingConfig === null && wizardUser) {
       upsert.mutateAsync({ agent_name: "Asistente" }).catch(() => {});
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [configLoading, existingConfig, wizardUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-detect timezone from existing config or business profile
   useEffect(() => {
@@ -4498,11 +4500,12 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
 type UpcomingAppt = { appt: CrmAppointment; contact: CrmContact; minutesAway: number };
 
 const ChatPanel = ({
-  conv, onBack, onDelete, staffList, staffMap, highlightMessageId, onHighlightClear, pendingSale, onSaleConfirmed, upcomingAppt,
+  conv, onBack, onDelete, onToggleFavorite, staffList, staffMap, highlightMessageId, onHighlightClear, pendingSale, onSaleConfirmed, upcomingAppt,
 }: {
   conv: CrmWaConversation;
   onBack?: () => void;
   onDelete?: () => void;
+  onToggleFavorite?: () => void;
   staffList: CrmStaff[];
   staffMap: Record<string, CrmStaff>;
   highlightMessageId?: string | null;
@@ -4722,6 +4725,21 @@ const ChatPanel = ({
 
         {/* Action icons — 44px touch targets */}
         <div className="flex items-center gap-0.5 shrink-0">
+
+          {/* Favorite */}
+          {onToggleFavorite && (
+            <button
+              onClick={onToggleFavorite}
+              title={conv.is_favorite ? "Quitar de favoritos" : "Marcar como favorito"}
+              className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl transition-colors ${
+                conv.is_favorite
+                  ? "text-amber-400 hover:text-amber-500"
+                  : "text-muted-foreground hover:bg-secondary hover:text-amber-400"
+              }`}
+            >
+              <Star size={17} fill={conv.is_favorite ? "currentColor" : "none"} />
+            </button>
+          )}
 
           {/* Notes log */}
           <button
@@ -5124,8 +5142,9 @@ const CrmAgentIA = ({
   const { data: conversations = [] } = useWaConversations(principalId);
   const { data: pendingSales = [] }  = useAiPendingSales();
   const updateSaleStatus             = useUpdateSale();
-  const deleteConv = useDeleteWaConversation();
-  const markRead   = useMarkConversationRead();
+  const deleteConv     = useDeleteWaConversation();
+  const markRead       = useMarkConversationRead();
+  const toggleFavorite = useToggleFavorite();
   const { data: labels = [] }        = useWaLabels(principalId);
   const { data: convLabelsMap = {} } = useAllConversationLabels(principalId);
   const { data: staffList = [] }     = useStaff();
@@ -5184,7 +5203,7 @@ const CrmAgentIA = ({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [labelFilter, setLabelFilter]         = useState<string | null>(null);
   const [assignFilter, setAssignFilter]       = useState<"all" | "mine" | "unassigned">("all");
-  const [readFilter, setReadFilter]           = useState<"all" | "unread">("all");
+  const [readFilter, setReadFilter]           = useState<"all" | "unread" | "favorites">("all");
   const [wizardDone, setWizardDone]           = useState(false);
   const [forceWizard, setForceWizard]         = useState(false);
   const [deleteModalId, setDeleteModalId]     = useState<string | null>(null);
@@ -5234,6 +5253,8 @@ const CrmAgentIA = ({
     }
     if (readFilter === "unread") {
       result = result.filter(c => (c.unread_count ?? 0) > 0);
+    } else if (readFilter === "favorites") {
+      result = result.filter(c => c.is_favorite);
     }
     // Chats con pago pendiente al tope
     return [...result].sort((a, b) => {
@@ -5291,7 +5312,9 @@ const CrmAgentIA = ({
 
   const configRowExists = config !== null && config !== undefined;
   // Staff nunca ve el wizard — si no está configurado, muestra aviso
-  const needsWizard = !isStaff && (forceWizard || (!configRowExists && !wizardDone));
+  // El wizard sale cuando is_active=true (setup completo) o wizardDone (recién completado).
+  // No salimos solo por que exista la fila (el auto-upsert la crea vacía desde el inicio).
+  const needsWizard = !isStaff && (forceWizard || (!config?.is_active && !wizardDone));
   if (needsWizard) {
     return <SetupWizard onComplete={() => { setWizardDone(true); setForceWizard(false); }} />;
   }
@@ -5395,21 +5418,23 @@ const CrmAgentIA = ({
           `}>
             {/* Tabs: Unread / All / Assignment filter */}
             <div className="px-4 pt-3 pb-0 border-b space-y-2.5">
-              {/* Unread / All tabs */}
+              {/* Unread / All / Favorites tabs */}
               <div className="flex gap-0">
                 {[
                   { id: "all", label: "Todos" },
                   { id: "unread", label: "Sin leer", count: conversations.filter(c => (c.unread_count ?? 0) > 0).length },
+                  { id: "favorites", label: "Favoritos", icon: true },
                 ].map(tab => (
                   <button
                     key={tab.id}
-                    onClick={() => setReadFilter(tab.id as "all" | "unread")}
-                    className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+                    onClick={() => setReadFilter(tab.id as "all" | "unread" | "favorites")}
+                    className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                       readFilter === tab.id
                         ? "border-[#1877F2] text-[#1877F2]"
                         : "border-transparent text-muted-foreground hover:text-foreground"
                     }`}
                   >
+                    {tab.icon && <Star size={12} fill={readFilter === tab.id ? "currentColor" : "none"} />}
                     {tab.label}
                     {tab.count !== undefined && tab.count > 0 && (
                       <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[#1877F2] text-[10px] font-bold text-white">
@@ -5491,6 +5516,12 @@ const CrmAgentIA = ({
                         <p className="text-xs font-medium">Todo leído</p>
                         <p className="text-xs opacity-70">No hay conversaciones sin leer.</p>
                       </>
+                    ) : readFilter === "favorites" ? (
+                      <>
+                        <Star size={24} className="opacity-30" />
+                        <p className="text-xs font-medium">Sin favoritos</p>
+                        <p className="text-xs opacity-70">Marca conversaciones con ⭐ para encontrarlas rápido.</p>
+                      </>
                     ) : (
                       <>
                         <MessageSquare size={24} className="opacity-30" />
@@ -5511,7 +5542,7 @@ const CrmAgentIA = ({
                     <button
                       key={conv.id}
                       onClick={() => { setSelectedId(conv.id); setMobileShowChat(true); setHighlightMessageId(null); if (unread > 0) markRead.mutate(conv.id); }}
-                      className={`w-full text-left px-4 py-3 border-b transition-colors cursor-pointer ${
+                      className={`group/convitem w-full text-left px-4 py-3 border-b transition-colors cursor-pointer ${
                         isSelected
                           ? "bg-[#1877F2]/8 dark:bg-[#1877F2]/10 border-l-2 border-l-[#1877F2]"
                           : isUnread
@@ -5590,6 +5621,22 @@ const CrmAgentIA = ({
                             {staffMap[conv.assigned_to].name.charAt(0).toUpperCase()}
                           </span>
                         )}
+
+                        {/* Star favorite — div to avoid nested-button invalid HTML */}
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={e => { e.stopPropagation(); toggleFavorite.mutate({ id: conv.id, value: !conv.is_favorite }); }}
+                          onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); toggleFavorite.mutate({ id: conv.id, value: !conv.is_favorite }); } }}
+                          title={conv.is_favorite ? "Quitar de favoritos" : "Marcar favorito"}
+                          className={`cursor-pointer shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
+                            conv.is_favorite
+                              ? "text-amber-400 hover:text-amber-500"
+                              : "text-transparent hover:text-amber-400 group-hover/convitem:text-muted-foreground/40"
+                          }`}
+                        >
+                          <Star size={13} fill={conv.is_favorite ? "currentColor" : "none"} />
+                        </div>
                       </div>
                     </button>
                     );
@@ -5727,6 +5774,7 @@ const CrmAgentIA = ({
                 conv={selectedConv}
                 onBack={() => setMobileShowChat(false)}
                 onDelete={isStaff ? undefined : () => setDeleteModalId(selectedConv.id)}
+                onToggleFavorite={() => toggleFavorite.mutate({ id: selectedConv.id, value: !selectedConv.is_favorite })}
                 staffList={staffList}
                 staffMap={staffMap}
                 highlightMessageId={highlightMessageId}

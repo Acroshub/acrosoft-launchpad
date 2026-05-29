@@ -20,7 +20,9 @@ import CatalogPublic from "./pages/CatalogPublic.tsx";
 import CourseAccess from "./pages/CourseAccess.tsx";
 import CoursePlayer from "./pages/CoursePlayer.tsx";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: { queries: { refetchOnWindowFocus: false } },
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>

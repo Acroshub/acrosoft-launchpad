@@ -719,6 +719,7 @@ export type CrmWaConversation = {
   created_at: string
   unread_count: number
   triggered_flow_ids: string[]
+  is_favorite: boolean
 }
 
 export type CrmWaMessage = {

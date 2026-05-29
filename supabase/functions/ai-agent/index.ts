@@ -916,6 +916,7 @@ async function personalizeStepText(
       .from("crm_wa_messages")
       .select("role, content")
       .eq("conversation_id", conversationId)
+      .eq("is_internal", false)
       .order("created_at", { ascending: false })
       .limit(8);
 
@@ -2363,10 +2364,12 @@ Deno.serve(async (req: Request) => {
     }
 
     // 3. Cargar historial reciente (últimos 15 mensajes — balance contexto/costo)
+    // is_internal=false: las notas internas del staff no deben contaminar el contexto del agente
     const { data: rawHistory } = await supabase
       .from("crm_wa_messages")
       .select("role, content, button_reply_id, media_type")
       .eq("conversation_id", conversation_id)
+      .eq("is_internal", false)
       .order("created_at", { ascending: false })
       .limit(15);
 

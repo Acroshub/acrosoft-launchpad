@@ -341,6 +341,9 @@ function Toggle({ value, onChange }: { value: boolean; onChange: () => void }) {
 
 // ─── Product Editor ───────────────────────────────────────────────────────────
 const WIZARD_STEPS = ["Información", "Imágenes", "Variantes", "Entregable", "Métodos de pago", "Catálogos"] as const;
+const NEW_PRODUCT_DRAFT_KEY = "crm_new_product_draft";
+const readNewProductDraft = () => { try { return JSON.parse(sessionStorage.getItem(NEW_PRODUCT_DRAFT_KEY) ?? "null"); } catch { return null; } };
+const clearNewProductDraft = () => sessionStorage.removeItem(NEW_PRODUCT_DRAFT_KEY);
 
 function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
   initialProduct: CrmProduct | null;
@@ -356,24 +359,29 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const isNew = !initialProduct;
-  const [wizardStep, setWizardStep]       = useState(isNew ? 0 : -1); // -1 = full edit, 0..5 = wizard steps
+  // Read draft synchronously on mount — sessionStorage is sync so safe in useState initializers.
+  // Only relevant for new (unsaved) products; existing products load from DB.
+  const _d = useRef(isNew ? readNewProductDraft() : null);
+  const d = _d.current;
+
+  const [wizardStep, setWizardStep]       = useState(d?.wizardStep ?? (isNew ? 0 : -1));
   const [product, setProduct]             = useState<CrmProduct | null>(initialProduct);
   const [saving, setSaving]               = useState(false);
-  const [name, setName]                   = useState(initialProduct?.name ?? "");
-  const [description, setDescription]     = useState(initialProduct?.description ?? "");
-  const [price, setPrice]                 = useState(initialProduct?.price ?? 0);
-  const [discountPct, setDiscountPct]     = useState(initialProduct?.discount_pct ?? 0);
-  const [currency, setCurrency]           = useState(initialProduct?.currency ?? "USD");
-  const [sku, setSku]                     = useState(initialProduct?.sku ?? "");
-  const [isActive, setIsActive]           = useState(initialProduct?.is_active ?? true);
-  const [images, setImages]               = useState<string[]>(initialProduct?.images ?? []);
-  const [stockEnabled, setStockEnabled]   = useState(initialProduct?.stock_enabled ?? false);
-  const [stockVal, setStockVal]           = useState(initialProduct?.stock != null ? String(initialProduct.stock) : "");
-  const [hasVariants, setHasVariants]     = useState(initialProduct?.has_variants ?? false);
+  const [name, setName]                   = useState(d?.name ?? initialProduct?.name ?? "");
+  const [description, setDescription]     = useState(d?.description ?? initialProduct?.description ?? "");
+  const [price, setPrice]                 = useState(d?.price ?? initialProduct?.price ?? 0);
+  const [discountPct, setDiscountPct]     = useState(d?.discountPct ?? initialProduct?.discount_pct ?? 0);
+  const [currency, setCurrency]           = useState(d?.currency ?? initialProduct?.currency ?? "USD");
+  const [sku, setSku]                     = useState(d?.sku ?? initialProduct?.sku ?? "");
+  const [isActive, setIsActive]           = useState(d?.isActive ?? initialProduct?.is_active ?? true);
+  const [images, setImages]               = useState<string[]>(d?.images ?? initialProduct?.images ?? []);
+  const [stockEnabled, setStockEnabled]   = useState(d?.stockEnabled ?? initialProduct?.stock_enabled ?? false);
+  const [stockVal, setStockVal]           = useState(d?.stockVal ?? (initialProduct?.stock != null ? String(initialProduct.stock) : ""));
+  const [hasVariants, setHasVariants]     = useState(d?.hasVariants ?? initialProduct?.has_variants ?? false);
   const [newVariantRows, setNewVariantRows] = useState<Array<{ _key: number; sort_order: number }>>([]);
-  const [delivType, setDelivType]         = useState<"file"|"text"|null>(initialProduct?.deliverable_type ?? null);
-  const [delivText, setDelivText]         = useState(initialProduct?.deliverable_text ?? "");
-  const [delivUrl, setDelivUrl]           = useState(initialProduct?.deliverable_url ?? "");
+  const [delivType, setDelivType]         = useState<"file"|"text"|null>(d?.delivType ?? initialProduct?.deliverable_type ?? null);
+  const [delivText, setDelivText]         = useState(d?.delivText ?? initialProduct?.deliverable_text ?? "");
+  const [delivUrl, setDelivUrl]           = useState(d?.delivUrl ?? initialProduct?.deliverable_url ?? "");
   const [uploadingDeliv, setUploadingDeliv] = useState(false);
   const delivRef = useRef<HTMLInputElement>(null);
   const nkey = useRef(0);
@@ -381,17 +389,42 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
   const { data: savedVariants = [], refetch: refetchVariants } = useProductVariants(product?.id ?? null);
   const { data: memberCatalogIds = [], refetch: refetchCatalogIds } = useProductCatalogIds(product?.id ?? null);
   const { data: existingPrices = [] } = usePricesByEntity("product", product?.id ?? null);
-  const [prices, setPrices] = useState<PriceEntry[]>([]);
+  const [prices, setPrices] = useState<PriceEntry[]>(d?.prices ?? []);
   useEffect(() => {
+    // Only sync from DB once the product has been saved (has an ID).
+    // Before first save, prices live in sessionStorage draft.
+    if (!product?.id) return;
     setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price })));
-  }, [existingPrices]);
+  }, [existingPrices, product?.id]);
 
   const upsertFaqs = useUpsertFaqs();
   const { data: existingFaqs = [] } = useFaqsByEntity("product", product?.id ?? null);
-  const [faqs, setFaqs] = useState<FaqEntry[]>([]);
+  const [faqs, setFaqs] = useState<FaqEntry[]>(d?.faqs ?? []);
   useEffect(() => {
+    if (!product?.id) return;
     setFaqs(existingFaqs.map(f => ({ question: f.question, answer: f.answer })));
-  }, [existingFaqs]);
+  }, [existingFaqs, product?.id]);
+
+  // Persist draft to sessionStorage for recovery after tab switch / remount.
+  // Only active while the product has no ID yet (before first save).
+  useEffect(() => {
+    if (!isNew || product?.id) return;
+    sessionStorage.setItem(NEW_PRODUCT_DRAFT_KEY, JSON.stringify({
+      wizardStep, name, description, price, discountPct, currency, sku,
+      isActive, images, stockEnabled, stockVal, hasVariants,
+      delivType, delivText, delivUrl, prices, faqs,
+    }));
+  }, [wizardStep, name, description, price, discountPct, currency, sku,
+      isActive, images, stockEnabled, stockVal, hasVariants,
+      delivType, delivText, delivUrl, prices, faqs]);
+
+  // Once the product gets saved and has an ID: update localStorage so the
+  // parent can restore to this product on next remount, and clear the draft.
+  useEffect(() => {
+    if (!product?.id) return;
+    localStorage.setItem("crm_productos_product_id", product.id);
+    clearNewProductDraft();
+  }, [product?.id]);
 
   const addedToFromCatalog = useRef(false);
   useEffect(() => {
@@ -1154,8 +1187,9 @@ function CatalogForm({ initial, userId, agentPhone, onSave, onCancel, saving }: 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function CrmProductos() {
   const { user } = useCurrentUser();
-  const { data: catalogs = [], isLoading } = useCatalogs();
-  const { data: allProducts = [] }         = useProducts();
+  const { data: catalogs = [], isLoading: catalogsLoading } = useCatalogs();
+  const { data: allProducts = [], isLoading: productsLoading } = useProducts();
+  const isLoading = catalogsLoading || productsLoading;
   const { data: orphanProducts = [] }      = useOrphanProducts();
   const { data: businessProfile }          = useBusinessProfile();
   const { data: agentConfig }              = useAIAgentConfig();
@@ -1177,13 +1211,67 @@ export default function CrmProductos() {
     return map;
   }, [allVariants]);
 
-  const [view, setView]                       = useState<"catalogs"|"catalog"|"product">("catalogs");
-  const [selectedCatalog, setSelectedCatalog] = useState<CrmCatalog | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<CrmProduct | null>(null);
-  const [fromCatalogId, setFromCatalogId]     = useState<string | null>(null);
-  const [showCatalogForm, setShowCatalogForm] = useState(false);
-  const [editingCatalog, setEditingCatalog]   = useState<CrmCatalog | null>(null);
-  const [deleteTarget, setDeleteTarget]       = useState<string | null>(null);
+  // Always start at catalogs — restored atomically by the effect below once data loads.
+  // For the new-product case (no savedProdId), we can safely start at "product" immediately —
+  // ProductEditor handles null initialProduct as a new product wizard.
+  // For existing product/catalog, we start at "catalogs" and restore once data loads.
+  const [view, setViewRaw] = useState<"catalogs"|"catalog"|"product">(() => {
+    const savedView  = localStorage.getItem("crm_productos_view");
+    const savedProdId = localStorage.getItem("crm_productos_product_id");
+    return savedView === "product" && !savedProdId ? "product" : "catalogs";
+  });
+  const [selectedCatalog, setSelectedCatalogRaw] = useState<CrmCatalog | null>(null);
+  const [selectedProduct, setSelectedProductRaw] = useState<CrmProduct | null>(null);
+  const [fromCatalogId, setFromCatalogId]        = useState<string | null>(null);
+  const [showCatalogForm, setShowCatalogForm]    = useState(false);
+  const [editingCatalog, setEditingCatalog]      = useState<CrmCatalog | null>(null);
+  const [deleteTarget, setDeleteTarget]          = useState<string | null>(null);
+  const navRestored                              = useRef(false);
+
+  const setView = (v: "catalogs"|"catalog"|"product") => {
+    localStorage.setItem("crm_productos_view", v);
+    setViewRaw(v);
+  };
+  const setSelectedCatalog = (c: CrmCatalog | null) => {
+    if (c) localStorage.setItem("crm_productos_catalog_id", c.id);
+    else localStorage.removeItem("crm_productos_catalog_id");
+    setSelectedCatalogRaw(c);
+  };
+  const setSelectedProduct = (p: CrmProduct | null) => {
+    if (p?.id) localStorage.setItem("crm_productos_product_id", p.id);
+    else localStorage.removeItem("crm_productos_product_id");
+    setSelectedProductRaw(p);
+  };
+
+  // Restore navigation from localStorage once both catalogs + products have loaded.
+  // Runs only once (navRestored ref) to avoid overriding user navigation on subsequent refetches.
+  useEffect(() => {
+    if (navRestored.current || isLoading) return;
+    navRestored.current = true;
+    const savedView   = localStorage.getItem("crm_productos_view") as "catalogs"|"catalog"|"product" | null;
+    const savedProdId = localStorage.getItem("crm_productos_product_id");
+    const savedCatId  = localStorage.getItem("crm_productos_catalog_id");
+    const savedCat    = catalogs.find(c => c.id === savedCatId) ?? null;
+    const savedProd   = savedProdId ? allProducts.find(p => p.id === savedProdId) ?? null : null;
+    if (savedView === "product") {
+      if (savedProdId && !savedProd) {
+        // Product ID was saved but no longer exists (deleted) → reset to list
+        localStorage.setItem("crm_productos_view", "catalogs");
+      } else {
+        // Either editing an existing product (savedProd found) or creating a new one (no savedProdId)
+        setSelectedCatalogRaw(savedCat);
+        setSelectedProductRaw(savedProd);
+        setFromCatalogId(savedCat?.id ?? null);
+        setViewRaw("product");
+      }
+    } else if (savedView === "catalog" && savedCat) {
+      setSelectedCatalogRaw(savedCat);
+      setViewRaw("catalog");
+    } else if (savedView === "catalog" && !savedCat) {
+      // Catalog was deleted
+      localStorage.setItem("crm_productos_view", "catalogs");
+    }
+  }, [isLoading, catalogs, allProducts]);
 
   if (!user) return null;
 
@@ -1201,7 +1289,11 @@ export default function CrmProductos() {
       initialProduct={selectedProduct}
       fromCatalogId={fromCatalogId}
       allCatalogs={catalogs}
-      onBack={() => selectedCatalog ? setView("catalog") : setView("catalogs")}
+      onBack={() => {
+        clearNewProductDraft();
+        setView(selectedCatalog ? "catalog" : "catalogs");
+        setSelectedProduct(null);
+      }}
     />
   );
 
