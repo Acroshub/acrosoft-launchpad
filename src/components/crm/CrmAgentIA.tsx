@@ -1758,11 +1758,12 @@ function SortableSequenceStep({
             {/* Caption opcional (no aplica para audio) */}
             {step.type !== "audio" && (
               <div className="space-y-1.5">
-                <input
+                <Textarea
                   value={step.text ?? ""}
                   onChange={e => onChange({ ...step, text: e.target.value })}
                   placeholder="Caption / texto acompañante (opcional)"
-                  className="w-full h-7 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none"
+                  rows={2}
+                  className="w-full min-h-0 px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
                 />
                 {step.text?.trim() && (
                   <div

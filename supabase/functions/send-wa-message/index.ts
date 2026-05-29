@@ -166,7 +166,7 @@ Deno.serve(async (req: Request) => {
     const json = await res.json();
     const wa_message_id = json?.messages?.[0]?.id;
     if (wa_message_id) {
-      await supabase.from("crm_wa_messages").update({ wa_message_id }).eq("id", savedMsg.id);
+      await supabase.from("crm_wa_messages").update({ wa_message_id, delivery_status: "sent" }).eq("id", savedMsg.id);
     }
 
     await supabase

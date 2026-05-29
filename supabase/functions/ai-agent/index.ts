@@ -856,6 +856,7 @@ async function sendInteractiveQuestion(
       conversation_id: conversationId, role: "assistant", content: bodyText || text, wa_message_id,
       media_type: "interactive_question",
       interactive_options: (step.options ?? []).filter(o => o.label.trim()).map(o => ({ label: o.label })),
+      delivery_status: "sent",
     });
     return;
   }
@@ -891,7 +892,7 @@ async function sendInteractiveQuestion(
     const text = formatQuestionStep(step);
     const { wa_message_id } = await sendWhatsAppMessageRaw(phone, text, config);
     await supabase.from("crm_wa_messages").insert({
-      conversation_id: conversationId, role: "assistant", content: text, wa_message_id,
+      conversation_id: conversationId, role: "assistant", content: text, wa_message_id, delivery_status: "sent",
     });
     return;
   }
@@ -901,6 +902,7 @@ async function sendInteractiveQuestion(
     conversation_id: conversationId, role: "assistant", content: bodyText, wa_message_id,
     media_type: "interactive_question",
     interactive_options: options.map(o => ({ label: o.label })),
+    delivery_status: "sent",
   });
 }
 
@@ -989,7 +991,7 @@ async function sendSequenceStep(
       // Fallback: enviar URL como texto plano
       const fallback = bodyText !== url ? `${bodyText}\n${url}` : url;
       const { wa_message_id } = await sendWhatsAppMessageRaw(phone, fallback, config);
-      await supabase.from("crm_wa_messages").insert({ conversation_id: conversationId, role: "assistant", content: fallback, wa_message_id });
+      await supabase.from("crm_wa_messages").insert({ conversation_id: conversationId, role: "assistant", content: fallback, wa_message_id, delivery_status: "sent" });
       return;
     }
     const json = await res.json();
@@ -997,6 +999,7 @@ async function sendSequenceStep(
       conversation_id: conversationId, role: "assistant",
       content: `${bodyText} → ${url}`,
       wa_message_id: json?.messages?.[0]?.id ?? "",
+      delivery_status: "sent",
     });
     return;
   } else if (step.type === "message") {
@@ -1008,7 +1011,7 @@ async function sendSequenceStep(
     if (!text.trim()) return;
     const { wa_message_id } = await sendWhatsAppMessageRaw(phone, text, config);
     await supabase.from("crm_wa_messages").insert({
-      conversation_id: conversationId, role: "assistant", content: text, wa_message_id,
+      conversation_id: conversationId, role: "assistant", content: text, wa_message_id, delivery_status: "sent",
     });
   } else if (step.type === "image" || step.type === "video" || step.type === "audio" || step.type === "file") {
     const mediaUrl = step.media?.[0]?.url;
@@ -1041,6 +1044,7 @@ async function sendSequenceStep(
       media_type: step.type, media_url: mediaUrl,
       wa_message_id: resJson?.messages?.[0]?.id ?? null,
       send_error: errText ? errText.slice(0, 500) : null,
+      delivery_status: errText ? "failed" : "sent",
     });
   }
 }
@@ -1996,7 +2000,7 @@ async function transferToHuman(
 ): Promise<void> {
   try {
     await sendWhatsAppMessage(phone, clientMessage, config);
-    await supabase.from("crm_wa_messages").insert({ conversation_id, role: "assistant", content: clientMessage });
+    await supabase.from("crm_wa_messages").insert({ conversation_id, role: "assistant", content: clientMessage, delivery_status: "sent" });
   } catch (e) {
     console.error("[ai-agent] error enviando mensaje de transferencia:", e);
   }
@@ -2349,6 +2353,7 @@ Deno.serve(async (req: Request) => {
         conversation_id,
         role: "assistant",
         content: offMsg,
+        delivery_status: "sent",
       });
       await supabase
         .from("crm_wa_conversations")
@@ -2642,7 +2647,7 @@ Deno.serve(async (req: Request) => {
 
       try {
         const { wa_message_id } = await sendWhatsAppMessage(phone, reply, config as AgentConfig);
-        if (savedMsg) await supabase.from("crm_wa_messages").update({ wa_message_id }).eq("id", savedMsg.id);
+        if (savedMsg) await supabase.from("crm_wa_messages").update({ wa_message_id, delivery_status: "sent" }).eq("id", savedMsg.id);
       } catch (sendErr: any) {
         console.error("[ai-agent] error enviando texto:", sendErr.message);
         if (savedMsg) await supabase.from("crm_wa_messages").update({ send_error: String(sendErr.message) }).eq("id", savedMsg.id);
@@ -2659,6 +2664,7 @@ Deno.serve(async (req: Request) => {
           content: "[Imagen]",
           media_type: "image",
           media_url: pm.content,
+          delivery_status: "sent",
         });
       }
     }
@@ -2845,7 +2851,7 @@ Deno.serve(async (req: Request) => {
               try {
                 const noStockMsg = toWhatsAppFormat("Lo sentimos, ese producto ya no está disponible en este momento.");
                 await sendWhatsAppMessage(phone, noStockMsg, config as AgentConfig);
-                await supabase.from("crm_wa_messages").insert({ conversation_id, role: "assistant", content: noStockMsg });
+                await supabase.from("crm_wa_messages").insert({ conversation_id, role: "assistant", content: noStockMsg, delivery_status: "sent" });
               } catch {}
               return new Response(JSON.stringify({ ok: true, reason: "out_of_stock" }), { status: 200 });
             }
