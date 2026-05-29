@@ -1990,6 +1990,28 @@ async function sendWhatsAppMessage(
   return { wa_message_id: id };
 }
 
+// ─── Indicador nativo de escritura en WhatsApp (B19-7) ────────────────────────
+async function sendTypingIndicator(phone: string, config: AgentConfig): Promise<void> {
+  try {
+    await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${config.phone_number_id}/messages`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${config.access_token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          messaging_product: "whatsapp",
+          to: phone,
+          type: "action",
+          action: { type: "typing", duration: 60000 },
+        }),
+      }
+    );
+  } catch { /* non-critical, no bloqueamos el flujo */ }
+}
+
 // ─── Transferir conversación a HUMAN y notificar al owner ─────────────────────
 async function transferToHuman(
   config: AgentConfig,
@@ -2332,6 +2354,9 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // Indicar que la IA está procesando (B19-7)
+    await supabase.from("crm_wa_conversations").update({ ai_typing: true }).eq("id", conversation_id);
+
     // 1. Cargar config del tenant
     const { data: config, error: configErr } = await supabase
       .from("crm_ai_agent_config")
@@ -2343,6 +2368,9 @@ Deno.serve(async (req: Request) => {
       console.error("[ai-agent] config no encontrada para:", tenant_user_id);
       return new Response("config not found", { status: 404 });
     }
+
+    // Enviar indicador nativo de escritura al contacto (B19-7) — fire and forget
+    sendTypingIndicator(phone, config);
 
     // 2. Verificar horario usando schedule JSONB
     if (!isWithinSchedule(config.schedule, config.timezone ?? "America/Mexico_City")) {
@@ -3070,5 +3098,8 @@ Deno.serve(async (req: Request) => {
   } catch (err: any) {
     console.error("[ai-agent] error:", err.message);
     return new Response(JSON.stringify({ error: err.message }), { status: 500 });
+  } finally {
+    // Siempre apagar el indicador de typing al terminar (éxito, error o return anticipado)
+    await supabase.from("crm_wa_conversations").update({ ai_typing: false }).eq("id", conversation_id);
   }
 });

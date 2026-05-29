@@ -1,11 +1,11 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Bot, Settings, Send, Wifi, WifiOff, MessageSquare, Loader2,
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, ChevronLeft, ChevronDown, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
-  GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star,
+  GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star, Archive,
 } from "lucide-react";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
@@ -41,15 +41,25 @@ import {
   useInsertLog,
   useCourses,
   useToggleFavorite,
+  useArchiveConversation,
+  useArchivedWaConversations,
+  useMarkConversationUnread,
+  useQuickReplies,
+  useUpsertQuickReply,
+  useDeleteQuickReply,
 } from "@/hooks/useCrmData";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import CrmWaTemplates from "@/components/crm/CrmWaTemplates";
 import CrmWaCampaigns from "@/components/crm/CrmWaCampaigns";
 import { supabase } from "@/lib/supabase";
-import type { CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale, CrmAppointment, CrmContact, CrmWaSequence, SequenceStep, SequenceStepOption, SequenceStepMedia, CrmWaFlow, CrmWaFlowFinalAction } from "@/lib/supabase";
+import type { CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale, CrmAppointment, CrmContact, CrmWaSequence, SequenceStep, SequenceStepOption, SequenceStepMedia, CrmWaFlow, CrmWaFlowFinalAction, CrmQuickReply } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { formatAmount } from "@/lib/currencies";
+// ─── Emoji Picker inline (B19-8) ─────────────────────────────────────────────
+// ─── Emoji Picker (B19-8) — carga dinámica para evitar crash del bundle ───────
+const EmojiPickerLazy = lazy(() => import("@emoji-mart/react"));
+const emojiDataPromise = () => import("@emoji-mart/data").then(m => m.default ?? m);
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const WEBHOOK_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-webhook`;
@@ -1830,9 +1840,12 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const { data: config } = useAIAgentConfig();
   const { data: businessProfile } = useBusinessProfile();
   const { user } = useCurrentUser();
-  const { data: labels = [] }  = useWaLabels();
-  const upsertLabel            = useUpsertWaLabel();
-  const deleteLabel            = useDeleteWaLabel();
+  const { data: labels = [] }       = useWaLabels();
+  const upsertLabel                 = useUpsertWaLabel();
+  const deleteLabel                 = useDeleteWaLabel();
+  const { data: quickReplies = [] } = useQuickReplies();
+  const upsertQuickReply            = useUpsertQuickReply();
+  const deleteQuickReply            = useDeleteQuickReply();
   const { data: sequences = [] } = useWaSequences();
   const upsertSequence           = useUpsertWaSequence();
   const deleteSequence           = useDeleteWaSequence();
@@ -1942,6 +1955,9 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [newLabelHint, setNewLabelHint]         = useState("");
   const [newLabelRemoveHint, setNewLabelRemoveHint] = useState("");
   const [editingLabel, setEditingLabel]         = useState<{ id: string; name: string; color: string; hint: string | null; remove_hint: string | null } | null>(null);
+  const [newQrShortcut, setNewQrShortcut]       = useState("");
+  const [newQrContent, setNewQrContent]         = useState("");
+  const [editingQr, setEditingQr]               = useState<CrmQuickReply | null>(null);
   const [improvingHintNew, setImprovingHintNew]       = useState(false);
   const [improvingHintEdit, setImprovingHintEdit]     = useState(false);
   const [improvingRemoveNew, setImprovingRemoveNew]   = useState(false);
@@ -1949,7 +1965,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [schedule, setSchedule]           = useState<WeeklySchedule>(DEFAULT_SCHEDULE);
   const [timezone, setTimezone]           = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
   const [offHoursMsg, setOffHoursMsg]     = useState("");
-  const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario"|"perfil"|"etiquetas"|"flujos"|"plantillas"|"campanias">("conexion");
+  const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario"|"perfil"|"etiquetas"|"respuestas"|"flujos"|"plantillas"|"campanias">("conexion");
   const [mobileShowSection, setMobileShowSection] = useState(false);
   const initialized                       = useRef(false);
 
@@ -2514,6 +2530,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     { id: "horario" as const,     label: "Horario",     icon: Clock,     desc: "Disponibilidad y timezone" },
     { id: "perfil" as const,      label: "Perfil WA",   icon: User,      desc: "Foto y bio de WhatsApp" },
     { id: "etiquetas" as const,   label: "Etiquetas",   icon: Tag,       desc: "Gestionar etiquetas" },
+    { id: "respuestas" as const,  label: "Respuestas",  icon: Zap,       desc: "/ atajos de respuesta rápida" },
     { id: "plantillas" as const,  label: "Plantillas",  icon: Megaphone, desc: "Remarketing fuera de 24h" },
     { id: "campanias" as const,   label: "Envío Masivo", icon: Send,     desc: "Envíos pasados y dentro de 24h" },
   ];
@@ -3556,6 +3573,92 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
             </div>
           )}
 
+          {/* ── Respuestas Rápidas ── */}
+          {section === "respuestas" && (
+            <div className="space-y-4">
+              {/* Lista */}
+              <div className="space-y-1">
+                {quickReplies.length === 0 && (
+                  <p className="text-xs text-muted-foreground/60 italic text-center py-4">Sin respuestas. Crea una abajo.</p>
+                )}
+                {quickReplies.map(qr => (
+                  <div key={qr.id} className="flex items-start gap-2 px-3 py-2.5 rounded-xl border border-border/60 bg-card">
+                    {editingQr?.id === qr.id ? (
+                      <div className="w-full space-y-2">
+                        <input
+                          value={editingQr.shortcut}
+                          onChange={e => setEditingQr(prev => prev ? { ...prev, shortcut: e.target.value } : null)}
+                          className="w-full h-7 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none font-mono"
+                          placeholder="atajo (ej: saludo)"
+                          autoFocus
+                        />
+                        <textarea
+                          value={editingQr.content}
+                          onChange={e => setEditingQr(prev => prev ? { ...prev, content: e.target.value } : null)}
+                          rows={3}
+                          className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
+                          placeholder="Contenido completo..."
+                        />
+                        <div className="flex gap-2">
+                          <button
+                            onClick={async () => {
+                              if (!editingQr.shortcut.trim() || !editingQr.content.trim()) return;
+                              await upsertQuickReply.mutateAsync({ id: editingQr.id, shortcut: editingQr.shortcut, content: editingQr.content });
+                              setEditingQr(null);
+                            }}
+                            className="flex-1 h-7 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
+                          >Guardar</button>
+                          <button onClick={() => setEditingQr(null)} className="h-7 px-3 rounded-lg border text-xs hover:bg-secondary transition-colors">Cancelar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs font-mono font-semibold text-primary">/{qr.shortcut}</p>
+                          <p className="text-xs text-muted-foreground truncate mt-0.5">{qr.content}</p>
+                        </div>
+                        <button onClick={() => setEditingQr({ ...qr })} className="shrink-0 text-muted-foreground hover:text-foreground transition-colors p-1 rounded-lg hover:bg-secondary">
+                          <Pencil size={12} />
+                        </button>
+                        <button onClick={() => deleteQuickReply.mutate(qr.id)} className="shrink-0 text-muted-foreground hover:text-destructive transition-colors p-1 rounded-lg hover:bg-destructive/10">
+                          <Trash2 size={12} />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {/* Formulario de creación */}
+              <div className="space-y-2 pt-2 border-t border-border/40">
+                <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Nueva respuesta</p>
+                <input
+                  value={newQrShortcut}
+                  onChange={e => setNewQrShortcut(e.target.value.replace(/\s/g, "").replace(/^\//, ""))}
+                  className="w-full h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none font-mono"
+                  placeholder="atajo  (ej: saludo, precio, cita)"
+                />
+                <textarea
+                  value={newQrContent}
+                  onChange={e => setNewQrContent(e.target.value)}
+                  rows={3}
+                  className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
+                  placeholder="Hola! Gracias por contactarnos..."
+                />
+                <button
+                  disabled={!newQrShortcut.trim() || !newQrContent.trim() || upsertQuickReply.isPending}
+                  onClick={async () => {
+                    if (!newQrShortcut.trim() || !newQrContent.trim()) return;
+                    await upsertQuickReply.mutateAsync({ shortcut: newQrShortcut, content: newQrContent });
+                    setNewQrShortcut(""); setNewQrContent("");
+                  }}
+                  className="w-full h-8 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 hover:opacity-90 transition-opacity"
+                >
+                  <Plus size={12} /> Crear respuesta
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* ── Flujos (Secuencias + Flujos) ── */}
           {section === "flujos" && (
             <div className="space-y-4">
@@ -4290,7 +4393,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
           </div>{/* end scrollable area */}
 
           {/* Footer — fijo en la base, fuera del scroll */}
-          {section !== "perfil" && section !== "etiquetas" && section !== "flujos" && section !== "plantillas" && section !== "campanias" && (
+          {section !== "perfil" && section !== "etiquetas" && section !== "respuestas" && section !== "flujos" && section !== "plantillas" && section !== "campanias" && (
             <div className="px-5 py-4 border-t shrink-0">
               <Button onClick={handleSave} disabled={saving} className="w-full h-9 gap-1.5">
                 {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
@@ -4500,12 +4603,13 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
 type UpcomingAppt = { appt: CrmAppointment; contact: CrmContact; minutesAway: number };
 
 const ChatPanel = ({
-  conv, onBack, onDelete, onToggleFavorite, staffList, staffMap, highlightMessageId, onHighlightClear, pendingSale, onSaleConfirmed, upcomingAppt,
+  conv, onBack, onDelete, onToggleFavorite, onArchive, staffList, staffMap, highlightMessageId, onHighlightClear, pendingSale, onSaleConfirmed, upcomingAppt,
 }: {
   conv: CrmWaConversation;
   onBack?: () => void;
   onDelete?: () => void;
   onToggleFavorite?: () => void;
+  onArchive?: () => void;
   staffList: CrmStaff[];
   staffMap: Record<string, CrmStaff>;
   highlightMessageId?: string | null;
@@ -4517,6 +4621,7 @@ const ChatPanel = ({
   const { data: messages = [], isLoading } = useWaMessages(conv.id);
   const { data: allLabels = [] }           = useWaLabels();
   const { data: convLabels = [] }          = useConversationLabels(conv.id);
+  const { data: allQuickReplies = [] }     = useQuickReplies();
   const toggleLabel                        = useToggleConversationLabel();
   const assignConv                         = useAssignConversation();
   const setMode                            = useSetWaConversationMode();
@@ -4528,6 +4633,10 @@ const ChatPanel = ({
   const [windowError, setWindowError] = useState(false);
   const [showMenu, setShowMenu]     = useState(false);
   const [showLabels, setShowLabels] = useState(false);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const [qrSuggestions, setQrSuggestions] = useState<CrmQuickReply[]>([]);
+  const [showQrPopover, setShowQrPopover] = useState(false);
+  const [qrFocusIdx, setQrFocusIdx]       = useState(0);
   const [showAssign, setShowAssign] = useState(false);
   const [isInternalMode, setIsInternalMode] = useState(false);
   const [showNotesLog, setShowNotesLog] = useState(false);
@@ -4583,12 +4692,15 @@ const ChatPanel = ({
     setShowNotesLog(false);
     setNoteNavId(null);
     setText("");
+    setShowEmojiPicker(false);
+    setShowQrPopover(false);
+    setQrSuggestions([]);
   }, [conv.id]);
 
   useEffect(() => {
     if (highlightMessageId) return; // el scroll al mensaje resaltado toma prioridad
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages.length, highlightMessageId]);
+  }, [messages.length, conv.ai_typing, highlightMessageId]);
 
   // Scroll al mensaje resaltado cuando los mensajes carguen
   useEffect(() => {
@@ -4713,7 +4825,14 @@ const ChatPanel = ({
 
         {/* Name + phone */}
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold truncate leading-tight">{conv.contact_name ?? `+${conv.phone}`}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold truncate leading-tight">{conv.contact_name ?? `+${conv.phone}`}</p>
+            {conv.is_archived && (
+              <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-secondary text-muted-foreground border">
+                Archivada
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1.5">
             {conv.contact_name && <p className="text-[11px] text-muted-foreground truncate">+{conv.phone}</p>}
             {conv.contact_name && <span className="text-muted-foreground/40">·</span>}
@@ -4811,12 +4930,24 @@ const ChatPanel = ({
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
                 <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-2xl shadow-xl py-1 min-w-[180px] overflow-hidden">
-                  <button
-                    onClick={() => { setShowMenu(false); onDelete?.(); }}
-                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-destructive hover:bg-destructive/10 transition-colors"
-                  >
-                    <Trash2 size={14} /> Eliminar chat
-                  </button>
+                  {onArchive && (
+                    <button
+                      onClick={() => { setShowMenu(false); onArchive(); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-foreground hover:bg-secondary/60 transition-colors"
+                    >
+                      <Archive size={14} className="text-muted-foreground" />
+                      {conv.is_archived ? "Desarchivar" : "Archivar"}
+                    </button>
+                  )}
+                  {onArchive && onDelete && <div className="border-t mx-2" />}
+                  {onDelete && (
+                    <button
+                      onClick={() => { setShowMenu(false); onDelete(); }}
+                      className="w-full flex items-center gap-3 px-4 py-3 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <Trash2 size={14} /> Eliminar chat
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -4987,12 +5118,13 @@ const ChatPanel = ({
               return acc;
             }, [])
           )}
+
           <div ref={bottomRef} className="h-2" />
         </div>
       )}
 
       {/* Input */}
-      <div className="px-3 pt-2 pb-3 border-t bg-card shrink-0">
+      <div className="px-3 pt-2 pb-4 lg:pb-3 border-t bg-card shrink-0" style={{ paddingBottom: "max(1.75rem, env(safe-area-inset-bottom))" }}>
         {windowError && (
           <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2 mb-2">
             <AlertTriangle size={13} className="shrink-0" /> Ventana de 24h expirada — no se pueden enviar mensajes de texto libre.
@@ -5005,6 +5137,21 @@ const ChatPanel = ({
           className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) handleMediaUpload(f); e.target.value = ""; }}
         />
+        {/* Quick Replies Popover (B19-9) */}
+        {showQrPopover && qrSuggestions.length > 0 && (
+          <div className="mb-1.5 bg-card border rounded-2xl shadow-xl overflow-hidden">
+            {qrSuggestions.map((qr, i) => (
+              <button
+                key={qr.id}
+                onMouseDown={e => { e.preventDefault(); setText(qr.content); setShowQrPopover(false); }}
+                className={`w-full flex items-start gap-3 px-4 py-2.5 text-left transition-colors ${i === qrFocusIdx ? "bg-primary/10" : "hover:bg-secondary/60"}`}
+              >
+                <span className="text-xs font-mono font-semibold text-primary shrink-0 mt-0.5">/{qr.shortcut}</span>
+                <span className="text-xs text-muted-foreground truncate">{qr.content}</span>
+              </button>
+            ))}
+          </div>
+        )}
         <div className={`rounded-2xl border transition-colors ${
           isInternalMode
             ? "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800/60 focus-within:border-amber-400 dark:focus-within:border-amber-600"
@@ -5013,8 +5160,37 @@ const ChatPanel = ({
           <div className="relative">
             <textarea
               value={text}
-              onChange={e => { setText(e.target.value); e.target.style.height = "auto"; e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`; }}
-              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+              onChange={e => {
+                const val = e.target.value;
+                setText(val);
+                e.target.style.height = "auto";
+                e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+                if (val === "/" || (val.startsWith("/") && !val.includes(" "))) {
+                  const q = val.slice(1).toLowerCase();
+                  const matches = allQuickReplies.filter(r =>
+                    r.shortcut.toLowerCase().includes(q) || r.content.toLowerCase().includes(q)
+                  );
+                  setQrSuggestions(matches);
+                  setShowQrPopover(matches.length > 0);
+                  setQrFocusIdx(0);
+                } else {
+                  setShowQrPopover(false);
+                }
+              }}
+              onKeyDown={e => {
+                if (showQrPopover) {
+                  if (e.key === "ArrowDown") { e.preventDefault(); setQrFocusIdx(i => Math.min(i + 1, qrSuggestions.length - 1)); return; }
+                  if (e.key === "ArrowUp")   { e.preventDefault(); setQrFocusIdx(i => Math.max(i - 1, 0)); return; }
+                  if (e.key === "Enter" || e.key === "Tab") {
+                    e.preventDefault();
+                    const sel = qrSuggestions[qrFocusIdx];
+                    if (sel) { setText(sel.content); setShowQrPopover(false); }
+                    return;
+                  }
+                  if (e.key === "Escape") { setShowQrPopover(false); return; }
+                }
+                if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
+              }}
               placeholder=""
               rows={1}
               className="w-full bg-transparent px-4 pt-3 pb-1 text-sm resize-none outline-none leading-relaxed"
@@ -5061,30 +5237,60 @@ const ChatPanel = ({
                 Nota interna
               </button>
               <div className="w-px h-3.5 bg-border/60 mx-1" />
-              {/* Attach */}
-              <button
-                className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${conv.mode === "AI" ? "text-muted-foreground/30 cursor-not-allowed" : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/8 cursor-pointer"}`}
-                disabled={sending || uploadingMedia || conv.mode === "AI"}
-                onClick={() => fileInputRef.current?.click()}
-                title="Adjuntar archivo"
-              >
-                {uploadingMedia ? <Loader2 size={15} className="animate-spin" /> : <Paperclip size={15} />}
-              </button>
-              {/* Emoji — placeholder B19-8 */}
-              <button className="w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground/30 cursor-not-allowed" title="Emojis (próximamente)" disabled>
-                <Smile size={15} />
-              </button>
+              {/* Attach — oculto en modo AI */}
+              {conv.mode !== "AI" && (
+                <button
+                  className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/8 cursor-pointer"
+                  disabled={sending || uploadingMedia}
+                  onClick={() => fileInputRef.current?.click()}
+                  title="Adjuntar archivo"
+                >
+                  {uploadingMedia ? <Loader2 size={15} className="animate-spin" /> : <Paperclip size={15} />}
+                </button>
+              )}
+              {/* Emoji Picker (B19-8) — modo HUMAN */}
+              {conv.mode === "HUMAN" && (
+                <div className="relative">
+                  <button
+                    onClick={() => setShowEmojiPicker(v => !v)}
+                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${showEmojiPicker ? "bg-black/5 dark:bg-white/8 text-foreground" : "text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/8"}`}
+                    title="Emojis"
+                  >
+                    <Smile size={15} />
+                  </button>
+                  {showEmojiPicker && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setShowEmojiPicker(false)} />
+                      <div className="absolute left-0 bottom-full mb-1.5 z-20 drop-shadow-xl">
+                        <Suspense fallback={<div className="w-72 h-48 bg-card border rounded-2xl flex items-center justify-center"><Loader2 size={18} className="animate-spin text-muted-foreground" /></div>}>
+                          <EmojiPickerLazy
+                            data={emojiDataPromise}
+                            locale="es"
+                            theme={document.documentElement.classList.contains("dark") ? "dark" : "light"}
+                            previewPosition="none"
+                            skinTonePosition="none"
+                            onEmojiSelect={(e: { native: string }) => {
+                              setText(t => t + e.native);
+                              setShowEmojiPicker(false);
+                            }}
+                          />
+                        </Suspense>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
               {/* Tags */}
               {allLabels.length > 0 && (
                 <div className="relative">
                   <button
-                    onClick={() => conv.mode === "HUMAN" && setShowLabels(v => !v)}
-                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors ${conv.mode === "AI" ? "text-muted-foreground/30 cursor-not-allowed" : showLabels ? "bg-black/5 dark:bg-white/8 text-foreground" : "text-muted-foreground hover:bg-black/5 dark:hover:bg-white/8 hover:text-foreground"}`}
+                    onClick={() => setShowLabels(v => !v)}
+                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${showLabels ? "bg-black/5 dark:bg-white/8 text-foreground" : "text-muted-foreground hover:bg-black/5 dark:hover:bg-white/8 hover:text-foreground"}`}
                     title="Etiquetas"
                   >
                     <Tag size={15} />
                   </button>
-                  {showLabels && conv.mode === "HUMAN" && (
+                  {showLabels && (
                     <>
                       <div className="fixed inset-0 z-10" onClick={() => setShowLabels(false)} />
                       <div className="absolute left-0 bottom-full mb-1.5 z-20 bg-card border rounded-2xl shadow-xl py-1.5 min-w-[200px] overflow-hidden">
@@ -5103,6 +5309,21 @@ const ChatPanel = ({
                     </>
                   )}
                 </div>
+              )}
+              {/* Respuestas rápidas (B19-9) — solo modo HUMAN */}
+              {conv.mode === "HUMAN" && allQuickReplies.length > 0 && (
+                <button
+                  onClick={() => {
+                    setText("/");
+                    setQrSuggestions(allQuickReplies);
+                    setShowQrPopover(true);
+                    setQrFocusIdx(0);
+                  }}
+                  className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/8 font-semibold text-sm"
+                  title="Respuestas rápidas"
+                >
+                  /
+                </button>
               )}
             </div>
             {/* Send */}
@@ -5139,12 +5360,15 @@ const CrmAgentIA = ({
   // Staff uses principal's userId to fetch config and conversations
   const principalId = isStaff ? (ownerUserId ?? undefined) : undefined;
   const { data: config, isLoading } = useAIAgentConfig(principalId);
-  const { data: conversations = [] } = useWaConversations(principalId);
-  const { data: pendingSales = [] }  = useAiPendingSales();
-  const updateSaleStatus             = useUpdateSale();
-  const deleteConv     = useDeleteWaConversation();
-  const markRead       = useMarkConversationRead();
-  const toggleFavorite = useToggleFavorite();
+  const { data: conversations = [] }         = useWaConversations(principalId);
+  const { data: archivedConversations = [] } = useArchivedWaConversations(principalId);
+  const { data: pendingSales = [] }          = useAiPendingSales();
+  const updateSaleStatus                     = useUpdateSale();
+  const deleteConv       = useDeleteWaConversation();
+  const markRead         = useMarkConversationRead();
+  const toggleFavorite   = useToggleFavorite();
+  const archiveConv      = useArchiveConversation();
+  const markUnread       = useMarkConversationUnread();
   const { data: labels = [] }        = useWaLabels(principalId);
   const { data: convLabelsMap = {} } = useAllConversationLabels(principalId);
   const { data: staffList = [] }     = useStaff();
@@ -5207,6 +5431,8 @@ const CrmAgentIA = ({
   const [wizardDone, setWizardDone]           = useState(false);
   const [forceWizard, setForceWizard]         = useState(false);
   const [deleteModalId, setDeleteModalId]     = useState<string | null>(null);
+  const [showArchived, setShowArchived]       = useState(false);
+  const [convMenu, setConvMenu]               = useState<{ id: string; isArchived: boolean; top: number; right: number } | null>(null);
 
   const handleDisconnect = () => {
     setForceWizard(true);
@@ -5224,8 +5450,10 @@ const CrmAgentIA = ({
   };
 
   const selectedConv = useMemo(
-    () => conversations.find(c => c.id === selectedId) ?? null,
-    [conversations, selectedId]
+    () => conversations.find(c => c.id === selectedId)
+      ?? archivedConversations.find(c => c.id === selectedId)
+      ?? null,
+    [conversations, archivedConversations, selectedId]
   );
 
   // Set de conversation IDs con pago pendiente — para lookup O(1)
@@ -5240,29 +5468,33 @@ const CrmAgentIA = ({
   );
 
   const filteredConvs = useMemo(() => {
-    let result = conversations.filter(c =>
+    const source = showArchived ? archivedConversations : conversations;
+    let result = source.filter(c =>
       !search || (c.contact_name ?? c.phone).toLowerCase().includes(search.toLowerCase())
     );
-    if (labelFilter) {
-      result = result.filter(c => (convLabelsMap[c.id] ?? []).some(l => l.id === labelFilter));
+    if (!showArchived) {
+      if (labelFilter) {
+        result = result.filter(c => (convLabelsMap[c.id] ?? []).some(l => l.id === labelFilter));
+      }
+      if (assignFilter === "unassigned") {
+        result = result.filter(c => !c.assigned_to);
+      } else if (assignFilter === "mine" && staffRecord) {
+        result = result.filter(c => c.assigned_to === staffRecord.id);
+      }
+      if (readFilter === "unread") {
+        result = result.filter(c => (c.unread_count ?? 0) > 0);
+      } else if (readFilter === "favorites") {
+        result = result.filter(c => c.is_favorite);
+      }
+      // Chats con pago pendiente al tope
+      return [...result].sort((a, b) => {
+        const ap = pendingSaleConvIds.has(a.id) ? 0 : 1;
+        const bp = pendingSaleConvIds.has(b.id) ? 0 : 1;
+        return ap - bp;
+      });
     }
-    if (assignFilter === "unassigned") {
-      result = result.filter(c => !c.assigned_to);
-    } else if (assignFilter === "mine" && staffRecord) {
-      result = result.filter(c => c.assigned_to === staffRecord.id);
-    }
-    if (readFilter === "unread") {
-      result = result.filter(c => (c.unread_count ?? 0) > 0);
-    } else if (readFilter === "favorites") {
-      result = result.filter(c => c.is_favorite);
-    }
-    // Chats con pago pendiente al tope
-    return [...result].sort((a, b) => {
-      const ap = pendingSaleConvIds.has(a.id) ? 0 : 1;
-      const bp = pendingSaleConvIds.has(b.id) ? 0 : 1;
-      return ap - bp;
-    });
-  }, [conversations, search, labelFilter, convLabelsMap, assignFilter, readFilter, staffRecord, pendingSaleConvIds]);
+    return result;
+  }, [showArchived, conversations, archivedConversations, search, labelFilter, convLabelsMap, assignFilter, readFilter, staffRecord, pendingSaleConvIds]);
 
   // Debounce para búsqueda de mensajes
   useEffect(() => {
@@ -5371,7 +5603,7 @@ const CrmAgentIA = ({
         </div>
       )}
 
-      <div className="flex flex-col h-full -mx-4 -mt-4 -mb-6 sm:-mx-6 sm:-mt-6 sm:-mb-8">
+      <div className="flex flex-col h-full">
 
         {/* Top bar — oculto en mobile cuando el chat está abierto */}
         <div className={`px-4 sm:px-5 py-3 border-b flex items-center gap-3 shrink-0 bg-card ${mobileShowChat ? "hidden lg:flex" : "flex"}`}>
@@ -5416,8 +5648,22 @@ const CrmAgentIA = ({
           <div className={`flex flex-col overflow-hidden border-r bg-card
             ${mobileShowChat ? "hidden lg:flex lg:w-72 lg:shrink-0" : "flex w-full lg:w-72 lg:shrink-0"}
           `}>
+            {/* Header modo Archivadas */}
+            {showArchived && (
+              <div className="px-4 py-3 border-b flex items-center gap-2">
+                <button
+                  onClick={() => { setShowArchived(false); setSearch(""); }}
+                  className="flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <ChevronLeft size={16} /> Volver
+                </button>
+                <span className="flex-1 text-sm font-semibold text-center">Archivadas</span>
+                <span className="text-[11px] text-muted-foreground">{archivedConversations.length}</span>
+              </div>
+            )}
+
             {/* Tabs: Unread / All / Assignment filter */}
-            <div className="px-4 pt-3 pb-0 border-b space-y-2.5">
+            {!showArchived && <div className="px-4 pt-3 pb-0 border-b space-y-2.5">
               {/* Unread / All / Favorites tabs */}
               <div className="flex gap-0">
                 {[
@@ -5504,9 +5750,30 @@ const CrmAgentIA = ({
                   ))}
                 </div>
               )}
-            </div>
+            </div>}
+
+            {/* Search bar en modo archivadas */}
+            {showArchived && (
+              <div className="px-4 py-2 border-b">
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-2.5 text-muted-foreground pointer-events-none" />
+                  <Input
+                    value={search}
+                    onChange={e => setSearch(e.target.value)}
+                    placeholder="Buscar archivadas..."
+                    className="h-9 text-sm pl-8 bg-secondary/60 border-transparent focus:border-input rounded-xl"
+                  />
+                  {search && (
+                    <button onClick={() => setSearch("")} className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground">
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             <div className="flex-1 overflow-y-auto">
-              {search.length < 3 ? (
+              {(showArchived || search.length < 3) ? (
                 /* ── Lista normal ── */
                 filteredConvs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground px-6 text-center">
@@ -5521,6 +5788,12 @@ const CrmAgentIA = ({
                         <Star size={24} className="opacity-30" />
                         <p className="text-xs font-medium">Sin favoritos</p>
                         <p className="text-xs opacity-70">Marca conversaciones con ⭐ para encontrarlas rápido.</p>
+                      </>
+                    ) : showArchived ? (
+                      <>
+                        <Archive size={24} className="opacity-30" />
+                        <p className="text-xs font-medium">Sin archivadas</p>
+                        <p className="text-xs opacity-70">Las conversaciones que archives aparecerán aquí.</p>
                       </>
                     ) : (
                       <>
@@ -5622,20 +5895,26 @@ const CrmAgentIA = ({
                           </span>
                         )}
 
-                        {/* Star favorite — div to avoid nested-button invalid HTML */}
+                        {/* Quick-actions ⋮ — always visible on mobile, hover-only on desktop */}
                         <div
                           role="button"
                           tabIndex={0}
-                          onClick={e => { e.stopPropagation(); toggleFavorite.mutate({ id: conv.id, value: !conv.is_favorite }); }}
-                          onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); toggleFavorite.mutate({ id: conv.id, value: !conv.is_favorite }); } }}
-                          title={conv.is_favorite ? "Quitar de favoritos" : "Marcar favorito"}
-                          className={`cursor-pointer shrink-0 w-7 h-7 flex items-center justify-center rounded-lg transition-colors ${
-                            conv.is_favorite
-                              ? "text-amber-400 hover:text-amber-500"
-                              : "text-transparent hover:text-amber-400 group-hover/convitem:text-muted-foreground/40"
-                          }`}
+                          title="Acciones"
+                          onClick={e => {
+                            e.stopPropagation();
+                            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                            setConvMenu({ id: conv.id, isArchived: !!conv.is_archived, top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                          }}
+                          onKeyDown={e => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.stopPropagation();
+                              const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+                              setConvMenu({ id: conv.id, isArchived: !!conv.is_archived, top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                            }
+                          }}
+                          className="cursor-pointer shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-colors text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary/70 lg:opacity-0 lg:group-hover/convitem:opacity-100"
                         >
-                          <Star size={13} fill={conv.is_favorite ? "currentColor" : "none"} />
+                          <MoreVertical size={15} />
                         </div>
                       </div>
                     </button>
@@ -5763,6 +6042,22 @@ const CrmAgentIA = ({
                 })()
               )}
             </div>
+
+            {/* Ver archivadas / botón al fondo */}
+            {!showArchived && (
+              <button
+                onClick={() => { setShowArchived(true); setSelectedId(null); setMobileShowChat(false); setSearch(""); }}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary/40 transition-colors border-t shrink-0"
+              >
+                <Archive size={12} />
+                Archivadas
+                {archivedConversations.length > 0 && (
+                  <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-secondary text-[10px] font-bold">
+                    {archivedConversations.length}
+                  </span>
+                )}
+              </button>
+            )}
           </div>
 
           {/* Chat area — full screen on mobile when open, flex-1 on desktop */}
@@ -5775,6 +6070,11 @@ const CrmAgentIA = ({
                 onBack={() => setMobileShowChat(false)}
                 onDelete={isStaff ? undefined : () => setDeleteModalId(selectedConv.id)}
                 onToggleFavorite={() => toggleFavorite.mutate({ id: selectedConv.id, value: !selectedConv.is_favorite })}
+                onArchive={isStaff ? undefined : () => {
+                  archiveConv.mutate({ id: selectedConv.id, value: !selectedConv.is_archived });
+                  setSelectedId(null);
+                  setMobileShowChat(false);
+                }}
                 staffList={staffList}
                 staffMap={staffMap}
                 highlightMessageId={highlightMessageId}
@@ -5792,6 +6092,40 @@ const CrmAgentIA = ({
           </div>
         </div>
       </div>
+
+      {/* Dropdown de acciones por conversación — position:fixed para escapar overflow-y:auto */}
+      {convMenu && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setConvMenu(null)} />
+          <div
+            className="fixed z-40 bg-card border rounded-2xl shadow-xl py-1 min-w-[180px] overflow-hidden"
+            style={{ top: convMenu.top, right: convMenu.right }}
+          >
+            <button
+              onClick={() => {
+                markUnread.mutate(convMenu.id);
+                if (convMenu.id === selectedId) { setSelectedId(null); setMobileShowChat(false); }
+                setConvMenu(null);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-foreground hover:bg-secondary/60 transition-colors"
+            >
+              <span className="w-2.5 h-2.5 rounded-full bg-[#1877F2] shrink-0" />
+              Marcar como no leído
+            </button>
+            <button
+              onClick={() => {
+                archiveConv.mutate({ id: convMenu.id, value: !convMenu.isArchived });
+                if (convMenu.id === selectedId) { setSelectedId(null); setMobileShowChat(false); }
+                setConvMenu(null);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-foreground hover:bg-secondary/60 transition-colors"
+            >
+              <Archive size={14} className="text-muted-foreground" />
+              {convMenu.isArchived ? "Desarchivar" : "Archivar"}
+            </button>
+          </div>
+        </>
+      )}
     </>
   );
 };

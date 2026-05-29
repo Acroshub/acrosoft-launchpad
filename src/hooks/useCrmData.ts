@@ -58,6 +58,7 @@ import type {
   WaVarMap,
   WaAudienceFilter,
   WaCampaignStatus,
+  CrmQuickReply,
 } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "./useAuth";
 
@@ -2458,6 +2459,27 @@ export const useWaConversations = (userId?: string) => {
         .from("crm_wa_conversations")
         .select("*")
         .eq("user_id", effectiveId!)
+        .eq("is_archived", false)
+        .order("last_message_at", { ascending: false, nullsFirst: false });
+      if (error) throw error;
+      return (data ?? []) as CrmWaConversation[];
+    },
+    enabled: !!effectiveId,
+    refetchInterval: 3000,
+  });
+};
+
+export const useArchivedWaConversations = (userId?: string) => {
+  const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
+  return useQuery({
+    queryKey: ["crm_wa_conversations_archived", effectiveId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_conversations")
+        .select("*")
+        .eq("user_id", effectiveId!)
+        .eq("is_archived", true)
         .order("last_message_at", { ascending: false, nullsFirst: false });
       if (error) throw error;
       return (data ?? []) as CrmWaConversation[];
@@ -2478,6 +2500,37 @@ export const useMarkConversationRead = () => {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+  });
+};
+
+export const useMarkConversationUnread = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("crm_wa_conversations")
+        .update({ unread_count: 1 })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+  });
+};
+
+export const useArchiveConversation = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, value }: { id: string; value: boolean }) => {
+      const { error } = await supabase
+        .from("crm_wa_conversations")
+        .update({ is_archived: value })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] });
+      qc.invalidateQueries({ queryKey: ["crm_wa_conversations_archived"] });
+    },
   });
 };
 
@@ -4098,5 +4151,57 @@ export const useAutomationQueue = (automationId: string | null) => {
       if (error) throw error;
       return (data ?? []) as CrmWaAutomationQueueItem[];
     },
+  });
+};
+
+// ─── Quick Replies (B19-9) ────────────────────────────────────────────────────
+export const useQuickReplies = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_quick_replies", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return [] as CrmQuickReply[];
+      const { data, error } = await supabase
+        .from("crm_quick_replies")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("shortcut");
+      if (error) throw error;
+      return (data ?? []) as CrmQuickReply[];
+    },
+    enabled: !!user?.id,
+  });
+};
+
+export const useUpsertQuickReply = () => {
+  const { user } = useCurrentUser();
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (reply: { id?: string; shortcut: string; content: string }) => {
+      if (reply.id) {
+        const { error } = await supabase
+          .from("crm_quick_replies")
+          .update({ shortcut: reply.shortcut.trim(), content: reply.content.trim() })
+          .eq("id", reply.id);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("crm_quick_replies")
+          .insert({ user_id: user!.id, shortcut: reply.shortcut.trim(), content: reply.content.trim() });
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_quick_replies"] }),
+  });
+};
+
+export const useDeleteQuickReply = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("crm_quick_replies").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_quick_replies"] }),
   });
 };

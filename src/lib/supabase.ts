@@ -720,6 +720,8 @@ export type CrmWaConversation = {
   unread_count: number
   triggered_flow_ids: string[]
   is_favorite: boolean
+  is_archived: boolean
+  ai_typing: boolean
 }
 
 export type CrmWaMessage = {
@@ -959,6 +961,14 @@ export type CrmWaAutomationQueueItem = {
   status: WaAutomationQueueStatus
   error_message: string | null
   sent_at: string | null
+  created_at: string
+}
+
+export type CrmQuickReply = {
+  id: string
+  user_id: string
+  shortcut: string
+  content: string
   created_at: string
 }
 
