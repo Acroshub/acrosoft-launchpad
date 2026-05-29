@@ -15,27 +15,59 @@ import type { CrmWaAutomation, WaAutomationTrigger, WaAutomationMsgType, WaVarSo
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const COUNTRY_INFO: Record<string, { name: string; flag: string }> = {
-  "1":  { name: "USA/Canadá",      flag: "🇺🇸" }, "52": { name: "México",          flag: "🇲🇽" },
-  "34": { name: "España",          flag: "🇪🇸" }, "57": { name: "Colombia",        flag: "🇨🇴" },
-  "54": { name: "Argentina",       flag: "🇦🇷" }, "55": { name: "Brasil",          flag: "🇧🇷" },
-  "56": { name: "Chile",           flag: "🇨🇱" }, "51": { name: "Perú",            flag: "🇵🇪" },
-  "58": { name: "Venezuela",       flag: "🇻🇪" }, "591":{ name: "Bolivia",          flag: "🇧🇴" },
-  "593":{ name: "Ecuador",         flag: "🇪🇨" }, "595":{ name: "Paraguay",        flag: "🇵🇾" },
-  "598":{ name: "Uruguay",         flag: "🇺🇾" }, "53": { name: "Cuba",            flag: "🇨🇺" },
-  "502":{ name: "Guatemala",       flag: "🇬🇹" }, "503":{ name: "El Salvador",     flag: "🇸🇻" },
-  "504":{ name: "Honduras",        flag: "🇭🇳" }, "505":{ name: "Nicaragua",       flag: "🇳🇮" },
-  "506":{ name: "Costa Rica",      flag: "🇨🇷" }, "507":{ name: "Panamá",          flag: "🇵🇦" },
-  "44": { name: "Reino Unido",     flag: "🇬🇧" }, "33": { name: "Francia",         flag: "🇫🇷" },
-  "49": { name: "Alemania",        flag: "🇩🇪" }, "39": { name: "Italia",          flag: "🇮🇹" },
-  "351":{ name: "Portugal",        flag: "🇵🇹" }, "31": { name: "Países Bajos",    flag: "🇳🇱" },
-  "61": { name: "Australia",       flag: "🇦🇺" }, "64": { name: "Nueva Zelanda",   flag: "🇳🇿" },
-  "81": { name: "Japón",           flag: "🇯🇵" }, "82": { name: "Corea del Sur",   flag: "🇰🇷" },
-  "86": { name: "China",           flag: "🇨🇳" }, "91": { name: "India",           flag: "🇮🇳" },
-  "971":{ name: "Emiratos Árabes", flag: "🇦🇪" }, "972":{ name: "Israel",          flag: "🇮🇱" },
-  "966":{ name: "Arabia Saudita",  flag: "🇸🇦" }, "20": { name: "Egipto",          flag: "🇪🇬" },
-  "27": { name: "Sudáfrica",       flag: "🇿🇦" }, "234":{ name: "Nigeria",         flag: "🇳🇬" },
-};
+const COUNTRY_REGIONS: { label: string; countries: { code: string; name: string; flag: string }[] }[] = [
+  {
+    label: "Norte América",
+    countries: [
+      { code: "1",  name: "USA / Canadá", flag: "🇺🇸" },
+      { code: "52", name: "México",       flag: "🇲🇽" },
+    ],
+  },
+  {
+    label: "Centro América",
+    countries: [
+      { code: "53",  name: "Cuba",         flag: "🇨🇺" },
+      { code: "502", name: "Guatemala",    flag: "🇬🇹" },
+      { code: "503", name: "El Salvador",  flag: "🇸🇻" },
+      { code: "504", name: "Honduras",     flag: "🇭🇳" },
+      { code: "505", name: "Nicaragua",    flag: "🇳🇮" },
+      { code: "506", name: "Costa Rica",   flag: "🇨🇷" },
+      { code: "507", name: "Panamá",       flag: "🇵🇦" },
+    ],
+  },
+  {
+    label: "Sud América",
+    countries: [
+      { code: "57",  name: "Colombia",  flag: "🇨🇴" },
+      { code: "58",  name: "Venezuela", flag: "🇻🇪" },
+      { code: "593", name: "Ecuador",   flag: "🇪🇨" },
+      { code: "51",  name: "Perú",      flag: "🇵🇪" },
+      { code: "591", name: "Bolivia",   flag: "🇧🇴" },
+      { code: "55",  name: "Brasil",    flag: "🇧🇷" },
+      { code: "595", name: "Paraguay",  flag: "🇵🇾" },
+      { code: "54",  name: "Argentina", flag: "🇦🇷" },
+      { code: "56",  name: "Chile",     flag: "🇨🇱" },
+      { code: "598", name: "Uruguay",   flag: "🇺🇾" },
+    ],
+  },
+  {
+    label: "Europa",
+    countries: [
+      { code: "351", name: "Portugal",      flag: "🇵🇹" },
+      { code: "34",  name: "España",        flag: "🇪🇸" },
+      { code: "33",  name: "Francia",       flag: "🇫🇷" },
+      { code: "44",  name: "Reino Unido",   flag: "🇬🇧" },
+      { code: "49",  name: "Alemania",      flag: "🇩🇪" },
+      { code: "39",  name: "Italia",        flag: "🇮🇹" },
+      { code: "31",  name: "Países Bajos",  flag: "🇳🇱" },
+    ],
+  },
+];
+
+// Lookup plano para el backend (getPhonePrefix sigue funcionando igual)
+const COUNTRY_INFO: Record<string, { name: string; flag: string }> = Object.fromEntries(
+  COUNTRY_REGIONS.flatMap(r => r.countries.map(c => [c.code, { name: c.name, flag: c.flag }]))
+);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -364,29 +396,36 @@ function AutomationForm({
       </div>
 
       {/* Country filter */}
-      <div className="space-y-1.5">
+      <div className="space-y-2">
         <label className="text-xs font-semibold text-foreground">Filtro por país <span className="text-muted-foreground font-normal">(opcional)</span></label>
         <p className="text-[11px] text-muted-foreground">Si seleccionas países, solo se activará para contactos de esos países.</p>
-        <div className="flex flex-wrap gap-1.5">
-          {Object.entries(COUNTRY_INFO).map(([code, info]) => {
-            const selected = form.trigger_country_codes.includes(code);
-            return (
-              <button key={code} type="button"
-                onClick={() => set({
-                  trigger_country_codes: selected
-                    ? form.trigger_country_codes.filter(c => c !== code)
-                    : [...form.trigger_country_codes, code],
+        <div className="space-y-2.5">
+          {COUNTRY_REGIONS.map(region => (
+            <div key={region.label}>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-1.5">{region.label}</p>
+              <div className="flex flex-wrap gap-1.5">
+                {region.countries.map(({ code, name, flag }) => {
+                  const selected = form.trigger_country_codes.includes(code);
+                  return (
+                    <button key={code} type="button"
+                      onClick={() => set({
+                        trigger_country_codes: selected
+                          ? form.trigger_country_codes.filter(c => c !== code)
+                          : [...form.trigger_country_codes, code],
+                      })}
+                      className={`px-2 py-1 rounded-lg text-xs border transition-all ${
+                        selected
+                          ? "border-primary bg-primary/10 text-primary font-medium"
+                          : "border-border bg-muted/20 text-muted-foreground hover:border-primary/40"
+                      }`}
+                    >
+                      {flag} {name}
+                    </button>
+                  );
                 })}
-                className={`px-2 py-1 rounded-lg text-xs border transition-all ${
-                  selected
-                    ? "border-primary bg-primary/10 text-primary font-medium"
-                    : "border-border bg-muted/20 text-muted-foreground hover:border-primary/40"
-                }`}
-              >
-                {info.flag} {info.name}
-              </button>
-            );
-          })}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
 

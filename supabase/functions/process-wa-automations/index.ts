@@ -28,18 +28,19 @@ const ACTIVE_CONV_GUARD_MS = 2 * 60_000; // 2 minutes
 function sleep(ms: number) { return new Promise(r => setTimeout(r, ms)); }
 
 const PHONE_PREFIX_MAP: Record<string, string> = {
-  "1":"America/New_York","52":"America/Mexico_City","34":"Europe/Madrid",
-  "57":"America/Bogota","54":"America/Argentina/Buenos_Aires","55":"America/Sao_Paulo",
-  "56":"America/Santiago","51":"America/Lima","58":"America/Caracas",
-  "591":"America/La_Paz","593":"America/Guayaquil","595":"America/Asuncion",
-  "598":"America/Montevideo","53":"America/Havana",
-  "502":"America/Guatemala","503":"America/El_Salvador","504":"America/Tegucigalpa",
-  "505":"America/Managua","506":"America/Costa_Rica","507":"America/Panama",
-  "44":"Europe/London","33":"Europe/Paris","49":"Europe/Berlin","39":"Europe/Rome",
-  "351":"Europe/Lisbon","31":"Europe/Amsterdam","61":"Australia/Sydney",
-  "64":"Pacific/Auckland","81":"Asia/Tokyo","82":"Asia/Seoul","86":"Asia/Shanghai",
-  "91":"Asia/Kolkata","971":"Asia/Dubai","972":"Asia/Jerusalem","966":"Asia/Riyadh",
-  "20":"Africa/Cairo","27":"Africa/Johannesburg","234":"Africa/Lagos",
+  // Norte América
+  "1":"America/New_York","52":"America/Mexico_City",
+  // Centro América
+  "53":"America/Havana","502":"America/Guatemala","503":"America/El_Salvador",
+  "504":"America/Tegucigalpa","505":"America/Managua","506":"America/Costa_Rica","507":"America/Panama",
+  // Sud América
+  "57":"America/Bogota","58":"America/Caracas","593":"America/Guayaquil",
+  "51":"America/Lima","591":"America/La_Paz","55":"America/Sao_Paulo",
+  "595":"America/Asuncion","54":"America/Argentina/Buenos_Aires",
+  "56":"America/Santiago","598":"America/Montevideo",
+  // Europa
+  "351":"Europe/Lisbon","34":"Europe/Madrid","33":"Europe/Paris",
+  "44":"Europe/London","49":"Europe/Berlin","39":"Europe/Rome","31":"Europe/Amsterdam",
 };
 
 function getPhonePrefix(phone: string): string {
