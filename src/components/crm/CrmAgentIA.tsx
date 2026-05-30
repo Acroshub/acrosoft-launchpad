@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   Bot, Settings, Send, Wifi, WifiOff, MessageSquare, Loader2,
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
-  Check, ChevronRight, ChevronLeft, ChevronDown, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
+  Check, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
   GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star, Archive, LayoutGrid,
 } from "lucide-react";
@@ -4419,7 +4419,7 @@ function DeliveryTick({ status }: { status?: string }) {
 }
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
-const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: boolean }) => {
+const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch }: { msg: CrmWaMessage; highlight?: boolean; searchMatch?: boolean; isActiveSearchMatch?: boolean }) => {
   const isUser    = msg.role === "user";
   const isNotif   = !isUser && msg.content.startsWith("[notif]");
   const isHuman   = msg.role === "human";
@@ -4458,7 +4458,7 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
 
   return (
     <div id={`msg-${msg.id}`} className={`flex ${isIncoming ? "justify-start" : "justify-end"} mb-1.5 px-3`}>
-      <div className={`max-w-[78%] sm:max-w-[65%] ${highlight ? "ring-2 ring-yellow-400 ring-offset-2 rounded-2xl" : ""}`}>
+      <div className={`max-w-[78%] sm:max-w-[65%] ${highlight ? "ring-2 ring-yellow-400 ring-offset-2 rounded-2xl" : ""} ${isActiveSearchMatch ? "ring-2 ring-amber-400 ring-offset-2 rounded-2xl" : searchMatch ? "ring-1 ring-amber-300 ring-offset-1 rounded-2xl" : ""}`}>
         <div className={`rounded-2xl overflow-hidden text-sm ${
           isIncoming
             ? "bg-white dark:bg-zinc-800 text-foreground rounded-tl-sm border border-border/40 shadow-sm"
@@ -4618,14 +4618,15 @@ function MediaGalleryPanel({
   const docs   = messages.filter(m => m.media_type === "document" && m.media_url);
 
   return (
-    <div className="flex-1 overflow-y-auto flex flex-col bg-background">
-      {/* Header */}
+    <div className="flex-1 flex flex-col min-h-0 bg-background">
+      {/* Header — sticky */}
       <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
         <div className="flex items-center gap-2">
           <LayoutGrid size={15} className="text-muted-foreground" />
           <span className="text-sm font-semibold">Galería de medios</span>
         </div>
         <button
+          type="button"
           onClick={onClose}
           className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-secondary transition-colors"
         >
@@ -4633,11 +4634,12 @@ function MediaGalleryPanel({
         </button>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — sticky */}
       <div className="flex shrink-0">
         {(["photos", "docs"] as const).map(t => (
           <button
             key={t}
+            type="button"
             onClick={() => onTabChange(t)}
             className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
               tab === t
@@ -4650,7 +4652,7 @@ function MediaGalleryPanel({
         ))}
       </div>
 
-      {/* Content */}
+      {/* Content — solo esta área scrollea */}
       {tab === "photos" ? (
         photos.length === 0 ? (
           <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground px-6">
@@ -4658,23 +4660,25 @@ function MediaGalleryPanel({
             <p className="text-sm text-center">Sin fotos en esta conversación</p>
           </div>
         ) : (
-          <div className="grid grid-cols-3 gap-0.5 p-0.5">
-            {photos.map(m => (
-              <a
-                key={m.id}
-                href={m.media_url!}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="aspect-square overflow-hidden bg-secondary block"
-              >
-                <img
-                  src={m.media_url!}
-                  alt=""
-                  loading="lazy"
-                  className="w-full h-full object-cover hover:opacity-85 transition-opacity"
-                />
-              </a>
-            ))}
+          <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
+            <div className="grid grid-cols-3 gap-0.5 p-0.5">
+              {photos.map(m => (
+                <a
+                  key={m.id}
+                  href={m.media_url!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="aspect-square overflow-hidden bg-secondary block"
+                >
+                  <img
+                    src={m.media_url!}
+                    alt=""
+                    loading="lazy"
+                    className="w-full h-full object-cover hover:opacity-90 transition-opacity"
+                  />
+                </a>
+              ))}
+            </div>
           </div>
         )
       ) : (
@@ -4684,7 +4688,7 @@ function MediaGalleryPanel({
             <p className="text-sm text-center">Sin documentos en esta conversación</p>
           </div>
         ) : (
-          <div className="divide-y">
+          <div className="flex-1 overflow-y-auto divide-y" style={{ overscrollBehavior: "contain" }}>
             {docs.map(m => {
               const filename = m.content?.replace(/^\[PDF:\s*/, "").replace(/\]$/, "") ?? "Documento";
               const date = new Date(m.created_at).toLocaleDateString("es", {
@@ -4698,8 +4702,8 @@ function MediaGalleryPanel({
                   rel="noopener noreferrer"
                   className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/40 transition-colors group"
                 >
-                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 text-lg">
-                    📄
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+                    <Paperclip size={16} className="text-primary/70" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium truncate">{filename}</p>
@@ -4754,6 +4758,11 @@ const ChatPanel = ({
   const [showLabels, setShowLabels]       = useState(false);
   const [showMediaGallery, setShowMediaGallery] = useState(false);
   const [mediaGalleryTab, setMediaGalleryTab]   = useState<"photos" | "docs">("photos");
+  const [inChatSearchActive, setInChatSearchActive] = useState(false);
+  const [inChatSearch, setInChatSearch]             = useState("");
+  const [debouncedSearch, setDebouncedSearch]       = useState("");
+  const [searchIndex, setSearchIndex]               = useState(0);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [qrSuggestions, setQrSuggestions] = useState<CrmQuickReply[]>([]);
   const [showQrPopover, setShowQrPopover] = useState(false);
@@ -4825,6 +4834,10 @@ const ChatPanel = ({
   useEffect(() => {
     setIsInternalMode(false);
     setShowNotesLog(false);
+    setShowMediaGallery(false);
+    setInChatSearchActive(false);
+    setInChatSearch("");
+    setDebouncedSearch("");
     setNoteNavId(null);
     setText("");
     setShowEmojiPicker(false);
@@ -4845,6 +4858,39 @@ const ChatPanel = ({
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     return () => clearTimeout(t);
   }, [highlightMessageId, isLoading, messages.length]);
+
+  // ── In-chat search (B19-11) ────────────────────────────────────────────────
+
+  // Debounce 300ms
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(inChatSearch), 300);
+    return () => clearTimeout(t);
+  }, [inChatSearch]);
+
+  const searchMatches = useMemo(() => {
+    const q = debouncedSearch.trim().toLowerCase();
+    if (q.length < 2) return [] as string[];
+    return messages
+      .filter(m => !m.is_internal && !m.media_url && !m.content?.startsWith("[notif]") && m.content?.toLowerCase().includes(q))
+      .map(m => m.id);
+  }, [debouncedSearch, messages]);
+
+  const searchMatchSet = useMemo(() => new Set(searchMatches), [searchMatches]);
+
+  // Reset index cuando cambia la búsqueda
+  useEffect(() => { setSearchIndex(0); }, [searchMatches]);
+
+  // Scroll al resultado activo
+  useEffect(() => {
+    if (searchMatches.length === 0) return;
+    const id = searchMatches[searchIndex];
+    document.getElementById(`msg-${id}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [searchIndex, searchMatches]);
+
+  // Auto-focus al abrir buscador
+  useEffect(() => {
+    if (inChatSearchActive) setTimeout(() => searchInputRef.current?.focus(), 50);
+  }, [inChatSearchActive]);
 
   // Al salir del log de notas: scroll al fondo o al mensaje clickeado
   useEffect(() => {
@@ -4995,9 +5041,18 @@ const ChatPanel = ({
             </button>
           )}
 
+          {/* Search (B19-11) */}
+          <button
+            onClick={() => { setInChatSearchActive(v => !v); setInChatSearch(""); setDebouncedSearch(""); setShowNotesLog(false); setShowMediaGallery(false); }}
+            title="Buscar en conversación"
+            className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl transition-colors ${inChatSearchActive ? "bg-secondary text-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
+          >
+            <Search size={17} />
+          </button>
+
           {/* Notes log */}
           <button
-            onClick={() => setShowNotesLog(v => !v)}
+            onClick={() => { setShowNotesLog(v => !v); setShowMediaGallery(false); setInChatSearchActive(false); setInChatSearch(""); setDebouncedSearch(""); }}
             title="Notas internas"
             className={`min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl transition-colors ${showNotesLog ? "bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400" : "text-muted-foreground hover:bg-secondary hover:text-foreground"}`}
           >
@@ -5066,7 +5121,7 @@ const ChatPanel = ({
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
                 <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-2xl shadow-xl py-1 min-w-[180px] overflow-hidden">
                   <button
-                    onClick={() => { setShowMenu(false); setShowMediaGallery(true); }}
+                    onClick={() => { setShowMenu(false); setShowMediaGallery(true); setShowNotesLog(false); setInChatSearchActive(false); setInChatSearch(""); setDebouncedSearch(""); }}
                     className="w-full flex items-center gap-3 px-4 py-3 text-sm text-foreground hover:bg-secondary/60 transition-colors"
                   >
                     <LayoutGrid size={14} className="text-muted-foreground" />
@@ -5097,6 +5152,60 @@ const ChatPanel = ({
           </div>
         </div>
       </div>
+
+      {/* Search bar (B19-11) */}
+      {inChatSearchActive && !showMediaGallery && !showNotesLog && (
+        <div className="px-3 py-2 border-b bg-card shrink-0 flex items-center gap-2">
+          <Search size={14} className="text-muted-foreground shrink-0" />
+          <input
+            ref={searchInputRef}
+            value={inChatSearch}
+            onChange={e => setInChatSearch(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === "Escape") { setInChatSearchActive(false); setInChatSearch(""); setDebouncedSearch(""); }
+              if (e.key === "Enter") {
+                if (searchMatches.length === 0) return;
+                setSearchIndex(i => e.shiftKey ? (i - 1 + searchMatches.length) % searchMatches.length : (i + 1) % searchMatches.length);
+              }
+            }}
+            placeholder="Buscar en la conversación..."
+            className="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground/60"
+          />
+          {searchMatches.length > 0 && (
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-xs text-muted-foreground tabular-nums">
+                {searchIndex + 1} de {searchMatches.length}
+              </span>
+              <button
+                type="button"
+                onClick={() => setSearchIndex(i => (i - 1 + searchMatches.length) % searchMatches.length)}
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                title="Anterior (Shift+Enter)"
+              >
+                <ChevronUp size={14} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setSearchIndex(i => (i + 1) % searchMatches.length)}
+                className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground"
+                title="Siguiente (Enter)"
+              >
+                <ChevronDown size={14} />
+              </button>
+            </div>
+          )}
+          {inChatSearch.length >= 2 && searchMatches.length === 0 && debouncedSearch === inChatSearch && (
+            <span className="text-xs text-muted-foreground/60 shrink-0">Sin resultados</span>
+          )}
+          <button
+            type="button"
+            onClick={() => { setInChatSearchActive(false); setInChatSearch(""); setDebouncedSearch(""); }}
+            className="p-1 rounded hover:bg-secondary transition-colors text-muted-foreground hover:text-foreground shrink-0"
+          >
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Banner de pago pendiente */}
       {pendingSale && (
@@ -5264,7 +5373,7 @@ const ChatPanel = ({
                   </div>
                 );
               }
-              acc.push(<MessageBubble key={msg.id} msg={msg} highlight={msg.id === highlightMessageId || msg.id === noteNavId} />);
+              acc.push(<MessageBubble key={msg.id} msg={msg} highlight={msg.id === highlightMessageId || msg.id === noteNavId} searchMatch={searchMatchSet.has(msg.id)} isActiveSearchMatch={searchMatches[searchIndex] === msg.id} />);
               return acc;
             }, [])
           )}
@@ -5274,7 +5383,7 @@ const ChatPanel = ({
       )}
 
       {/* Input */}
-      <div className="px-3 pt-2 pb-4 lg:pb-3 border-t bg-card shrink-0" style={{ paddingBottom: "max(1.75rem, env(safe-area-inset-bottom))" }}>
+      {!showMediaGallery && <div className="px-3 pt-2 pb-4 lg:pb-3 border-t bg-card shrink-0" style={{ paddingBottom: "max(1.75rem, env(safe-area-inset-bottom))" }}>
         {windowError && (
           <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2 mb-2">
             <AlertTriangle size={13} className="shrink-0" /> Ventana de 24h expirada — no se pueden enviar mensajes de texto libre.
@@ -5490,7 +5599,7 @@ const ChatPanel = ({
             </button>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   );
 };
