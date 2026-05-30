@@ -496,6 +496,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const STEP_LABELS = ["Conexión", "Capacidades", "Agente IA", "Flujos", "Horario", "Perfil WA", "Activar"];
 
   return (
+    <div className="h-full overflow-y-auto">
     <div className="flex flex-col items-center justify-center min-h-full py-10 px-4">
       <div className="w-full max-w-lg space-y-8">
         {/* Header */}
@@ -1219,6 +1220,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
       </div>
+    </div>
     </div>
   );
 };
