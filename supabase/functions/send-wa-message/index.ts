@@ -28,11 +28,12 @@ Deno.serve(async (req: Request) => {
     media_url?: string;
     media_type?: "image" | "document";
     media_filename?: string;
+    reply_to_id?: string;
   };
   try { body = await req.json(); }
   catch { return new Response(JSON.stringify({ error: "bad json" }), { status: 400, headers: corsHeaders }); }
 
-  const { conversation_id, text, media_url, media_type, media_filename } = body;
+  const { conversation_id, text, media_url, media_type, media_filename, reply_to_id } = body;
 
   // Debe tener texto o media
   if (!conversation_id || (!text?.trim() && !media_url)) {
@@ -78,6 +79,25 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: "agent not configured" }), { status: 400, headers: corsHeaders });
   }
 
+  // Resolver wa_message_id y preview del mensaje citado (para context reply nativo WhatsApp)
+  let replyWaMessageId: string | null = null;
+  let repliedToPreview: string | null = null;
+  if (reply_to_id) {
+    const { data: replyMsg } = await supabase
+      .from("crm_wa_messages")
+      .select("wa_message_id, content, media_type")
+      .eq("id", reply_to_id)
+      .maybeSingle();
+    replyWaMessageId = replyMsg?.wa_message_id ?? null;
+    if (replyMsg) {
+      repliedToPreview = replyMsg.media_type === "image" ? "[Imagen]"
+        : replyMsg.media_type === "document" ? "[Documento]"
+        : replyMsg.media_type === "video" ? "[Video]"
+        : replyMsg.media_type === "audio" ? "[Mensaje de voz]"
+        : (replyMsg.content ?? null);
+    }
+  }
+
   // Construir payload para WhatsApp y registro en DB
   let waPayload: Record<string, unknown>;
   let dbContent: string;
@@ -94,6 +114,7 @@ Deno.serve(async (req: Request) => {
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to: conv.phone,
+        ...(replyWaMessageId ? { context: { message_id: replyWaMessageId } } : {}),
         type: "image",
         image: { link: media_url },
       };
@@ -104,6 +125,7 @@ Deno.serve(async (req: Request) => {
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to: conv.phone,
+        ...(replyWaMessageId ? { context: { message_id: replyWaMessageId } } : {}),
         type: "document",
         document: { link: media_url, filename: fname },
       };
@@ -114,6 +136,7 @@ Deno.serve(async (req: Request) => {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       to: conv.phone,
+      ...(replyWaMessageId ? { context: { message_id: replyWaMessageId } } : {}),
       type: "text",
       text: { preview_url: false, body: text!.trim() },
     };
@@ -128,6 +151,8 @@ Deno.serve(async (req: Request) => {
       content: dbContent,
       ...(dbMediaType ? { media_type: dbMediaType } : {}),
       ...(dbMediaUrl ? { media_url: dbMediaUrl } : {}),
+      ...(reply_to_id ? { reply_to_id } : {}),
+      ...(repliedToPreview ? { replied_to_preview: repliedToPreview } : {}),
     })
     .select()
     .single();

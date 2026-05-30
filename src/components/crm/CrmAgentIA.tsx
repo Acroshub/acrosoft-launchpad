@@ -5,7 +5,7 @@ import {
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
-  GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star, Archive, LayoutGrid,
+  GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star, Archive, LayoutGrid, ExternalLink, Reply,
 } from "lucide-react";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
@@ -4419,7 +4419,12 @@ function DeliveryTick({ status }: { status?: string }) {
 }
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
-const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch }: { msg: CrmWaMessage; highlight?: boolean; searchMatch?: boolean; isActiveSearchMatch?: boolean }) => {
+const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch, onMsgContextMenu, replyToMsg, contactName }: { msg: CrmWaMessage; highlight?: boolean; searchMatch?: boolean; isActiveSearchMatch?: boolean; onMsgContextMenu?: (msg: CrmWaMessage, x: number, y: number) => void; replyToMsg?: CrmWaMessage; contactName?: string }) => {
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Limpiar timer si el bubble se desmonta antes de que dispare
+  useEffect(() => () => { if (longPressTimer.current) clearTimeout(longPressTimer.current); }, []);
+
   const isUser    = msg.role === "user";
   const isNotif   = !isUser && msg.content.startsWith("[notif]");
   const isHuman   = msg.role === "human";
@@ -4458,7 +4463,23 @@ const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch }: { m
 
   return (
     <div id={`msg-${msg.id}`} className={`flex ${isIncoming ? "justify-start" : "justify-end"} mb-1.5 px-3`}>
-      <div className={`max-w-[78%] sm:max-w-[65%] ${highlight ? "ring-2 ring-yellow-400 ring-offset-2 rounded-2xl" : ""} ${isActiveSearchMatch ? "ring-2 ring-amber-400 ring-offset-2 rounded-2xl" : searchMatch ? "ring-1 ring-amber-300 ring-offset-1 rounded-2xl" : ""}`}>
+      <div
+        className={`max-w-[78%] sm:max-w-[65%] select-none ${highlight ? "ring-2 ring-yellow-400 ring-offset-2 rounded-2xl" : ""} ${isActiveSearchMatch ? "ring-2 ring-amber-400 ring-offset-2 rounded-2xl" : searchMatch ? "ring-1 ring-amber-300 ring-offset-1 rounded-2xl" : ""}`}
+        style={{ WebkitTouchCallout: "none" } as React.CSSProperties}
+        onContextMenu={onMsgContextMenu ? (e) => {
+          e.preventDefault();
+          // Cancelar timer manual para evitar doble disparo en iOS 13+ y Android
+          if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; }
+          onMsgContextMenu(msg, e.clientX, e.clientY);
+        } : undefined}
+        onTouchStart={onMsgContextMenu ? (e) => {
+          const t = e.touches[0];
+          // Fallback para iOS <13 donde contextmenu no se dispara en long press
+          longPressTimer.current = setTimeout(() => { longPressTimer.current = null; onMsgContextMenu(msg, t.clientX, t.clientY); }, 500);
+        } : undefined}
+        onTouchEnd={onMsgContextMenu ? () => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } } : undefined}
+        onTouchMove={onMsgContextMenu ? () => { if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null; } } : undefined}
+      >
         <div className={`rounded-2xl overflow-hidden text-sm ${
           isIncoming
             ? "bg-white dark:bg-zinc-800 text-foreground rounded-tl-sm border border-border/40 shadow-sm"
@@ -4466,6 +4487,33 @@ const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch }: { m
               ? "bg-[#1877F2] text-white rounded-tr-sm shadow-sm"
               : "bg-[#00a884] text-white rounded-tr-sm shadow-sm"
         }`}>
+          {/* Quoted reply (B19-13) */}
+          {(replyToMsg || msg.replied_to_preview) && (
+            <div
+              className={`flex overflow-hidden mx-2 mt-2 mb-1 rounded-lg ${replyToMsg ? "cursor-pointer" : ""} ${isIncoming ? "bg-black/[0.06]" : "bg-black/20"}`}
+              onClick={replyToMsg ? (e) => { e.stopPropagation(); document.getElementById(`msg-${replyToMsg.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }); } : undefined}
+            >
+              <div className={`w-1 shrink-0 ${isIncoming ? "bg-primary" : "bg-white/60"}`} />
+              <div className="flex-1 px-2 py-1.5 min-w-0">
+                {replyToMsg ? (
+                  <>
+                    <p className={`text-[11px] font-semibold leading-tight mb-0.5 truncate ${isIncoming ? "text-primary" : "text-white"}`}>
+                      {replyToMsg.role === "user" ? (contactName ?? "Contacto") : replyToMsg.role === "human" ? "Tú" : "IA"}
+                    </p>
+                    <p className={`text-[11px] leading-tight truncate ${isIncoming ? "text-foreground/60" : "text-white/70"}`}>
+                      {replyToMsg.media_url
+                        ? (replyToMsg.media_type === "image" ? "Imagen" : replyToMsg.media_type === "document" ? "Documento" : replyToMsg.media_type === "video" ? "Video" : "Mensaje de voz")
+                        : (replyToMsg.content?.slice(0, 80) ?? "")}
+                    </p>
+                  </>
+                ) : (
+                  <p className={`text-[11px] leading-tight truncate ${isIncoming ? "text-foreground/60" : "text-white/70"}`}>
+                    {msg.replied_to_preview}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
           {/* Imagen */}
           {msg.media_type === "image" && msg.media_url && (
             <a href={msg.media_url} target="_blank" rel="noopener noreferrer">
@@ -4722,6 +4770,104 @@ function MediaGalleryPanel({
   );
 }
 
+// ─── Message Context Menu (B19-12) ────────────────────────────────────────────
+function MessageContextMenu({
+  msg, x, y, onClose, onReply, onCopyText, onCopyTranscription, onOpenMedia, onCreateNote, onDelete,
+}: {
+  msg: CrmWaMessage; x: number; y: number;
+  onClose: () => void;
+  onReply: () => void;
+  onCopyText: () => void;
+  onCopyTranscription: () => void;
+  onOpenMedia: () => void;
+  onCreateNote: () => void;
+  onDelete: () => void;
+}) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const MENU_W = 210;
+  const adjustedX = x + MENU_W > window.innerWidth ? x - MENU_W : x;
+  const adjustedY = Math.min(y, window.innerHeight - 230);
+
+  const canCopyText = !msg.media_url && !!msg.content && !msg.content.startsWith("[notif]");
+  const canCopyTranscription = msg.media_type === "audio" && !!msg.transcription;
+  const canOpenMedia = !!msg.media_url && msg.media_type !== "audio";
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onMouseDown={onClose} />
+      <div
+        style={{ left: adjustedX, top: adjustedY }}
+        className="fixed z-50 bg-card border rounded-2xl shadow-xl py-1.5 min-w-[200px] overflow-hidden"
+      >
+        {/* Responder */}
+        <button type="button"
+          onClick={() => { onReply(); onClose(); }}
+          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-secondary/60 transition-colors"
+        >
+          <Reply size={14} className="text-muted-foreground shrink-0" />
+          Responder
+        </button>
+
+        {/* Copiar */}
+        {canCopyText && (
+          <button type="button"
+            onClick={() => { onCopyText(); onClose(); }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-secondary/60 transition-colors"
+          >
+            <Copy size={14} className="text-muted-foreground shrink-0" />
+            Copiar texto
+          </button>
+        )}
+        {canCopyTranscription && (
+          <button type="button"
+            onClick={() => { onCopyTranscription(); onClose(); }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-secondary/60 transition-colors"
+          >
+            <Copy size={14} className="text-muted-foreground shrink-0" />
+            Copiar transcripción
+          </button>
+        )}
+        {canOpenMedia && (
+          <button type="button"
+            onClick={() => { onOpenMedia(); onClose(); }}
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-secondary/60 transition-colors"
+          >
+            <ExternalLink size={14} className="text-muted-foreground shrink-0" />
+            Abrir adjunto
+          </button>
+        )}
+
+        <div className="border-t mx-2 my-1" />
+
+        {/* Nota interna */}
+        <button type="button"
+          onClick={() => { onCreateNote(); onClose(); }}
+          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-foreground hover:bg-secondary/60 transition-colors"
+        >
+          <StickyNote size={14} className="text-muted-foreground shrink-0" />
+          Nota interna
+        </button>
+
+        <div className="border-t mx-2 my-1" />
+
+        {/* Eliminar */}
+        <button type="button"
+          onClick={() => { onDelete(); onClose(); }}
+          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-destructive hover:bg-destructive/10 transition-colors"
+        >
+          <Trash2 size={14} className="shrink-0" />
+          Eliminar mensaje
+        </button>
+      </div>
+    </>
+  );
+}
+
 // ─── Chat Panel ───────────────────────────────────────────────────────────────
 type UpcomingAppt = { appt: CrmAppointment; contact: CrmContact; minutesAway: number };
 
@@ -4758,6 +4904,8 @@ const ChatPanel = ({
   const [showLabels, setShowLabels]       = useState(false);
   const [showMediaGallery, setShowMediaGallery] = useState(false);
   const [mediaGalleryTab, setMediaGalleryTab]   = useState<"photos" | "docs">("photos");
+  const [ctxMenu, setCtxMenu] = useState<{ msg: CrmWaMessage; x: number; y: number } | null>(null);
+  const [replyTo, setReplyTo] = useState<CrmWaMessage | null>(null);
   const [inChatSearchActive, setInChatSearchActive] = useState(false);
   const [inChatSearch, setInChatSearch]             = useState("");
   const [debouncedSearch, setDebouncedSearch]       = useState("");
@@ -4843,6 +4991,8 @@ const ChatPanel = ({
     setShowEmojiPicker(false);
     setShowQrPopover(false);
     setQrSuggestions([]);
+    setCtxMenu(null);
+    setReplyTo(null);
   }, [conv.id]);
 
   useEffect(() => {
@@ -4876,6 +5026,7 @@ const ChatPanel = ({
   }, [debouncedSearch, messages]);
 
   const searchMatchSet = useMemo(() => new Set(searchMatches), [searchMatches]);
+  const msgMap = useMemo(() => new Map(messages.map(m => [m.id, m])), [messages]);
 
   // Reset index cuando cambia la búsqueda
   useEffect(() => { setSearchIndex(0); }, [searchMatches]);
@@ -4924,17 +5075,19 @@ const ChatPanel = ({
         else {
           setText("");
           setIsInternalMode(false);
+          setReplyTo(null);
           qc.invalidateQueries({ queryKey: ["crm_wa_messages", conv.id] });
         }
       } else {
         const { data, error } = await supabase.functions.invoke("send-wa-message", {
-          body: { conversation_id: conv.id, text: text.trim() },
+          body: { conversation_id: conv.id, text: text.trim(), ...(replyTo ? { reply_to_id: replyTo.id } : {}) },
         });
         if (error || data?.error === "24h_window_expired") {
           setWindowError(true);
           if (data?.error !== "24h_window_expired") toast.error("Error al enviar el mensaje");
         } else {
           setText("");
+          setReplyTo(null);
         }
       }
     } catch { toast.error("Error al enviar"); }
@@ -4961,11 +5114,14 @@ const ChatPanel = ({
           media_url: mediaUrl,
           media_type: mediaType,
           media_filename: file.name,
+          ...(replyTo ? { reply_to_id: replyTo.id } : {}),
         },
       });
       if (error || data?.error === "24h_window_expired") {
         setWindowError(true);
         if (data?.error !== "24h_window_expired") toast.error("Error al enviar el archivo");
+      } else {
+        setReplyTo(null);
       }
     } catch { toast.error("Error al enviar"); }
     finally { setUploadingMedia(false); }
@@ -5373,7 +5529,7 @@ const ChatPanel = ({
                   </div>
                 );
               }
-              acc.push(<MessageBubble key={msg.id} msg={msg} highlight={msg.id === highlightMessageId || msg.id === noteNavId} searchMatch={searchMatchSet.has(msg.id)} isActiveSearchMatch={searchMatches[searchIndex] === msg.id} />);
+              acc.push(<MessageBubble key={msg.id} msg={msg} highlight={msg.id === highlightMessageId || msg.id === noteNavId} searchMatch={searchMatchSet.has(msg.id)} isActiveSearchMatch={searchMatches[searchIndex] === msg.id} onMsgContextMenu={(m, x, y) => setCtxMenu({ msg: m, x, y })} replyToMsg={msg.reply_to_id ? msgMap.get(msg.reply_to_id) : undefined} contactName={conv.contact_name ?? "Contacto"} />);
               return acc;
             }, [])
           )}
@@ -5384,6 +5540,25 @@ const ChatPanel = ({
 
       {/* Input */}
       {!showMediaGallery && <div className="px-3 pt-2 pb-4 lg:pb-3 border-t bg-card shrink-0" style={{ paddingBottom: "max(1.75rem, env(safe-area-inset-bottom))" }}>
+        {/* Reply preview bar */}
+        {replyTo && (
+          <div className="flex items-start gap-2 px-2 py-2 mb-2 rounded-xl bg-secondary/50 border border-border">
+            <Reply size={13} className="text-primary mt-0.5 shrink-0" />
+            <div className="flex-1 min-w-0 border-l-2 border-primary pl-2">
+              <p className="text-[11px] font-semibold text-primary leading-tight">
+                {replyTo.role === "user" ? (conv.contact_name ?? "Contacto") : replyTo.role === "human" ? "Tú" : "IA"}
+              </p>
+              <p className="text-xs text-muted-foreground truncate">
+                {replyTo.media_url
+                  ? (replyTo.media_type === "image" ? "Imagen" : replyTo.media_type === "document" ? "Documento" : replyTo.media_type === "video" ? "Video" : "Mensaje de voz")
+                  : (replyTo.content?.slice(0, 80) ?? "")}
+              </p>
+            </div>
+            <button type="button" onClick={() => setReplyTo(null)} className="p-1 text-muted-foreground hover:text-foreground shrink-0">
+              <X size={13} />
+            </button>
+          </div>
+        )}
         {windowError && (
           <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2 mb-2">
             <AlertTriangle size={13} className="shrink-0" /> Ventana de 24h expirada — no se pueden enviar mensajes de texto libre.
@@ -5600,6 +5775,47 @@ const ChatPanel = ({
           </div>
         </div>
       </div>}
+
+      {/* Context menu (B19-12) */}
+      {ctxMenu && (
+        <MessageContextMenu
+          msg={ctxMenu.msg}
+          x={ctxMenu.x}
+          y={ctxMenu.y}
+          onClose={() => setCtxMenu(null)}
+          onReply={() => {
+            setReplyTo(ctxMenu.msg);
+            setShowNotesLog(false);
+            setShowMediaGallery(false);
+            setInChatSearchActive(false);
+            setTimeout(() => textareaRef.current?.focus(), 50);
+          }}
+          onCopyText={() => {
+            navigator.clipboard.writeText(ctxMenu.msg.content ?? "").catch(() => {});
+            toast.success("Texto copiado");
+          }}
+          onCopyTranscription={() => {
+            navigator.clipboard.writeText(ctxMenu.msg.transcription ?? "").catch(() => {});
+            toast.success("Transcripción copiada");
+          }}
+          onOpenMedia={() => {
+            if (ctxMenu.msg.media_url) window.open(ctxMenu.msg.media_url, "_blank", "noopener,noreferrer");
+          }}
+          onCreateNote={() => {
+            setIsInternalMode(true);
+            setShowNotesLog(false);
+            setShowMediaGallery(false);
+            setInChatSearchActive(false);
+            setTimeout(() => textareaRef.current?.focus(), 50);
+          }}
+          onDelete={() => {
+            supabase.from("crm_wa_messages").delete().eq("id", ctxMenu.msg.id).then(({ error }) => {
+              if (error) toast.error("Error al eliminar el mensaje");
+              else qc.invalidateQueries({ queryKey: ["crm_wa_messages", conv.id] });
+            });
+          }}
+        />
+      )}
     </div>
   );
 };

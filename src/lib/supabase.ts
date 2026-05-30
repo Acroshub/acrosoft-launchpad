@@ -739,6 +739,8 @@ export type CrmWaMessage = {
   interactive_options: Array<{ label: string }> | null
   is_internal: boolean
   delivery_status: string
+  reply_to_id: string | null
+  replied_to_preview: string | null
 }
 
 export type SequenceStepOption = {
