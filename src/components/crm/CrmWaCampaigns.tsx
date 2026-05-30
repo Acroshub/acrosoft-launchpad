@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Plus, Trash2, Send, ChevronRight, ChevronLeft, CheckCircle2,
   XCircle, Clock, Loader2, Users, Eye,
   ArrowLeft, AlertCircle, Tag, Megaphone, Zap, Info, Calendar, Globe, Bot,
+  Image, Video, Mic, Upload,
 } from "lucide-react";
 import CrmWaAutomations from "./CrmWaAutomations";
 import { toast } from "sonner";
@@ -713,7 +714,85 @@ function InstantCampaignDetail({ campaign, onBack }: { campaign: CrmWaInstantCam
   );
 }
 
+// ── Media upload field ────────────────────────────────────────────────────────
+
+type WaMediaKind = "image" | "video" | "audio";
+
+function MediaUploadField({
+  mediaType, value, onChange, userId,
+}: {
+  mediaType: WaMediaKind;
+  value: string;
+  onChange: (url: string) => void;
+  userId: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const accept = mediaType === "image"
+    ? "image/jpeg,image/png,image/webp"
+    : mediaType === "video"
+    ? "video/mp4,video/3gpp"
+    : "audio/ogg,audio/mpeg,audio/mp4,audio/aac,audio/amr";
+
+  const handleFile = async (file: File) => {
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "bin";
+      const path = `wa-campaigns/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage.from("form-uploads").upload(path, file, { upsert: false });
+      if (error) { toast.error("Error al subir archivo: " + error.message); return; }
+      const { data: { publicUrl } } = supabase.storage.from("form-uploads").getPublicUrl(path);
+      onChange(publicUrl);
+    } catch (e: any) {
+      toast.error("Error al subir archivo");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const label = mediaType === "image" ? "imagen" : mediaType === "video" ? "video" : "audio";
+  const Icon = mediaType === "image" ? Image : mediaType === "video" ? Video : Mic;
+
+  return (
+    <div className="space-y-1.5">
+      <input ref={inputRef} type="file" accept={accept} className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+      {value ? (
+        <div className="flex items-center gap-2.5 p-2.5 rounded-xl border border-border bg-muted/20">
+          {mediaType === "image" ? (
+            <img src={value} alt="" className="h-14 w-14 object-cover rounded-lg shrink-0" />
+          ) : (
+            <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center shrink-0">
+              <Icon size={18} className="text-muted-foreground" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium truncate">{label.charAt(0).toUpperCase() + label.slice(1)} subido</p>
+            <p className="text-[10px] text-muted-foreground truncate">{value.split("/").pop()}</p>
+          </div>
+          <button type="button" onClick={() => onChange("")}
+            className="p-1 rounded-lg hover:bg-muted transition-colors text-muted-foreground shrink-0">
+            <XCircle size={14} />
+          </button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+          className="w-full flex flex-col items-center justify-center gap-2 h-24 rounded-xl border-2 border-dashed border-border hover:border-primary/50 hover:bg-muted/20 transition-all text-muted-foreground disabled:opacity-50 cursor-pointer">
+          {uploading
+            ? <Loader2 size={20} className="animate-spin" />
+            : <Upload size={20} />}
+          <span className="text-xs">{uploading ? "Subiendo..." : `Seleccionar ${label}`}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 function InstantCampaignsSection() {
+  const { user } = useCurrentUser();
   const { data: campaigns = [], isLoading, refetch } = useInstantCampaigns();
   const { data: waLabels = [] } = useWaLabels();
   const { data: businessProfile } = useBusinessProfile();
@@ -727,8 +806,10 @@ function InstantCampaignsSection() {
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   // Step 0: Mensaje
-  const [campName, setCampName] = useState("");
-  const [msgText, setMsgText]   = useState("");
+  const [campName, setCampName]       = useState("");
+  const [msgText, setMsgText]         = useState("");
+  const [mediaType, setMediaType]     = useState<"none" | "image" | "video" | "audio">("none");
+  const [mediaUrl, setMediaUrl]       = useState("");
 
   // Step 1: Audiencia
   const [windowHours, setWindowHours]         = useState(23);
@@ -818,6 +899,7 @@ function InstantCampaignsSection() {
 
   const resetBuilder = () => {
     setStep(0); setCampName(""); setMsgText(""); setWindowHours(23);
+    setMediaType("none"); setMediaUrl("");
     setSelCountryCodes([]); setSelLabelIds([]);
     setSendMode("instant"); setSchedDate(new Date().toISOString().slice(0, 10));
     setSchedTime("10:00"); setTzMode("user"); setSending(false);
@@ -825,8 +907,13 @@ function InstantCampaignsSection() {
   };
 
   const canNext = () => {
-    if (step === 0) return !!campName.trim() && msgText.trim().length >= 5;
-    if (step === 1) return true; // filters are optional
+    if (step === 0) {
+      if (!campName.trim()) return false;
+      if (mediaType === "none") return msgText.trim().length >= 5;
+      if (!mediaUrl.trim()) return false;
+      return true; // image/video caption optional; audio no text needed
+    }
+    if (step === 1) return true;
     if (step === 2) {
       if (sendMode === "instant") return true;
       if (!schedDate || !schedTime) return false;
@@ -836,7 +923,9 @@ function InstantCampaignsSection() {
   };
 
   const handleSubmit = async () => {
-    if (!campName.trim() || msgText.trim().length < 5) return;
+    if (!campName.trim()) return;
+    if (mediaType === "none" && msgText.trim().length < 5) return;
+    if (mediaType !== "none" && !mediaUrl.trim()) return;
     if (sendMode === "scheduled" && schedInPast) {
       toast.error("La hora programada ya pasó. Elige una hora futura.", { duration: 6000 });
       return;
@@ -863,7 +952,9 @@ function InstantCampaignsSection() {
 
       const campaign = await createCampaign.mutateAsync({
         name: campName.trim(),
-        message_text: msgText.trim(),
+        message_text: mediaType === "audio" ? "" : msgText.trim(),
+        media_type: mediaType === "none" ? null : mediaType,
+        media_url: mediaType === "none" ? null : mediaUrl.trim(),
         window_hours: windowHours,
         label_ids: selLabelIds,
         country_codes: selCountryCodes,
@@ -928,19 +1019,83 @@ function InstantCampaignsSection() {
             <input value={campName} onChange={e => setCampName(e.target.value)} placeholder="ej. Seguimiento clientes activos"
               className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
           </div>
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">Mensaje a enviar *</label>
-            <textarea value={msgText} onChange={e => setMsgText(e.target.value)} rows={5}
-              placeholder={"Hola! Queremos recordarte que...\n\nEscribe aquí tu mensaje libre. No necesita aprobación de Meta."}
-              className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none leading-relaxed" />
-            <p className="text-[10px] text-muted-foreground">{msgText.length} caracteres · Límite sugerido: 1024</p>
+
+          {/* Media selector */}
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-muted-foreground">Tipo de contenido</label>
+            <div className="grid grid-cols-4 gap-1.5">
+              {([
+                { value: "none",  icon: <Send size={13} />,  label: "Solo texto" },
+                { value: "image", icon: <Image size={13} />, label: "Imagen" },
+                { value: "video", icon: <Video size={13} />, label: "Video" },
+                { value: "audio", icon: <Mic size={13} />,   label: "Audio" },
+              ] as const).map(opt => (
+                <button key={opt.value} type="button"
+                  onClick={() => { setMediaType(opt.value); setMediaUrl(""); }}
+                  className={`flex flex-col items-center gap-1 py-2.5 rounded-xl border text-xs font-medium transition-all ${
+                    mediaType === opt.value
+                      ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/30"
+                      : "border-border hover:border-primary/40 text-muted-foreground"
+                  }`}
+                >
+                  {opt.icon}
+                  <span className="text-[10px]">{opt.label}</span>
+                </button>
+              ))}
+            </div>
           </div>
-          {msgText.trim() && (
+
+          {/* Media upload */}
+          {mediaType !== "none" && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">
+                Archivo de {mediaType === "image" ? "imagen" : mediaType === "video" ? "video" : "audio"} *
+              </label>
+              <MediaUploadField
+                mediaType={mediaType}
+                value={mediaUrl}
+                onChange={setMediaUrl}
+                userId={user?.id ?? ""}
+              />
+            </div>
+          )}
+
+          {/* Mensaje / Caption */}
+          {mediaType !== "audio" && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-muted-foreground">
+                {mediaType === "none" ? "Mensaje a enviar *" : "Pie de foto / caption"} {mediaType !== "none" && <span className="font-normal">(opcional)</span>}
+              </label>
+              <textarea value={msgText} onChange={e => setMsgText(e.target.value)}
+                rows={mediaType === "none" ? 5 : 3}
+                placeholder={mediaType === "none"
+                  ? "Hola! Queremos recordarte que...\n\nEscribe aquí tu mensaje libre. No necesita aprobación de Meta."
+                  : "Escribe un pie de foto o descripción (opcional)..."}
+                className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none leading-relaxed" />
+              {mediaType === "none" && <p className="text-[10px] text-muted-foreground">{msgText.length} caracteres · Límite sugerido: 1024</p>}
+            </div>
+          )}
+
+          {/* Vista previa */}
+          {(msgText.trim() || (mediaType !== "none" && mediaUrl.trim())) && (
             <div className="space-y-1">
               <p className="text-[10px] text-muted-foreground font-medium">Vista previa:</p>
               <div className="rounded-xl bg-[#e5ddd5] dark:bg-[#1a1a2e] p-3">
-                <div className="bg-white dark:bg-[#202c33] rounded-xl px-3 py-2.5 shadow-sm">
-                  <p className="text-sm whitespace-pre-wrap leading-snug">{msgText}</p>
+                <div className="bg-white dark:bg-[#202c33] rounded-xl px-3 py-2.5 shadow-sm space-y-1.5">
+                  {mediaType === "image" && mediaUrl.trim() && (
+                    <img src={mediaUrl} alt="" className="w-full rounded-lg object-cover max-h-48" />
+                  )}
+                  {mediaType === "video" && mediaUrl.trim() && (
+                    <div className="rounded-lg overflow-hidden bg-muted/30 flex items-center justify-center h-28 text-muted-foreground/50 text-xs border border-border/50">
+                      <Video size={20} className="mr-1.5" /> video adjunto
+                    </div>
+                  )}
+                  {mediaType === "audio" && mediaUrl.trim() && (
+                    <div className="rounded-lg bg-muted/30 flex items-center gap-2 px-3 py-2 text-muted-foreground/70 text-xs border border-border/50">
+                      <Mic size={14} /> nota de voz
+                    </div>
+                  )}
+                  {msgText.trim() && <p className="text-sm whitespace-pre-wrap leading-snug">{msgText}</p>}
                 </div>
               </div>
             </div>
@@ -1179,10 +1334,25 @@ function InstantCampaignsSection() {
             </div>
           </div>
           <div className="space-y-1">
-            <p className="text-[10px] text-muted-foreground font-medium">Mensaje:</p>
+            <p className="text-[10px] text-muted-foreground font-medium">Contenido:</p>
             <div className="rounded-xl bg-[#e5ddd5] dark:bg-[#1a1a2e] p-3">
-              <div className="bg-white dark:bg-[#202c33] rounded-xl px-3 py-2.5 shadow-sm">
-                <p className="text-sm whitespace-pre-wrap leading-snug">{msgText}</p>
+              <div className="bg-white dark:bg-[#202c33] rounded-xl px-3 py-2.5 shadow-sm space-y-1.5">
+                {mediaType === "image" && mediaUrl && (
+                  <div className="rounded-lg bg-muted/30 flex items-center justify-center h-20 text-muted-foreground/50 text-xs border border-border/50">
+                    <Image size={16} className="mr-1.5" /> imagen adjunta
+                  </div>
+                )}
+                {mediaType === "video" && mediaUrl && (
+                  <div className="rounded-lg bg-muted/30 flex items-center justify-center h-20 text-muted-foreground/50 text-xs border border-border/50">
+                    <Video size={16} className="mr-1.5" /> video adjunto
+                  </div>
+                )}
+                {mediaType === "audio" && mediaUrl && (
+                  <div className="rounded-lg bg-muted/30 flex items-center gap-2 px-3 py-2 text-muted-foreground/70 text-xs border border-border/50">
+                    <Mic size={12} /> nota de voz
+                  </div>
+                )}
+                {msgText.trim() && <p className="text-sm whitespace-pre-wrap leading-snug">{msgText}</p>}
               </div>
             </div>
           </div>

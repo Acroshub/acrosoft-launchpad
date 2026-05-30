@@ -70,17 +70,41 @@ function resolveVars(varMap: Record<string, any>, phone: string, contactName: st
   return result;
 }
 
-async function sendText(
-  phone: string, text: string, phoneNumberId: string, accessToken: string,
+type MediaType = "image" | "video" | "audio";
+
+async function sendMessage(
+  phone: string,
+  text: string,
+  phoneNumberId: string,
+  accessToken: string,
+  mediaType?: MediaType | null,
+  mediaUrl?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
+  const to = phone.replace(/\D/g, "");
+  let body: object;
+
+  if (mediaType && mediaUrl) {
+    if (mediaType === "audio") {
+      body = { messaging_product: "whatsapp", recipient_type: "individual", to, type: "audio", audio: { link: mediaUrl } };
+    } else {
+      const caption = text?.trim() || undefined;
+      body = {
+        messaging_product: "whatsapp", recipient_type: "individual", to,
+        type: mediaType,
+        [mediaType]: { link: mediaUrl, ...(caption ? { caption } : {}) },
+      };
+    }
+  } else {
+    body = {
+      messaging_product: "whatsapp", recipient_type: "individual",
+      to, type: "text", text: { body: text, preview_url: false },
+    };
+  }
+
   const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
     method: "POST",
     headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messaging_product: "whatsapp", recipient_type: "individual",
-      to: phone.replace(/\D/g, ""), type: "text",
-      text: { body: text, preview_url: false },
-    }),
+    body: JSON.stringify(body),
   });
   if (res.ok) return { ok: true };
   return { ok: false, error: (await res.text()).slice(0, 300) };
@@ -223,7 +247,7 @@ async function processQueue() {
   const autoIds = [...new Set(items.map(i => i.automation_id))];
   const { data: automations } = await supabase
     .from("crm_wa_automations")
-    .select("id, message_type, message_text, template_id, template_var_map")
+    .select("id, message_type, message_text, media_type, media_url, template_id, template_var_map")
     .in("id", autoIds);
   const autoMap = Object.fromEntries((automations ?? []).map(a => [a.id, a]));
 
@@ -295,10 +319,10 @@ async function processQueue() {
         if (!isWithin24h) {
           status = "skipped";
         } else {
-          const r = await sendText(conv.phone, auto.message_text ?? "", config.phone_number_id, config.access_token);
+          const r = await sendMessage(conv.phone, auto.message_text ?? "", config.phone_number_id, config.access_token, auto.media_type, auto.media_url);
           status = r.ok ? "sent" : "failed";
           errorMsg = r.error ?? null;
-          if (r.ok) { sentAt = new Date().toISOString(); sentContent = auto.message_text; }
+          if (r.ok) { sentAt = new Date().toISOString(); sentContent = auto.media_type ? `[${auto.media_type}] ${auto.message_text ?? ""}`.trim() : auto.message_text; }
         }
 
       } else if (auto.message_type === "template") {
@@ -314,10 +338,10 @@ async function processQueue() {
 
       } else if (auto.message_type === "free_text_with_fallback") {
         if (isWithin24h) {
-          const r = await sendText(conv.phone, auto.message_text ?? "", config.phone_number_id, config.access_token);
+          const r = await sendMessage(conv.phone, auto.message_text ?? "", config.phone_number_id, config.access_token, auto.media_type, auto.media_url);
           status = r.ok ? "sent" : "failed";
           errorMsg = r.error ?? null;
-          if (r.ok) { sentAt = new Date().toISOString(); sentContent = auto.message_text; }
+          if (r.ok) { sentAt = new Date().toISOString(); sentContent = auto.media_type ? `[${auto.media_type}] ${auto.message_text ?? ""}`.trim() : auto.message_text; }
         } else {
           const tpl = tplMap[auto.template_id];
           if (!tpl) { status = "skipped"; errorMsg = "Outside 24h and no template configured"; }

@@ -893,11 +893,15 @@ export type CrmWaCampaignLog = {
   sent_at: string | null
 }
 
+export type WaMediaType = "image" | "video" | "audio"
+
 export type CrmWaInstantCampaign = {
   id: string
   user_id: string
   name: string
   message_text: string
+  media_type: WaMediaType | null
+  media_url: string | null
   window_hours: number
   label_ids: string[]
   country_codes: string[]
@@ -944,6 +948,8 @@ export type CrmWaAutomation = {
   delay_hours: number
   message_type: WaAutomationMsgType
   message_text: string | null
+  media_type: WaMediaType | null
+  media_url: string | null
   template_id: string | null
   template_var_map: Record<string, any>
   sent_count: number

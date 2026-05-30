@@ -1,17 +1,93 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import {
   Plus, Trash2, Edit2, Zap, Clock,
   CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp,
   ArrowLeft, AlertCircle, Send, SkipForward,
+  Image, Video, Mic, Upload,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   useWaAutomations, useCreateWaAutomation, useUpdateWaAutomation,
   useDeleteWaAutomation, useAutomationQueue, useWaLabels, useWaTemplates,
 } from "@/hooks/useCrmData";
+import { useCurrentUser } from "@/hooks/useAuth";
+import { supabase } from "@/lib/supabase";
 import { Switch } from "@/components/ui/switch";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
-import type { CrmWaAutomation, WaAutomationTrigger, WaAutomationMsgType, WaVarSource } from "@/lib/supabase";
+import type { CrmWaAutomation, WaAutomationTrigger, WaAutomationMsgType, WaMediaType, WaVarSource } from "@/lib/supabase";
+
+// ── Media upload field ────────────────────────────────────────────────────────
+
+type WaMediaKind = "image" | "video" | "audio";
+
+function MediaUploadField({
+  mediaType, value, onChange, userId,
+}: {
+  mediaType: WaMediaKind;
+  value: string;
+  onChange: (url: string) => void;
+  userId: string;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+
+  const accept = mediaType === "image"
+    ? "image/jpeg,image/png,image/webp"
+    : mediaType === "video"
+    ? "video/mp4,video/3gpp"
+    : "audio/ogg,audio/mpeg,audio/mp4,audio/aac,audio/amr";
+
+  const handleFile = async (file: File) => {
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase() ?? "bin";
+      const path = `wa-campaigns/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error } = await supabase.storage.from("form-uploads").upload(path, file, { upsert: false });
+      if (error) { toast.error("Error al subir archivo: " + error.message); return; }
+      const { data: { publicUrl } } = supabase.storage.from("form-uploads").getPublicUrl(path);
+      onChange(publicUrl);
+    } catch {
+      toast.error("Error al subir archivo");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const label = mediaType === "image" ? "imagen" : mediaType === "video" ? "video" : "audio";
+  const Icon = mediaType === "image" ? Image : mediaType === "video" ? Video : Mic;
+
+  return (
+    <div className="space-y-1.5">
+      <input ref={inputRef} type="file" accept={accept} className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+      {value ? (
+        <div className="flex items-center gap-2.5 p-2.5 rounded-xl border border-border bg-muted/20">
+          {mediaType === "image" ? (
+            <img src={value} alt="" className="h-14 w-14 object-cover rounded-lg shrink-0" />
+          ) : (
+            <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center shrink-0">
+              <Icon size={18} className="text-muted-foreground" />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium">{label.charAt(0).toUpperCase() + label.slice(1)} subido</p>
+            <p className="text-[10px] text-muted-foreground truncate">{value.split("/").pop()}</p>
+          </div>
+          <button type="button" onClick={() => onChange("")}
+            className="p-1 rounded-lg hover:bg-muted transition-colors text-muted-foreground shrink-0">
+            <XCircle size={14} />
+          </button>
+        </div>
+      ) : (
+        <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
+          className="w-full flex flex-col items-center justify-center gap-2 h-24 rounded-xl border-2 border-dashed border-border hover:border-primary/50 hover:bg-muted/20 transition-all text-muted-foreground disabled:opacity-50 cursor-pointer">
+          {uploading ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}
+          <span className="text-xs">{uploading ? "Subiendo..." : `Seleccionar ${label}`}</span>
+        </button>
+      )}
+    </div>
+  );
+}
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -210,6 +286,8 @@ type FormState = {
   delay_hours: string;
   message_type: WaAutomationMsgType;
   message_text: string;
+  media_type: WaMediaType | "none";
+  media_url: string;
   template_id: string;
   template_body: string;
   template_var_map: Record<string, WaVarSource>;
@@ -226,6 +304,8 @@ function emptyForm(): FormState {
     delay_hours: "0",
     message_type: "free_text",
     message_text: "",
+    media_type: "none",
+    media_url: "",
     template_id: "",
     template_body: "",
     template_var_map: {},
@@ -243,6 +323,8 @@ function automationToForm(a: CrmWaAutomation): FormState {
     delay_hours: String(a.delay_hours ?? 0),
     message_type: a.message_type,
     message_text: a.message_text ?? "",
+    media_type: a.media_type ?? "none",
+    media_url: a.media_url ?? "",
     template_id: a.template_id ?? "",
     template_body: "",
     template_var_map: (a.template_var_map ?? {}) as Record<string, WaVarSource>,
@@ -259,6 +341,7 @@ function AutomationForm({
   onBack: () => void;
 }) {
   const [form, setForm] = useState<FormState>(initial);
+  const { user } = useCurrentUser();
   const createAuto = useCreateWaAutomation();
   const updateAuto = useUpdateWaAutomation();
   const { data: labels = [] } = useWaLabels();
@@ -276,7 +359,10 @@ function AutomationForm({
   const isValid = useMemo(() => {
     if (!form.name.trim()) return false;
     if (!form.trigger_inactivity_hours || Number(form.trigger_inactivity_hours) < 1) return false;
-    if (needsText && !form.message_text.trim()) return false;
+    if (needsText) {
+      if (form.media_type === "none" && !form.message_text.trim()) return false;
+      if (form.media_type !== "none" && !form.media_url.trim()) return false;
+    }
     if (needsTemplate && !form.template_id) return false;
     return true;
   }, [form, needsText, needsTemplate]);
@@ -294,7 +380,9 @@ function AutomationForm({
       trigger_country_codes: form.trigger_country_codes,
       delay_hours: Number(form.delay_hours) || 0,
       message_type: form.message_type,
-      message_text: needsText ? form.message_text.trim() : null,
+      message_text: needsText && form.media_type !== "audio" ? form.message_text.trim() : null,
+      media_type: needsText && form.media_type !== "none" ? form.media_type as WaMediaType : null,
+      media_url: needsText && form.media_type !== "none" ? form.media_url.trim() : null,
       template_id: needsTemplate ? form.template_id : null,
       template_var_map: needsTemplate ? form.template_var_map : {},
     };
@@ -475,7 +563,7 @@ function AutomationForm({
           ] as const).map(opt => (
             <button
               key={opt.value} type="button"
-              onClick={() => set({ message_type: opt.value })}
+              onClick={() => set({ message_type: opt.value, media_type: "none", media_url: "" })}
               className={`w-full text-left p-3 rounded-xl border transition-all ${
                 form.message_type === opt.value
                   ? "border-primary bg-primary/5 ring-1 ring-primary/30"
@@ -489,19 +577,62 @@ function AutomationForm({
         </div>
       </div>
 
-      {/* Message text */}
+      {/* Message text / media */}
       {needsText && (
-        <div className="space-y-1.5">
+        <div className="space-y-3">
           <label className="text-xs font-semibold text-foreground">
             {form.message_type === "free_text_with_fallback" ? "Mensaje de texto libre (dentro de 24h)" : "Mensaje"}
           </label>
-          <textarea
-            value={form.message_text}
-            onChange={e => set({ message_text: e.target.value })}
-            rows={4}
-            placeholder="Escribe el mensaje que se enviará..."
-            className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 resize-none"
-          />
+
+          {/* Media type selector */}
+          <div className="grid grid-cols-4 gap-1.5">
+            {([
+              { value: "none",  icon: <Send size={13} />,  label: "Solo texto" },
+              { value: "image", icon: <Image size={13} />, label: "Imagen" },
+              { value: "video", icon: <Video size={13} />, label: "Video" },
+              { value: "audio", icon: <Mic size={13} />,   label: "Audio" },
+            ] as const).map(opt => (
+              <button key={opt.value} type="button"
+                onClick={() => set({ media_type: opt.value, media_url: "" })}
+                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl border text-xs font-medium transition-all ${
+                  form.media_type === opt.value
+                    ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/30"
+                    : "border-border hover:border-primary/40 text-muted-foreground"
+                }`}
+              >
+                {opt.icon}
+                <span className="text-[10px]">{opt.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Media upload */}
+          {form.media_type !== "none" && (
+            <div className="space-y-1">
+              <label className="text-xs text-muted-foreground">
+                Archivo de {form.media_type === "image" ? "imagen" : form.media_type === "video" ? "video" : "audio"} *
+              </label>
+              <MediaUploadField
+                mediaType={form.media_type as WaMediaKind}
+                value={form.media_url}
+                onChange={url => set({ media_url: url })}
+                userId={user?.id ?? ""}
+              />
+            </div>
+          )}
+
+          {/* Caption / text (hidden for audio) */}
+          {form.media_type !== "audio" && (
+            <textarea
+              value={form.message_text}
+              onChange={e => set({ message_text: e.target.value })}
+              rows={4}
+              placeholder={form.media_type === "none"
+                ? "Escribe el mensaje que se enviará..."
+                : "Pie de foto o descripción (opcional)..."}
+              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+            />
+          )}
         </div>
       )}
 

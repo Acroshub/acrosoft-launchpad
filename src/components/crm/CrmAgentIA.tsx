@@ -4645,7 +4645,21 @@ const ChatPanel = ({
   const [pendingConfirm, setPendingConfirm] = useState<"confirm" | "reject" | null>(null);
   const bottomRef       = useRef<HTMLDivElement>(null);
   const fileInputRef    = useRef<HTMLInputElement>(null);
+  const textareaRef     = useRef<HTMLTextAreaElement>(null);
   const prevNotesLogRef = useRef(false);
+
+  const applyQuickReply = (content: string) => {
+    setText(content);
+    setShowQrPopover(false);
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (!ta) return;
+      ta.style.height = "auto";
+      ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
+      ta.focus();
+      ta.setSelectionRange(content.length, content.length);
+    });
+  };
 
   const handleConfirmPayment = async () => {
     if (!pendingSale || paymentAction !== null) return;
@@ -5143,7 +5157,7 @@ const ChatPanel = ({
             {qrSuggestions.map((qr, i) => (
               <button
                 key={qr.id}
-                onMouseDown={e => { e.preventDefault(); setText(qr.content); setShowQrPopover(false); }}
+                onMouseDown={e => { e.preventDefault(); applyQuickReply(qr.content); }}
                 className={`w-full flex items-start gap-3 px-4 py-2.5 text-left transition-colors ${i === qrFocusIdx ? "bg-primary/10" : "hover:bg-secondary/60"}`}
               >
                 <span className="text-xs font-mono font-semibold text-primary shrink-0 mt-0.5">/{qr.shortcut}</span>
@@ -5184,13 +5198,14 @@ const ChatPanel = ({
                   if (e.key === "Enter" || e.key === "Tab") {
                     e.preventDefault();
                     const sel = qrSuggestions[qrFocusIdx];
-                    if (sel) { setText(sel.content); setShowQrPopover(false); }
+                    if (sel) applyQuickReply(sel.content);
                     return;
                   }
                   if (e.key === "Escape") { setShowQrPopover(false); return; }
                 }
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); }
               }}
+              ref={textareaRef}
               placeholder=""
               rows={1}
               className="w-full bg-transparent px-4 pt-3 pb-1 text-sm resize-none outline-none leading-relaxed"
@@ -5318,6 +5333,7 @@ const ChatPanel = ({
                     setQrSuggestions(allQuickReplies);
                     setShowQrPopover(true);
                     setQrFocusIdx(0);
+                    requestAnimationFrame(() => textareaRef.current?.focus());
                   }}
                   className="w-8 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-black/5 dark:hover:bg-white/8 font-semibold text-sm"
                   title="Respuestas rápidas"

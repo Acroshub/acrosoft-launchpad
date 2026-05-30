@@ -94,6 +94,22 @@ function allTimezonesReached(targetDate: string, targetTime: string): boolean {
 // ── Core send logic ────────────────────────────────────────────────────────────
 
 type ConvRow = { id: string; phone: string; contact_name: string | null };
+type MediaType = "image" | "video" | "audio";
+
+function buildMessageBody(phone: string, messageText: string, mediaType: MediaType | null, mediaUrl: string | null): object {
+  const to = phone.replace(/\D/g, "");
+  if (mediaType && mediaUrl) {
+    if (mediaType === "audio") {
+      return { messaging_product: "whatsapp", recipient_type: "individual", to, type: "audio", audio: { link: mediaUrl } };
+    }
+    const caption = messageText?.trim() || undefined;
+    return {
+      messaging_product: "whatsapp", recipient_type: "individual", to,
+      type: mediaType, [mediaType]: { link: mediaUrl, ...(caption ? { caption } : {}) },
+    };
+  }
+  return { messaging_product: "whatsapp", recipient_type: "individual", to, type: "text", text: { body: messageText, preview_url: false } };
+}
 
 async function sendBatch(
   campaignId: string,
@@ -101,6 +117,8 @@ async function sendBatch(
   messageText: string,
   phoneNumberId: string,
   accessToken: string,
+  mediaType: MediaType | null = null,
+  mediaUrl: string | null = null,
 ): Promise<{ sent: number; failed: number }> {
   let sent = 0, failed = 0;
   const logs: any[] = [];
@@ -108,16 +126,11 @@ async function sendBatch(
   for (const conv of convs) {
     try {
       const phone = conv.phone.replace(/\D/g, "");
+      const body = buildMessageBody(phone, messageText, mediaType, mediaUrl);
       const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
         method: "POST",
         headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to: phone,
-          type: "text",
-          text: { body: messageText, preview_url: false },
-        }),
+        body: JSON.stringify(body),
       });
       if (res.ok) {
         sent++;
@@ -179,8 +192,9 @@ async function processModeA(campaign: any, agentConfig: any) {
   await supabase.from("crm_wa_instant_campaigns").update({ total_contacts: convs.length }).eq("id", campaign.id);
 
   const { sent, failed } = await sendBatch(
-    campaign.id, convs, campaign.message_text,
+    campaign.id, convs, campaign.message_text ?? "",
     agentConfig.phone_number_id, agentConfig.access_token,
+    campaign.media_type ?? null, campaign.media_url ?? null,
   );
 
   await supabase.from("crm_wa_instant_campaigns").update({
@@ -224,8 +238,9 @@ async function processModeB(campaign: any, agentConfig: any) {
 
   if (readyToSend.length > 0) {
     const { sent, failed } = await sendBatch(
-      campaign.id, readyToSend, campaign.message_text,
+      campaign.id, readyToSend, campaign.message_text ?? "",
       agentConfig.phone_number_id, agentConfig.access_token,
+      campaign.media_type ?? null, campaign.media_url ?? null,
     );
     // Atomic increment — avoids race conditions when scheduler overlaps across minutes
     await supabase.rpc("increment_instant_campaign_counts", {

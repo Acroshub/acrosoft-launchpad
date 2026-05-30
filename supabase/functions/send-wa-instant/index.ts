@@ -91,6 +91,41 @@ function getTimezoneFromPhone(phone: string): string {
 // ── Core send logic (reusable by scheduler) ────────────────────────────────────
 
 type ConvRow = { id: string; phone: string; contact_name: string | null };
+type MediaType = "image" | "video" | "audio";
+
+function buildMessageBody(
+  phone: string,
+  messageText: string,
+  mediaType: MediaType | null,
+  mediaUrl: string | null,
+): object {
+  const to = phone.replace(/\D/g, "");
+  if (mediaType && mediaUrl) {
+    if (mediaType === "audio") {
+      return {
+        messaging_product: "whatsapp", recipient_type: "individual", to,
+        type: "audio", audio: { link: mediaUrl },
+      };
+    }
+    const caption = messageText?.trim() || undefined;
+    if (mediaType === "image") {
+      return {
+        messaging_product: "whatsapp", recipient_type: "individual", to,
+        type: "image", image: { link: mediaUrl, ...(caption ? { caption } : {}) },
+      };
+    }
+    if (mediaType === "video") {
+      return {
+        messaging_product: "whatsapp", recipient_type: "individual", to,
+        type: "video", video: { link: mediaUrl, ...(caption ? { caption } : {}) },
+      };
+    }
+  }
+  return {
+    messaging_product: "whatsapp", recipient_type: "individual", to,
+    type: "text", text: { body: messageText, preview_url: false },
+  };
+}
 
 async function sendMessages(
   campaignId: string,
@@ -98,6 +133,8 @@ async function sendMessages(
   messageText: string,
   phoneNumberId: string,
   accessToken: string,
+  mediaType: MediaType | null = null,
+  mediaUrl: string | null = null,
 ): Promise<{ sent: number; failed: number }> {
   let sentCount = 0;
   let failedCount = 0;
@@ -109,19 +146,14 @@ async function sendMessages(
   for (const conv of convs) {
     try {
       const phone = conv.phone.replace(/\D/g, "");
+      const body = buildMessageBody(phone, messageText, mediaType, mediaUrl);
       const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${accessToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          messaging_product: "whatsapp",
-          recipient_type: "individual",
-          to: phone,
-          type: "text",
-          text: { body: messageText, preview_url: false },
-        }),
+        body: JSON.stringify(body),
       });
 
       if (res.ok) {
@@ -222,8 +254,9 @@ Deno.serve(async (req: Request) => {
 
   // ── Send ───────────────────────────────────────────────────────────────────
   const { sent, failed } = await sendMessages(
-    campaign_id, convs, campaign.message_text,
+    campaign_id, convs, campaign.message_text ?? "",
     agentConfig.phone_number_id, agentConfig.access_token,
+    campaign.media_type ?? null, campaign.media_url ?? null,
   );
 
   // ── Mark completed ─────────────────────────────────────────────────────────
