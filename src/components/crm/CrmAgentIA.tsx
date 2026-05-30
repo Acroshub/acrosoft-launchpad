@@ -5,7 +5,7 @@ import {
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, ChevronLeft, ChevronDown, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
-  GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star, Archive,
+  GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star, Archive, LayoutGrid,
 } from "lucide-react";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
@@ -227,6 +227,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const { data: catalogs = [] } = useCatalogs();
   const { data: catalogProductsMap = new Map() } = useCatalogProductsMap();
   const { data: calendars = [] } = useCalendars();
+  const { data: allCourses = [] } = useCourses();
 
   const [step, setStep]         = useState(1);
   const [testing, setTesting]   = useState(false);
@@ -4601,6 +4602,122 @@ const MessageBubble = ({ msg, highlight }: { msg: CrmWaMessage; highlight?: bool
   );
 };
 
+// ─── Media Gallery Panel (B19-10) ─────────────────────────────────────────────
+function MediaGalleryPanel({
+  messages,
+  tab,
+  onTabChange,
+  onClose,
+}: {
+  messages: CrmWaMessage[];
+  tab: "photos" | "docs";
+  onTabChange: (t: "photos" | "docs") => void;
+  onClose: () => void;
+}) {
+  const photos = messages.filter(m => m.media_type === "image" && m.media_url);
+  const docs   = messages.filter(m => m.media_type === "document" && m.media_url);
+
+  return (
+    <div className="flex-1 overflow-y-auto flex flex-col bg-background">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b shrink-0">
+        <div className="flex items-center gap-2">
+          <LayoutGrid size={15} className="text-muted-foreground" />
+          <span className="text-sm font-semibold">Galería de medios</span>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-secondary transition-colors"
+        >
+          <X size={15} />
+        </button>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex shrink-0">
+        {(["photos", "docs"] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => onTabChange(t)}
+            className={`flex-1 py-2.5 text-sm font-medium transition-colors border-b-2 ${
+              tab === t
+                ? "text-primary border-primary"
+                : "text-muted-foreground border-transparent hover:text-foreground"
+            }`}
+          >
+            {t === "photos" ? `Fotos (${photos.length})` : `Documentos (${docs.length})`}
+          </button>
+        ))}
+      </div>
+
+      {/* Content */}
+      {tab === "photos" ? (
+        photos.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground px-6">
+            <LayoutGrid size={28} className="opacity-20" />
+            <p className="text-sm text-center">Sin fotos en esta conversación</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-3 gap-0.5 p-0.5">
+            {photos.map(m => (
+              <a
+                key={m.id}
+                href={m.media_url!}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="aspect-square overflow-hidden bg-secondary block"
+              >
+                <img
+                  src={m.media_url!}
+                  alt=""
+                  loading="lazy"
+                  className="w-full h-full object-cover hover:opacity-85 transition-opacity"
+                />
+              </a>
+            ))}
+          </div>
+        )
+      ) : (
+        docs.length === 0 ? (
+          <div className="flex-1 flex flex-col items-center justify-center gap-3 text-muted-foreground px-6">
+            <Paperclip size={28} className="opacity-20" />
+            <p className="text-sm text-center">Sin documentos en esta conversación</p>
+          </div>
+        ) : (
+          <div className="divide-y">
+            {docs.map(m => {
+              const filename = m.content?.replace(/^\[PDF:\s*/, "").replace(/\]$/, "") ?? "Documento";
+              const date = new Date(m.created_at).toLocaleDateString("es", {
+                day: "2-digit", month: "short", year: "numeric",
+              });
+              return (
+                <a
+                  key={m.id}
+                  href={m.media_url!}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/40 transition-colors group"
+                >
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0 text-lg">
+                    📄
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{filename}</p>
+                    <p className="text-xs text-muted-foreground">{date}</p>
+                  </div>
+                  <span className="text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                    Abrir →
+                  </span>
+                </a>
+              );
+            })}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 // ─── Chat Panel ───────────────────────────────────────────────────────────────
 type UpcomingAppt = { appt: CrmAppointment; contact: CrmContact; minutesAway: number };
 
@@ -4633,8 +4750,10 @@ const ChatPanel = ({
   const [sending, setSending]       = useState(false);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [windowError, setWindowError] = useState(false);
-  const [showMenu, setShowMenu]     = useState(false);
-  const [showLabels, setShowLabels] = useState(false);
+  const [showMenu, setShowMenu]           = useState(false);
+  const [showLabels, setShowLabels]       = useState(false);
+  const [showMediaGallery, setShowMediaGallery] = useState(false);
+  const [mediaGalleryTab, setMediaGalleryTab]   = useState<"photos" | "docs">("photos");
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [qrSuggestions, setQrSuggestions] = useState<CrmQuickReply[]>([]);
   const [showQrPopover, setShowQrPopover] = useState(false);
@@ -4946,6 +5065,14 @@ const ChatPanel = ({
               <>
                 <div className="fixed inset-0 z-10" onClick={() => setShowMenu(false)} />
                 <div className="absolute right-0 top-full mt-1.5 z-20 bg-card border rounded-2xl shadow-xl py-1 min-w-[180px] overflow-hidden">
+                  <button
+                    onClick={() => { setShowMenu(false); setShowMediaGallery(true); }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm text-foreground hover:bg-secondary/60 transition-colors"
+                  >
+                    <LayoutGrid size={14} className="text-muted-foreground" />
+                    Galería de medios
+                  </button>
+                  {(onArchive || onDelete) && <div className="border-t mx-2" />}
                   {onArchive && (
                     <button
                       onClick={() => { setShowMenu(false); onArchive(); }}
@@ -5077,8 +5204,15 @@ const ChatPanel = ({
         </div>
       )}
 
-      {/* Messages / Notes log */}
-      {showNotesLog ? (
+      {/* Messages / Notes log / Media gallery */}
+      {showMediaGallery ? (
+        <MediaGalleryPanel
+          messages={messages}
+          tab={mediaGalleryTab}
+          onTabChange={setMediaGalleryTab}
+          onClose={() => setShowMediaGallery(false)}
+        />
+      ) : showNotesLog ? (
         <div className="flex-1 overflow-y-auto py-3 bg-amber-50/40 dark:bg-amber-950/10" style={{ overscrollBehavior: "contain" }}>
           <div className="px-4 pb-3">
             <div className="flex items-center gap-2 bg-amber-100 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800/50 rounded-xl px-3 py-2">

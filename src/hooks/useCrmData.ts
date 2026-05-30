@@ -4205,3 +4205,22 @@ export const useDeleteQuickReply = () => {
     onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_quick_replies"] }),
   });
 };
+
+// ─── Conversation Media (B19-10) ─────────────────────────────────────────────
+export const useConversationMedia = (conversationId: string | null) => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["crm_wa_messages", conversationId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_messages")
+        .select("*")
+        .eq("conversation_id", conversationId!)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmWaMessage[];
+    },
+    enabled: !!user && !!conversationId,
+    select: (msgs) => msgs.filter(m => !!m.media_url && (m.media_type === "image" || m.media_type === "document")),
+  });
+};
