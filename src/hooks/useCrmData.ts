@@ -2764,7 +2764,7 @@ export const useUpsertPaymentMethod = () => {
       if (pm.id) {
         const { data, error } = await supabase
           .from("crm_payment_methods")
-          .update({ type: pm.type, label: pm.label, content: pm.content, sort_order: pm.sort_order })
+          .update({ type: pm.type, label: pm.label, content: pm.content, sort_order: pm.sort_order, price_id: pm.price_id ?? null, currency: pm.currency ?? null })
           .eq("id", pm.id)
           .select()
           .single();

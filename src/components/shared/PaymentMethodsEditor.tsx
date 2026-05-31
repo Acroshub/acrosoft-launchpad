@@ -1,12 +1,13 @@
 import { useState, useRef } from "react";
-import { Plus, Trash2, Loader2, CreditCard, Link, QrCode, Pencil, Check, X } from "lucide-react";
+import { Plus, Trash2, Loader2, CreditCard, Link, QrCode, Pencil, Check, X, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { usePaymentMethods, useUpsertPaymentMethod, useDeletePaymentMethod } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import type { CrmPaymentMethod } from "@/lib/supabase";
+import type { CrmPaymentMethod, CrmPrice } from "@/lib/supabase";
+import { getCurrencyFlag, getCurrencySymbol } from "@/lib/currencies";
 
 const TYPE_OPTIONS = [
   { value: "bank_transfer", label: "Transferencia bancaria", icon: CreditCard },
@@ -21,6 +22,8 @@ const BLANK: Omit<CrmPaymentMethod, "id" | "created_at" | "user_id"> = {
   label: "",
   content: "",
   sort_order: 0,
+  price_id: null,
+  currency: null,
 };
 
 function TypeIcon({ type }: { type: CrmPaymentMethod["type"] }) {
@@ -33,6 +36,7 @@ function MethodForm({
   value,
   entityType,
   entityId,
+  prices,
   onSave,
   onCancel,
   saving,
@@ -40,14 +44,15 @@ function MethodForm({
   value: Partial<CrmPaymentMethod>;
   entityType: CrmPaymentMethod["entity_type"];
   entityId: string;
+  prices?: CrmPrice[];
   onSave: (v: Partial<CrmPaymentMethod>) => void;
   onCancel: () => void;
   saving: boolean;
 }) {
   const { user } = useCurrentUser();
-  const [type, setType]     = useState<CrmPaymentMethod["type"]>(value.type ?? "bank_transfer");
-  const [label, setLabel]   = useState(value.label ?? "");
-  // Contenido separado por tipo para no perder datos al cambiar de tab
+  const [type, setType]       = useState<CrmPaymentMethod["type"]>(value.type ?? "bank_transfer");
+  const [label, setLabel]     = useState(value.label ?? "");
+  const [priceId, setPriceId] = useState<string | null>(value.price_id ?? null);
   const [contentByType, setContentByType] = useState<Record<CrmPaymentMethod["type"], string>>({
     bank_transfer: value.type === "bank_transfer" ? (value.content ?? "") : "",
     payment_link:  value.type === "payment_link"  ? (value.content ?? "") : "",
@@ -57,6 +62,9 @@ function MethodForm({
   const setContent = (v: string) => setContentByType(prev => ({ ...prev, [type]: v }));
   const [uploadingQr, setUploadingQr] = useState(false);
   const qrInputRef = useRef<HTMLInputElement>(null);
+
+  const selectedPrice = prices?.find(p => p.id === priceId) ?? null;
+  const derivedCurrency = selectedPrice?.currency ?? null;
 
   const handleQrUpload = async (file: File) => {
     if (!user) return;
@@ -77,7 +85,7 @@ function MethodForm({
   return (
     <div className="bg-secondary/30 rounded-xl p-4 space-y-3 border border-border/60">
       {/* Tipo */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {TYPE_OPTIONS.map(opt => (
           <button
             key={opt.value}
@@ -91,6 +99,49 @@ function MethodForm({
             <opt.icon size={12} /> {opt.label}
           </button>
         ))}
+      </div>
+
+      {/* Selector de precio / moneda — solo desde precios registrados */}
+      <div className="space-y-1.5">
+        <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
+          <DollarSign size={11} /> Precio asociado
+        </label>
+        {prices && prices.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setPriceId(null)}
+              className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
+                priceId === null
+                  ? "bg-primary text-primary-foreground border-primary"
+                  : "bg-card border-border hover:bg-secondary text-muted-foreground"
+              }`}
+            >
+              Todos los precios
+            </button>
+            {prices.map(p => (
+              <button
+                key={p.id}
+                onClick={() => setPriceId(p.id)}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs border transition-colors ${
+                  priceId === p.id
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card border-border hover:bg-secondary"
+                }`}
+              >
+                {getCurrencyFlag(p.currency)} {getCurrencySymbol(p.currency)}{Number(p.price).toLocaleString()} ({p.currency})
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground/60 italic">
+            Registra precios multi-moneda para vincular este método a una moneda específica.
+          </p>
+        )}
+        {derivedCurrency && (
+          <p className="text-[10px] text-muted-foreground">
+            Solo se mostrará a clientes con moneda <span className="font-semibold">{derivedCurrency}</span>.
+          </p>
+        )}
       </div>
 
       {/* Etiqueta */}
@@ -159,7 +210,16 @@ function MethodForm({
       <div className="flex gap-2 pt-1">
         <Button
           size="sm"
-          onClick={() => onSave({ ...value, type, label: label || null, content, entity_type: entityType, entity_id: entityId })}
+          onClick={() => onSave({
+            ...value,
+            type,
+            label: label || null,
+            content,
+            entity_type: entityType,
+            entity_id: entityId,
+            price_id: priceId,
+            currency: derivedCurrency,
+          })}
           disabled={saving || !content.trim() || uploadingQr}
           className="h-7 text-xs gap-1"
         >
@@ -179,9 +239,11 @@ function MethodForm({
 export default function PaymentMethodsEditor({
   entityType,
   entityId,
+  prices,
 }: {
   entityType: CrmPaymentMethod["entity_type"];
   entityId: string | null;
+  prices?: CrmPrice[];
 }) {
   const { data: methods = [] } = usePaymentMethods(entityType, entityId);
   const upsert = useUpsertPaymentMethod();
@@ -191,22 +253,34 @@ export default function PaymentMethodsEditor({
 
   const handleSave = async (v: Partial<CrmPaymentMethod>) => {
     if (!entityId) return;
-    await upsert.mutateAsync({
-      ...(v.id ? { id: v.id } : {}),
-      entity_type: entityType,
-      entity_id: entityId,
-      type: v.type!,
-      label: v.label ?? null,
-      content: v.content!,
-      sort_order: v.sort_order ?? methods.length,
-    });
-    setEditingId(null);
-    setShowNew(false);
+    try {
+      await upsert.mutateAsync({
+        ...(v.id ? { id: v.id } : {}),
+        entity_type: entityType,
+        entity_id: entityId,
+        type: v.type!,
+        label: v.label ?? null,
+        content: v.content!,
+        sort_order: v.sort_order ?? methods.length,
+        price_id: v.price_id ?? null,
+        currency: v.currency ?? null,
+      });
+      toast.success("Método de pago guardado");
+      setEditingId(null);
+      setShowNew(false);
+    } catch {
+      toast.error("Error al guardar el método de pago");
+    }
   };
 
   const handleDelete = async (pm: CrmPaymentMethod) => {
     if (!entityId) return;
-    await remove.mutateAsync({ id: pm.id, entityType, entityId });
+    try {
+      await remove.mutateAsync({ id: pm.id, entityType, entityId });
+      toast.success("Método eliminado");
+    } catch {
+      toast.error("Error al eliminar el método de pago");
+    }
   };
 
   if (!entityId) return (
@@ -226,6 +300,7 @@ export default function PaymentMethodsEditor({
             value={pm}
             entityType={entityType}
             entityId={entityId}
+            prices={prices}
             onSave={handleSave}
             onCancel={() => setEditingId(null)}
             saving={upsert.isPending}
@@ -234,7 +309,14 @@ export default function PaymentMethodsEditor({
           <div key={pm.id} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-border/60 bg-card">
             <TypeIcon type={pm.type} />
             <div className="flex-1 min-w-0">
-              {pm.label && <p className="text-xs font-medium">{pm.label}</p>}
+              <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                {pm.label && <p className="text-xs font-medium">{pm.label}</p>}
+                {pm.currency && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
+                    {getCurrencyFlag(pm.currency)} {pm.currency}
+                  </span>
+                )}
+              </div>
               {pm.type === "qr_code" ? (
                 <img src={pm.content} alt="QR" className="w-14 h-14 object-contain rounded mt-1 border" />
               ) : pm.type === "payment_link" ? (
@@ -265,6 +347,7 @@ export default function PaymentMethodsEditor({
           value={{ ...BLANK, entity_type: entityType, entity_id: entityId, sort_order: methods.length }}
           entityType={entityType}
           entityId={entityId}
+          prices={prices}
           onSave={handleSave}
           onCancel={() => setShowNew(false)}
           saving={upsert.isPending}

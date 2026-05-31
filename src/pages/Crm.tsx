@@ -184,7 +184,7 @@ const Crm = () => {
     <div className="flex flex-col h-full">
 
       {/* Logo */}
-      <div className="px-5 pt-5 pb-4 shrink-0 flex items-center justify-between">
+      <div className="px-5 pb-4 shrink-0 flex items-center justify-between" style={{ paddingTop: "max(1.25rem, env(safe-area-inset-top))" }}>
         {brandLogo ? (
           <img src={brandLogo} alt="Logo" className="h-8 max-w-[140px] object-contain" />
         ) : (
@@ -294,7 +294,7 @@ const Crm = () => {
       <main className="flex-1 flex flex-col overflow-hidden">
 
         {/* Mobile top bar */}
-        <div className="lg:hidden flex items-center gap-3 px-4 py-3 border-b bg-card shrink-0">
+        <div className="lg:hidden flex items-center gap-3 px-4 pb-3 border-b bg-card shrink-0" style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}>
           <button
             onClick={() => setSidebarOpen(true)}
             className="w-9 h-9 rounded-xl hover:bg-secondary transition-colors flex items-center justify-center text-muted-foreground"

@@ -424,7 +424,7 @@ const ServiceEditor = ({
         <p className="text-xs text-muted-foreground -mt-1">
           El Agente IA usará estos métodos para cerrar ventas. Si no hay ninguno, transferirá a modo Manual.
         </p>
-        <PaymentMethodsEditor entityType="service" entityId={service.id} />
+        <PaymentMethodsEditor entityType="service" entityId={service.id} prices={existingPrices} />
       </div>
     </div>
   );

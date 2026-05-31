@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { useContacts, useAppointments, useServices, useProducts, useProductVariants, useSales, useCreateSale, useUpdateSale, useDeleteSale, useClientAccounts, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
+import { useContacts, useAppointments, useServices, useProducts, useProductVariants, useCourses, useSales, useCreateSale, useUpdateSale, useDeleteSale, useClientAccounts, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 import type { CrmSale } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
@@ -153,14 +153,17 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
 
   const { data: products = [] } = useProducts();
   const activeProducts = useMemo(() => products.filter(p => p.is_active), [products]);
+  const { data: courses = [] } = useCourses();
 
   const [selectedContact, setSelectedContact] = useState("");
-  const [saleItemType, setSaleItemType]       = useState<"service" | "product">("service");
+  const [saleItemType, setSaleItemType]       = useState<"service" | "product" | "course">("service");
   const [selectedService, setSelectedService] = useState("");
   const [selectedProduct, setSelectedProduct] = useState("");
   const [selectedVariant, setSelectedVariant] = useState("");
+  const [selectedCourse, setSelectedCourse]   = useState("");
   const [saleNotes, setSaleNotes]             = useState("");
   const [saleAmount, setSaleAmount]           = useState<number | "">("");
+  const [saleCurrency, setSaleCurrency]       = useState<string>("USD");
   const [saleType, setSaleType]               = useState<"initial" | "recurring">("initial");
 
   const { data: productVariants = [] } = useProductVariants(
@@ -171,6 +174,45 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
   // Multi-currency auto-select
   const { data: servicePrices = [] } = usePricesByEntity("service", selectedService || null);
   const { data: productPrices = [] } = usePricesByEntity("product", selectedProduct || null);
+  const { data: coursePrices = [] }  = usePricesByEntity("course",  selectedCourse  || null);
+
+  // Solo mostrar tipos que el usuario tiene registrados
+  const availableTypes = useMemo(() => [
+    ...(services.length > 0       ? ["service"] as const : []),
+    ...(activeProducts.length > 0 ? ["product"] as const : []),
+    ...(courses.length > 0        ? ["course"]  as const : []),
+  ], [services.length, activeProducts.length, courses.length]);
+
+  // Auto-seleccionar primer tipo disponible si el actual no tiene datos
+  useEffect(() => {
+    if (availableTypes.length > 0 && !availableTypes.includes(saleItemType)) {
+      setSaleItemType(availableTypes[0]);
+    }
+  }, [availableTypes]);
+
+  // Aplicar precio por moneda cuando los precios llegan del servidor (los hooks son async y los handlers usan datos stale)
+  useEffect(() => {
+    if (saleItemType !== "service" || !selectedService || !servicePrices.length) return;
+    const cur = getContactCurrency(selectedContact);
+    if (!cur) return;
+    const match = servicePrices.find(p => p.currency.toUpperCase() === cur.toUpperCase());
+    if (match) { setSaleAmount(match.price); setSaleCurrency(match.currency); }
+  }, [servicePrices]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (saleItemType !== "product" || !selectedProduct || !selectedProductObj || selectedProductObj.has_variants || !productPrices.length) return;
+    const cur = getContactCurrency(selectedContact);
+    if (!cur) return;
+    const match = productPrices.find(p => p.currency.toUpperCase() === cur.toUpperCase());
+    if (match) { setSaleAmount(match.price); setSaleCurrency(match.currency); }
+  }, [productPrices]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    if (saleItemType !== "course" || !selectedCourse || !coursePrices.length) return;
+    const cur = getContactCurrency(selectedContact);
+    if (!cur) return;
+    const match = coursePrices.find(p => p.currency.toUpperCase() === cur.toUpperCase());
+    if (match) { setSaleAmount(match.price); setSaleCurrency(match.currency); }
+  }, [coursePrices]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const getContactCurrency = (contactId: string) => {
     const contact = contacts.find(c => c.id === contactId);
     return contact?.phone ? getCurrencyFromPhone(contact.phone) : null;
@@ -328,34 +370,51 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
     setSaleType("initial");
     const s = services.find(x => x.id === sId);
     if (!s) { setSaleAmount(""); return; }
-    const contactCur = getContactCurrency(selectedContact);
-    const contactPrice = getPriceForCurrency(servicePrices, calcDiscounted(s.price, s.discount_pct), s.currency, contactCur);
-    setSaleAmount(contactPrice);
+    setSaleAmount(calcDiscounted(s.price, s.discount_pct));
+    setSaleCurrency(s.currency ?? "USD"); // moneda base inmediata; useEffect aplica override cuando precios cargan
   };
 
   const handleProductChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const pId = e.target.value; setSelectedProduct(pId); setSelectedVariant(""); setSaleAmount("");
     const p = activeProducts.find(x => x.id === pId);
     if (!p) return;
+    setSaleCurrency(p.currency ?? "USD");
     if (!p.has_variants) {
-      const contactCur = getContactCurrency(selectedContact);
-      const contactPrice = getPriceForCurrency(productPrices, calcProductPrice(p), p.currency, contactCur);
-      setSaleAmount(contactPrice);
+      setSaleAmount(calcProductPrice(p));
     }
+  };
+
+  const handleCourseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const cId = e.target.value; setSelectedCourse(cId); setSaleAmount("");
+    const c = courses.find(x => x.id === cId);
+    if (!c || c.price == null) return;
+    setSaleAmount(c.price);
+    setSaleCurrency(c.currency ?? "USD"); // moneda base inmediata; useEffect aplica override cuando precios cargan
   };
 
   const handleContactChange = (contactId: string) => {
     setSelectedContact(contactId);
-    // Re-calculate amount with the new contact's currency
     if (saleItemType === "service" && selectedService) {
       const s = services.find(x => x.id === selectedService);
       if (s) {
         const cur = contactId ? getContactCurrency(contactId) : null;
-        setSaleAmount(getPriceForCurrency(servicePrices, calcDiscounted(s.price, s.discount_pct), s.currency, cur));
+        const match = cur ? servicePrices.find(p => p.currency.toUpperCase() === cur.toUpperCase()) : null;
+        if (match) { setSaleAmount(match.price); setSaleCurrency(match.currency); }
+        else { setSaleAmount(getPriceForCurrency(servicePrices, calcDiscounted(s.price, s.discount_pct), s.currency, cur)); setSaleCurrency(s.currency ?? "USD"); }
       }
     } else if (saleItemType === "product" && selectedProduct && selectedProductObj && !selectedProductObj.has_variants) {
       const cur = contactId ? getContactCurrency(contactId) : null;
-      setSaleAmount(getPriceForCurrency(productPrices, calcProductPrice(selectedProductObj), selectedProductObj.currency, cur));
+      const match = cur ? productPrices.find(p => p.currency.toUpperCase() === cur.toUpperCase()) : null;
+      if (match) { setSaleAmount(match.price); setSaleCurrency(match.currency); }
+      else { setSaleAmount(getPriceForCurrency(productPrices, calcProductPrice(selectedProductObj), selectedProductObj.currency, cur)); setSaleCurrency(selectedProductObj.currency ?? "USD"); }
+    } else if (saleItemType === "course" && selectedCourse) {
+      const c = courses.find(x => x.id === selectedCourse);
+      if (c && c.price != null) {
+        const cur = contactId ? getContactCurrency(contactId) : null;
+        const match = cur ? coursePrices.find(p => p.currency.toUpperCase() === cur.toUpperCase()) : null;
+        if (match) { setSaleAmount(match.price); setSaleCurrency(match.currency); }
+        else { setSaleAmount(getPriceForCurrency(coursePrices, c.price, c.currency ?? "USD", cur)); setSaleCurrency(c.currency ?? "USD"); }
+      }
     }
   };
 
@@ -367,8 +426,9 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
   };
 
   const resetSaleForm = () => {
-    setSelectedContact(""); setSelectedService(""); setSelectedProduct(""); setSelectedVariant("");
-    setSaleNotes(""); setSaleAmount(""); setSaleType("initial");
+    setSelectedContact(""); setSelectedService(""); setSelectedProduct("");
+    setSelectedVariant(""); setSelectedCourse("");
+    setSaleNotes(""); setSaleAmount(""); setSaleCurrency("USD"); setSaleType("initial");
   };
 
   const handleRegisterSale = async () => {
@@ -387,7 +447,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
         await createSale.mutateAsync({
           contact_id: contact.id, contact_name: contact.name,
           service_id: service.id, service_name: service.name,
-          amount: Number(saleAmount), currency: service.currency ?? "USD",
+          amount: Number(saleAmount), currency: saleCurrency,
           type: saleType, notes: finalNotes || null,
         });
         const existingAccount = accountByContact[contact.id];
@@ -403,7 +463,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
         } else { toast.success("Venta registrada"); }
         resetSaleForm();
       } catch { toast.error("Error al registrar la venta"); }
-    } else {
+    } else if (saleItemType === "product") {
       const product = activeProducts.find(p => p.id === selectedProduct);
       if (!product) return;
       const selectedVariantObj = selectedVariant ? productVariants.find(v => v.id === selectedVariant) : undefined;
@@ -413,7 +473,20 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
           contact_id: contact.id, contact_name: contact.name,
           product_id: product.id, product_name: product.name + variantName,
           ...(selectedVariant ? { product_variant_id: selectedVariant } : {}),
-          amount: Number(saleAmount), currency: product.currency ?? "USD",
+          amount: Number(saleAmount), currency: saleCurrency,
+          type: "initial", notes: saleNotes || null,
+        } as any);
+        toast.success("Venta registrada");
+        resetSaleForm();
+      } catch { toast.error("Error al registrar la venta"); }
+    } else {
+      const course = courses.find(c => c.id === selectedCourse);
+      if (!course) return;
+      try {
+        await createSale.mutateAsync({
+          contact_id: contact.id, contact_name: contact.name,
+          course_id: course.id, course_name: course.title,
+          amount: Number(saleAmount), currency: saleCurrency,
           type: "initial", notes: saleNotes || null,
         } as any);
         toast.success("Venta registrada");
@@ -427,7 +500,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
     raw: s,
     dateStr: new Date(s.created_at).toLocaleDateString("es-ES"),
     contactName: s.contact_name ?? contacts.find(c => c.id === s.contact_id)?.name ?? "Contacto eliminado",
-    serviceName: s.service_name ?? s.product_name ?? "Sin nombre",
+    serviceName: s.course_name ?? s.service_name ?? s.product_name ?? "Sin nombre",
     notes: s.notes ?? "",
   })), [confirmedSales, contacts]);
 
@@ -453,9 +526,9 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
   const dateLabel = new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
 
   const isFormValid = selectedContact && (
-    saleItemType === "service"
-      ? !!selectedService
-      : !!selectedProduct && (!selectedProductObj?.has_variants || !productVariants.length || !!selectedVariant)
+    saleItemType === "service" ? !!selectedService :
+    saleItemType === "product" ? !!selectedProduct && (!selectedProductObj?.has_variants || !productVariants.length || !!selectedVariant) :
+    !!selectedCourse
   ) && saleAmount !== "";
 
   return (
@@ -758,27 +831,27 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
               </div>
             </div>
 
-            {/* Row 2: Tipo + Servicio/Producto */}
+            {/* Row 2: Tipo + Servicio/Producto/Curso */}
             <div className="grid sm:grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tipo</label>
-                <div className="flex rounded-xl border border-border overflow-hidden h-12">
-                  <button
-                    type="button"
-                    onClick={() => { setSaleItemType("service"); setSelectedProduct(""); setSaleAmount(""); }}
-                    className={`flex-1 text-sm font-semibold transition-colors ${saleItemType === "service" ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"}`}
-                  >
-                    Servicio
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setSaleItemType("product"); setSelectedService(""); setSaleAmount(""); setSaleType("initial"); }}
-                    className={`flex-1 text-sm font-semibold transition-colors border-l border-border ${saleItemType === "product" ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"}`}
-                  >
-                    Producto
-                  </button>
+              {availableTypes.length > 1 && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tipo</label>
+                  <div className="flex rounded-xl border border-border overflow-hidden h-12">
+                    {availableTypes.map((t, i) => (
+                      <button key={t} type="button"
+                        onClick={() => {
+                          setSaleItemType(t);
+                          setSelectedService(""); setSelectedProduct(""); setSelectedVariant(""); setSelectedCourse("");
+                          setSaleAmount(""); setSaleType("initial");
+                        }}
+                        className={`flex-1 text-sm font-semibold transition-colors ${i > 0 ? "border-l border-border" : ""} ${saleItemType === t ? "bg-primary text-white" : "text-muted-foreground hover:text-foreground"}`}
+                      >
+                        {t === "service" ? "Servicio" : t === "product" ? "Producto" : "Curso"}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
 
               {saleItemType === "service" ? (
                 <div className="space-y-1.5">
@@ -797,7 +870,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
                     </div>
                   </div>
                 </div>
-              ) : (
+              ) : saleItemType === "product" ? (
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Producto</label>
                   <div className="relative">
@@ -808,6 +881,23 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
                         const displayPrice = disc > 0 ? +(p.price * (1 - disc / 100)).toFixed(2) : p.price;
                         return <option key={p.id} value={p.id}>{p.name} — {fmtSaleAmt(displayPrice, p.currency)}{disc > 0 ? ` (-${disc}%)` : ""}</option>;
                       })}
+                    </select>
+                    <div className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Curso</label>
+                  <div className="relative">
+                    <select className={selectCls} value={selectedCourse} onChange={handleCourseChange}>
+                      <option value="">Seleccionar...</option>
+                      {courses.map(c => (
+                        <option key={c.id} value={c.id}>
+                          {c.title}{c.price != null ? ` — ${fmtSaleAmt(c.price, c.currency)}` : ""}
+                        </option>
+                      ))}
                     </select>
                     <div className="pointer-events-none absolute right-3.5 top-1/2 -translate-y-1/2 text-muted-foreground">
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
@@ -892,12 +982,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
             <div className="grid sm:grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                  {(() => {
-                    const cur = saleItemType === "service"
-                      ? (services.find(x => x.id === selectedService)?.currency ?? null)
-                      : (activeProducts.find(x => x.id === selectedProduct)?.currency ?? null);
-                    return cur ? `Monto ${getCurrencyFlag(cur)} ${cur}` : "Monto";
-                  })()}
+                  {saleCurrency ? `Monto ${getCurrencyFlag(saleCurrency)} ${saleCurrency}` : "Monto"}
                 </label>
                 <input
                   type="number"

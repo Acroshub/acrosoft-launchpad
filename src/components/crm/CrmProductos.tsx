@@ -673,7 +673,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
   const PaymentsSection = () => (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground/70">El Agente IA usará estos métodos al cerrar ventas. Sin métodos → transfiere a modo Manual.</p>
-      <PaymentMethodsEditor entityType="product" entityId={product?.id ?? null} />
+      <PaymentMethodsEditor entityType="product" entityId={product?.id ?? null} prices={existingPrices} />
     </div>
   );
 

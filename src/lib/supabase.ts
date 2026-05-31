@@ -228,6 +228,8 @@ export type CrmSale = {
   deliverable_sent_at: string | null
   payment_method_type: string | null
   product_name: string | null
+  course_id: string | null
+  course_name: string | null
 }
 
 export type CrmPrice = {
@@ -670,12 +672,14 @@ export type CrmPaymentMethod = {
   id: string
   created_at: string
   user_id: string
-  entity_type: 'product' | 'product_variant' | 'service'
+  entity_type: 'product' | 'product_variant' | 'service' | 'course'
   entity_id: string
   type: 'bank_transfer' | 'payment_link' | 'qr_code'
   label: string | null
   content: string
   sort_order: number
+  price_id: string | null
+  currency: string | null
 }
 
 export type CrmCatalog = {

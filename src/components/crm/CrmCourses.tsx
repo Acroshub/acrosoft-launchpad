@@ -3,7 +3,7 @@ import * as tus from "tus-js-client";
 import {
   BookOpen, Plus, Trash2, Loader2, ArrowLeft, Pencil, Users,
   Link2, Check, ExternalLink, GraduationCap, X, UserPlus, Calendar,
-  Video, AlertCircle, ImageIcon, Paperclip, ChevronDown, ChevronRight, FolderOpen, GripVertical, Send,
+  Video, AlertCircle, ImageIcon, Paperclip, ChevronDown, ChevronRight, FolderOpen, GripVertical, Send, CreditCard, Wifi, WifiOff,
 } from "lucide-react";
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent,
@@ -24,13 +24,15 @@ import {
   useCourseAccess, useGrantCourseAccess, useRevokeCourseAccess,
   useContacts, useCreateContact, useInsertLog, useCreateSale,
   usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs,
+  useUpsertPaymentMethod,
 } from "@/hooks/useCrmData";
-import type { CrmCourse, CrmCourseModule, CrmCourseLesson, CrmCourseAccess } from "@/lib/supabase";
+import type { CrmCourse, CrmCourseModule, CrmCourseLesson, CrmCourseAccess, CrmPrice } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
+import PaymentMethodsEditor from "@/components/shared/PaymentMethodsEditor";
 import { VideoUploadProvider, useVideoUpload } from "@/contexts/VideoUploadContext";
 
-import { CURRENCIES, formatAmount, getCurrencyFlag } from "@/lib/currencies";
+import { CURRENCIES, formatAmount, getCurrencyFlag, getCurrencySymbol } from "@/lib/currencies";
 
 const APP_URL          = import.meta.env.VITE_APP_URL ?? "https://acrosoftlabs.com";
 const BUNNY_LIBRARY_ID = import.meta.env.VITE_BUNNY_STREAM_LIBRARY_ID ?? import.meta.env.VITE_BUNNY_LIBRARY_ID ?? "628395";
@@ -47,23 +49,144 @@ export default function CrmCourses() {
   return <VideoUploadProvider><CrmCoursesContent /></VideoUploadProvider>;
 }
 
+type FormPM = { type: "bank_transfer" | "payment_link" | "qr_code"; label: string; content: string; currency: string | null; sort_order: number };
+
+// ─── Editor inline de métodos de pago (para formulario de creación) ───────────
+const PM_TYPES = [
+  { value: "bank_transfer" as const, label: "Transferencia" },
+  { value: "payment_link"  as const, label: "Link de pago" },
+  { value: "qr_code"       as const, label: "Código QR" },
+];
+
+// En el formulario de creación no se puede subir QR (requiere course_id para storage)
+const PM_TYPES_INLINE = PM_TYPES.filter(t => t.value !== "qr_code");
+
+function InlinePaymentMethodsEditor({ value, onChange, prices = [] }: { value: FormPM[]; onChange: (v: FormPM[]) => void; prices?: PriceEntry[] }) {
+  const [showForm, setShowForm] = useState(false);
+  const [type, setType]         = useState<FormPM["type"]>("bank_transfer");
+  const [label, setLabel]       = useState("");
+  const [content, setContent]   = useState("");
+  const [currency, setCurrency] = useState<string>("");
+
+  const reset = () => { setType("bank_transfer"); setLabel(""); setContent(""); setCurrency(""); setShowForm(false); };
+
+  const canAdd = content.trim().length > 0;
+
+  const handleAdd = () => {
+    if (!canAdd) return;
+    onChange([...value, { type, label, content: content.trim(), currency: currency || null, sort_order: value.length }]);
+    reset();
+  };
+
+  const handleRemove = (idx: number) => onChange(value.filter((_, i) => i !== idx));
+
+  return (
+    <div className="space-y-2">
+      {value.map((pm, idx) => (
+        <div key={idx} className="flex items-start gap-2 px-3 py-2 rounded-xl border border-border/60 bg-secondary/20">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              {pm.label && <span className="text-xs font-medium">{pm.label}</span>}
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                {PM_TYPES.find(t => t.value === pm.type)?.label}
+              </span>
+              {pm.currency && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">{pm.currency}</span>
+              )}
+            </div>
+            {pm.type !== "qr_code" && (
+              <p className="text-[11px] text-muted-foreground truncate mt-0.5">{pm.content}</p>
+            )}
+          </div>
+          <button onClick={() => handleRemove(idx)} className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
+            <Trash2 size={11} />
+          </button>
+        </div>
+      ))}
+
+      {showForm ? (
+        <div className="bg-secondary/30 rounded-xl p-3 space-y-2.5 border border-border/60">
+          {/* Tipo (sin QR en creación) */}
+          <div className="flex gap-1.5 flex-wrap">
+            {PM_TYPES_INLINE.map(t => (
+              <button key={t.value} onClick={() => { setType(t.value); setContent(""); }}
+                className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${type === t.value ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary"}`}>
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {/* Etiqueta */}
+          <Input value={label} onChange={e => setLabel(e.target.value)}
+            placeholder={type === "bank_transfer" ? "Banco XYZ — Cuenta corriente" : "PayPal, Stripe, Binance..."}
+            className="h-8 text-xs" />
+          {/* Contenido */}
+          {type === "bank_transfer" ? (
+            <textarea value={content} onChange={e => setContent(e.target.value)}
+              placeholder={"Banco: XYZ\nCuenta: 1234-5678\nTitular: Nombre"}
+              rows={3} className="w-full px-3 py-2 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none" />
+          ) : (
+            <Input value={content} onChange={e => setContent(e.target.value)} placeholder="https://paypal.me/usuario" className="h-8 text-xs font-mono" />
+          )}
+          {/* Precio asociado — solo de los precios registrados */}
+          <div className="space-y-1">
+            <span className="text-[11px] text-muted-foreground">Precio asociado <span className="font-normal">(opcional)</span></span>
+            {prices.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                <button onClick={() => setCurrency("")}
+                  className={`px-2 py-0.5 rounded-lg text-[11px] border transition-colors ${!currency ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary text-muted-foreground"}`}>
+                  Todos los precios
+                </button>
+                {prices.map((p, i) => (
+                  <button key={i} onClick={() => setCurrency(p.currency)}
+                    className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-[11px] border transition-colors ${currency === p.currency ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary"}`}>
+                    {getCurrencyFlag(p.currency)} {getCurrencySymbol(p.currency)}{Number(p.price).toLocaleString()} ({p.currency})
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground/60 italic">Registra precios multi-moneda arriba para vincular este método a una moneda.</p>
+            )}
+            {currency && <p className="text-[10px] text-muted-foreground">Solo se mostrará a clientes con moneda <span className="font-semibold">{currency}</span>.</p>}
+          </div>
+          {/* Acciones */}
+          <div className="flex gap-1.5">
+            <Button size="sm" onClick={handleAdd} disabled={!content.trim() && type !== "qr_code"} className="h-7 text-xs gap-1">
+              <Check size={11} /> Añadir
+            </Button>
+            <Button size="sm" variant="outline" onClick={reset} className="h-7 text-xs gap-1">
+              <X size={11} /> Cancelar
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+          <Plus size={12} /> Añadir método de pago
+        </button>
+      )}
+    </div>
+  );
+}
+
 function CrmCoursesContent() {
   const { data: courses = [], isLoading } = useCourses();
-  const upsertCourse  = useUpsertCourse();
-  const deleteCourse  = useDeleteCourse();
-  const upsertPrices  = useUpsertPrices();
+  const upsertCourse        = useUpsertCourse();
+  const deleteCourse        = useDeleteCourse();
+  const upsertPrices        = useUpsertPrices();
+  const upsertPaymentMethod = useUpsertPaymentMethod();
 
-  const [selected, setSelected]     = useState<CrmCourse | null>(null);
-  const [activeTab, setActiveTab]   = useState<"contenido" | "alumnos">("contenido");
-  const [creating, setCreating]     = useState(false);
-  const [form, setForm]             = useState({ title: "", description: "", slug: "", price: "", currency: "USD" });
-  const [formPrices, setFormPrices] = useState<PriceEntry[]>([]);
-  const [saving, setSaving]         = useState(false);
-  const [copiedSlug, setCopiedSlug] = useState(false);
+  const [selected, setSelected]             = useState<CrmCourse | null>(null);
+  const [activeTab, setActiveTab]           = useState<"contenido" | "alumnos">("contenido");
+  const [creating, setCreating]             = useState(false);
+  const [form, setForm]                     = useState({ title: "", description: "", slug: "", price: "", currency: "USD" });
+  const [formPrices, setFormPrices]         = useState<PriceEntry[]>([]);
+  const [formPaymentMethods, setFormPaymentMethods] = useState<FormPM[]>([]);
+  const [saving, setSaving]                 = useState(false);
+  const [copiedSlug, setCopiedSlug]         = useState(false);
 
   const openNew = () => {
     setForm({ title: "", description: "", slug: "", price: "", currency: "USD" });
     setFormPrices([]);
+    setFormPaymentMethods([]);
     setCreating(true);
   };
 
@@ -75,6 +198,18 @@ function CrmCoursesContent() {
       const course = await upsertCourse.mutateAsync({ title: form.title.trim(), description: form.description || null, slug: form.slug.trim(), is_published: false, price, currency: form.currency });
       if (formPrices.length > 0) {
         await upsertPrices.mutateAsync({ entityType: "course", entityId: course.id, prices: formPrices });
+      }
+      for (const pm of formPaymentMethods) {
+        await upsertPaymentMethod.mutateAsync({
+          entity_type: "course",
+          entity_id: course.id,
+          type: pm.type,
+          label: pm.label || null,
+          content: pm.content,
+          sort_order: pm.sort_order,
+          price_id: null,
+          currency: pm.currency,
+        });
       }
       setCreating(false);
       setSelected(course);
@@ -146,12 +281,12 @@ function CrmCoursesContent() {
       {/* Modal crear curso */}
       {creating && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4" onClick={() => setCreating(false)}>
-          <div className="bg-card border rounded-2xl p-6 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
+          <div className="bg-card border rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b shrink-0">
               <h3 className="text-sm font-semibold">Nuevo curso</h3>
               <button onClick={() => setCreating(false)} className="text-muted-foreground hover:text-foreground"><X size={16} /></button>
             </div>
-            <div className="space-y-3">
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Título *</label>
                 <Input
@@ -210,8 +345,20 @@ function CrmCoursesContent() {
                 onChange={setFormPrices}
                 baseCurrency={form.currency}
               />
+              {/* Métodos de pago en creación */}
+              <div className="pt-1 border-t border-border/50 space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <CreditCard size={12} className="text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground">Métodos de pago <span className="text-[10px] font-normal">(opcional)</span></span>
+                </div>
+                <InlinePaymentMethodsEditor
+                  value={formPaymentMethods}
+                  onChange={setFormPaymentMethods}
+                  prices={formPrices}
+                />
+              </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 px-6 py-4 border-t shrink-0">
               <Button variant="outline" size="sm" onClick={() => setCreating(false)} className="flex-1">Cancelar</Button>
               <Button size="sm" onClick={handleCreate} disabled={saving || !form.title.trim() || !form.slug.trim()} className="flex-1 gap-1.5">
                 {saving && <Loader2 size={12} className="animate-spin" />} Crear
@@ -256,12 +403,15 @@ function CrmCoursesContent() {
                 )}
                 {/* Status badge overlay */}
                 <div className="absolute top-2.5 left-2.5">
-                  <span className={`text-[10px] font-semibold px-2 py-1 rounded-full backdrop-blur-sm ${
+                  <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-full backdrop-blur-sm ${
                     course.is_published
                       ? "bg-emerald-500/90 text-white"
-                      : "bg-black/40 text-white/80"
+                      : "bg-black/50 text-white/70"
                   }`}>
-                    {course.is_published ? "Publicado" : "Borrador"}
+                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      course.is_published ? "bg-white animate-pulse" : "bg-white/40"
+                    }`} />
+                    {course.is_published ? "Online" : "Offline"}
                   </span>
                 </div>
                 {course.price != null && (
@@ -427,12 +577,12 @@ function CourseDetail({
       {/* Modal: editar metadatos */}
       {editingMeta && (
         <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4" onClick={() => setEditingMeta(false)}>
-          <div className="bg-card border rounded-2xl p-6 w-full max-w-sm space-y-4" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between">
+          <div className="bg-card border rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b shrink-0">
               <h3 className="text-sm font-semibold">Editar curso</h3>
               <button onClick={() => setEditingMeta(false)} className="text-muted-foreground hover:text-foreground"><X size={16} /></button>
             </div>
-            <div className="space-y-3">
+            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Título *</label>
                 <Input value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} className="h-9 text-sm" />
@@ -465,8 +615,16 @@ function CourseDetail({
               </div>
               <PriceListEditor value={editPrices} onChange={setEditPrices} baseCurrency={editForm.currency} />
               <FaqEditor value={editFaqs} onChange={setEditFaqs} />
+              {/* Métodos de pago */}
+              <div className="pt-1 border-t border-border/50 space-y-2">
+                <div className="flex items-center gap-1.5">
+                  <CreditCard size={12} className="text-muted-foreground" />
+                  <span className="text-xs font-medium text-muted-foreground">Métodos de pago <span className="text-[10px] font-normal">(opcional)</span></span>
+                </div>
+                <PaymentMethodsEditor entityType="course" entityId={course.id} prices={existingPrices} />
+              </div>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 px-6 py-4 border-t shrink-0">
               <Button variant="outline" size="sm" onClick={() => setEditingMeta(false)} className="flex-1">Cancelar</Button>
               <Button size="sm" onClick={handleSaveMeta} disabled={savingMeta || !editForm.title.trim() || !editForm.slug.trim()} className="flex-1 gap-1.5">
                 {savingMeta && <Loader2 size={12} className="animate-spin" />} Guardar
@@ -495,12 +653,17 @@ function CourseDetail({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <h2 className="text-sm font-bold truncate max-w-[160px] sm:max-w-none">{localTitle}</h2>
-            <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
+            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
               course.is_published
                 ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
                 : "bg-muted text-muted-foreground"
             }`}>
-              {course.is_published ? "Publicado" : "Borrador"}
+              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                course.is_published
+                  ? "bg-emerald-500 animate-pulse"
+                  : "bg-muted-foreground/40"
+              }`} />
+              {course.is_published ? "Online" : "Offline"}
             </span>
             {course.price != null && (
               <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
@@ -527,12 +690,18 @@ function CourseDetail({
           <div className="w-px h-5 bg-border mx-1" />
           <Button
             size="sm"
-            variant={course.is_published ? "outline" : "default"}
-            className="h-8 text-xs font-semibold px-2.5 sm:px-3"
+            variant="outline"
+            className={`h-8 text-xs font-semibold px-2.5 sm:px-3 gap-1.5 transition-colors ${
+              course.is_published
+                ? "border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/30 dark:hover:border-red-800"
+                : "border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-400 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40"
+            }`}
             onClick={onTogglePublish}
           >
-            {course.is_published ? <span className="hidden sm:inline">Despublicar</span> : <span className="hidden sm:inline">Publicar</span>}
-            <span className="sm:hidden">{course.is_published ? "↓" : "↑"}</span>
+            {course.is_published ? <WifiOff size={12} /> : <Wifi size={12} />}
+            <span className="hidden sm:inline">
+              {course.is_published ? "Poner offline" : "Publicar"}
+            </span>
           </Button>
           <button onClick={() => setConfirmDelete(true)} title="Eliminar"
             className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors cursor-pointer">

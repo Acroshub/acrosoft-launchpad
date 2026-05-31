@@ -5138,7 +5138,7 @@ const ChatPanel = ({
   return (
     <div className="flex flex-col h-full">
       {/* Chat header */}
-      <div className="px-3 sm:px-4 py-2.5 border-b flex items-center gap-2 shrink-0 bg-card">
+      <div className="px-3 sm:px-4 border-b flex items-center gap-2 shrink-0 bg-card" style={{ paddingTop: "max(0.625rem, env(safe-area-inset-top))", paddingBottom: "0.625rem" }}>
         {/* Back button — mobile only */}
         {onBack && (
           <button onClick={onBack} className="lg:hidden min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl hover:bg-secondary transition-colors shrink-0 -ml-1">
@@ -6083,7 +6083,7 @@ const CrmAgentIA = ({
       <div className="flex flex-col h-full">
 
         {/* Top bar — oculto en mobile cuando el chat está abierto */}
-        <div className={`px-4 sm:px-5 py-3 border-b flex items-center gap-3 shrink-0 bg-card ${mobileShowChat ? "hidden lg:flex" : "flex"}`}>
+        <div className={`px-4 sm:px-5 border-b flex items-center gap-3 shrink-0 bg-card ${mobileShowChat ? "hidden lg:flex" : "flex"}`} style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))", paddingBottom: "0.75rem" }}>
           <div className="flex items-center gap-3 flex-1 min-w-0">
             {/* Agent avatar — WA profile photo or Bot icon fallback, with IA badge */}
             <div className="relative shrink-0">
@@ -6599,6 +6599,17 @@ const CrmAgentIA = ({
             >
               <Archive size={14} className="text-muted-foreground" />
               {convMenu.isArchived ? "Desarchivar" : "Archivar"}
+            </button>
+            <div className="mx-3 my-1 border-t border-border/60" />
+            <button
+              onClick={() => {
+                setDeleteModalId(convMenu.id);
+                setConvMenu(null);
+              }}
+              className="w-full flex items-center gap-3 px-4 py-3 text-sm text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+            >
+              <Trash2 size={14} />
+              Eliminar chat
             </button>
           </div>
         </>

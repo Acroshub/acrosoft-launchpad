@@ -63,10 +63,29 @@ interface WaLabel {
 
 interface PaymentMethodRow {
   id: string;
+  entity_id: string;
   type: string;
   label: string | null;
   content: string;
   sort_order: number;
+  currency: string | null;
+}
+
+function getCurrencyFromPhone(phone: string): string | null {
+  const cleaned = phone.replace(/[\s\-().]/g, "");
+  const prefixMap: [string, string][] = [
+    ["+593", "USD"], ["+591", "BOB"], ["+598", "USD"], ["+595", "USD"],
+    ["+599", "USD"], ["+596", "EUR"], ["+597", "USD"],
+    ["+58",  "VES"], ["+57",  "COP"], ["+56",  "CLP"],
+    ["+55",  "BRL"], ["+54",  "ARS"], ["+53",  "USD"],
+    ["+52",  "MXN"], ["+51",  "PEN"],
+    ["+1",   "USD"], ["+44",  "GBP"], ["+49",  "EUR"],
+    ["+34",  "EUR"], ["+33",  "EUR"],
+  ];
+  for (const [prefix, currency] of prefixMap) {
+    if (cleaned.startsWith(prefix)) return currency;
+  }
+  return null;
 }
 
 // ─── Verificación de horario con schedule JSONB ───────────────────────────────
@@ -1069,11 +1088,13 @@ async function sendWhatsAppMessageRaw(
 
 const sleep = (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms));
 
-// Delay entre pasos según tipo — da tiempo a WhatsApp para procesar y entregar en orden
+// Tiempo de espera necesario DESPUÉS de enviar un paso para que WhatsApp lo entregue
+// antes de enviar el siguiente. Valores basados en comportamiento real de la API:
+// texto/link: 1.5s · imagen/archivo: 2.5s · audio/video: 3s
 function stepDelay(type: FlowStep["type"]): number {
-  if (type === "audio" || type === "video") return 1200;
-  if (type === "image" || type === "file") return 900;
-  return 600;
+  if (type === "audio" || type === "video") return 3000;
+  if (type === "image" || type === "file") return 2500;
+  return 1500; // message, link, question
 }
 
 async function executeFlowSteps(
@@ -1162,17 +1183,26 @@ async function executeFlowSteps(
     }
   }
 
+  // Tipo del último paso enviado en esta invocación — usado para calcular el
+  // delay ANTES de enviar el siguiente y garantizar entrega en orden.
+  let prevSentType: FlowStep["type"] | null = null;
+
   while (idx < steps.length) {
     const step = steps[idx];
 
+    // Esperar a que el paso anterior haya sido entregado antes de enviar el siguiente.
+    // Se aplica solo cuando ya enviamos algo en esta misma invocación.
+    if (prevSentType !== null) {
+      await sleep(stepDelay(prevSentType));
+    }
+
     if (step.type === "question") {
-      await sleep(stepDelay("message")); // pausa antes de la pregunta para que llegue después del contenido previo
       await sendSequenceStep(step, phone, config, conversationId);
       return { newStep: idx, completed: false };
     }
 
     await sendSequenceStep(step, phone, config, conversationId);
-    await sleep(stepDelay(step.type)); // pausa para que WhatsApp entregue en orden
+    prevSentType = step.type;
 
     // Navegar al siguiente paso según el modelo explícito o legado
     if ("next_step_id" in step) {
@@ -1236,7 +1266,7 @@ async function sendWhatsAppImage(phone: string, imageUrl: string, caption: strin
 }
 
 // ─── Cargar catálogo de productos con variantes y métodos de pago ─────────────
-async function buildProductsCatalog(config: AgentConfig): Promise<string> {
+async function buildProductsCatalog(config: AgentConfig, contactCurrency: string | null = null): Promise<string> {
   if (config.products_mode === "none") return "";
 
   let productsQuery = supabase
@@ -1254,8 +1284,8 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
 
   const allProductIds = allProducts.map(p => p.id);
 
-  // Cargar variantes, métodos de pago y FAQs en paralelo
-  const [variantsRes, paymentMethodsRes, faqsRes] = await Promise.all([
+  // Cargar variantes, métodos de pago, FAQs y precios multi-moneda en paralelo
+  const [variantsRes, paymentMethodsRes, faqsRes, pricesRes] = await Promise.all([
     supabase
       .from("crm_product_variants")
       .select("id, product_id, name, price_override, discount_pct, sort_order, stock")
@@ -1263,7 +1293,7 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
       .order("sort_order"),
     supabase
       .from("crm_payment_methods")
-      .select("id, entity_id, entity_type, type, label, content, sort_order")
+      .select("id, entity_id, entity_type, type, label, content, sort_order, currency")
       .in("entity_id", allProductIds)
       .eq("entity_type", "product")
       .order("sort_order"),
@@ -1273,11 +1303,27 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
       .in("entity_id", allProductIds)
       .eq("entity_type", "product")
       .order("sort_order"),
+    supabase
+      .from("crm_prices")
+      .select("entity_id, currency, price")
+      .in("entity_id", allProductIds)
+      .eq("entity_type", "product")
+      .order("sort_order"),
   ]);
 
   const variants = variantsRes.data ?? [];
   const paymentMethods = paymentMethodsRes.data ?? [];
   const productFaqs = faqsRes.data ?? [];
+
+  // Precio por moneda del contacto: entity_id → { currency, price }
+  const pricesByProduct = new Map<string, { currency: string; price: number }>();
+  if (contactCurrency) {
+    for (const pr of pricesRes.data ?? []) {
+      if (pr.currency === contactCurrency && !pricesByProduct.has(pr.entity_id)) {
+        pricesByProduct.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price) });
+      }
+    }
+  }
 
   const faqsByProduct = new Map<string, Array<{ question: string; answer: string }>>();
   for (const f of productFaqs) {
@@ -1308,6 +1354,7 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
 
   const pmByProduct = new Map<string, PaymentMethodRow[]>();
   for (const pm of paymentMethods) {
+    if (pm.currency && contactCurrency && pm.currency !== contactCurrency) continue;
     if (!pmByProduct.has(pm.entity_id)) pmByProduct.set(pm.entity_id, []);
     pmByProduct.get(pm.entity_id)!.push(pm as PaymentMethodRow);
   }
@@ -1315,11 +1362,14 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
   const lines: string[] = ["CATÁLOGO DE PRODUCTOS:"];
 
   for (const p of products) {
+    const priceOverride = pricesByProduct.get(p.id) ?? null;
+    const basePrice = priceOverride?.price ?? p.price;
+    const baseCurrency = priceOverride?.currency ?? p.currency;
     const disc = p.discount_pct ?? 0;
-    const finalPrice = disc > 0 ? p.price * (1 - disc / 100) : p.price;
+    const finalPrice = disc > 0 ? basePrice * (1 - disc / 100) : basePrice;
     const price = disc > 0
-      ? `${formatPrice(finalPrice, p.currency)} (antes ${formatPrice(p.price, p.currency)}, ${disc}% de descuento)`
-      : formatPrice(p.price, p.currency);
+      ? `${formatPrice(finalPrice, baseCurrency)} (antes ${formatPrice(basePrice, baseCurrency)}, ${disc}% de descuento)`
+      : formatPrice(basePrice, baseCurrency);
 
     // Nota de stock bajo — modelo B16-4
     let stockNote = "";
@@ -1344,17 +1394,20 @@ async function buildProductsCatalog(config: AgentConfig): Promise<string> {
     );
     if (p.has_variants && productVariants.length > 0) {
       const variantList = productVariants.map((v: any) => {
-        // Misma lógica que calcProductPrice en el frontend:
-        // Si tiene price_override → usa ese como base; si no → usa precio del producto
-        const base = v.price_override != null ? v.price_override : p.price;
-        // Descuento: usa el de la variante si existe; si no y no tiene price_override → hereda del producto
-        const disc = (v.discount_pct ?? 0) > 0
+        // Variantes con price_override usan p.currency (precio almacenado en moneda base).
+        // Variantes sin price_override heredan el precio del producto; si hay override de moneda,
+        // se usa basePrice/baseCurrency del scope externo para mostrar el precio en la moneda del contacto.
+        const vBase = v.price_override != null ? v.price_override : basePrice;
+        const vCurrency = v.price_override != null ? p.currency : baseCurrency;
+        const vDisc = (v.discount_pct ?? 0) > 0
           ? (v.discount_pct ?? 0)
           : (v.price_override == null ? (p.discount_pct ?? 0) : 0);
-        const finalVPrice = disc > 0 ? +(base * (1 - disc / 100)).toFixed(2) : base;
-        const priceLabel = disc > 0
-          ? `${formatPrice(finalVPrice, p.currency)} (antes ${formatPrice(base, p.currency)}, ${disc}% de descuento)`
-          : (v.price_override != null ? formatPrice(finalVPrice, p.currency) : `igual al base ${formatPrice(p.discount_pct && p.discount_pct > 0 ? +(p.price * (1 - p.discount_pct / 100)).toFixed(2) : p.price, p.currency)}`);
+        const finalVPrice = vDisc > 0 ? +(vBase * (1 - vDisc / 100)).toFixed(2) : vBase;
+        const priceLabel = vDisc > 0
+          ? `${formatPrice(finalVPrice, vCurrency)} (antes ${formatPrice(vBase, vCurrency)}, ${vDisc}% de descuento)`
+          : (v.price_override != null
+              ? formatPrice(finalVPrice, vCurrency)
+              : `igual al base ${formatPrice(finalPrice, baseCurrency)}`);
         const variantStock = v.stock !== null && v.stock <= 5 ? ` ⚠️ ${v.stock} u.` : "";
         return `${v.name} (${priceLabel}${variantStock}) [variant_id:${v.id}]`;
       }).join(", ");
@@ -1400,15 +1453,18 @@ function formatServicePriceLines(s: {
   recurring_interval: string | null;
   recurring_label: string | null;
   recurring_discount_pct: number | null;
-}): string[] {
+}, priceOverride?: { price: number; currency: string } | null): string[] {
   const lines: string[] = [];
+
+  const basePrice = priceOverride?.price ?? s.price;
+  const baseCurrency = priceOverride?.currency ?? s.currency;
 
   const disc = s.discount_pct ?? 0;
   if (disc > 0) {
-    const final = (s.price * (1 - disc / 100)).toFixed(2);
-    lines.push(`  Precio: ${formatPrice(final, s.currency)} (antes ${formatPrice(s.price, s.currency)}, ${disc}% de descuento)`);
+    const final = (basePrice * (1 - disc / 100)).toFixed(2);
+    lines.push(`  Precio: ${formatPrice(final, baseCurrency)} (antes ${formatPrice(basePrice, baseCurrency)}, ${disc}% de descuento)`);
   } else {
-    lines.push(`  Precio: ${formatPrice(s.price, s.currency)}`);
+    lines.push(`  Precio: ${formatPrice(basePrice, baseCurrency)}`);
   }
 
   if (s.is_recurring && s.recurring_price != null && s.recurring_price > 0) {
@@ -1416,9 +1472,9 @@ function formatServicePriceLines(s: {
     const recDisc = s.recurring_discount_pct ?? 0;
     if (recDisc > 0) {
       const finalRec = (s.recurring_price * (1 - recDisc / 100)).toFixed(2);
-      lines.push(`  Plan recurrente: ${formatPrice(finalRec, s.currency)}/${interval} (antes ${formatPrice(s.recurring_price, s.currency)}, ${recDisc}% de descuento)`);
+      lines.push(`  Plan recurrente: ${formatPrice(finalRec, baseCurrency)}/${interval} (antes ${formatPrice(s.recurring_price, baseCurrency)}, ${recDisc}% de descuento)`);
     } else {
-      lines.push(`  Plan recurrente: ${formatPrice(s.recurring_price, s.currency)}/${interval}`);
+      lines.push(`  Plan recurrente: ${formatPrice(s.recurring_price, baseCurrency)}/${interval}`);
     }
   }
 
@@ -1426,7 +1482,7 @@ function formatServicePriceLines(s: {
 }
 
 // ─── Cargar catálogo de servicios con métodos de pago ─────────────────────────
-async function buildServicesCatalog(config: AgentConfig): Promise<string> {
+async function buildServicesCatalog(config: AgentConfig, contactCurrency: string | null = null): Promise<string> {
   if (config.services_mode === "none") return "";
 
   let servicesQuery = supabase
@@ -1445,10 +1501,10 @@ async function buildServicesCatalog(config: AgentConfig): Promise<string> {
 
   const serviceIds = services.map(s => s.id);
 
-  const [paymentMethodsRes, faqsRes] = await Promise.all([
+  const [paymentMethodsRes, faqsRes, pricesRes] = await Promise.all([
     supabase
       .from("crm_payment_methods")
-      .select("id, entity_id, type, label, content, sort_order")
+      .select("id, entity_id, type, label, content, sort_order, currency")
       .in("entity_id", serviceIds)
       .eq("entity_type", "service")
       .order("sort_order"),
@@ -1458,10 +1514,17 @@ async function buildServicesCatalog(config: AgentConfig): Promise<string> {
       .in("entity_id", serviceIds)
       .eq("entity_type", "service")
       .order("sort_order"),
+    supabase
+      .from("crm_prices")
+      .select("entity_id, currency, price")
+      .in("entity_id", serviceIds)
+      .eq("entity_type", "service")
+      .order("sort_order"),
   ]);
 
   const pmByService = new Map<string, PaymentMethodRow[]>();
   for (const pm of paymentMethodsRes.data ?? []) {
+    if (pm.currency && contactCurrency && pm.currency !== contactCurrency) continue;
     if (!pmByService.has(pm.entity_id)) pmByService.set(pm.entity_id, []);
     pmByService.get(pm.entity_id)!.push(pm as PaymentMethodRow);
   }
@@ -1472,6 +1535,16 @@ async function buildServicesCatalog(config: AgentConfig): Promise<string> {
     faqsByService.get(f.entity_id)!.push({ question: f.question, answer: f.answer });
   }
 
+  // Precio por moneda del contacto
+  const pricesByService = new Map<string, { currency: string; price: number }>();
+  if (contactCurrency) {
+    for (const pr of pricesRes.data ?? []) {
+      if (pr.currency === contactCurrency && !pricesByService.has(pr.entity_id)) {
+        pricesByService.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price) });
+      }
+    }
+  }
+
   const lines: string[] = ["CATÁLOGO DE SERVICIOS:"];
 
   for (const s of services) {
@@ -1479,7 +1552,8 @@ async function buildServicesCatalog(config: AgentConfig): Promise<string> {
 
     if (s.description) lines.push(`  Descripción: ${s.description}`);
 
-    for (const priceLine of formatServicePriceLines(s)) lines.push(priceLine);
+    const priceOverride = pricesByService.get(s.id) ?? null;
+    for (const priceLine of formatServicePriceLines(s, priceOverride)) lines.push(priceLine);
 
     const pms = pmByService.get(s.id) ?? [];
     if (pms.length > 0) {
@@ -1503,7 +1577,7 @@ async function buildServicesCatalog(config: AgentConfig): Promise<string> {
 }
 
 // ─── Cargar catálogo de cursos ────────────────────────────────────────────────
-async function buildCoursesCatalog(config: AgentConfig): Promise<string> {
+async function buildCoursesCatalog(config: AgentConfig, contactCurrency: string | null = null): Promise<string> {
   if (config.courses_mode === "none") return "";
 
   let query = supabase
@@ -1522,24 +1596,66 @@ async function buildCoursesCatalog(config: AgentConfig): Promise<string> {
 
   const courseIds = courses.map(c => c.id);
 
-  const { data: courseFaqs } = await supabase
-    .from("crm_entity_faqs")
-    .select("entity_id, question, answer, sort_order")
-    .in("entity_id", courseIds)
-    .eq("entity_type", "course")
-    .order("sort_order");
+  const [faqsRes, paymentMethodsRes, pricesRes] = await Promise.all([
+    supabase
+      .from("crm_entity_faqs")
+      .select("entity_id, question, answer, sort_order")
+      .in("entity_id", courseIds)
+      .eq("entity_type", "course")
+      .order("sort_order"),
+    supabase
+      .from("crm_payment_methods")
+      .select("id, entity_id, type, label, content, sort_order, currency")
+      .in("entity_id", courseIds)
+      .eq("entity_type", "course")
+      .order("sort_order"),
+    supabase
+      .from("crm_prices")
+      .select("entity_id, currency, price")
+      .in("entity_id", courseIds)
+      .eq("entity_type", "course")
+      .order("sort_order"),
+  ]);
 
   const faqsByCourse = new Map<string, Array<{ question: string; answer: string }>>();
-  for (const f of courseFaqs ?? []) {
+  for (const f of faqsRes.data ?? []) {
     if (!faqsByCourse.has(f.entity_id)) faqsByCourse.set(f.entity_id, []);
     faqsByCourse.get(f.entity_id)!.push({ question: f.question, answer: f.answer });
   }
 
+  const pmByCourse = new Map<string, PaymentMethodRow[]>();
+  for (const pm of paymentMethodsRes.data ?? []) {
+    if (pm.currency && contactCurrency && pm.currency !== contactCurrency) continue;
+    if (!pmByCourse.has(pm.entity_id)) pmByCourse.set(pm.entity_id, []);
+    pmByCourse.get(pm.entity_id)!.push(pm as PaymentMethodRow);
+  }
+
+  // Precio por moneda del contacto
+  const pricesByCourse = new Map<string, { currency: string; price: number }>();
+  if (contactCurrency) {
+    for (const pr of pricesRes.data ?? []) {
+      if (pr.currency === contactCurrency && !pricesByCourse.has(pr.entity_id)) {
+        pricesByCourse.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price) });
+      }
+    }
+  }
+
   const lines: string[] = ["CATÁLOGO DE CURSOS:"];
   for (const c of courses) {
-    const price = c.price != null ? formatPrice(c.price, c.currency) : "Consultar precio";
-    lines.push(`- ${c.title}: ${price} [course_id:${c.id}]`);
+    const priceOverride = pricesByCourse.get(c.id);
+    const displayPrice = priceOverride
+      ? formatPrice(priceOverride.price, priceOverride.currency)
+      : (c.price != null ? formatPrice(c.price, c.currency) : "Consultar precio");
+    lines.push(`- ${c.title}: ${displayPrice} [course_id:${c.id}]`);
     if (c.description) lines.push(`  Descripción: ${c.description}`);
+
+    const pms = pmByCourse.get(c.id) ?? [];
+    if (pms.length > 0) {
+      lines.push(`  Métodos de pago:`);
+      for (const pm of pms) lines.push(`    · ${formatPaymentMethod(pm)}`);
+    } else {
+      lines.push(`  ⚠️ Sin métodos de pago`);
+    }
 
     const faqs = faqsByCourse.get(c.id) ?? [];
     if (faqs.length > 0) {
@@ -1667,14 +1783,16 @@ async function buildSystemPrompt(
 
   const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: config.timezone ?? "UTC" }).format(new Date());
 
+  const contactCurrency = getCurrencyFromPhone(phone);
+
   const [businessRes, servicesRes, convRes, labelsRes, productsCatalog, servicesCatalog, coursesCatalog, slotsResult] = await Promise.all([
     supabase.from("crm_business_profile").select("business_name, description, agent_faq").eq("user_id", config.user_id).maybeSingle(),
     supabase.from("crm_services").select("name, price, currency, description, discount_pct, is_recurring, recurring_price, recurring_interval, recurring_label, recurring_discount_pct").eq("user_id", config.user_id).eq("active", true).order("sort_order", { ascending: true }),
     supabase.from("crm_wa_conversations").select("contact_name, contact_id").eq("user_id", config.user_id).eq("phone", phone).maybeSingle(),
     supabase.from("crm_wa_labels").select("id, name, hint, remove_hint").eq("user_id", config.user_id).or("hint.not.is.null,remove_hint.not.is.null"),
-    buildProductsCatalog(config),
-    buildServicesCatalog(config),
-    buildCoursesCatalog(config),
+    buildProductsCatalog(config, contactCurrency),
+    buildServicesCatalog(config, contactCurrency),
+    buildCoursesCatalog(config, contactCurrency),
     canSchedule ? getAvailableSlots(config.scheduling_calendar_id!) : Promise.resolve({ slots: [], scheduleDesc: "", minAdvHours: 1 } as SlotsResult),
   ]);
 
@@ -1936,6 +2054,10 @@ REGLAS:
     }
   }
 
+  const currencyNote = contactCurrency
+    ? `\n\nMoneda del cliente detectada: ${contactCurrency}. Los precios en el catálogo ya están adaptados a esta moneda cuando existe un precio registrado para ella. Si algún precio aparece en otra moneda, es porque no hay precio en ${contactCurrency} configurado para ese ítem — en ese caso, menciónalo con naturalidad y sin tecnicismos (ej: "el precio disponible es USD 50, ¿te funciona?"). Los métodos de pago también ya fueron filtrados para ${contactCurrency}.`
+    : "";
+
   const prompt = base
     .replace(/\{\{negocio\.nombre\}\}/g, business?.business_name ?? "el negocio")
     .replace(/\{\{negocio\.descripcion\}\}/g, business?.description ?? "")
@@ -1943,6 +2065,7 @@ REGLAS:
     .replace(/\{\{contacto\.nombre\}\}/g, conv?.contact_name ?? "cliente")
     .replace(/\{\{fecha\.hoy\}\}/g, now)
     + `\n\nFecha actual: ${now}.`
+    + currencyNote
     + globalRules
     + catalogInstruction
     + paymentInstruction
