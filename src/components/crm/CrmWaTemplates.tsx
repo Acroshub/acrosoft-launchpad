@@ -748,6 +748,7 @@ export default function CrmWaTemplates({ context, forcedCategory, associationOpt
   const pricingShowOnly = forcedCategory === "MARKETING" ? "marketing" : "utility";
 
   return (
+    <>
     <div className="space-y-3">
       {/* WABA warning */}
       {wabaOk === false && (
@@ -1034,5 +1035,6 @@ export default function CrmWaTemplates({ context, forcedCategory, associationOpt
         </div>
       </div>
     )}
+    </>
   );
 }
