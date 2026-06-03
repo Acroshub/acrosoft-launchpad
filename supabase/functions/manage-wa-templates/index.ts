@@ -10,6 +10,7 @@ const GRAPH = "https://graph.facebook.com/v21.0";
 const cors = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+  "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
 };
 
 function json(body: unknown, status = 200) {
