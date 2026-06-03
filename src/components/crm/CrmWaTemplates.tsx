@@ -595,15 +595,16 @@ export default function CrmWaTemplates({ context, forcedCategory, associationOpt
   const updateTmpl = useUpdateWaTemplate();
   const deleteTmpl = useDeleteWaTemplate();
 
-  const [showForm,    setShowForm]    = useState(false);
-  const [editId,      setEditId]      = useState<string | null>(null);
-  const [expandedId,  setExpandedId]  = useState<string | null>(null);
-  const [pricingOpen, setPricingOpen] = useState(true);
-  const [submitting,  setSubmitting]  = useState<string | null>(null);
-  const [syncing,     setSyncing]     = useState(false);
-  const [autoSyncing, setAutoSyncing] = useState(false);
-  const [lastSyncAt,  setLastSyncAt]  = useState<Date | null>(null);
-  const [wabaOk,      setWabaOk]      = useState<boolean | null>(null);
+  const [showForm,          setShowForm]          = useState(false);
+  const [editId,            setEditId]            = useState<string | null>(null);
+  const [expandedId,        setExpandedId]        = useState<string | null>(null);
+  const [pricingOpen,       setPricingOpen]       = useState(true);
+  const [submitting,        setSubmitting]        = useState<string | null>(null);
+  const [syncing,           setSyncing]           = useState(false);
+  const [autoSyncing,       setAutoSyncing]       = useState(false);
+  const [lastSyncAt,        setLastSyncAt]        = useState<Date | null>(null);
+  const [wabaOk,            setWabaOk]            = useState<boolean | null>(null);
+  const [pendingDeleteTmpl, setPendingDeleteTmpl] = useState<CrmWaTemplate | null>(null);
   const hasSyncedRef = useRef(false);
 
   useEffect(() => {
@@ -686,7 +687,6 @@ export default function CrmWaTemplates({ context, forcedCategory, associationOpt
   };
 
   const handleDelete = async (tmpl: CrmWaTemplate) => {
-    if (!confirm(`¿Eliminar la plantilla "${tmpl.name}"?${tmpl.meta_template_id ? " También se eliminará en Meta." : ""}`)) return;
     try {
       if (tmpl.meta_template_id) {
         const { data: { session } } = await supabase.auth.getSession();
@@ -705,6 +705,7 @@ export default function CrmWaTemplates({ context, forcedCategory, associationOpt
       }
       toast.success("Plantilla eliminada");
       if (expandedId === tmpl.id) setExpandedId(null);
+      setPendingDeleteTmpl(null);
     } catch {
       toast.error("Error al eliminar");
     }
@@ -897,7 +898,7 @@ export default function CrmWaTemplates({ context, forcedCategory, associationOpt
                   )}
                   <button
                     type="button"
-                    onClick={e => { e.stopPropagation(); handleDelete(tmpl); }}
+                    onClick={e => { e.stopPropagation(); setPendingDeleteTmpl(tmpl); }}
                     className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                   >
                     <Trash2 size={12} />
@@ -998,5 +999,40 @@ export default function CrmWaTemplates({ context, forcedCategory, associationOpt
         </div>
       ))}
     </div>
+
+    {/* Modal de confirmación para eliminar plantilla */}
+    {pendingDeleteTmpl && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+        <div className="bg-card border border-border rounded-2xl shadow-xl p-5 max-w-sm w-full space-y-4">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold">¿Eliminar plantilla?</p>
+            <p className="text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">"{pendingDeleteTmpl.name}"</span>
+              {pendingDeleteTmpl.meta_template_id
+                ? " también se eliminará en Meta. Esta acción no se puede deshacer."
+                : " se eliminará permanentemente."}
+            </p>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              type="button"
+              onClick={() => setPendingDeleteTmpl(null)}
+              className="px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-muted transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDelete(pendingDeleteTmpl)}
+              disabled={deleteTmpl.isPending}
+              className="px-3 py-1.5 text-xs rounded-lg bg-destructive text-white hover:bg-destructive/90 transition-colors disabled:opacity-50 flex items-center gap-1"
+            >
+              {deleteTmpl.isPending && <Loader2 size={11} className="animate-spin" />}
+              Eliminar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
   );
 }

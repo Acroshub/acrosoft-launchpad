@@ -178,9 +178,16 @@ Deno.serve(async (req: Request) => {
     if (!res.ok) {
       const errText = await res.text();
       const is24hError = errText.includes("131047");
+      // Extraer código de error de Meta para mejor diagnóstico
+      let metaCode = "";
+      try { metaCode = JSON.parse(errText)?.error?.code ?? ""; } catch { /* noop */ }
+      const sendError = is24hError ? "24h_window_expired"
+        : metaCode ? `Graph ${res.status} (${metaCode})`
+        : `Graph ${res.status}`;
+      console.error(`[send-wa-message] Meta error: ${errText}`);
       await supabase
         .from("crm_wa_messages")
-        .update({ send_error: is24hError ? "24h_window_expired" : `Graph ${res.status}` })
+        .update({ send_error: sendError })
         .eq("id", savedMsg.id);
       return new Response(
         JSON.stringify({ ok: false, error: is24hError ? "24h_window_expired" : errText }),
