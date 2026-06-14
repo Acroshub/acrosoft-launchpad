@@ -776,6 +776,8 @@ export type CrmWaSequence = {
   user_id: string
   name: string
   product_id: string | null
+  entity_type: 'product' | 'service' | 'course' | null
+  currency: string | null
   steps: SequenceStep[]
   created_at: string
   updated_at: string
@@ -783,6 +785,8 @@ export type CrmWaSequence = {
 
 export type CrmWaFlowFinalAction = 'nothing' | 'human_handoff'
 export type CrmWaFlowTriggerType = 'new_conversation' | 'intent'
+
+export type CrmWaFlowCountrySequence = { country_code: string; sequence_id: string }
 
 export type CrmWaFlow = {
   id: string
@@ -794,6 +798,7 @@ export type CrmWaFlow = {
   is_active: boolean
   trigger_once: boolean
   flow_trigger_type: CrmWaFlowTriggerType
+  country_sequences: CrmWaFlowCountrySequence[]
   created_at: string
   updated_at: string
 }
@@ -981,6 +986,9 @@ export type CrmQuickReply = {
   user_id: string
   shortcut: string
   content: string
+  media_url?: string | null
+  media_type?: string | null
+  media_filename?: string | null
   created_at: string
 }
 

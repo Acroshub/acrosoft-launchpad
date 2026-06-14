@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase, supabasePublic } from "@/lib/supabase";
+import { ALL_COUNTRY_OPTIONS, COUNTRIES_BY_CURRENCY, type CountryOption } from "@/lib/countries";
 import type {
   CrmContact,
   CrmAppointment,
@@ -3285,11 +3286,12 @@ export const useUpsertWaSequence = () => {
   const { user } = useCurrentUser();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (seq: { id?: string; name: string; product_id: string | null; steps: SequenceStep[] }) => {
+    mutationFn: async (seq: { id?: string; name: string; product_id: string | null; entity_type: string | null; currency: string | null; steps: SequenceStep[] }) => {
+      const fields = { name: seq.name, product_id: seq.product_id, entity_type: seq.entity_type, currency: seq.currency, steps: seq.steps };
       if (seq.id) {
         const { data, error } = await supabase
           .from("crm_wa_sequences")
-          .update({ name: seq.name, product_id: seq.product_id, steps: seq.steps, updated_at: new Date().toISOString() })
+          .update({ ...fields, updated_at: new Date().toISOString() })
           .eq("id", seq.id)
           .select()
           .single();
@@ -3298,14 +3300,17 @@ export const useUpsertWaSequence = () => {
       } else {
         const { data, error } = await supabase
           .from("crm_wa_sequences")
-          .insert({ name: seq.name, product_id: seq.product_id, steps: seq.steps, user_id: user!.id })
+          .insert({ ...fields, user_id: user!.id })
           .select()
           .single();
         if (error) throw error;
         return data;
       }
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_sequences"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["wa_sequences"] });
+      qc.invalidateQueries({ queryKey: ["supported_countries"] });
+    },
   });
 };
 
@@ -3316,7 +3321,10 @@ export const useDeleteWaSequence = () => {
       const { error } = await supabase.from("crm_wa_sequences").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["wa_sequences"] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["wa_sequences"] });
+      qc.invalidateQueries({ queryKey: ["supported_countries"] });
+    },
   });
 };
 
@@ -3352,20 +3360,22 @@ export const useUpsertWaFlow = () => {
       is_active: boolean
       trigger_once: boolean
       flow_trigger_type: "new_conversation" | "intent"
+      country_sequences: { country_code: string; sequence_id: string }[]
     }) => {
+      const fields = {
+        name: flow.name,
+        trigger_text: flow.trigger_text,
+        sequence_id: flow.sequence_id,
+        final_action: flow.final_action,
+        is_active: flow.is_active,
+        trigger_once: flow.trigger_once,
+        flow_trigger_type: flow.flow_trigger_type,
+        country_sequences: flow.country_sequences,
+      };
       if (flow.id) {
         const { data, error } = await supabase
           .from("crm_wa_flows")
-          .update({
-            name: flow.name,
-            trigger_text: flow.trigger_text,
-            sequence_id: flow.sequence_id,
-            final_action: flow.final_action,
-            is_active: flow.is_active,
-            trigger_once: flow.trigger_once,
-            flow_trigger_type: flow.flow_trigger_type,
-            updated_at: new Date().toISOString(),
-          })
+          .update({ ...fields, updated_at: new Date().toISOString() })
           .eq("id", flow.id)
           .select()
           .single();
@@ -3374,16 +3384,7 @@ export const useUpsertWaFlow = () => {
       } else {
         const { data, error } = await supabase
           .from("crm_wa_flows")
-          .insert({
-            name: flow.name,
-            trigger_text: flow.trigger_text,
-            sequence_id: flow.sequence_id,
-            final_action: flow.final_action,
-            is_active: flow.is_active,
-            trigger_once: flow.trigger_once,
-            flow_trigger_type: flow.flow_trigger_type,
-            user_id: user!.id,
-          })
+          .insert({ ...fields, user_id: user!.id })
           .select()
           .single();
         if (error) throw error;
@@ -4177,17 +4178,24 @@ export const useUpsertQuickReply = () => {
   const { user } = useCurrentUser();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (reply: { id?: string; shortcut: string; content: string }) => {
+    mutationFn: async (reply: { id?: string; shortcut: string; content: string; media_url?: string | null; media_type?: string | null; media_filename?: string | null }) => {
+      const fields = {
+        shortcut: reply.shortcut.trim(),
+        content: reply.content.trim(),
+        media_url: reply.media_url ?? null,
+        media_type: reply.media_type ?? null,
+        media_filename: reply.media_filename ?? null,
+      };
       if (reply.id) {
         const { error } = await supabase
           .from("crm_quick_replies")
-          .update({ shortcut: reply.shortcut.trim(), content: reply.content.trim() })
+          .update(fields)
           .eq("id", reply.id);
         if (error) throw error;
       } else {
         const { error } = await supabase
           .from("crm_quick_replies")
-          .insert({ user_id: user!.id, shortcut: reply.shortcut.trim(), content: reply.content.trim() });
+          .insert({ user_id: user!.id, ...fields });
         if (error) throw error;
       }
     },
@@ -4222,5 +4230,37 @@ export const useConversationMedia = (conversationId: string | null) => {
     },
     enabled: !!user && !!conversationId,
     select: (msgs) => msgs.filter(m => !!m.media_url && (m.media_type === "image" || m.media_type === "document")),
+  });
+};
+
+// ─── Países soportados ────────────────────────────────────────────────────────
+// Derivados de las monedas registradas en crm_prices del usuario.
+// Incluye también la moneda principal de productos y servicios.
+// Es la fuente canónica para todos los selectores de país del sistema.
+export const useSupportedCountries = () => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useQuery({
+    queryKey: ["supported_countries", uid],
+    enabled: !!uid,
+    queryFn: async () => {
+      const currencies = new Set<string>();
+
+      // Monedas explícitas en crm_prices (multi-moneda en productos/servicios/cursos)
+      const { data: prices } = await supabase
+        .from("crm_prices")
+        .select("currency")
+        .eq("user_id", uid!);
+      (prices ?? []).forEach((r: { currency: string }) => currencies.add(r.currency));
+
+      // Moneda base de productos y servicios
+      const { data: products } = await supabase.from("crm_products").select("currency").eq("user_id", uid!);
+      const { data: services } = await supabase.from("crm_services").select("currency").eq("user_id", uid!);
+      (products ?? []).forEach((r: { currency: string | null }) => r.currency && currencies.add(r.currency));
+      (services ?? []).forEach((r: { currency: string | null }) => r.currency && currencies.add(r.currency));
+
+      return ALL_COUNTRY_OPTIONS.filter(c => currencies.has(c.currency)) as CountryOption[];
+    },
   });
 };

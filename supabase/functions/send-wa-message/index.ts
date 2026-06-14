@@ -26,7 +26,7 @@ Deno.serve(async (req: Request) => {
     conversation_id: string;
     text?: string;
     media_url?: string;
-    media_type?: "image" | "document";
+    media_type?: "image" | "document" | "video";
     media_filename?: string;
     reply_to_id?: string;
   };
@@ -107,27 +107,38 @@ Deno.serve(async (req: Request) => {
   if (media_url && media_type) {
     dbMediaType = media_type;
     dbMediaUrl = media_url;
+    const caption = text?.trim() || undefined;
 
     if (media_type === "image") {
-      dbContent = "[Imagen]";
+      dbContent = caption ?? "[Imagen]";
       waPayload = {
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to: conv.phone,
         ...(replyWaMessageId ? { context: { message_id: replyWaMessageId } } : {}),
         type: "image",
-        image: { link: media_url },
+        image: { link: media_url, ...(caption ? { caption } : {}) },
+      };
+    } else if (media_type === "video") {
+      dbContent = caption ?? "[Video]";
+      waPayload = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to: conv.phone,
+        ...(replyWaMessageId ? { context: { message_id: replyWaMessageId } } : {}),
+        type: "video",
+        video: { link: media_url, ...(caption ? { caption } : {}) },
       };
     } else {
       const fname = media_filename ?? "archivo";
-      dbContent = fname;
+      dbContent = caption ?? fname;
       waPayload = {
         messaging_product: "whatsapp",
         recipient_type: "individual",
         to: conv.phone,
         ...(replyWaMessageId ? { context: { message_id: replyWaMessageId } } : {}),
         type: "document",
-        document: { link: media_url, filename: fname },
+        document: { link: media_url, filename: fname, ...(caption ? { caption } : {}) },
       };
     }
   } else {

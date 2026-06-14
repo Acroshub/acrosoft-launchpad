@@ -6,6 +6,7 @@ import {
   Check, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
   GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star, Archive, LayoutGrid, ExternalLink, Reply,
+  Image as ImageIcon, FileVideo,
 } from "lucide-react";
 import {
   DndContext, closestCenter, KeyboardSensor, PointerSensor,
@@ -47,7 +48,10 @@ import {
   useQuickReplies,
   useUpsertQuickReply,
   useDeleteQuickReply,
+  usePricesByEntity,
+  useSupportedCountries,
 } from "@/hooks/useCrmData";
+import { COUNTRY_BY_CODE } from "@/lib/countries";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import CrmWaTemplates from "@/components/crm/CrmWaTemplates";
 import CrmWaCampaigns from "@/components/crm/CrmWaCampaigns";
@@ -1228,7 +1232,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 
 // ─── Sequence + Flow Builder helpers ─────────────────────────────────────────
 
-type DraftSequence = { id?: string; name: string; product_id: string | null; steps: SequenceStep[] };
+type DraftSequence = { id?: string; name: string; product_id: string | null; entity_type: 'product' | 'service' | 'course' | null; currency: string | null; steps: SequenceStep[] };
 
 type StepBranchInfo = { label: string; branchIdx: number; pos: number; total: number };
 
@@ -1249,6 +1253,7 @@ type DraftFlow = {
   is_active: boolean
   trigger_once: boolean
   flow_trigger_type: "new_conversation" | "intent"
+  country_sequences: { country_code: string; sequence_id: string }[]
 };
 
 const FLOW_FINAL_ACTION_LABELS: Record<CrmWaFlowFinalAction, string> = {
@@ -1257,8 +1262,10 @@ const FLOW_FINAL_ACTION_LABELS: Record<CrmWaFlowFinalAction, string> = {
 } as const;
 
 function newDraftFlow(): DraftFlow {
-  return { name: "", trigger_text: "", sequence_id: null, final_action: "nothing", is_active: true, trigger_once: true, flow_trigger_type: "new_conversation" };
+  return { name: "", trigger_text: "", sequence_id: null, final_action: "nothing", is_active: true, trigger_once: true, flow_trigger_type: "new_conversation", country_sequences: [] };
 }
+
+// COUNTRY_OPTIONS es ahora dinámico vía useSupportedCountries() — ver hook abajo
 
 const STEP_TYPE_LABELS = {
   message: "Texto", question: "Pregunta",
@@ -1852,7 +1859,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const { data: sequences = [] } = useWaSequences();
   const upsertSequence           = useUpsertWaSequence();
   const deleteSequence           = useDeleteWaSequence();
-  const [editingSeq, setEditingSeq] = useState<DraftSequence | null>(null);
   const { data: flows = [] }       = useWaFlows();
   const upsertFlow                 = useUpsertWaFlow();
   const deleteFlow                 = useDeleteWaFlow();
@@ -1897,6 +1903,12 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const { data: allProducts = [] } = useProducts();
   const { data: allServices = [] } = useServices();
   const { data: allCourses  = [] } = useCourses();
+  const { data: supportedCountries = [] } = useSupportedCountries();
+  const [editingSeq, setEditingSeq] = useState<DraftSequence | null>(null); // declared early for hook below
+  const { data: seqEntityPrices = [] } = usePricesByEntity(
+    (editingSeq?.entity_type as any) ?? 'service',
+    editingSeq?.product_id ?? null,
+  );
   const { data: catalogs = [] } = useCatalogs();
   const { data: catalogProductsMap = new Map() } = useCatalogProductsMap();
   const { data: calendars = [] } = useCalendars();
@@ -1960,7 +1972,14 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [editingLabel, setEditingLabel]         = useState<{ id: string; name: string; color: string; hint: string | null; remove_hint: string | null } | null>(null);
   const [newQrShortcut, setNewQrShortcut]       = useState("");
   const [newQrContent, setNewQrContent]         = useState("");
+  const [newQrMediaUrl, setNewQrMediaUrl]       = useState<string | null>(null);
+  const [newQrMediaType, setNewQrMediaType]     = useState<string | null>(null);
+  const [newQrMediaFilename, setNewQrMediaFilename] = useState<string | null>(null);
+  const [newQrUploading, setNewQrUploading]     = useState(false);
+  const newQrFileRef                            = useRef<HTMLInputElement>(null);
   const [editingQr, setEditingQr]               = useState<CrmQuickReply | null>(null);
+  const editingQrFileRef                        = useRef<HTMLInputElement>(null);
+  const [editingQrUploading, setEditingQrUploading] = useState(false);
   const [improvingHintNew, setImprovingHintNew]       = useState(false);
   const [improvingHintEdit, setImprovingHintEdit]     = useState(false);
   const [improvingRemoveNew, setImprovingRemoveNew]   = useState(false);
@@ -2199,6 +2218,29 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [savingBio, setSavingBio]         = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef                     = useRef<HTMLInputElement>(null);
+
+  const uploadQrMedia = async (
+    file: File,
+    setUrl: (v: string | null) => void,
+    setType: (v: string | null) => void,
+    setFilename: (v: string | null) => void,
+    setUploading: (v: boolean) => void,
+  ) => {
+    if (!user?.id) return;
+    setUploading(true);
+    try {
+      const ext = file.name.split(".").pop() ?? "bin";
+      const path = `${user.id}/quick-replies/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const { error: uploadErr } = await supabase.storage.from("chat-attachments").upload(path, file);
+      if (uploadErr) { toast.error("Error al subir el archivo"); return; }
+      const { data: urlData } = supabase.storage.from("chat-attachments").getPublicUrl(path);
+      const mediaType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "document";
+      setUrl(urlData.publicUrl);
+      setType(mediaType);
+      setFilename(file.name);
+    } catch { toast.error("Error al subir el archivo"); }
+    finally { setUploading(false); }
+  };
 
   useEffect(() => {
     if (!config || initialized.current) return;
@@ -3595,18 +3637,41 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                           placeholder="atajo (ej: saludo)"
                           autoFocus
                         />
+                        {/* Preview de media adjunta al editar */}
+                        {editingQr.media_url && (
+                          <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-secondary/50 border border-border/50">
+                            {editingQr.media_type === "image"
+                              ? <img src={editingQr.media_url} className="w-10 h-10 rounded object-cover shrink-0" />
+                              : editingQr.media_type === "video"
+                                ? <FileVideo size={20} className="text-muted-foreground shrink-0" />
+                                : <Paperclip size={16} className="text-muted-foreground shrink-0" />
+                            }
+                            <span className="text-xs text-muted-foreground truncate flex-1">{editingQr.media_filename ?? "Archivo adjunto"}</span>
+                            <button onClick={() => setEditingQr(prev => prev ? { ...prev, media_url: null, media_type: null, media_filename: null } : null)}
+                              className="p-1 text-muted-foreground hover:text-destructive shrink-0"><X size={12} /></button>
+                          </div>
+                        )}
                         <textarea
                           value={editingQr.content}
                           onChange={e => setEditingQr(prev => prev ? { ...prev, content: e.target.value } : null)}
                           rows={3}
                           className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
-                          placeholder="Contenido completo..."
+                          placeholder={editingQr.media_url ? "Caption (opcional)..." : "Contenido completo..."}
                         />
-                        <div className="flex gap-2">
+                        <input ref={editingQrFileRef} type="file" className="hidden"
+                          accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/3gpp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                          onChange={e => { const f = e.target.files?.[0]; if (f) uploadQrMedia(f, (url) => setEditingQr(prev => prev ? { ...prev, media_url: url } : null), (t) => setEditingQr(prev => prev ? { ...prev, media_type: t } : null), (fn) => setEditingQr(prev => prev ? { ...prev, media_filename: fn } : null), setEditingQrUploading); e.target.value = ""; }}
+                        />
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => editingQrFileRef.current?.click()} disabled={editingQrUploading}
+                            className="h-7 px-2 rounded-lg border text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1 disabled:opacity-40">
+                            {editingQrUploading ? <Loader2 size={11} className="animate-spin" /> : <Paperclip size={11} />}
+                            {editingQr.media_url ? "Cambiar" : "Adjuntar"}
+                          </button>
                           <button
                             onClick={async () => {
-                              if (!editingQr.shortcut.trim() || !editingQr.content.trim()) return;
-                              await upsertQuickReply.mutateAsync({ id: editingQr.id, shortcut: editingQr.shortcut, content: editingQr.content });
+                              if (!editingQr.shortcut.trim() || (!editingQr.content.trim() && !editingQr.media_url)) return;
+                              await upsertQuickReply.mutateAsync({ id: editingQr.id, shortcut: editingQr.shortcut, content: editingQr.content, media_url: editingQr.media_url, media_type: editingQr.media_type, media_filename: editingQr.media_filename });
                               setEditingQr(null);
                             }}
                             className="flex-1 h-7 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
@@ -3616,9 +3681,19 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                       </div>
                     ) : (
                       <>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-xs font-mono font-semibold text-primary">/{qr.shortcut}</p>
-                          <p className="text-xs text-muted-foreground truncate mt-0.5">{qr.content}</p>
+                        <div className="flex-1 min-w-0 flex items-start gap-2">
+                          {qr.media_type === "image" && qr.media_url
+                            ? <img src={qr.media_url} className="w-7 h-7 rounded object-cover shrink-0 mt-0.5" />
+                            : qr.media_type === "video"
+                              ? <FileVideo size={14} className="text-muted-foreground shrink-0 mt-0.5" />
+                              : qr.media_type === "document"
+                                ? <Paperclip size={13} className="text-muted-foreground shrink-0 mt-0.5" />
+                                : null
+                          }
+                          <div className="min-w-0">
+                            <p className="text-xs font-mono font-semibold text-primary">/{qr.shortcut}</p>
+                            <p className="text-xs text-muted-foreground truncate mt-0.5">{qr.content || (qr.media_filename ?? "Archivo adjunto")}</p>
+                          </div>
                         </div>
                         <button onClick={() => setEditingQr({ ...qr })} className="shrink-0 text-muted-foreground hover:text-foreground transition-colors p-1 rounded-lg hover:bg-secondary">
                           <Pencil size={12} />
@@ -3640,24 +3715,49 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   className="w-full h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none font-mono"
                   placeholder="atajo  (ej: saludo, precio, cita)"
                 />
+                {/* Preview de media en formulario de creación */}
+                {newQrMediaUrl && (
+                  <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-secondary/50 border border-border/50">
+                    {newQrMediaType === "image"
+                      ? <img src={newQrMediaUrl} className="w-10 h-10 rounded object-cover shrink-0" />
+                      : newQrMediaType === "video"
+                        ? <FileVideo size={20} className="text-muted-foreground shrink-0" />
+                        : <Paperclip size={16} className="text-muted-foreground shrink-0" />
+                    }
+                    <span className="text-xs text-muted-foreground truncate flex-1">{newQrMediaFilename ?? "Archivo adjunto"}</span>
+                    <button onClick={() => { setNewQrMediaUrl(null); setNewQrMediaType(null); setNewQrMediaFilename(null); }}
+                      className="p-1 text-muted-foreground hover:text-destructive shrink-0"><X size={12} /></button>
+                  </div>
+                )}
                 <textarea
                   value={newQrContent}
                   onChange={e => setNewQrContent(e.target.value)}
                   rows={3}
                   className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
-                  placeholder="Hola! Gracias por contactarnos..."
+                  placeholder={newQrMediaUrl ? "Caption (opcional)..." : "Hola! Gracias por contactarnos..."}
                 />
-                <button
-                  disabled={!newQrShortcut.trim() || !newQrContent.trim() || upsertQuickReply.isPending}
-                  onClick={async () => {
-                    if (!newQrShortcut.trim() || !newQrContent.trim()) return;
-                    await upsertQuickReply.mutateAsync({ shortcut: newQrShortcut, content: newQrContent });
-                    setNewQrShortcut(""); setNewQrContent("");
-                  }}
-                  className="w-full h-8 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 hover:opacity-90 transition-opacity"
-                >
-                  <Plus size={12} /> Crear respuesta
-                </button>
+                <input ref={newQrFileRef} type="file" className="hidden"
+                  accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/3gpp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  onChange={e => { const f = e.target.files?.[0]; if (f) uploadQrMedia(f, setNewQrMediaUrl, setNewQrMediaType, setNewQrMediaFilename, setNewQrUploading); e.target.value = ""; }}
+                />
+                <div className="flex gap-2">
+                  <button onClick={() => newQrFileRef.current?.click()} disabled={newQrUploading}
+                    className="h-8 px-2.5 rounded-xl border text-xs text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors flex items-center gap-1 disabled:opacity-40">
+                    {newQrUploading ? <Loader2 size={12} className="animate-spin" /> : <Paperclip size={12} />}
+                    {newQrMediaUrl ? "Cambiar" : "Adjuntar"}
+                  </button>
+                  <button
+                    disabled={!newQrShortcut.trim() || (!newQrContent.trim() && !newQrMediaUrl) || newQrUploading || upsertQuickReply.isPending}
+                    onClick={async () => {
+                      if (!newQrShortcut.trim() || (!newQrContent.trim() && !newQrMediaUrl)) return;
+                      await upsertQuickReply.mutateAsync({ shortcut: newQrShortcut, content: newQrContent, media_url: newQrMediaUrl, media_type: newQrMediaType, media_filename: newQrMediaFilename });
+                      setNewQrShortcut(""); setNewQrContent(""); setNewQrMediaUrl(null); setNewQrMediaType(null); setNewQrMediaFilename(null);
+                    }}
+                    className="flex-1 h-8 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 hover:opacity-90 transition-opacity"
+                  >
+                    <Plus size={12} /> Crear respuesta
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -3688,12 +3788,14 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                             {seq.steps.length} paso{seq.steps.length !== 1 ? "s" : ""}
                             {seq.product_id && (() => {
                               const name = allServices.find(s => s.id === seq.product_id)?.name
-                                ?? allProducts.find(p => p.id === seq.product_id)?.name;
+                                ?? allProducts.find(p => p.id === seq.product_id)?.name
+                                ?? allCourses.find(c => c.id === seq.product_id)?.title;
                               return name ? <> · {name}</> : null;
                             })()}
+                            {seq.currency && <> · {seq.currency}</>}
                           </p>
                         </div>
-                        <button onClick={() => { setInsertAtIdx(null); setAddBranchTarget("shared"); setEditingSeq({ id: seq.id, name: seq.name, product_id: seq.product_id, steps: seq.steps }); }}
+                        <button onClick={() => { setInsertAtIdx(null); setAddBranchTarget("shared"); setEditingSeq({ id: seq.id, name: seq.name, product_id: seq.product_id, entity_type: (seq as any).entity_type ?? null, currency: (seq as any).currency ?? null, steps: seq.steps }); }}
                           className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
                           <Pencil size={12} />
                         </button>
@@ -3704,7 +3806,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                       </div>
                     ))}
                     <button
-                      onClick={() => { setInsertAtIdx(null); setAddBranchTarget("shared"); setEditingSeq({ name: "", product_id: null, steps: [] }); }}
+                      onClick={() => { setInsertAtIdx(null); setAddBranchTarget("shared"); setEditingSeq({ name: "", product_id: null, entity_type: null, currency: null, steps: [] }); }}
                       className="flex items-center gap-1.5 w-full px-3 h-9 rounded-xl border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors">
                       <Plus size={13} /> Nueva secuencia
                     </button>
@@ -3729,18 +3831,78 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     </div>
 
                     <div className="space-y-1">
-                      <label className="text-xs font-medium text-muted-foreground">Servicio/Producto asociado <span className="text-muted-foreground/50">(opcional)</span></label>
+                      <label className="text-xs font-medium text-muted-foreground">Servicio/Producto/Curso asociado <span className="text-muted-foreground/50">(opcional)</span></label>
                       <select
                         value={editingSeq.product_id ?? ""}
-                        onChange={e => setEditingSeq(s => s ? { ...s, product_id: e.target.value || null } : s)}
+                        onChange={e => {
+                          const val = e.target.value || null;
+                          let etype: DraftSequence["entity_type"] = null;
+                          if (val) {
+                            if (allServices.some(s => s.id === val)) etype = "service";
+                            else if (allProducts.some(p => p.id === val)) etype = "product";
+                            else if (allCourses.some(c => c.id === val)) etype = "course";
+                          }
+                          setEditingSeq(s => s ? { ...s, product_id: val, entity_type: etype, currency: null } : s);
+                        }}
                         className="w-full h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
                         <option value="">Sin asociar</option>
                         {allServices.length > 0 && <option disabled>── Servicios ──</option>}
                         {allServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         {allProducts.length > 0 && <option disabled>── Productos ──</option>}
                         {allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        {allCourses.length > 0 && <option disabled>── Cursos ──</option>}
+                        {allCourses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                       </select>
                     </div>
+
+                    {/* Selector de moneda — combinando precio principal + crm_prices */}
+                    {editingSeq.product_id && (() => {
+                      // Precio principal almacenado en la tabla del producto/servicio/curso
+                      const entityObj = editingSeq.entity_type === 'service'
+                        ? allServices.find(s => s.id === editingSeq.product_id)
+                        : editingSeq.entity_type === 'product'
+                          ? allProducts.find(p => p.id === editingSeq.product_id)
+                          : allCourses.find(c => c.id === editingSeq.product_id);
+                      const mainCurrency = (entityObj as any)?.currency as string | undefined;
+                      const mainPrice    = (entityObj as any)?.price as number | undefined;
+
+                      // Combinar: precio principal + precios de crm_prices (sin duplicar moneda)
+                      const combined: { currency: string; price: number }[] = [];
+                      if (mainCurrency && mainPrice != null) combined.push({ currency: mainCurrency, price: Number(mainPrice) });
+                      for (const p of seqEntityPrices) {
+                        if (!combined.some(c => c.currency === p.currency)) combined.push({ currency: p.currency, price: p.price });
+                      }
+
+                      if (combined.length <= 1) {
+                        return combined.length === 1
+                          ? <p className="text-[10px] text-muted-foreground/60">Moneda: {combined[0].currency}</p>
+                          : null;
+                      }
+
+                      return (
+                        <div className="space-y-1">
+                          <label className="text-xs font-medium text-muted-foreground">
+                            Moneda de esta secuencia <span className="text-red-500">*</span>
+                          </label>
+                          <p className="text-[10px] text-muted-foreground/60 leading-snug">El agente detectará el país del contacto y usará la secuencia con la moneda correspondiente.</p>
+                          <div className="flex flex-wrap gap-1.5">
+                            {combined.map(p => (
+                              <button
+                                key={p.currency}
+                                type="button"
+                                onClick={() => setEditingSeq(s => s ? { ...s, currency: p.currency } : s)}
+                                className={`px-3 py-1.5 text-xs rounded-lg border transition-all ${editingSeq.currency === p.currency ? "border-primary bg-primary/8 text-primary font-semibold" : "border-border text-muted-foreground hover:border-primary/40"}`}
+                              >
+                                {p.currency} — {formatAmount(p.price, p.currency)}
+                              </button>
+                            ))}
+                          </div>
+                          {!editingSeq.currency && (
+                            <p className="text-[10px] text-amber-600">Debes seleccionar una moneda para guardar.</p>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     <div className="space-y-1.5">
                       <label className="text-xs font-medium text-muted-foreground">Pasos</label>
@@ -4101,11 +4263,33 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     )}
 
                     <button
-                      disabled={!editingSeq.name.trim() || upsertSequence.isPending}
+                      disabled={!editingSeq.name.trim() || upsertSequence.isPending || (() => {
+                        if (!editingSeq.product_id) return false;
+                        const obj = editingSeq.entity_type === 'service' ? allServices.find(s => s.id === editingSeq.product_id)
+                          : editingSeq.entity_type === 'product' ? allProducts.find(p => p.id === editingSeq.product_id)
+                          : allCourses.find(c => c.id === editingSeq.product_id);
+                        const mainC = (obj as any)?.currency as string | undefined;
+                        const extraCs = seqEntityPrices.map(p => p.currency).filter(c => c !== mainC);
+                        const totalCurrencies = [mainC, ...extraCs].filter(Boolean).length;
+                        return totalCurrencies > 1 && !editingSeq.currency;
+                      })()}
                       onClick={async () => {
                         if (!editingSeq.name.trim()) return;
+                        // Calcular monedas combinadas para validar
+                        const obj = editingSeq.product_id
+                          ? (editingSeq.entity_type === 'service' ? allServices.find(s => s.id === editingSeq.product_id)
+                            : editingSeq.entity_type === 'product' ? allProducts.find(p => p.id === editingSeq.product_id)
+                            : allCourses.find(c => c.id === editingSeq.product_id))
+                          : null;
+                        const mainC = obj ? (obj as any).currency as string | undefined : undefined;
+                        const allC = [mainC, ...seqEntityPrices.map(p => p.currency).filter(c => c !== mainC)].filter(Boolean) as string[];
+                        if (editingSeq.product_id && allC.length > 1 && !editingSeq.currency) {
+                          toast.error("Selecciona una moneda para guardar la secuencia.");
+                          return;
+                        }
+                        const currency = editingSeq.currency ?? (allC.length === 1 ? allC[0] : null);
                         try {
-                          await upsertSequence.mutateAsync(editingSeq);
+                          await upsertSequence.mutateAsync({ ...editingSeq, currency });
                           setEditingSeq(null);
                           toast.success(editingSeq.id ? "Secuencia actualizada" : "Secuencia creada");
                         } catch (e: any) {
@@ -4149,6 +4333,9 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                               </p>
                               <p className="text-[10px] text-muted-foreground/50">
                                 {seqName ? `→ ${seqName}` : "→ Sin secuencia"}
+                                {(flow.country_sequences?.length > 0) && (
+                                  <> · {flow.country_sequences.map(cs => COUNTRY_BY_CODE[cs.country_code]?.flag ?? cs.country_code).join(" ")}</>
+                                )}
                                 {" · "}
                                 {FLOW_FINAL_ACTION_LABELS[flow.final_action]}
                                 {(flow.flow_trigger_type ?? "intent") === "intent" && (
@@ -4164,7 +4351,10 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                               <span className={`w-3 h-3 rounded-full bg-white shadow transition-transform ${flow.is_active ? "translate-x-3.5" : "translate-x-0"}`} />
                             </button>
                             <button
-                              onClick={() => { setTriggerValidation(null); setEditingFlow({ id: flow.id, name: flow.name, trigger_text: flow.trigger_text, sequence_id: flow.sequence_id, final_action: flow.final_action, is_active: flow.is_active, trigger_once: flow.trigger_once ?? true, flow_trigger_type: flow.flow_trigger_type ?? "intent" }); }}
+                              onClick={() => {
+                                setTriggerValidation(null);
+                                setEditingFlow({ id: flow.id, name: flow.name, trigger_text: flow.trigger_text, sequence_id: flow.sequence_id, final_action: flow.final_action, is_active: flow.is_active, trigger_once: flow.trigger_once ?? true, flow_trigger_type: (flow.flow_trigger_type === "new_conversation" ? "new_conversation" : "intent") as DraftFlow["flow_trigger_type"], country_sequences: flow.country_sequences ?? [] });
+                              }}
                               className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0">
                               <Pencil size={12} />
                             </button>
@@ -4300,18 +4490,96 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         </div>
                       )}
 
-                      {/* Secuencia */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-muted-foreground">Secuencia a ejecutar</label>
-                        <select
-                          value={editingFlow.sequence_id ?? ""}
-                          onChange={e => setEditingFlow(f => f ? { ...f, sequence_id: e.target.value || null } : f)}
-                          className="w-full h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
-                          <option value="">Sin secuencia</option>
-                          {sequences.map(s => (
-                            <option key={s.id} value={s.id}>{s.name} ({s.steps.length} pasos)</option>
-                          ))}
-                        </select>
+                      {/* Secuencias por país */}
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-medium text-muted-foreground">Secuencias a ejecutar</label>
+                          <button
+                            type="button"
+                            onClick={() => setEditingFlow(f => f ? { ...f, country_sequences: [...f.country_sequences, { country_code: "", sequence_id: "" }] } : f)}
+                            className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
+                          >
+                            + Agregar por país
+                          </button>
+                        </div>
+
+                        {/* Secuencia por defecto */}
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-muted-foreground shrink-0 w-20">Por defecto</span>
+                          <select
+                            value={editingFlow.sequence_id ?? ""}
+                            onChange={e => setEditingFlow(f => f ? { ...f, sequence_id: e.target.value || null } : f)}
+                            className="flex-1 h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
+                            <option value="">Sin secuencia</option>
+                            {sequences.map(s => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        {/* Filas secuencia → país (el país se filtra por la moneda de la secuencia) */}
+                        {editingFlow.country_sequences.map((cs, idx) => {
+                          const selectedSeq = sequences.find(s => s.id === cs.sequence_id);
+                          const seqCurrency = (selectedSeq as any)?.currency as string | null | undefined;
+                          // Países que corresponden a la moneda de la secuencia seleccionada
+                          const countryPool = seqCurrency
+                            ? supportedCountries.filter(c => c.currency === seqCurrency)
+                            : supportedCountries;
+                          // Excluir países ya usados en otras filas
+                          const countryOptions = countryPool.filter(
+                            c => c.code === cs.country_code || !editingFlow.country_sequences.some((x, i) => i !== idx && x.country_code === c.code)
+                          );
+                          return (
+                            <div key={idx} className="flex items-center gap-2">
+                              {/* 1. Secuencia */}
+                              <select
+                                value={cs.sequence_id}
+                                onChange={e => setEditingFlow(f => {
+                                  if (!f) return f;
+                                  const next = [...f.country_sequences];
+                                  const newSeq = sequences.find(s => s.id === e.target.value);
+                                  const newCurrency = (newSeq as any)?.currency as string | null | undefined;
+                                  // Si la nueva secuencia tiene moneda, calculamos los países posibles
+                                  const newPool = newCurrency
+                                    ? supportedCountries.filter(c => c.currency === newCurrency)
+                                    : [];
+                                  // Auto-seleccionar país si solo hay uno disponible
+                                  const autoCountry = newPool.length === 1 ? newPool[0].code : "";
+                                  next[idx] = { sequence_id: e.target.value, country_code: autoCountry };
+                                  return { ...f, country_sequences: next };
+                                })}
+                                className="flex-1 h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
+                                <option value="">Secuencia…</option>
+                                {sequences.map(s => (
+                                  <option key={s.id} value={s.id}>{s.name}</option>
+                                ))}
+                              </select>
+                              {/* 2. País — filtrado por moneda de la secuencia */}
+                              <select
+                                value={cs.country_code}
+                                onChange={e => setEditingFlow(f => {
+                                  if (!f) return f;
+                                  const next = [...f.country_sequences];
+                                  next[idx] = { ...next[idx], country_code: e.target.value };
+                                  return { ...f, country_sequences: next };
+                                })}
+                                disabled={!cs.sequence_id}
+                                className="w-40 h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none shrink-0 disabled:opacity-40">
+                                <option value="">País…</option>
+                                {countryOptions.map(c => (
+                                  <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
+                                ))}
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setEditingFlow(f => f ? { ...f, country_sequences: f.country_sequences.filter((_, i) => i !== idx) } : f)}
+                                className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
+                                <Trash2 size={12} />
+                              </button>
+                            </div>
+                          );
+                        })}
+
                         {sequences.length === 0 && (
                           <p className="text-[10px] text-amber-600">No hay secuencias creadas. Crea una en la sección de arriba primero.</p>
                         )}
@@ -4344,7 +4612,12 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
                       {/* Guardar */}
                       <button
-                        disabled={!editingFlow.name.trim() || (editingFlow.flow_trigger_type === "intent" && !editingFlow.trigger_text.trim()) || upsertFlow.isPending}
+                        disabled={
+                          !editingFlow.name.trim() ||
+                          (editingFlow.flow_trigger_type === "intent" && !editingFlow.trigger_text.trim()) ||
+                          editingFlow.country_sequences.some(cs => !cs.country_code || !cs.sequence_id) ||
+                          upsertFlow.isPending
+                        }
                         onClick={async () => {
                           if (!editingFlow.name.trim()) return;
                           if (editingFlow.flow_trigger_type === "intent") {
@@ -4355,6 +4628,10 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                               toast.error("Corrige el trigger antes de guardar.");
                               return;
                             }
+                          }
+                          if (editingFlow.country_sequences.some(cs => !cs.country_code || !cs.sequence_id)) {
+                            toast.error("Completa el país y la secuencia en cada fila.");
+                            return;
                           }
                           try {
                             await upsertFlow.mutateAsync(editingFlow);
@@ -4619,11 +4896,9 @@ const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch, onMsg
                 </>
               )}
               {msg.send_error && (
-                <div className={`flex items-center gap-1 mt-1.5 text-[10px] ${isIncoming ? "text-destructive" : "text-white/80"}`}>
-                  <AlertTriangle size={9} />
-                  {msg.send_error === "whatsapp_window_expired" || msg.send_error === "24h_window_expired"
-                    ? "No se pudo enviar: más de 24h sin interacción"
-                    : "Error al enviar"}
+                <div className="flex items-center gap-1 mt-1.5 text-[10px] text-white/70">
+                  <AlertTriangle size={9} className="shrink-0" />
+                  <span>No enviado</span>
                 </div>
               )}
               <div className={`flex items-center justify-end gap-1 mt-1 ${isIncoming ? "text-muted-foreground/60" : "text-white/60"}`}>
@@ -4639,6 +4914,19 @@ const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch, onMsg
             </div>
           )}
         </div>
+        {/* Explicación de error debajo de la burbuja */}
+        {!isIncoming && (msg.delivery_status === "failed" || msg.send_error) && (
+          <div className="flex items-start gap-1.5 mt-1 pr-1">
+            <AlertTriangle size={11} className="shrink-0 text-orange-500 mt-0.5" />
+            <p className="text-[11px] text-muted-foreground leading-snug">
+              {msg.send_error === "24h_window_expired" || msg.send_error === "whatsapp_window_expired"
+                ? "No enviado — ventana de 24 h cerrada. Usa una plantilla para retomar."
+                : msg.send_error
+                  ? `No enviado — ${msg.send_error}`
+                  : "No entregado — WhatsApp rechazó el mensaje (posiblemente ventana de 24 h cerrada). Usa una plantilla para retomar."}
+            </p>
+          </div>
+        )}
         {/* Etiqueta del emisor */}
         {!isIncoming && (
           <p className={`text-[10px] mt-0.5 pr-1 text-right font-medium ${isHuman ? "text-[#1877F2]/70" : "text-[#00a884]/70"}`}>
@@ -4921,13 +5209,19 @@ const ChatPanel = ({
   const [noteNavId, setNoteNavId] = useState<string | null>(null);
   const [paymentAction, setPaymentAction] = useState<"confirm" | "reject" | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<"confirm" | "reject" | null>(null);
+  const [pendingQrMedia, setPendingQrMedia] = useState<{ url: string; type: string; filename?: string | null } | null>(null);
   const bottomRef       = useRef<HTMLDivElement>(null);
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const textareaRef     = useRef<HTMLTextAreaElement>(null);
   const prevNotesLogRef = useRef(false);
 
-  const applyQuickReply = (content: string) => {
-    setText(content);
+  const applyQuickReply = (qr: CrmQuickReply) => {
+    setText(qr.content);
+    if (qr.media_url) {
+      setPendingQrMedia({ url: qr.media_url, type: qr.media_type ?? "document", filename: qr.media_filename });
+    } else {
+      setPendingQrMedia(null);
+    }
     setShowQrPopover(false);
     requestAnimationFrame(() => {
       const ta = textareaRef.current;
@@ -4935,7 +5229,7 @@ const ChatPanel = ({
       ta.style.height = "auto";
       ta.style.height = `${Math.min(ta.scrollHeight, 120)}px`;
       ta.focus();
-      ta.setSelectionRange(content.length, content.length);
+      ta.setSelectionRange(qr.content.length, qr.content.length);
     });
   };
 
@@ -4993,6 +5287,8 @@ const ChatPanel = ({
     setQrSuggestions([]);
     setCtxMenu(null);
     setReplyTo(null);
+    setPendingQrMedia(null);
+    setWindowError(false);
   }, [conv.id]);
 
   useEffect(() => {
@@ -5008,6 +5304,10 @@ const ChatPanel = ({
     if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
     return () => clearTimeout(t);
   }, [highlightMessageId, isLoading, messages.length]);
+
+  // Detectar error de ventana 24h desde mensajes existentes
+  const lastOutgoing = useMemo(() => [...messages].reverse().find(m => m.role === "human" && !m.is_internal), [messages]);
+  const showWindowError = windowError || lastOutgoing?.send_error === "24h_window_expired" || lastOutgoing?.send_error === "whatsapp_window_expired" || lastOutgoing?.delivery_status === "failed";
 
   // ── In-chat search (B19-11) ────────────────────────────────────────────────
 
@@ -5060,7 +5360,7 @@ const ChatPanel = ({
   }, [showNotesLog]);
 
   const handleSend = async () => {
-    if (!text.trim() || sending) return;
+    if ((!text.trim() && !pendingQrMedia) || sending) return;
     setSending(true);
     setWindowError(false);
     try {
@@ -5076,7 +5376,29 @@ const ChatPanel = ({
           setText("");
           setIsInternalMode(false);
           setReplyTo(null);
+          setPendingQrMedia(null);
           qc.invalidateQueries({ queryKey: ["crm_wa_messages", conv.id] });
+        }
+      } else if (pendingQrMedia) {
+        // Enviar media de respuesta rápida con caption
+        const { data, error } = await supabase.functions.invoke("send-wa-message", {
+          body: {
+            conversation_id: conv.id,
+            media_url: pendingQrMedia.url,
+            media_type: pendingQrMedia.type,
+            media_filename: pendingQrMedia.filename,
+            ...(text.trim() ? { text: text.trim() } : {}),
+            ...(replyTo ? { reply_to_id: replyTo.id } : {}),
+          },
+        });
+        if (error || data?.error === "24h_window_expired") {
+          setWindowError(true);
+          if (data?.error === "24h_window_expired") toast.warning("Ventana de 24 h cerrada — usa una plantilla para retomar", { duration: 6000 });
+          else toast.error("Error al enviar el archivo");
+        } else {
+          setText("");
+          setReplyTo(null);
+          setPendingQrMedia(null);
         }
       } else {
         const { data, error } = await supabase.functions.invoke("send-wa-message", {
@@ -5084,7 +5406,8 @@ const ChatPanel = ({
         });
         if (error || data?.error === "24h_window_expired") {
           setWindowError(true);
-          if (data?.error !== "24h_window_expired") toast.error("Error al enviar el mensaje");
+          if (data?.error === "24h_window_expired") toast.warning("Ventana de 24 h cerrada — usa una plantilla para retomar", { duration: 6000 });
+          else toast.error("Error al enviar el mensaje");
         } else {
           setText("");
           setReplyTo(null);
@@ -5106,7 +5429,8 @@ const ChatPanel = ({
 
       const { data: urlData } = supabase.storage.from("chat-attachments").getPublicUrl(path);
       const mediaUrl = urlData.publicUrl;
-      const mediaType = file.type.startsWith("image/") ? "image" : "document";
+      const mediaType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "document";
+      const caption = text.trim() || undefined;
 
       const { data, error } = await supabase.functions.invoke("send-wa-message", {
         body: {
@@ -5114,13 +5438,16 @@ const ChatPanel = ({
           media_url: mediaUrl,
           media_type: mediaType,
           media_filename: file.name,
+          ...(caption ? { text: caption } : {}),
           ...(replyTo ? { reply_to_id: replyTo.id } : {}),
         },
       });
       if (error || data?.error === "24h_window_expired") {
         setWindowError(true);
-        if (data?.error !== "24h_window_expired") toast.error("Error al enviar el archivo");
+        if (data?.error === "24h_window_expired") toast.warning("Ventana de 24 h cerrada — usa una plantilla para retomar", { duration: 6000 });
+        else toast.error("Error al enviar el archivo");
       } else {
+        setText("");
         setReplyTo(null);
       }
     } catch { toast.error("Error al enviar"); }
@@ -5559,15 +5886,30 @@ const ChatPanel = ({
             </button>
           </div>
         )}
-        {windowError && (
-          <div className="flex items-center gap-2 text-xs text-destructive bg-destructive/10 border border-destructive/20 rounded-xl px-3 py-2 mb-2">
-            <AlertTriangle size={13} className="shrink-0" /> Ventana de 24h expirada — no se pueden enviar mensajes de texto libre.
+        {/* Pending QR media preview */}
+        {pendingQrMedia && (
+          <div className="flex items-center gap-2 px-2 py-2 mb-2 rounded-xl bg-secondary/50 border border-border">
+            {pendingQrMedia.type === "image"
+              ? <img src={pendingQrMedia.url} className="w-10 h-10 rounded object-cover shrink-0" />
+              : pendingQrMedia.type === "video"
+                ? <div className="w-10 h-10 rounded bg-muted flex items-center justify-center shrink-0"><FileVideo size={18} className="text-muted-foreground" /></div>
+                : <div className="w-10 h-10 rounded bg-muted flex items-center justify-center shrink-0"><Paperclip size={16} className="text-muted-foreground" /></div>
+            }
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-muted-foreground leading-tight">
+                {pendingQrMedia.type === "image" ? "Imagen" : pendingQrMedia.type === "video" ? "Video" : "Documento"}
+              </p>
+              <p className="text-xs text-muted-foreground/70 truncate">{pendingQrMedia.filename ?? "Archivo adjunto"}</p>
+            </div>
+            <button type="button" onClick={() => setPendingQrMedia(null)} className="p-1 text-muted-foreground hover:text-foreground shrink-0">
+              <X size={13} />
+            </button>
           </div>
         )}
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/3gpp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
           className="hidden"
           onChange={e => { const f = e.target.files?.[0]; if (f) handleMediaUpload(f); e.target.value = ""; }}
         />
@@ -5577,11 +5919,16 @@ const ChatPanel = ({
             {qrSuggestions.map((qr, i) => (
               <button
                 key={qr.id}
-                onMouseDown={e => { e.preventDefault(); applyQuickReply(qr.content); }}
+                onMouseDown={e => { e.preventDefault(); applyQuickReply(qr); }}
                 className={`w-full flex items-start gap-3 px-4 py-2.5 text-left transition-colors ${i === qrFocusIdx ? "bg-primary/10" : "hover:bg-secondary/60"}`}
               >
                 <span className="text-xs font-mono font-semibold text-primary shrink-0 mt-0.5">/{qr.shortcut}</span>
-                <span className="text-xs text-muted-foreground truncate">{qr.content}</span>
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {qr.media_type === "image" && <ImageIcon size={11} className="text-muted-foreground shrink-0" />}
+                  {qr.media_type === "video" && <FileVideo size={11} className="text-muted-foreground shrink-0" />}
+                  {qr.media_type === "document" && <Paperclip size={11} className="text-muted-foreground shrink-0" />}
+                  <span className="text-xs text-muted-foreground truncate">{qr.content || qr.media_filename || "Archivo adjunto"}</span>
+                </div>
               </button>
             ))}
           </div>
@@ -5618,7 +5965,7 @@ const ChatPanel = ({
                   if (e.key === "Enter" || e.key === "Tab") {
                     e.preventDefault();
                     const sel = qrSuggestions[qrFocusIdx];
-                    if (sel) applyQuickReply(sel.content);
+                    if (sel) applyQuickReply(sel);
                     return;
                   }
                   if (e.key === "Escape") { setShowQrPopover(false); return; }
@@ -5641,7 +5988,7 @@ const ChatPanel = ({
                     : <Pencil size={13} className="text-blue-500/50 shrink-0" />
                 }
                 <span className="text-sm text-muted-foreground/55 truncate">
-                  {isInternalMode ? "Nota interna — solo visible para el equipo..." : conv.mode === "AI" ? "Activa nota interna o toma el control..." : "Escribe un mensaje..."}
+                  {isInternalMode ? "Nota interna — solo visible para el equipo..." : conv.mode === "AI" ? "Activa nota interna o toma el control..." : pendingQrMedia ? "Caption (opcional)..." : "Escribe un mensaje..."}
                 </span>
               </div>
             )}
@@ -5765,9 +6112,9 @@ const ChatPanel = ({
             {/* Send */}
             <button
               onClick={handleSend}
-              disabled={sending || uploadingMedia || !text.trim() || (conv.mode === "AI" && !isInternalMode)}
+              disabled={sending || uploadingMedia || (!text.trim() && !pendingQrMedia) || (conv.mode === "AI" && !isInternalMode)}
               className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-white transition-all shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ backgroundColor: text.trim() && !(conv.mode === "AI" && !isInternalMode) ? (isInternalMode ? "#d97706" : "#1877F2") : undefined }}
+              style={{ backgroundColor: (text.trim() || pendingQrMedia) && !(conv.mode === "AI" && !isInternalMode) ? (isInternalMode ? "#d97706" : "#1877F2") : undefined }}
               title={isInternalMode ? "Guardar nota interna" : "Enviar"}
             >
               {sending ? <Loader2 size={18} className="animate-spin" /> : isInternalMode ? <StickyNote size={17} /> : <Send size={18} />}
@@ -5946,9 +6293,13 @@ const CrmAgentIA = ({
 
   const filteredConvs = useMemo(() => {
     const source = showArchived ? archivedConversations : conversations;
-    let result = source.filter(c =>
-      !search || (c.contact_name ?? c.phone).toLowerCase().includes(search.toLowerCase())
-    );
+    const q = search.toLowerCase().replace(/\s/g, "");
+    let result = source.filter(c => {
+      if (!search) return true;
+      const name = (c.contact_name ?? "").toLowerCase();
+      const phone = c.phone.replace(/\D/g, "");
+      return name.includes(q) || phone.includes(q.replace(/\D/g, ""));
+    });
     if (!showArchived) {
       if (labelFilter) {
         result = result.filter(c => (convLabelsMap[c.id] ?? []).some(l => l.id === labelFilter));
@@ -6405,9 +6756,12 @@ const CrmAgentIA = ({
                   const dq = debouncedSearch;
 
                   // Contactos que coinciden por nombre/teléfono
-                  const contactMatches = conversations.filter(c =>
-                    (c.contact_name ?? c.phone).toLowerCase().includes(q)
-                  );
+                  const qDigits = q.replace(/\D/g, "");
+                  const contactMatches = conversations.filter(c => {
+                    const name = (c.contact_name ?? "").toLowerCase();
+                    const phone = c.phone.replace(/\D/g, "");
+                    return name.includes(q) || (qDigits && phone.includes(qDigits));
+                  });
                   const contactIds = new Set(contactMatches.map(c => c.id));
 
                   // Mensajes que coinciden (sin duplicar convs ya en contactMatches)
