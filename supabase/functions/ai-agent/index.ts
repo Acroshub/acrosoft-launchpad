@@ -34,6 +34,7 @@ interface AgentConfig {
   selected_course_ids: string[];
   auto_detect_payments: boolean;
   payment_notify_email: string | null;
+  products_with_images: string[];
   // Configuración estratégica B15-1
   agent_objectives: string[] | null;
   agent_personality: string | null;
@@ -43,6 +44,7 @@ interface AgentConfig {
   emoji_level: string | null;
   do_upsell: boolean;
   confirm_summary: boolean;
+  apply_discounts: boolean;
   agent_faq: Array<{ q: string; a: string }> | null;
   use_business_faq: boolean;
   agent_extra_prompt: string | null;
@@ -830,6 +832,22 @@ function parseAndStripQrMarkers(text: string): { text: string; qrIds: string[] }
   return { text: cleaned, qrIds };
 }
 
+// Extrae marcadores [SEND_PRODUCT_IMAGES:product_id|variant_id_or_none] de la respuesta de Claude
+function parseAndStripProductImageMarkers(text: string): {
+  text: string;
+  photoRequests: Array<{ productId: string; variantId: string | null }>;
+} {
+  const photoRequests: Array<{ productId: string; variantId: string | null }> = [];
+  const cleaned = text.replace(/\[SEND_PRODUCT_IMAGES:([^|]+)\|([^\]]+)\]/gi, (_, productId, variantId) => {
+    photoRequests.push({
+      productId: productId.trim(),
+      variantId: variantId.trim().toLowerCase() === "none" ? null : variantId.trim(),
+    });
+    return "";
+  }).trim();
+  return { text: cleaned, photoRequests };
+}
+
 // ─── B18-6: Flow execution ─────────────────────────────────────────────────────
 
 interface FlowStep {
@@ -1305,7 +1323,7 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
       .order("sort_order"),
     supabase
       .from("crm_prices")
-      .select("entity_id, currency, price")
+      .select("entity_id, currency, price, discount_pct")
       .in("entity_id", allProductIds)
       .eq("entity_type", "product")
       .order("sort_order"),
@@ -1315,12 +1333,12 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
   const paymentMethods = paymentMethodsRes.data ?? [];
   const productFaqs = faqsRes.data ?? [];
 
-  // Precio por moneda del contacto: entity_id → { currency, price }
-  const pricesByProduct = new Map<string, { currency: string; price: number }>();
+  // Precio por moneda del contacto: entity_id → { currency, price, discount_pct }
+  const pricesByProduct = new Map<string, { currency: string; price: number; discount_pct: number | null }>();
   if (contactCurrency) {
     for (const pr of pricesRes.data ?? []) {
       if (pr.currency === contactCurrency && !pricesByProduct.has(pr.entity_id)) {
-        pricesByProduct.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price) });
+        pricesByProduct.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price), discount_pct: pr.discount_pct ?? null });
       }
     }
   }
@@ -1365,7 +1383,9 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
     const priceOverride = pricesByProduct.get(p.id) ?? null;
     const basePrice = priceOverride?.price ?? p.price;
     const baseCurrency = priceOverride?.currency ?? p.currency;
-    const disc = p.discount_pct ?? 0;
+    const disc = config.apply_discounts !== false
+      ? (priceOverride?.discount_pct != null ? priceOverride.discount_pct : (p.discount_pct ?? 0))
+      : 0;
     const finalPrice = disc > 0 ? basePrice * (1 - disc / 100) : basePrice;
     const price = disc > 0
       ? `${formatPrice(finalPrice, baseCurrency)} (antes ${formatPrice(basePrice, baseCurrency)}, ${disc}% de descuento)`
@@ -1399,9 +1419,11 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
         // se usa basePrice/baseCurrency del scope externo para mostrar el precio en la moneda del contacto.
         const vBase = v.price_override != null ? v.price_override : basePrice;
         const vCurrency = v.price_override != null ? p.currency : baseCurrency;
-        const vDisc = (v.discount_pct ?? 0) > 0
-          ? (v.discount_pct ?? 0)
-          : (v.price_override == null ? (p.discount_pct ?? 0) : 0);
+        const vDisc = config.apply_discounts !== false
+          ? ((v.discount_pct ?? 0) > 0
+              ? (v.discount_pct ?? 0)
+              : (v.price_override == null ? (priceOverride?.discount_pct ?? p.discount_pct ?? 0) : 0))
+          : 0;
         const finalVPrice = vDisc > 0 ? +(vBase * (1 - vDisc / 100)).toFixed(2) : vBase;
         const priceLabel = vDisc > 0
           ? `${formatPrice(finalVPrice, vCurrency)} (antes ${formatPrice(vBase, vCurrency)}, ${vDisc}% de descuento)`
@@ -1453,13 +1475,15 @@ function formatServicePriceLines(s: {
   recurring_interval: string | null;
   recurring_label: string | null;
   recurring_discount_pct: number | null;
-}, priceOverride?: { price: number; currency: string } | null): string[] {
+}, priceOverride?: { price: number; currency: string; discount_pct?: number | null } | null, applyDiscounts = true): string[] {
   const lines: string[] = [];
 
   const basePrice = priceOverride?.price ?? s.price;
   const baseCurrency = priceOverride?.currency ?? s.currency;
 
-  const disc = s.discount_pct ?? 0;
+  const disc = applyDiscounts
+    ? (priceOverride?.discount_pct != null ? priceOverride.discount_pct : (s.discount_pct ?? 0))
+    : 0;
   if (disc > 0) {
     const final = (basePrice * (1 - disc / 100)).toFixed(2);
     lines.push(`  Precio: ${formatPrice(final, baseCurrency)} (antes ${formatPrice(basePrice, baseCurrency)}, ${disc}% de descuento)`);
@@ -1516,7 +1540,7 @@ async function buildServicesCatalog(config: AgentConfig, contactCurrency: string
       .order("sort_order"),
     supabase
       .from("crm_prices")
-      .select("entity_id, currency, price")
+      .select("entity_id, currency, price, discount_pct")
       .in("entity_id", serviceIds)
       .eq("entity_type", "service")
       .order("sort_order"),
@@ -1536,11 +1560,11 @@ async function buildServicesCatalog(config: AgentConfig, contactCurrency: string
   }
 
   // Precio por moneda del contacto
-  const pricesByService = new Map<string, { currency: string; price: number }>();
+  const pricesByService = new Map<string, { currency: string; price: number; discount_pct: number | null }>();
   if (contactCurrency) {
     for (const pr of pricesRes.data ?? []) {
       if (pr.currency === contactCurrency && !pricesByService.has(pr.entity_id)) {
-        pricesByService.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price) });
+        pricesByService.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price), discount_pct: pr.discount_pct ?? null });
       }
     }
   }
@@ -1553,7 +1577,7 @@ async function buildServicesCatalog(config: AgentConfig, contactCurrency: string
     if (s.description) lines.push(`  Descripción: ${s.description}`);
 
     const priceOverride = pricesByService.get(s.id) ?? null;
-    for (const priceLine of formatServicePriceLines(s, priceOverride)) lines.push(priceLine);
+    for (const priceLine of formatServicePriceLines(s, priceOverride, config.apply_discounts !== false)) lines.push(priceLine);
 
     const pms = pmByService.get(s.id) ?? [];
     if (pms.length > 0) {
@@ -1611,7 +1635,7 @@ async function buildCoursesCatalog(config: AgentConfig, contactCurrency: string 
       .order("sort_order"),
     supabase
       .from("crm_prices")
-      .select("entity_id, currency, price")
+      .select("entity_id, currency, price, discount_pct")
       .in("entity_id", courseIds)
       .eq("entity_type", "course")
       .order("sort_order"),
@@ -1631,11 +1655,11 @@ async function buildCoursesCatalog(config: AgentConfig, contactCurrency: string 
   }
 
   // Precio por moneda del contacto
-  const pricesByCourse = new Map<string, { currency: string; price: number }>();
+  const pricesByCourse = new Map<string, { currency: string; price: number; discount_pct: number | null }>();
   if (contactCurrency) {
     for (const pr of pricesRes.data ?? []) {
       if (pr.currency === contactCurrency && !pricesByCourse.has(pr.entity_id)) {
-        pricesByCourse.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price) });
+        pricesByCourse.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price), discount_pct: pr.discount_pct ?? null });
       }
     }
   }
@@ -1643,9 +1667,17 @@ async function buildCoursesCatalog(config: AgentConfig, contactCurrency: string 
   const lines: string[] = ["CATÁLOGO DE CURSOS:"];
   for (const c of courses) {
     const priceOverride = pricesByCourse.get(c.id);
-    const displayPrice = priceOverride
-      ? formatPrice(priceOverride.price, priceOverride.currency)
-      : (c.price != null ? formatPrice(c.price, c.currency) : "Consultar precio");
+    const applyDisc = config.apply_discounts !== false;
+    const basePrice = priceOverride?.price ?? c.price;
+    const baseCurrency = priceOverride?.currency ?? c.currency;
+    const disc = applyDisc
+      ? (priceOverride?.discount_pct != null ? priceOverride.discount_pct : 0)
+      : 0;
+    const displayPrice = basePrice != null
+      ? (disc > 0
+          ? `${formatPrice(basePrice * (1 - disc / 100), baseCurrency)} (antes ${formatPrice(basePrice, baseCurrency)}, ${disc}% de descuento)`
+          : formatPrice(basePrice, baseCurrency))
+      : "Consultar precio";
     lines.push(`- ${c.title}: ${displayPrice} [course_id:${c.id}]`);
     if (c.description) lines.push(`  Descripción: ${c.description}`);
 
@@ -1772,6 +1804,86 @@ function buildStrategicInstructions(config: AgentConfig, businessFaqs: Array<{ q
   return parts.join("\n\n");
 }
 
+// ─── Instrucción de fotos de productos para el agente ─────────────────────────
+// Construye el bloque de instrucción con los marcadores [SEND_PRODUCT_IMAGES] disponibles.
+// Solo incluye productos que el operador habilitó (products_with_images) y que tienen imágenes.
+async function buildProductImagesInstruction(config: AgentConfig): Promise<string> {
+  const enabledIds = config.products_with_images ?? [];
+
+  // Si hay productos habilitados, cargar sus imágenes (y las de variantes)
+  let entries: Array<{
+    productId: string;
+    productName: string;
+    hasProductImages: boolean;
+    variants: Array<{ id: string; name: string }>;
+  }> = [];
+
+  if (enabledIds.length > 0) {
+    const { data: products } = await supabase
+      .from("crm_products")
+      .select("id, name, images, has_variants")
+      .in("id", enabledIds)
+      .eq("user_id", config.user_id);
+
+    if (products?.length) {
+      const variantIds = products.filter(p => p.has_variants).map(p => p.id);
+      const variantsByProduct = new Map<string, Array<{ id: string; name: string }>>();
+
+      if (variantIds.length > 0) {
+        const { data: variants } = await supabase
+          .from("crm_product_variants")
+          .select("id, product_id, name, images")
+          .in("product_id", variantIds);
+
+        for (const v of variants ?? []) {
+          const imgs = (v.images as string[]) ?? [];
+          if (imgs.length === 0) continue;
+          if (!variantsByProduct.has(v.product_id)) variantsByProduct.set(v.product_id, []);
+          variantsByProduct.get(v.product_id)!.push({ id: v.id, name: v.name });
+        }
+      }
+
+      for (const p of products) {
+        const productImages = (p.images as string[]) ?? [];
+        const variants = variantsByProduct.get(p.id) ?? [];
+        if (productImages.length === 0 && variants.length === 0) continue;
+        entries.push({
+          productId: p.id,
+          productName: p.name,
+          hasProductImages: productImages.length > 0,
+          variants,
+        });
+      }
+    }
+  }
+
+  const lines: string[] = [
+    "FOTOS DE PRODUCTOS — COMPORTAMIENTO OBLIGATORIO:",
+    "Cuando el cliente pida ver fotos, imágenes o cómo se ve un producto:",
+    "1. Si hay fotos disponibles para ese producto (ver lista abajo): incluye el marcador exacto en tu respuesta. El sistema lo reemplazará automáticamente por las imágenes reales.",
+    "2. Si el producto tiene variantes con fotos y el cliente no especificó cuál quiere ver: pregúntale cuál variante le interesa antes de enviar.",
+    "3. Si el cliente pregunta por un producto que NO aparece en la lista de abajo: responde con naturalidad que no tienes fotos disponibles en este momento para ese producto.",
+    "4. Nunca inventes un marcador — solo usa los de la lista.",
+    "",
+  ];
+
+  if (entries.length > 0) {
+    lines.push("Fotos disponibles para enviar:");
+    for (const e of entries) {
+      if (e.hasProductImages) {
+        lines.push(`- ${e.productName}: usa [SEND_PRODUCT_IMAGES:${e.productId}|none] para mostrar sus fotos generales`);
+      }
+      for (const v of e.variants) {
+        lines.push(`  · Variante "${v.name}": usa [SEND_PRODUCT_IMAGES:${e.productId}|${v.id}] para mostrar las fotos de esta variante`);
+      }
+    }
+  } else {
+    lines.push("(No hay fotos de productos configuradas para enviar en este momento. Si el cliente pide ver fotos, explícale con naturalidad que no tienes imágenes disponibles en este momento.)");
+  }
+
+  return lines.join("\n");
+}
+
 // ─── Compilar system prompt con variables dinámicas ───────────────────────────
 async function buildSystemPrompt(
   config: AgentConfig,
@@ -1785,7 +1897,7 @@ async function buildSystemPrompt(
 
   const contactCurrency = getCurrencyFromPhone(phone);
 
-  const [businessRes, servicesRes, convRes, labelsRes, productsCatalog, servicesCatalog, coursesCatalog, slotsResult] = await Promise.all([
+  const [businessRes, servicesRes, convRes, labelsRes, productsCatalog, servicesCatalog, coursesCatalog, slotsResult, productImagesInstruction] = await Promise.all([
     supabase.from("crm_business_profile").select("business_name, description, agent_faq").eq("user_id", config.user_id).maybeSingle(),
     supabase.from("crm_services").select("name, price, currency, description, discount_pct, is_recurring, recurring_price, recurring_interval, recurring_label, recurring_discount_pct").eq("user_id", config.user_id).eq("active", true).order("sort_order", { ascending: true }),
     supabase.from("crm_wa_conversations").select("contact_name, contact_id").eq("user_id", config.user_id).eq("phone", phone).maybeSingle(),
@@ -1794,6 +1906,7 @@ async function buildSystemPrompt(
     buildServicesCatalog(config, contactCurrency),
     buildCoursesCatalog(config, contactCurrency),
     canSchedule ? getAvailableSlots(config.scheduling_calendar_id!) : Promise.resolve({ slots: [], scheduleDesc: "", minAdvHours: 1 } as SlotsResult),
+    buildProductImagesInstruction(config),
   ]);
 
   const business = businessRes.data;
@@ -2068,6 +2181,7 @@ REGLAS:
     + currencyNote
     + globalRules
     + catalogInstruction
+    + (productImagesInstruction ? `\n\n${productImagesInstruction}` : "")
     + paymentInstruction
     + transferInstruction
     + schedulingInstruction
@@ -2803,7 +2917,8 @@ Deno.serve(async (req: Request) => {
     const { text: withoutPayment, payment } = parseAndStripPayment(rawReply);
     const { text: withoutNoPayment, hasNoPayment } = parseAndStripNoPayment(withoutPayment);
     const { text: withoutQr, qrIds } = parseAndStripQrMarkers(withoutNoPayment);
-    const { text: withoutContactData, contactData } = parseAndStripContactData(withoutQr);
+    const { text: withoutProductImages, photoRequests } = parseAndStripProductImageMarkers(withoutQr);
+    const { text: withoutContactData, contactData } = parseAndStripContactData(withoutProductImages);
     const { text: replyRaw, labelNames, removeNames } = parseAndStripLabels(withoutContactData);
 
     // 6a. [TRANSFER] — verificar sobre el texto limpio (sin marcadores ni etiquetas)
@@ -2850,6 +2965,53 @@ Deno.serve(async (req: Request) => {
           media_url: pm.content,
           delivery_status: "sent",
         });
+      }
+    }
+
+    // 9c. Enviar fotos de productos (marcador [SEND_PRODUCT_IMAGES:product_id|variant_id_or_none])
+    for (const { productId, variantId } of photoRequests) {
+      try {
+        // Siempre validamos que el producto pertenece al tenant antes de servir imágenes.
+        // En el caso sin variante también aprovechamos images del mismo row (1 query en vez de 2).
+        const { data: productData } = await supabase
+          .from("crm_products")
+          .select("images")
+          .eq("id", productId)
+          .eq("user_id", tenant_user_id)
+          .maybeSingle();
+
+        if (!productData) {
+          console.warn(`[ai-agent] producto ${productId} no encontrado para tenant ${tenant_user_id} — fotos omitidas`);
+          continue;
+        }
+
+        let images: string[] = [];
+        if (variantId) {
+          const { data: variantData } = await supabase
+            .from("crm_product_variants")
+            .select("images")
+            .eq("id", variantId)
+            .eq("product_id", productId)
+            .maybeSingle();
+          images = (variantData?.images as string[]) ?? [];
+        } else {
+          images = (productData.images as string[]) ?? [];
+        }
+
+        const toSend = images.slice(0, 5); // máx 5 fotos por petición
+        for (let i = 0; i < toSend.length; i++) {
+          if (i > 0) await sleep(1500);
+          await sendWhatsAppImage(phone, toSend[i], null, config as AgentConfig);
+          await supabase.from("crm_wa_messages").insert({
+            conversation_id, role: "assistant",
+            content: "[Foto del producto]",
+            media_type: "image",
+            media_url: toSend[i],
+            delivery_status: "sent",
+          });
+        }
+      } catch (imgErr: any) {
+        console.error("[ai-agent] error enviando fotos del producto:", imgErr.message);
       }
     }
 

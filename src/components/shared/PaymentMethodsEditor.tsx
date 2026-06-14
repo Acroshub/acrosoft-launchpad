@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import type { CrmPaymentMethod, CrmPrice } from "@/lib/supabase";
-import { getCurrencyFlag, getCurrencySymbol } from "@/lib/currencies";
+import { getCurrencyFlag } from "@/lib/currencies";
 
 const TYPE_OPTIONS = [
   { value: "bank_transfer", label: "Transferencia bancaria", icon: CreditCard },
@@ -37,6 +37,7 @@ function MethodForm({
   entityType,
   entityId,
   prices,
+  baseCurrency,
   onSave,
   onCancel,
   saving,
@@ -45,6 +46,7 @@ function MethodForm({
   entityType: CrmPaymentMethod["entity_type"];
   entityId: string;
   prices?: CrmPrice[];
+  baseCurrency?: string;
   onSave: (v: Partial<CrmPaymentMethod>) => void;
   onCancel: () => void;
   saving: boolean;
@@ -53,6 +55,7 @@ function MethodForm({
   const [type, setType]       = useState<CrmPaymentMethod["type"]>(value.type ?? "bank_transfer");
   const [label, setLabel]     = useState(value.label ?? "");
   const [priceId, setPriceId] = useState<string | null>(value.price_id ?? null);
+  const [currency, setCurrency] = useState<string | null>(value.currency ?? null);
   const [contentByType, setContentByType] = useState<Record<CrmPaymentMethod["type"], string>>({
     bank_transfer: value.type === "bank_transfer" ? (value.content ?? "") : "",
     payment_link:  value.type === "payment_link"  ? (value.content ?? "") : "",
@@ -63,8 +66,11 @@ function MethodForm({
   const [uploadingQr, setUploadingQr] = useState(false);
   const qrInputRef = useRef<HTMLInputElement>(null);
 
-  const selectedPrice = prices?.find(p => p.id === priceId) ?? null;
-  const derivedCurrency = selectedPrice?.currency ?? null;
+  const selectAll = () => { setPriceId(null); setCurrency(null); };
+  const selectBase = () => { setPriceId(null); setCurrency(baseCurrency ?? null); };
+  const selectSecondary = (p: CrmPrice) => { setPriceId(p.id); setCurrency(p.currency); };
+
+  const hasAnyCurrency = !!(baseCurrency || (prices && prices.length > 0));
 
   const handleQrUpload = async (file: File) => {
     if (!user) return;
@@ -101,45 +107,60 @@ function MethodForm({
         ))}
       </div>
 
-      {/* Selector de precio / moneda — solo desde precios registrados */}
+      {/* Selector de moneda */}
       <div className="space-y-1.5">
         <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
-          <DollarSign size={11} /> Precio asociado
+          <DollarSign size={11} /> Moneda asociada
         </label>
-        {prices && prices.length > 0 ? (
+        {hasAnyCurrency ? (
           <div className="flex flex-wrap gap-1.5">
+            {/* Opción: todos */}
             <button
-              onClick={() => setPriceId(null)}
+              onClick={selectAll}
               className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${
-                priceId === null
+                currency === null
                   ? "bg-primary text-primary-foreground border-primary"
                   : "bg-card border-border hover:bg-secondary text-muted-foreground"
               }`}
             >
-              Todos los precios
+              Todas las monedas
             </button>
-            {prices.map(p => (
+            {/* Moneda base */}
+            {baseCurrency && (
+              <button
+                onClick={selectBase}
+                className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs border transition-colors ${
+                  currency === baseCurrency && priceId === null
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-card border-border hover:bg-secondary"
+                }`}
+              >
+                {getCurrencyFlag(baseCurrency)} {baseCurrency}
+              </button>
+            )}
+            {/* Monedas secundarias */}
+            {prices?.map(p => (
               <button
                 key={p.id}
-                onClick={() => setPriceId(p.id)}
+                onClick={() => selectSecondary(p)}
                 className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs border transition-colors ${
                   priceId === p.id
                     ? "bg-primary text-primary-foreground border-primary"
                     : "bg-card border-border hover:bg-secondary"
                 }`}
               >
-                {getCurrencyFlag(p.currency)} {getCurrencySymbol(p.currency)}{Number(p.price).toLocaleString()} ({p.currency})
+                {getCurrencyFlag(p.currency)} {p.currency}
               </button>
             ))}
           </div>
         ) : (
           <p className="text-[11px] text-muted-foreground/60 italic">
-            Registra precios multi-moneda para vincular este método a una moneda específica.
+            Registra el precio del producto para vincular este método a una moneda específica.
           </p>
         )}
-        {derivedCurrency && (
+        {currency && (
           <p className="text-[10px] text-muted-foreground">
-            Solo se mostrará a clientes con moneda <span className="font-semibold">{derivedCurrency}</span>.
+            Solo se mostrará a clientes con moneda <span className="font-semibold">{currency}</span>.
           </p>
         )}
       </div>
@@ -218,7 +239,7 @@ function MethodForm({
             entity_type: entityType,
             entity_id: entityId,
             price_id: priceId,
-            currency: derivedCurrency,
+            currency,
           })}
           disabled={saving || !content.trim() || uploadingQr}
           className="h-7 text-xs gap-1"
@@ -240,10 +261,12 @@ export default function PaymentMethodsEditor({
   entityType,
   entityId,
   prices,
+  baseCurrency,
 }: {
   entityType: CrmPaymentMethod["entity_type"];
   entityId: string | null;
   prices?: CrmPrice[];
+  baseCurrency?: string;
 }) {
   const { data: methods = [] } = usePaymentMethods(entityType, entityId);
   const upsert = useUpsertPaymentMethod();
@@ -301,6 +324,7 @@ export default function PaymentMethodsEditor({
             entityType={entityType}
             entityId={entityId}
             prices={prices}
+            baseCurrency={baseCurrency}
             onSave={handleSave}
             onCancel={() => setEditingId(null)}
             saving={upsert.isPending}
@@ -348,6 +372,7 @@ export default function PaymentMethodsEditor({
           entityType={entityType}
           entityId={entityId}
           prices={prices}
+          baseCurrency={baseCurrency}
           onSave={handleSave}
           onCancel={() => setShowNew(false)}
           saving={upsert.isPending}

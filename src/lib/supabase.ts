@@ -198,6 +198,7 @@ export type CrmService = {
   discount_pct: number
   recurring_discount_pct: number
   show_on_landing: boolean
+  images: string[]
 }
 
 export type CrmSale = {
@@ -239,6 +240,7 @@ export type CrmPrice = {
   entity_id: string
   currency: string
   price: number
+  discount_pct: number | null
   sort_order: number
   created_at: string
 }
@@ -620,12 +622,15 @@ export type CrmAIAgentConfig = {
   show_catalog_on_ask: boolean
   do_upsell: boolean
   confirm_summary: boolean
+  apply_discounts: boolean
   agent_faq: Array<{ q: string; a: string }> | null
   use_business_faq: boolean
   agent_extra_prompt: string | null
   scheduling_calendar_id: string | null
   profile_picture_url: string | null
   agent_about: string | null
+  // Imágenes de productos que el agente puede enviar
+  products_with_images: string[]
 }
 
 // ─── Productos ────────────────────────────────────────────────────────────────
@@ -666,6 +671,7 @@ export type CrmProductVariant = {
   discount_pct: number
   notified_low_stock: boolean
   notified_out_of_stock: boolean
+  images: string[]
 }
 
 export type CrmPaymentMethod = {

@@ -32,7 +32,7 @@ import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
 import PaymentMethodsEditor from "@/components/shared/PaymentMethodsEditor";
 import { VideoUploadProvider, useVideoUpload } from "@/contexts/VideoUploadContext";
 
-import { CURRENCIES, formatAmount, getCurrencyFlag, getCurrencySymbol } from "@/lib/currencies";
+import { CURRENCIES, formatAmount, getCurrencyFlag } from "@/lib/currencies";
 
 const APP_URL          = import.meta.env.VITE_APP_URL ?? "https://acrosoftlabs.com";
 const BUNNY_LIBRARY_ID = import.meta.env.VITE_BUNNY_STREAM_LIBRARY_ID ?? import.meta.env.VITE_BUNNY_LIBRARY_ID ?? "628395";
@@ -61,7 +61,7 @@ const PM_TYPES = [
 // En el formulario de creación no se puede subir QR (requiere course_id para storage)
 const PM_TYPES_INLINE = PM_TYPES.filter(t => t.value !== "qr_code");
 
-function InlinePaymentMethodsEditor({ value, onChange, prices = [] }: { value: FormPM[]; onChange: (v: FormPM[]) => void; prices?: PriceEntry[] }) {
+function InlinePaymentMethodsEditor({ value, onChange, prices = [], baseCurrency }: { value: FormPM[]; onChange: (v: FormPM[]) => void; prices?: PriceEntry[]; baseCurrency?: string }) {
   const [showForm, setShowForm] = useState(false);
   const [type, setType]         = useState<FormPM["type"]>("bank_transfer");
   const [label, setLabel]       = useState("");
@@ -127,24 +127,30 @@ function InlinePaymentMethodsEditor({ value, onChange, prices = [] }: { value: F
           ) : (
             <Input value={content} onChange={e => setContent(e.target.value)} placeholder="https://paypal.me/usuario" className="h-8 text-xs font-mono" />
           )}
-          {/* Precio asociado — solo de los precios registrados */}
+          {/* Moneda asociada */}
           <div className="space-y-1">
-            <span className="text-[11px] text-muted-foreground">Precio asociado <span className="font-normal">(opcional)</span></span>
-            {prices.length > 0 ? (
+            <span className="text-[11px] text-muted-foreground">Moneda asociada <span className="font-normal">(opcional)</span></span>
+            {(baseCurrency || prices.length > 0) ? (
               <div className="flex flex-wrap gap-1">
                 <button onClick={() => setCurrency("")}
                   className={`px-2 py-0.5 rounded-lg text-[11px] border transition-colors ${!currency ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary text-muted-foreground"}`}>
-                  Todos los precios
+                  Todas las monedas
                 </button>
+                {baseCurrency && (
+                  <button onClick={() => setCurrency(baseCurrency)}
+                    className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-[11px] border transition-colors ${currency === baseCurrency ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary"}`}>
+                    {getCurrencyFlag(baseCurrency)} {baseCurrency}
+                  </button>
+                )}
                 {prices.map((p, i) => (
                   <button key={i} onClick={() => setCurrency(p.currency)}
                     className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-[11px] border transition-colors ${currency === p.currency ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary"}`}>
-                    {getCurrencyFlag(p.currency)} {getCurrencySymbol(p.currency)}{Number(p.price).toLocaleString()} ({p.currency})
+                    {getCurrencyFlag(p.currency)} {p.currency}
                   </button>
                 ))}
               </div>
             ) : (
-              <p className="text-[11px] text-muted-foreground/60 italic">Registra precios multi-moneda arriba para vincular este método a una moneda.</p>
+              <p className="text-[11px] text-muted-foreground/60 italic">Registra el precio del curso para vincular este método a una moneda.</p>
             )}
             {currency && <p className="text-[10px] text-muted-foreground">Solo se mostrará a clientes con moneda <span className="font-semibold">{currency}</span>.</p>}
           </div>
@@ -355,6 +361,7 @@ function CrmCoursesContent() {
                   value={formPaymentMethods}
                   onChange={setFormPaymentMethods}
                   prices={formPrices}
+                  baseCurrency={form.currency}
                 />
               </div>
             </div>
@@ -500,7 +507,7 @@ function CourseDetail({
   const { data: existingPrices = [] } = usePricesByEntity("course", course.id);
   const [editPrices, setEditPrices]   = useState<PriceEntry[]>([]);
   useEffect(() => {
-    setEditPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price })));
+    setEditPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price, discount_pct: p.discount_pct ?? null })));
   }, [existingPrices]);
 
   // FAQs
@@ -621,7 +628,7 @@ function CourseDetail({
                   <CreditCard size={12} className="text-muted-foreground" />
                   <span className="text-xs font-medium text-muted-foreground">Métodos de pago <span className="text-[10px] font-normal">(opcional)</span></span>
                 </div>
-                <PaymentMethodsEditor entityType="course" entityId={course.id} prices={existingPrices} />
+                <PaymentMethodsEditor entityType="course" entityId={course.id} prices={existingPrices} baseCurrency={editForm.currency} />
               </div>
             </div>
             <div className="flex gap-2 px-6 py-4 border-t shrink-0">

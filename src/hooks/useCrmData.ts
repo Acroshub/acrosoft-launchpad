@@ -3067,14 +3067,14 @@ export const useUpsertProductVariant = () => {
         }
         const { data, error } = await supabase
           .from("crm_product_variants")
-          .update({ name: variant.name, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0, ...stockResetFields })
+          .update({ name: variant.name, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0, images: variant.images ?? [], ...stockResetFields })
           .eq("id", variant.id).select().single();
         if (error) throw error;
         return data as CrmProductVariant;
       } else {
         const { data, error } = await supabase
           .from("crm_product_variants")
-          .insert({ product_id: variant.product_id, name: variant.name, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0 })
+          .insert({ product_id: variant.product_id, name: variant.name, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0, images: variant.images ?? [] })
           .select().single();
         if (error) throw error;
         return data as CrmProductVariant;
@@ -3693,7 +3693,7 @@ export const useUpsertPrices = () => {
     }: {
       entityType: CrmPrice["entity_type"];
       entityId: string;
-      prices: { currency: string; price: number }[];
+      prices: { currency: string; price: number; discount_pct?: number | null }[];
     }) => {
       if (!user?.id) throw new Error("No user");
       // Delete all existing prices for this entity, then insert fresh
@@ -3706,6 +3706,7 @@ export const useUpsertPrices = () => {
           entity_id: entityId,
           currency: p.currency,
           price: p.price,
+          discount_pct: p.discount_pct ?? null,
           sort_order: i,
         }))
       );

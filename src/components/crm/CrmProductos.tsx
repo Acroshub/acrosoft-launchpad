@@ -192,6 +192,7 @@ function VariantRow({ variant, basePrice, baseCurrency, productId, onSaved, onDe
   onSaved: (v: CrmProductVariant) => void;
   onDelete: (id: string) => void;
 }) {
+  const { user } = useCurrentUser();
   const upsert = useUpsertProductVariant();
   const remove = useDeleteProductVariant();
   const [isEditing, setIsEditing]         = useState(!!variant._new || !variant.id);
@@ -201,6 +202,9 @@ function VariantRow({ variant, basePrice, baseCurrency, productId, onSaved, onDe
   const [stock, setStock]                 = useState(variant.stock != null ? String(variant.stock) : "");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showPayments, setShowPayments]   = useState(false);
+  const [variantImages, setVariantImages] = useState<string[]>(variant.images ?? []);
+  const [imgUploading, setImgUploading]   = useState(false);
+  const variantImgRef = useRef<HTMLInputElement>(null);
 
   const effectiveBase = priceOverride !== "" ? parseFloat(priceOverride) : basePrice;
   const finalPrice = discountPct > 0 ? effectiveBase * (1 - discountPct / 100) : effectiveBase;
@@ -215,10 +219,33 @@ function VariantRow({ variant, basePrice, baseCurrency, productId, onSaved, onDe
       discount_pct: discountPct,
       stock: stock !== "" ? parseInt(stock) : null,
       sort_order: variant.sort_order ?? 0,
+      images: variantImages,
     });
     onSaved(saved);
     setIsEditing(false);
     toast.success("Variante guardada");
+  };
+
+  const handleVariantImgUpload = async (file: File) => {
+    if (!variant.id) { toast.error("Guarda la variante primero para agregar imágenes"); return; }
+    setImgUploading(true);
+    try {
+      const ext = file.name.split(".").pop() ?? "jpg";
+      const path = `${user!.id}/${productId}/var-${variant.id}-${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from("product-images").upload(path, file, { upsert: true });
+      if (error) throw error;
+      const { data } = supabase.storage.from("product-images").getPublicUrl(path);
+      const updated = [...variantImages, data.publicUrl];
+      setVariantImages(updated);
+      await upsert.mutateAsync({ id: variant.id, product_id: productId, name: name.trim(), price_override: priceOverride !== "" ? parseFloat(priceOverride) : null, discount_pct: discountPct, stock: stock !== "" ? parseInt(stock) : null, sort_order: variant.sort_order ?? 0, images: updated });
+    } catch (e: any) { toast.error(e.message?.slice(0, 80) ?? "Error al subir imagen"); }
+    finally { setImgUploading(false); }
+  };
+
+  const handleVariantImgRemove = async (idx: number) => {
+    const updated = variantImages.filter((_, i) => i !== idx);
+    setVariantImages(updated);
+    if (variant.id) await upsert.mutateAsync({ id: variant.id, product_id: productId, name: name.trim() || variant.name || "", price_override: priceOverride !== "" ? parseFloat(priceOverride) : null, discount_pct: discountPct, stock: stock !== "" ? parseInt(stock) : null, sort_order: variant.sort_order ?? 0, images: updated });
   };
 
   const handleDelete = async () => {
@@ -302,6 +329,29 @@ function VariantRow({ variant, basePrice, baseCurrency, productId, onSaved, onDe
           Precio final: {fmtProd(finalPrice, baseCurrency)} ({discountPct}% descuento)
         </p>
       )}
+      {/* Imágenes de variante */}
+      <div className="space-y-1.5">
+        <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Imágenes de variante</label>
+        <input ref={variantImgRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleVariantImgUpload(f); e.target.value = ""; }} />
+        <div className="flex flex-wrap gap-2">
+          {variantImages.map((url, idx) => (
+            <div key={idx} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-border">
+              <img src={url} alt="" className="w-full h-full object-cover" />
+              <button type="button" onClick={() => handleVariantImgRemove(idx)}
+                className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                <X size={14} className="text-white" />
+              </button>
+            </div>
+          ))}
+          <button type="button" onClick={() => variantImgRef.current?.click()} disabled={imgUploading || !variant.id}
+            title={!variant.id ? "Guarda la variante primero" : "Agregar imagen"}
+            className="w-16 h-16 rounded-lg border-2 border-dashed border-border flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground hover:border-muted-foreground/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+            {imgUploading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={16} />}
+          </button>
+        </div>
+        {!variant.id && <p className="text-[10px] text-muted-foreground/60">Guarda la variante para agregar imágenes</p>}
+      </div>
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={handleSave} disabled={!name.trim() || upsert.isPending} className="h-8 px-3 text-xs">
           {upsert.isPending ? <Loader2 size={11} className="animate-spin mr-1" /> : <Check size={11} className="mr-1" />}
@@ -394,7 +444,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
     // Only sync from DB once the product has been saved (has an ID).
     // Before first save, prices live in sessionStorage draft.
     if (!product?.id) return;
-    setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price })));
+    setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price, discount_pct: p.discount_pct ?? null })));
   }, [existingPrices, product?.id]);
 
   const upsertFaqs = useUpsertFaqs();
@@ -471,7 +521,8 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
 
   const handleImageUploaded = async (url: string, index: number) => {
     const updated = [...images];
-    updated[index] = url;
+    if (index >= updated.length) updated.push(url);
+    else updated[index] = url;
     setImages(updated);
     if (product) await upsertProduct.mutateAsync({ id: product.id, name, price, images: updated });
   };
@@ -573,12 +624,12 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
     product ? (
       <div className="space-y-3">
         <div className="grid grid-cols-4 gap-2">
-          {[0,1,2,3,4].map(i => (
-            <ImageSlot key={i} url={images[i]} index={i} productId={product.id} userId={user!.id}
+          {[...images.map((url, i) => ({ url, i })), { url: undefined as string | undefined, i: images.length }].map(({ url, i }) => (
+            <ImageSlot key={i} url={url} index={i} productId={product.id} userId={user!.id}
               onUploaded={handleImageUploaded} onRemove={handleImageRemove} />
           ))}
         </div>
-        <p className="text-[10px] text-muted-foreground/60">La primera imagen es la principal del catálogo</p>
+        <p className="text-[10px] text-muted-foreground/60">La primera imagen es la principal del catálogo · Sin límite de imágenes</p>
       </div>
     ) : <p className="text-xs text-muted-foreground/60">—</p>
   );
@@ -673,7 +724,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
   const PaymentsSection = () => (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground/70">El Agente IA usará estos métodos al cerrar ventas. Sin métodos → transfiere a modo Manual.</p>
-      <PaymentMethodsEditor entityType="product" entityId={product?.id ?? null} prices={existingPrices} />
+      <PaymentMethodsEditor entityType="product" entityId={product?.id ?? null} prices={existingPrices} baseCurrency={currency} />
     </div>
   );
 

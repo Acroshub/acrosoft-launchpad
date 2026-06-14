@@ -57,7 +57,6 @@ const ServiceEditor = ({
   const [discountPct, setDiscountPct]                   = useState(service.discount_pct ?? 0);
   const [recurringDiscountPct, setRecurringDiscountPct] = useState(service.recurring_discount_pct ?? 0);
   const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
-
   // Multi-currency prices
   const upsertPrices = useUpsertPrices();
   const { data: existingPrices = [] } = usePricesByEntity("service", service.id);
@@ -65,7 +64,7 @@ const ServiceEditor = ({
   const pricesRef            = useRef(prices);
   const pricesSaveTimer      = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
-    setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price })));
+    setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price, discount_pct: p.discount_pct ?? null })));
   }, [existingPrices]);
   const handlePricesChange = (next: PriceEntry[]) => {
     setPrices(next);
@@ -424,7 +423,7 @@ const ServiceEditor = ({
         <p className="text-xs text-muted-foreground -mt-1">
           El Agente IA usará estos métodos para cerrar ventas. Si no hay ninguno, transferirá a modo Manual.
         </p>
-        <PaymentMethodsEditor entityType="service" entityId={service.id} prices={existingPrices} />
+        <PaymentMethodsEditor entityType="service" entityId={service.id} prices={existingPrices} baseCurrency={currency} />
       </div>
     </div>
   );

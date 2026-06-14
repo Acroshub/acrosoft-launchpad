@@ -284,6 +284,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const [selectedServiceIds, setSelectedServiceIds]   = useState<string[]>(existingConfig?.selected_service_ids ?? []);
   const [coursesMode, setCoursesMode]                 = useState<"all"|"selected"|"none">(existingConfig?.courses_mode ?? "none");
   const [selectedCourseIds, setSelectedCourseIds]     = useState<string[]>(existingConfig?.selected_course_ids ?? []);
+  const [wizProductsWithImages, setWizProductsWithImages] = useState<string[]>(existingConfig?.products_with_images ?? []);
 
   // Step 4 — Horario
   const [schedule, setSchedule]     = useState<WeeklySchedule>(
@@ -382,6 +383,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
       selected_service_ids: servicesMode === "selected" ? selectedServiceIds : [],
       courses_mode: coursesMode,
       selected_course_ids: coursesMode === "selected" ? selectedCourseIds : [],
+      products_with_images: wizProductsWithImages,
       agent_data_collect: agentDataCollectWiz,
     });
     setStep(3);
@@ -965,12 +967,23 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                             <span className="text-xs font-semibold">{cat.name}</span>
                           </label>
                           {catProducts.map(p => (
-                            <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 pl-8 cursor-pointer hover:bg-secondary/40 transition-colors">
-                              <input type="checkbox" checked={selectedProductIds.includes(p.id)}
-                                onChange={e => setSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
-                                className="accent-primary shrink-0" />
-                              <span className="text-sm">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
-                            </label>
+                            <div key={p.id} className="flex items-center gap-2 px-3 py-2 pl-8 hover:bg-secondary/40 transition-colors">
+                              <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                                <input type="checkbox" checked={selectedProductIds.includes(p.id)}
+                                  onChange={e => setSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
+                                  className="accent-primary shrink-0" />
+                                <span className="text-sm truncate">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
+                              </label>
+                              {p.images?.length > 0 && (
+                                <button type="button"
+                                  title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
+                                  onClick={() => setWizProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                                  className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${wizProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
+                                  {wizProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
+                                  <span>{wizProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
+                                </button>
+                              )}
+                            </div>
                           ))}
                         </div>
                       );
@@ -986,12 +999,23 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                             <span className="text-xs font-semibold text-muted-foreground">Sin catálogo</span>
                           </div>
                           {orphans.map(p => (
-                            <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 pl-8 cursor-pointer hover:bg-secondary/40 transition-colors">
-                              <input type="checkbox" checked={selectedProductIds.includes(p.id)}
-                                onChange={e => setSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
-                                className="accent-primary shrink-0" />
-                              <span className="text-sm">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
-                            </label>
+                            <div key={p.id} className="flex items-center gap-2 px-3 py-2 pl-8 hover:bg-secondary/40 transition-colors">
+                              <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                                <input type="checkbox" checked={selectedProductIds.includes(p.id)}
+                                  onChange={e => setSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
+                                  className="accent-primary shrink-0" />
+                                <span className="text-sm truncate">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
+                              </label>
+                              {p.images?.length > 0 && (
+                                <button type="button"
+                                  title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
+                                  onClick={() => setWizProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                                  className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${wizProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
+                                  {wizProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
+                                  <span>{wizProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
+                                </button>
+                              )}
+                            </div>
                           ))}
                         </div>
                       );
@@ -1001,6 +1025,28 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                     )}
                   </div>
                 )}
+                {/* Modo "Todos": mostrar toggles de imágenes por producto */}
+                {productsMode === "all" && (() => {
+                  const prodsWithImgs = allProducts.filter(p => p.images?.length > 0);
+                  if (prodsWithImgs.length === 0) return null;
+                  return (
+                    <div className="mt-1 border rounded-lg divide-y bg-background max-h-52 overflow-y-auto">
+                      {prodsWithImgs.map(p => (
+                        <div key={p.id} className="flex items-center gap-2 px-3 py-2 hover:bg-secondary/40 transition-colors">
+                          {p.images[0] && <img src={p.images[0]} alt="" className="w-6 h-6 rounded object-cover shrink-0" />}
+                          <span className="text-sm flex-1 truncate">{p.name}</span>
+                          <button type="button"
+                            title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
+                            onClick={() => setWizProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                            className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${wizProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
+                            {wizProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
+                            <span>{wizProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Cursos */}
@@ -1030,6 +1076,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                   </div>
                 )}
               </div>
+
             </div>
 
             <div className="flex gap-2 pt-2">
@@ -1949,6 +1996,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [spSelectedServiceIds, setSpSelectedServiceIds] = useState<string[]>([]);
   const [spCoursesMode, setSpCoursesMode]             = useState<"all"|"selected"|"none">("none");
   const [spSelectedCourseIds, setSpSelectedCourseIds] = useState<string[]>([]);
+  const [spProductsWithImages, setSpProductsWithImages] = useState<string[]>([]);
   // Config estratégica B15-1
   const [agentObjectivesSP, setAgentObjectivesSP]     = useState<string[]>([]);
   const [agentPersonalitySP, setAgentPersonalitySP]   = useState("");
@@ -1960,6 +2008,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [showCatalogOnAsk, setShowCatalogOnAsk]       = useState(true);
   const [doUpsell, setDoUpsell]                       = useState(false);
   const [confirmSummary, setConfirmSummary]           = useState(true);
+  const [applyDiscounts, setApplyDiscounts]           = useState(true);
   const [agentDataCollect, setAgentDataCollect]       = useState<string[]>([]);
   const [customDataField, setCustomDataField]         = useState("");
   const [notifyEmail, setNotifyEmail]             = useState("");
@@ -2266,6 +2315,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setSpSelectedServiceIds(config.selected_service_ids ?? []);
     setSpCoursesMode(config.courses_mode ?? "none");
     setSpSelectedCourseIds(config.selected_course_ids ?? []);
+    setSpProductsWithImages(config.products_with_images ?? []);
+
     setNotifyEmail(config.notify_email ?? "");
     setSchedule((config.schedule as WeeklySchedule | null) ?? DEFAULT_SCHEDULE);
     setTimezone(config.timezone ?? businessProfile?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -2280,6 +2331,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setShowCatalogOnAsk(config.show_catalog_on_ask ?? true);
     setDoUpsell(config.do_upsell ?? false);
     setConfirmSummary(config.confirm_summary ?? true);
+    setApplyDiscounts(config.apply_discounts ?? true);
     setAgentDataCollect(config.agent_data_collect ?? []);
     setProfilePicUrl(config.profile_picture_url ?? null);
     if (config.agent_about) setBio(config.agent_about);
@@ -2402,6 +2454,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         selected_service_ids: spServicesMode === "selected" ? spSelectedServiceIds : [],
         courses_mode: spCoursesMode,
         selected_course_ids: spCoursesMode === "selected" ? spSelectedCourseIds : [],
+        products_with_images: spProductsWithImages,
         schedule,
         timezone,
         off_hours_message: offHoursMsg || null,
@@ -2415,6 +2468,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         show_catalog_on_ask: showCatalogOnAsk,
         do_upsell: doUpsell,
         confirm_summary: confirmSummary,
+        apply_discounts: applyDiscounts,
         agent_data_collect: agentDataCollect,
       });
 
@@ -3170,6 +3224,16 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${confirmSummary ? "left-[22px]" : "left-0.5"}`} />
                 </button>
               </div>
+              <div className="flex items-center justify-between py-3 border-t">
+                <div>
+                  <p className="text-sm font-medium">Aplicar descuentos</p>
+                  <p className="text-xs text-muted-foreground">El agente mostrará precios con descuento cuando estén configurados para la moneda del contacto</p>
+                </div>
+                <button onClick={() => setApplyDiscounts(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
+                  <span className={`absolute inset-0 rounded-full transition-colors ${applyDiscounts ? "bg-primary" : "bg-secondary border"}`} />
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${applyDiscounts ? "left-[22px]" : "left-0.5"}`} />
+                </button>
+              </div>
             </div>
 
             {/* Información disponible para el agente */}
@@ -3236,12 +3300,23 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                             <span className="text-xs font-semibold">{cat.name}</span>
                           </label>
                           {catProducts.map(p => (
-                            <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 pl-8 cursor-pointer hover:bg-secondary/40 transition-colors">
-                              <input type="checkbox" checked={spSelectedProductIds.includes(p.id)}
-                                onChange={e => setSpSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
-                                className="accent-primary shrink-0" />
-                              <span className="text-sm">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
-                            </label>
+                            <div key={p.id} className="flex items-center gap-2 px-3 py-2 pl-8 hover:bg-secondary/40 transition-colors">
+                              <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                                <input type="checkbox" checked={spSelectedProductIds.includes(p.id)}
+                                  onChange={e => setSpSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
+                                  className="accent-primary shrink-0" />
+                                <span className="text-sm truncate">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
+                              </label>
+                              {p.images?.length > 0 && (
+                                <button type="button"
+                                  title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
+                                  onClick={() => setSpProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                                  className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${spProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
+                                  {spProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
+                                  <span>{spProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
+                                </button>
+                              )}
+                            </div>
                           ))}
                         </div>
                       );
@@ -3257,12 +3332,23 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                             <span className="text-xs font-semibold text-muted-foreground">Sin catálogo</span>
                           </div>
                           {orphans.map(p => (
-                            <label key={p.id} className="flex items-center gap-2.5 px-3 py-2 pl-8 cursor-pointer hover:bg-secondary/40 transition-colors">
-                              <input type="checkbox" checked={spSelectedProductIds.includes(p.id)}
-                                onChange={e => setSpSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
-                                className="accent-primary shrink-0" />
-                              <span className="text-sm">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
-                            </label>
+                            <div key={p.id} className="flex items-center gap-2 px-3 py-2 pl-8 hover:bg-secondary/40 transition-colors">
+                              <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                                <input type="checkbox" checked={spSelectedProductIds.includes(p.id)}
+                                  onChange={e => setSpSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
+                                  className="accent-primary shrink-0" />
+                                <span className="text-sm truncate">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
+                              </label>
+                              {p.images?.length > 0 && (
+                                <button type="button"
+                                  title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
+                                  onClick={() => setSpProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                                  className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${spProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
+                                  {spProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
+                                  <span>{spProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
+                                </button>
+                              )}
+                            </div>
                           ))}
                         </div>
                       );
@@ -3272,6 +3358,28 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     )}
                   </div>
                 )}
+                {/* Modo "Todos": mostrar toggles de imágenes por producto dentro de esta misma sección */}
+                {spProductsMode === "all" && (() => {
+                  const prodsWithImgs = allProducts.filter(p => p.images?.length > 0);
+                  if (prodsWithImgs.length === 0) return null;
+                  return (
+                    <div className="mt-1 border rounded-lg divide-y bg-background max-h-52 overflow-y-auto">
+                      {prodsWithImgs.map(p => (
+                        <div key={p.id} className="flex items-center gap-2 px-3 py-2 hover:bg-secondary/40 transition-colors">
+                          {p.images[0] && <img src={p.images[0]} alt="" className="w-6 h-6 rounded object-cover shrink-0" />}
+                          <span className="text-sm flex-1 truncate">{p.name}</span>
+                          <button type="button"
+                            title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
+                            onClick={() => setSpProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
+                            className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${spProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
+                            {spProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
+                            <span>{spProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Cursos */}
@@ -3301,6 +3409,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   </div>
                 )}
               </div>
+
             </div>
             </>
           )}
