@@ -19,6 +19,8 @@ import VendorLanding from "./pages/VendorLanding.tsx";
 import CatalogPublic from "./pages/CatalogPublic.tsx";
 import CourseAccess from "./pages/CourseAccess.tsx";
 import CoursePlayer from "./pages/CoursePlayer.tsx";
+import WebsitesCatalog from "./pages/websites/WebsitesCatalog.tsx";
+import WebsiteViewer from "./pages/websites/WebsiteViewer.tsx";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -55,6 +57,10 @@ const App = () => (
           {/* Curso — gate de acceso y player (públicos, sin auth Supabase) */}
           <Route path="/curso/:tenantSlug/:courseSlug"      element={<CourseAccess />} />
           <Route path="/curso/:tenantSlug/:courseSlug/ver"  element={<CoursePlayer />} />
+
+          {/* Public websites portfolio — before /:vendorSlug catch-all */}
+          <Route path="/websites" element={<WebsitesCatalog />} />
+          <Route path="/websites/:slug" element={<WebsiteViewer />} />
 
           {/* Vendor landing pages — must be before * catch-all */}
           <Route path="/:vendorSlug" element={<VendorLanding />} />
