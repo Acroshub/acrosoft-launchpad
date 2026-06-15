@@ -9,6 +9,10 @@ const Footer = () => (
       <a href="/terms" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
         Términos de Uso
       </a>
+      <span className="text-xs text-muted-foreground">·</span>
+      <a href="/login" className="text-xs text-muted-foreground hover:text-foreground transition-colors">
+        Iniciar sesión
+      </a>
     </div>
   </footer>
 );

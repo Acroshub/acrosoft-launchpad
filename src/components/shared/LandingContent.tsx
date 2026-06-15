@@ -24,7 +24,7 @@ interface Props {
 // Gradient : linear-gradient(135deg, #1877F2, #0a57d0)
 
 // ─── CRO config ───────────────────────────────────────────────────────────────
-const WA_NUMBER = ""; // TODO: agregar número WhatsApp de Acrosoft (ej. "17861234567")
+const WA_NUMBER = "59176421171";
 const WA_MSG    = encodeURIComponent("Hola! Vi su sitio web y me gustaría saber más sobre sus servicios.");
 
 // ─── Static data ──────────────────────────────────────────────────────────────
@@ -32,12 +32,20 @@ const WA_MSG    = encodeURIComponent("Hola! Vi su sitio web y me gustaría saber
 const STEP_ICONS = [CalendarDays, Hammer, Rocket];
 
 const INDUSTRIES = [
-  { icon: TrendingUp,  name: "Agencias de Marketing", desc: "CRM, pipeline de clientes, seguimiento de campañas y automatización WhatsApp.", tag: "Más cierres"         },
-  { icon: Scissors,    name: "Salones de Belleza",     desc: "Agenda de citas, recordatorios automáticos y galería de trabajo.",            tag: "Agenda llena"        },
-  { icon: Stethoscope, name: "Clínicas y Consultorios",desc: "Formularios de pacientes, citas, recordatorios y seguimiento por texto.",    tag: "Menos cancelaciones" },
-  { icon: Scale,       name: "Servicios Legales",      desc: "Captura de prospectos, consultas online y gestión de casos.",               tag: "Más clientes"        },
-  { icon: HardHat,     name: "Construcción",           desc: "Pipeline de proyectos, presupuestos y seguimiento de clientes.",            tag: "Cotizaciones 24/7"   },
-  { icon: Building2,   name: "Consultores y Coaches",  desc: "Sesiones online, pipeline de prospectos, agente IA y seguimiento por WhatsApp.", tag: "Escala tu práctica" },
+  { icon: Scissors,    name: "Salones de Belleza",          desc: "Agenda de citas, recordatorios automáticos y galería de trabajo.",                tag: "Agenda llena"        },
+  { icon: HardHat,     name: "Construcción y Remodelación", desc: "Pipeline de proyectos, presupuestos y seguimiento de clientes.",                  tag: "Cotizaciones 24/7"   },
+  { icon: Stethoscope, name: "Clínicas y Consultorios",     desc: "Formularios de pacientes, citas, recordatorios y seguimiento por texto.",         tag: "Menos cancelaciones" },
+  { icon: Building2,   name: "Consultores y Coaches",       desc: "Sesiones online, pipeline de prospectos, agente IA y seguimiento por WhatsApp.", tag: "Escala tu práctica"  },
+  { icon: Scale,       name: "Servicios Legales",           desc: "Captura de prospectos, consultas online y gestión de casos.",                     tag: "Más clientes"        },
+  { icon: TrendingUp,  name: "Agencias de Marketing",       desc: "CRM, pipeline de clientes, seguimiento de campañas y automatización WhatsApp.",  tag: "Más cierres"         },
+];
+
+const PORTFOLIO_DEMOS = [
+  { slug: "rivera-tree-experts",    name: "Rivera Tree Experts",      industry: "Tree Service",          city: "Houston, TX",   bg: "#0d2e1a", accent: "#f97316", initials: "RTE" },
+  { slug: "lopez-painting-drywall", name: "López Painting & Drywall", industry: "Pintura y Drywall",     city: "Orlando, FL",   bg: "#1a3c5e", accent: "#c41e3a", initials: "LPD" },
+  { slug: "el-sol-roofing",         name: "El Sol Roofing",           industry: "Roofing Contractor",    city: "Phoenix, AZ",   bg: "#0A0A0A", accent: "#B91C1C", initials: "ESR" },
+  { slug: "bella-shine-cleaning",   name: "Bella Shine Cleaning",     industry: "Limpieza Residencial",  city: "Dallas, TX",    bg: "#0891B2", accent: "#10B981", initials: "BSC" },
+  { slug: "luna-beauty-studio",     name: "Luna Beauty Studio",       industry: "Salón y Maquillaje",    city: "Miami, FL",     bg: "#1C1917", accent: "#BE185D", initials: "LBS" },
 ];
 
 const TESTIMONIALS = [
@@ -192,8 +200,8 @@ function MiniCalendar() {
         <span className="ml-auto text-xs font-bold text-blue-600">{free.size} horarios libres</span>
       </div>
       <button
-        className="mt-4 w-full h-11 rounded-xl text-white text-sm font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-        style={{ background: "linear-gradient(135deg, #1877F2, #0a57d0)" }}
+        className="mt-4 w-full h-11 rounded-xl text-sm font-bold flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+        style={{ background: "#F59E0B", color: "#1C1917" }}
       >
         <CalendarDays size={15} /> Selecciona un horario
       </button>
@@ -264,7 +272,7 @@ const LandingContent = ({ calendarId, services }: Props) => {
                 <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full border border-blue-600/25 bg-blue-600/[0.08]">
                   <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
                   <span className="text-blue-300 text-xs font-semibold tracking-[0.12em] uppercase">
-                    Agencia #1 para Latinos en USA
+                    {T.hero.badge}
                   </span>
                 </div>
                 <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-emerald-500/30 bg-emerald-500/[0.08]">
@@ -274,11 +282,11 @@ const LandingContent = ({ calendarId, services }: Props) => {
               </div>
 
               <h1 className="text-5xl md:text-6xl lg:text-[68px] font-black tracking-tight leading-[1.05]">
-                <span className="text-white">Tu negocio</span>
+                <span className="text-white">Sin página web,</span>
                 <br />
-                <span className="text-white">en internet,</span>
+                <span className="text-white">estás perdiendo</span>
                 <br />
-                <span style={{ color: "#60a5fa" }}>sin complicaciones.</span>
+                <span style={{ color: "#60a5fa" }}>clientes.</span>
               </h1>
 
               <p className="text-base text-slate-400 max-w-lg leading-relaxed">{T.hero.p}</p>
@@ -286,10 +294,10 @@ const LandingContent = ({ calendarId, services }: Props) => {
               <div className="flex flex-wrap gap-3 pt-1">
                 <Button
                   asChild size="lg"
-                  className="h-12 px-7 rounded-xl font-semibold text-sm border-0 hover:brightness-110 transition-all group"
-                  style={{ background: "#1877F2" }}
+                  className="h-12 px-7 rounded-xl font-semibold text-sm border-0 hover:opacity-90 transition-all group"
+                  style={{ background: "#F59E0B" }}
                 >
-                  <a href="#agendar" className="flex items-center gap-2 text-white">
+                  <a href="#agendar" className="flex items-center gap-2" style={{ color: "#1C1917" }}>
                     {T.hero.cta1}
                     <ArrowRight size={15} className="group-hover:translate-x-0.5 transition-transform" />
                   </a>
@@ -297,10 +305,9 @@ const LandingContent = ({ calendarId, services }: Props) => {
                 {WA_NUMBER && (
                   <Button
                     asChild size="lg"
-                    className="h-12 px-7 rounded-xl font-semibold text-sm border-0 hover:brightness-110 transition-all"
-                    style={{ background: "#25D366" }}
+                    className="h-12 px-7 rounded-xl font-medium text-sm bg-transparent border border-white/25 hover:bg-white/[0.06] hover:border-white/50 transition-all"
                   >
-                    <a href={`https://wa.me/${WA_NUMBER}?text=${WA_MSG}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-white">
+                    <a href={`https://wa.me/${WA_NUMBER}?text=${WA_MSG}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-white/80 hover:text-white">
                       <MessageCircle size={16} /> Escribir por WhatsApp
                     </a>
                   </Button>
@@ -309,7 +316,7 @@ const LandingContent = ({ calendarId, services }: Props) => {
                   asChild variant="outline" size="lg"
                   className="h-12 px-7 rounded-xl font-medium bg-transparent border-white/15 text-white/70 hover:bg-white/[0.06] hover:border-white/25 hover:text-white transition-all"
                 >
-                  <a href="#como-funciona">{T.hero.cta2}</a>
+                  <a href="#planes">{T.hero.cta2} →</a>
                 </Button>
               </div>
 
@@ -467,7 +474,7 @@ const LandingContent = ({ calendarId, services }: Props) => {
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-blue-600/25 bg-blue-600/[0.08] text-blue-300 text-xs font-bold tracking-widest uppercase mb-5">
               La diferencia
             </div>
-            <h2 className="text-4xl md:text-5xl font-black text-white">El antes y el después</h2>
+            <h2 className="text-4xl md:text-5xl font-black text-white">¿Reconoces tu negocio en esto?</h2>
             <p className="text-slate-500 mt-4 leading-relaxed">Así se ve la diferencia entre operar sin herramientas y operar con Acrosoft.</p>
           </div>
 
@@ -479,7 +486,7 @@ const LandingContent = ({ calendarId, services }: Props) => {
                   <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center">
                     <X size={11} className="text-slate-400" />
                   </div>
-                  <span className="text-slate-400 font-bold text-sm">Sin presencia digital</span>
+                  <span className="text-slate-300 font-bold text-sm">Sin presencia digital</span>
                 </div>
                 <ul className="space-y-4">
                   {[
@@ -490,8 +497,8 @@ const LandingContent = ({ calendarId, services }: Props) => {
                     "Agenda en papel o en la memoria",
                     "Cancelaciones sin previo aviso",
                   ].map(item => (
-                    <li key={item} className="flex items-start gap-3 text-sm text-slate-600">
-                      <X size={13} className="shrink-0 mt-0.5 text-slate-700" />
+                    <li key={item} className="flex items-start gap-3 text-sm text-slate-400">
+                      <X size={13} className="shrink-0 mt-0.5 text-slate-500" />
                       {item}
                     </li>
                   ))}
@@ -533,6 +540,20 @@ const LandingContent = ({ calendarId, services }: Props) => {
         </div>
       </section>
 
+      {/* ── Inter-section CTA 1 ─────────────────────────────────── */}
+      <div className="bg-[#040E1F] border-t border-white/5 py-10 md:py-12">
+        <div className="container mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-5">
+          <p className="text-white font-bold text-lg md:text-xl text-center sm:text-left">¿Todo esto suena a lo que tu negocio necesita?</p>
+          <a
+            href="#agendar"
+            className="shrink-0 inline-flex items-center gap-2.5 h-14 px-10 rounded-2xl font-black text-base hover:opacity-90 transition-all"
+            style={{ background: "#F59E0B", color: "#1C1917" }}
+          >
+            <CalendarDays size={17} /> Quiero la versión con Acrosoft →
+          </a>
+        </div>
+      </div>
+
       {/* ═══════════════════════════════════════════════════════════
           TESTIMONIOS
       ═══════════════════════════════════════════════════════════ */}
@@ -542,7 +563,7 @@ const LandingContent = ({ calendarId, services }: Props) => {
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-bold tracking-widest uppercase mb-5">
               Testimonios
             </div>
-            <h2 className="text-4xl md:text-5xl font-black text-slate-900">Lo que dicen nuestros clientes</h2>
+            <h2 className="text-4xl md:text-5xl font-black text-slate-900">Negocios latinos que ya crecen con Acrosoft</h2>
           </div>
 
           <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
@@ -589,7 +610,7 @@ const LandingContent = ({ calendarId, services }: Props) => {
             <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-bold tracking-widest uppercase mb-5">
               Para tu industria
             </div>
-            <h2 className="text-4xl md:text-5xl font-black text-slate-900">Hecho para tu tipo de negocio</h2>
+            <h2 className="text-4xl md:text-5xl font-black text-slate-900">¿En qué tipo de negocio estás?</h2>
             <p className="text-slate-500 mt-4 leading-relaxed">Cada industria tiene necesidades distintas. Nosotros ya las conocemos.</p>
           </div>
 
@@ -623,6 +644,20 @@ const LandingContent = ({ calendarId, services }: Props) => {
           </div>
         </div>
       </section>
+
+      {/* ── Inter-section CTA 2 ─────────────────────────────────── */}
+      <div className="bg-white border-y border-slate-100 py-10 md:py-12">
+        <div className="container mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-5">
+          <p className="text-slate-900 font-bold text-lg md:text-xl text-center sm:text-left">¿Tu negocio está en esta lista? Ya trabajamos con negocios como el tuyo.</p>
+          <a
+            href="#agendar"
+            className="shrink-0 inline-flex items-center gap-2.5 h-14 px-10 rounded-2xl font-black text-base hover:opacity-90 transition-all"
+            style={{ background: "#F59E0B", color: "#1C1917" }}
+          >
+            <CalendarDays size={17} /> Agenda tu Consulta Gratis →
+          </a>
+        </div>
+      </div>
 
       {/* ═══════════════════════════════════════════════════════════
           CÓMO FUNCIONA
@@ -667,6 +702,20 @@ const LandingContent = ({ calendarId, services }: Props) => {
         </div>
       </section>
 
+      {/* ── Inter-section CTA 3 ─────────────────────────────────── */}
+      <div className="bg-slate-50 border-t border-slate-200/60 py-10 md:py-12">
+        <div className="container mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-5">
+          <p className="text-slate-900 font-bold text-lg md:text-xl text-center sm:text-left">¿Listo para empezar? Es más sencillo de lo que crees.</p>
+          <a
+            href="#agendar"
+            className="shrink-0 inline-flex items-center gap-2.5 h-14 px-10 rounded-2xl font-black text-base hover:opacity-90 transition-all"
+            style={{ background: "#F59E0B", color: "#1C1917" }}
+          >
+            <CalendarDays size={17} /> Empieza Hoy — Agenda Gratis →
+          </a>
+        </div>
+      </div>
+
       {/* ═══════════════════════════════════════════════════════════
           POR QUÉ ACROSOFT — Dark navy blue
       ═══════════════════════════════════════════════════════════ */}
@@ -680,8 +729,8 @@ const LandingContent = ({ calendarId, services }: Props) => {
                 Nuestra diferencia
               </div>
               <h2 className="text-4xl md:text-5xl font-black text-white leading-tight mb-5">
-                {T.why.h2a}{" "}
-                <span style={{ color: "#60a5fa" }}>Acrosoft?</span>
+                Lo que nos hace{" "}
+                <span style={{ color: "#60a5fa" }}>diferentes</span>
               </h2>
               <p className="text-slate-400 leading-relaxed mb-7">{T.why.p}</p>
               <div className="space-y-3 mb-8">
@@ -700,10 +749,10 @@ const LandingContent = ({ calendarId, services }: Props) => {
               <div>
                 <Button
                   asChild size="lg"
-                  className="rounded-2xl font-bold px-8 h-12 hover:opacity-90 transition-all border-0 text-white"
-                  style={{ background: "linear-gradient(135deg, #1877F2, #0a57d0)" }}
+                  className="rounded-2xl font-bold px-8 h-12 hover:opacity-90 transition-all border-0"
+                  style={{ background: "#F59E0B" }}
                 >
-                  <a href="#agendar" className="flex items-center gap-2">
+                  <a href="#agendar" className="flex items-center gap-2" style={{ color: "#1C1917" }}>
                     {T.why.cta} <ArrowRight size={15} />
                   </a>
                 </Button>
@@ -739,6 +788,61 @@ const LandingContent = ({ calendarId, services }: Props) => {
                 );
               })}
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════════
+          PORTAFOLIO / DEMOS
+      ═══════════════════════════════════════════════════════════ */}
+      <section className="py-24 md:py-32 bg-slate-50 border-y border-slate-200/60">
+        <div className="container mx-auto px-4">
+          <div className="text-center max-w-xl mx-auto mb-14 lp-reveal">
+            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-blue-50 border border-blue-100 text-blue-700 text-xs font-bold tracking-widest uppercase mb-5">
+              Portafolio
+            </div>
+            <h2 className="text-4xl md:text-5xl font-black text-slate-900">Mira lo que construimos.</h2>
+            <p className="text-slate-500 mt-4 leading-relaxed">Sitios reales para negocios reales. Entra a cada demo y vélo funcionando en vivo.</p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5 max-w-5xl mx-auto">
+            {PORTFOLIO_DEMOS.map((demo, i) => (
+              <a
+                key={demo.slug}
+                href={`/websites/${demo.slug}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={`lp-reveal lp-d${(i % 3) + 1} group block rounded-2xl border border-slate-200 hover:border-blue-300 hover:shadow-xl hover:-translate-y-1 transition-all duration-300 bg-white overflow-hidden`}
+              >
+                {/* Colored preview banner */}
+                <div className="aspect-[16/7] flex items-end justify-between p-5 relative overflow-hidden" style={{ background: demo.bg }}>
+                  <span className="text-5xl font-black opacity-10 text-white select-none">{demo.initials}</span>
+                  <div className="w-8 h-8 rounded-xl flex items-center justify-center group-hover:scale-110 transition-transform" style={{ background: demo.accent }}>
+                    <ArrowRight size={15} className="text-white" />
+                  </div>
+                  {/* Accent stripe */}
+                  <div className="absolute bottom-0 left-0 right-0 h-1" style={{ background: demo.accent }} />
+                </div>
+                <div className="p-5">
+                  <div className="text-[10px] font-bold uppercase tracking-widest mb-1" style={{ color: "#1877F2" }}>{demo.industry}</div>
+                  <h3 className="text-base font-bold text-slate-900 mb-0.5">{demo.name}</h3>
+                  <p className="text-xs text-slate-400 mb-4">{demo.city}</p>
+                  <div className="flex items-center gap-1.5 text-xs font-bold text-blue-600 group-hover:gap-3 transition-all duration-200">
+                    Ver demo en vivo <ArrowRight size={12} />
+                  </div>
+                </div>
+              </a>
+            ))}
+          </div>
+
+          <div className="mt-12 text-center lp-reveal">
+            <a
+              href="#agendar"
+              className="inline-flex items-center gap-2 h-12 px-8 rounded-2xl font-bold text-sm hover:opacity-90 transition-all"
+              style={{ background: "#F59E0B", color: "#1C1917" }}
+            >
+              <CalendarDays size={15} /> Quiero mi sitio así →
+            </a>
           </div>
         </div>
       </section>
@@ -875,16 +979,22 @@ const LandingContent = ({ calendarId, services }: Props) => {
 
                       <button
                         onClick={() => document.getElementById("agendar")?.scrollIntoView({ behavior: "smooth" })}
-                        className="w-full h-11 rounded-2xl font-bold text-sm text-white flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
-                        style={popular ? {
-                          background: "linear-gradient(135deg, #f59e0b, #d97706)",
-                        } : {
-                          background: "linear-gradient(135deg, #1877F2, #0a57d0)",
-                        }}
+                        className="w-full h-11 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 hover:opacity-90 transition-opacity"
+                        style={{ background: "#F59E0B", color: "#1C1917" }}
                       >
                         <MessageCircle size={14} /> {T.plans.cta}
                       </button>
                       <p className="text-center text-[11px] text-slate-400 mt-2">Sin contrato · Precio fijo garantizado</p>
+                      <div className="text-center mt-1.5">
+                        <a
+                          href={`https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(`Hola! Me interesa el plan ${svc.name}. Quisiera más información.`)}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-[11px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline transition-colors"
+                        >
+                          ¿Prefieres escribir? WhatsApp →
+                        </a>
+                      </div>
                     </div>
                   </div>
                 );
@@ -1004,10 +1114,10 @@ const LandingContent = ({ calendarId, services }: Props) => {
             <div className="flex flex-col sm:flex-row gap-4 justify-center pt-2">
               <Button
                 asChild size="lg"
-                className="h-14 px-10 rounded-2xl font-bold text-sm border-0 hover:opacity-90 transition-all text-white group"
-                style={{ background: "#1877F2" }}
+                className="h-14 px-10 rounded-2xl font-bold text-sm border-0 hover:opacity-90 transition-all group"
+                style={{ background: "#F59E0B" }}
               >
-                <a href="#agendar" className="flex items-center gap-2.5">
+                <a href="#agendar" className="flex items-center gap-2.5" style={{ color: "#1C1917" }}>
                   <CalendarDays size={18} />
                   {T.cta.btn}
                   <ArrowRight size={15} className="group-hover:translate-x-1 transition-transform" />
@@ -1021,6 +1131,14 @@ const LandingContent = ({ calendarId, services }: Props) => {
                 </span>
               ))}
             </div>
+            <a
+              href={`https://wa.me/${WA_NUMBER}?text=${WA_MSG}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 text-sm text-emerald-400 hover:text-emerald-300 transition-colors font-medium"
+            >
+              <MessageCircle size={15} /> ¿Prefieres escribir primero? WhatsApp →
+            </a>
           </div>
         </div>
       </section>
@@ -1047,8 +1165,8 @@ const LandingContent = ({ calendarId, services }: Props) => {
       <div className="fixed bottom-0 left-0 right-0 z-40 sm:hidden bg-[#040E1F]/95 backdrop-blur-sm border-t border-white/10 p-3 pb-safe">
         <a
           href="#agendar"
-          className="flex items-center justify-center gap-2 h-12 rounded-xl font-bold text-sm text-white w-full hover:opacity-90 transition-opacity"
-          style={{ background: "linear-gradient(135deg, #1877F2, #0a57d0)" }}
+          className="flex items-center justify-center gap-2 h-12 rounded-xl font-bold text-sm w-full hover:opacity-90 transition-opacity"
+          style={{ background: "#F59E0B", color: "#1C1917" }}
         >
           <CalendarDays size={16} /> Agendar Llamada Gratuita
         </a>
