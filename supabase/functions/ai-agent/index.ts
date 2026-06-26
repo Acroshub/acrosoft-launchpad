@@ -3105,6 +3105,50 @@ Deno.serve(async (req: Request) => {
             .eq("id", contactId);
           console.log(`[ai-agent] datos de contacto actualizados: ${contactId}`);
         }
+        // Notificar al admin que se capturó un nuevo lead
+        if (config.notify_email) {
+          const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+          const RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
+          if (RESEND_API_KEY) {
+            const leadName = contactData["nombre"] ?? contactData["name"] ?? phone;
+            const leadCompany = contactData["empresa"] ?? contactData["company"] ?? "No proporcionada";
+            const leadEmail = contactData["email"] ?? "No proporcionado";
+            const leadNotes = contactData["notas_internas"] ?? contactData["notas"] ?? "";
+            const crmUrl = Deno.env.get("SITE_URL") ?? "https://app.acrosoftlabs.com";
+            const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f4f5;">
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 20px;">
+<table width="100%" style="max-width:480px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+<tr><td style="background:#18181b;padding:24px 32px;text-align:center;">
+  <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Nuevo Lead Capturado</p>
+</td></tr>
+<tr><td style="padding:32px;">
+  <p style="margin:0 0 16px;font-size:14px;color:#52525b;line-height:1.6;">
+    <strong>Nombre:</strong> ${leadName}<br/>
+    <strong>Empresa:</strong> ${leadCompany}<br/>
+    <strong>Email:</strong> ${leadEmail}<br/>
+    <strong>Teléfono:</strong> ${phone}<br/>
+    ${leadNotes ? `<strong>Notas:</strong> ${leadNotes}` : ""}
+  </p>
+  <a href="${crmUrl}/crm" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:500;">
+    Ver en el CRM &rarr;
+  </a>
+  <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">Lead capturado automáticamente por el Agente IA.</p>
+</td></tr>
+</table></td></tr></table>
+</body></html>`;
+            fetch("https://api.resend.com/emails", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                from: RESEND_FROM,
+                to: [config.notify_email],
+                subject: `🎯 Nuevo lead: ${leadName}${leadCompany !== "No proporcionada" ? ` — ${leadCompany}` : ""}`,
+                html,
+              }),
+            }).then(() => console.log(`[ai-agent] email de nuevo lead enviado a ${config.notify_email}`))
+              .catch((e) => console.error("[ai-agent] error enviando email de lead:", e));
+          }
+        }
       } catch (e: any) {
         console.error("[ai-agent] error guardando datos del contacto:", e.message);
       }
