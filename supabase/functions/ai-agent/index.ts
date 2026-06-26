@@ -3042,7 +3042,6 @@ Deno.serve(async (req: Request) => {
         if (!contactId) {
           // Crear contacto nuevo
           const contactName = contactData["nombre"] ?? contactData["name"] ?? convRow?.contact_name ?? phone;
-          const notesValue = contactData["notas_internas"] ?? contactData["notas"] ?? null;
           const { data: newContact } = await supabase
             .from("crm_contacts")
             .insert({
@@ -3051,7 +3050,6 @@ Deno.serve(async (req: Request) => {
               phone,
               email: contactData["email"] ?? null,
               company: contactData["empresa"] ?? contactData["company"] ?? null,
-              notes: notesValue,
               ai_collected_data: contactData,
             })
             .select("id")
@@ -3063,27 +3061,33 @@ Deno.serve(async (req: Request) => {
               .from("crm_wa_conversations")
               .update({ contact_id: newContact.id })
               .eq("id", conversation_id);
+            const notesBody = contactData["notas_internas"] ?? contactData["notas"] ?? null;
+            if (notesBody) {
+              await supabase.from("crm_contact_notes").insert({
+                contact_id: newContact.id, user_id: tenant_user_id, body: notesBody,
+              });
+            }
             console.log(`[ai-agent] contacto creado: ${newContact.id}`);
           }
         } else {
           // Fusionar nuevos datos con los existentes
           const { data: existing } = await supabase
             .from("crm_contacts")
-            .select("ai_collected_data, notes")
+            .select("ai_collected_data")
             .eq("id", contactId)
             .single();
 
           const merged = { ...(existing?.ai_collected_data ?? {}), ...contactData };
-          const notesValue = contactData["notas_internas"] ?? contactData["notas"] ?? null;
-          const updatePayload: Record<string, unknown> = { ai_collected_data: merged };
-          if (notesValue) {
-            const prev = (existing as any)?.notes ?? "";
-            updatePayload.notes = prev ? `${prev}\n${notesValue}` : notesValue;
-          }
           await supabase
             .from("crm_contacts")
-            .update(updatePayload)
+            .update({ ai_collected_data: merged })
             .eq("id", contactId);
+          const notesBody = contactData["notas_internas"] ?? contactData["notas"] ?? null;
+          if (notesBody) {
+            await supabase.from("crm_contact_notes").insert({
+              contact_id: contactId, user_id: tenant_user_id, body: notesBody,
+            });
+          }
           console.log(`[ai-agent] datos de contacto actualizados: ${contactId}`);
         }
         // Notificar al admin que se capturó un nuevo lead
