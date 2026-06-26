@@ -780,19 +780,6 @@ function parseAndStripContactData(text: string): { text: string; contactData: Re
   };
 }
 
-// ─── Parsear marcador [SEND_CONFIRMATION_EMAIL|subject:...|body:...] ─────────
-function parseAndStripConfirmationEmail(text: string): {
-  text: string;
-  confirmationEmail: { subject: string; body: string } | null;
-} {
-  const match = text.match(/\[SEND_CONFIRMATION_EMAIL\|subject:([^|]*)\|body:([^\]]*)\]/i);
-  if (!match) return { text, confirmationEmail: null };
-  return {
-    text: text.replace(match[0], "").trim(),
-    confirmationEmail: { subject: match[1].trim(), body: match[2].trim() },
-  };
-}
-
 // ─── Parsear marcador [PAYMENT_DETECTED|...] ─────────────────────────────────
 function parseAndStripPayment(text: string): {
   text: string;
@@ -1790,12 +1777,7 @@ function buildStrategicInstructions(config: AgentConfig, businessFaqs: Array<{ q
       `[CONTACT_DATA|campo1:valor1|campo2:valor2]\n` +
       `Usa el nombre exacto del campo en español, en minúsculas sin espacios (ej: nombre, presupuesto, email). ` +
       `Solo incluye los datos obtenidos en ESTE mensaje. No repitas datos ya mencionados antes.\n` +
-      `Si necesitas guardar un resumen o nota interna sobre el prospecto, incluye el campo notas_internas en el marcador (ej: [CONTACT_DATA|notas_internas:Interesado en landing pages, empresa de consultoría]).\n\n` +
-      `EMAIL DE CONFIRMACIÓN:\n` +
-      `Cuando hayas recopilado todos los datos del prospecto (incluyendo su email), puedes enviarle un email de confirmación añadiendo al FINAL de tu respuesta el marcador:\n` +
-      `[SEND_CONFIRMATION_EMAIL|subject:Asunto del email|body:Cuerpo del email en texto plano, usa \\n para saltos de línea]\n` +
-      `IMPORTANTE: El marcador SEND_CONFIRMATION_EMAIL solo funciona si en el MISMO mensaje o en mensajes anteriores ya recopilaste el email del cliente con [CONTACT_DATA|email:...].\n` +
-      `Usa este marcador para enviar confirmaciones de llamada, agradecimientos por su interés, o cualquier comunicación que el prompt indique.`
+      `Si necesitas guardar un resumen o nota interna sobre el prospecto, incluye el campo notas_internas en el marcador (ej: [CONTACT_DATA|notas_internas:Interesado en landing pages, empresa de consultoría]).`
     );
   }
 
@@ -2938,8 +2920,7 @@ Deno.serve(async (req: Request) => {
     const { text: withoutQr, qrIds } = parseAndStripQrMarkers(withoutNoPayment);
     const { text: withoutProductImages, photoRequests } = parseAndStripProductImageMarkers(withoutQr);
     const { text: withoutContactData, contactData } = parseAndStripContactData(withoutProductImages);
-    const { text: withoutConfEmail, confirmationEmail } = parseAndStripConfirmationEmail(withoutContactData);
-    const { text: replyRaw, labelNames, removeNames } = parseAndStripLabels(withoutConfEmail);
+    const { text: replyRaw, labelNames, removeNames } = parseAndStripLabels(withoutContactData);
 
     // 6a. [TRANSFER] — verificar sobre el texto limpio (sin marcadores ni etiquetas)
     if (config.can_transfer_human && /^\[TRANSFER\]\s*$/i.test(replyRaw.trim())) {
@@ -3151,61 +3132,6 @@ Deno.serve(async (req: Request) => {
         }
       } catch (e: any) {
         console.error("[ai-agent] error guardando datos del contacto:", e.message);
-      }
-    }
-
-    // 10c-2. Enviar email de confirmación al prospecto si el agente usó [SEND_CONFIRMATION_EMAIL]
-    if (confirmationEmail) {
-      try {
-        let recipientEmail = contactData?.["email"] ?? null;
-        if (!recipientEmail) {
-          const { data: convForEmail } = await supabase
-            .from("crm_wa_conversations").select("contact_id").eq("id", conversation_id).single();
-          if (convForEmail?.contact_id) {
-            const { data: ct } = await supabase
-              .from("crm_contacts").select("email").eq("id", convForEmail.contact_id).single();
-            recipientEmail = (ct as any)?.email ?? null;
-          }
-        }
-        if (recipientEmail) {
-          const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-          const RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
-          if (RESEND_API_KEY) {
-            const { data: biz } = await supabase
-              .from("crm_business_profile")
-              .select("business_name")
-              .eq("user_id", tenant_user_id)
-              .maybeSingle();
-            const bizName = (biz as any)?.business_name ?? "Nuestro equipo";
-            const emailBody = confirmationEmail.body.replace(/\\n/g, "<br/>");
-            const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f4f5;">
-<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 20px;">
-<table width="100%" style="max-width:480px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-<tr><td style="background:#18181b;padding:24px 32px;text-align:center;">
-  <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">${bizName}</p>
-</td></tr>
-<tr><td style="padding:32px;">
-  <p style="margin:0 0 8px;font-size:16px;font-weight:600;color:#18181b;">${confirmationEmail.subject}</p>
-  <p style="margin:0 0 20px;font-size:14px;color:#52525b;line-height:1.6;">${emailBody}</p>
-  <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">Mensaje automático de ${bizName}.</p>
-</td></tr>
-</table></td></tr></table>
-</body></html>`;
-            fetch("https://api.resend.com/emails", {
-              method: "POST",
-              headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-              body: JSON.stringify({
-                from: RESEND_FROM,
-                to: [recipientEmail],
-                subject: confirmationEmail.subject,
-                html,
-              }),
-            }).then(() => console.log(`[ai-agent] email de confirmación enviado a ${recipientEmail}`))
-              .catch((e) => console.error("[ai-agent] error enviando email de confirmación:", e));
-          }
-        }
-      } catch (e: any) {
-        console.error("[ai-agent] error preparando email de confirmación:", e.message);
       }
     }
 
