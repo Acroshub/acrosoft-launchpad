@@ -195,6 +195,9 @@ Deno.serve(async (req: Request) => {
     );
   }
 
+  const resJson = await res.json();
+  const wa_message_id: string | null = resJson?.messages?.[0]?.id ?? null;
+
   // 7. Marcar entregable como enviado en la venta
   await supabase
     .from("crm_sales")
@@ -211,12 +214,16 @@ Deno.serve(async (req: Request) => {
       content: filename,
       media_type: "document",
       media_url: product.deliverable_url,
+      wa_message_id,
+      delivery_status: "sent",
     });
   } else if (product.deliverable_type === "text" && product.deliverable_text) {
     await supabase.from("crm_wa_messages").insert({
       conversation_id: sale.wa_conversation_id,
       role: "assistant",
       content: product.deliverable_text,
+      wa_message_id,
+      delivery_status: "sent",
     });
   }
 

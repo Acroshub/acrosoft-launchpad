@@ -5319,6 +5319,9 @@ const ChatPanel = ({
   const [paymentAction, setPaymentAction] = useState<"confirm" | "reject" | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<"confirm" | "reject" | null>(null);
   const [pendingQrMedia, setPendingQrMedia] = useState<{ url: string; type: string; filename?: string | null } | null>(null);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const pendingFileUrl = useMemo(() => pendingFile ? URL.createObjectURL(pendingFile) : null, [pendingFile]);
+  useEffect(() => () => { if (pendingFileUrl) URL.revokeObjectURL(pendingFileUrl); }, [pendingFileUrl]);
   const bottomRef       = useRef<HTMLDivElement>(null);
   const fileInputRef    = useRef<HTMLInputElement>(null);
   const textareaRef     = useRef<HTMLTextAreaElement>(null);
@@ -5397,6 +5400,7 @@ const ChatPanel = ({
     setCtxMenu(null);
     setReplyTo(null);
     setPendingQrMedia(null);
+    setPendingFile(null);
     setWindowError(false);
   }, [conv.id]);
 
@@ -5469,7 +5473,12 @@ const ChatPanel = ({
   }, [showNotesLog]);
 
   const handleSend = async () => {
-    if ((!text.trim() && !pendingQrMedia) || sending) return;
+    if ((!text.trim() && !pendingQrMedia && !pendingFile) || sending) return;
+    if (pendingFile) {
+      await handleMediaUpload(pendingFile);
+      setPendingFile(null);
+      return;
+    }
     setSending(true);
     setWindowError(false);
     try {
@@ -5489,7 +5498,6 @@ const ChatPanel = ({
           qc.invalidateQueries({ queryKey: ["crm_wa_messages", conv.id] });
         }
       } else if (pendingQrMedia) {
-        // Enviar media de respuesta rápida con caption
         const { data, error } = await supabase.functions.invoke("send-wa-message", {
           body: {
             conversation_id: conv.id,
@@ -6015,12 +6023,32 @@ const ChatPanel = ({
             </button>
           </div>
         )}
+        {/* Pending file preview */}
+        {pendingFile && (
+          <div className="flex items-center gap-2 px-2 py-2 mb-2 rounded-xl bg-secondary/50 border border-border">
+            {pendingFile.type.startsWith("image/") && pendingFileUrl
+              ? <img src={pendingFileUrl} className="w-10 h-10 rounded object-cover shrink-0" />
+              : pendingFile.type.startsWith("video/")
+                ? <div className="w-10 h-10 rounded bg-muted flex items-center justify-center shrink-0"><FileVideo size={18} className="text-muted-foreground" /></div>
+                : <div className="w-10 h-10 rounded bg-muted flex items-center justify-center shrink-0"><Paperclip size={16} className="text-muted-foreground" /></div>
+            }
+            <div className="flex-1 min-w-0">
+              <p className="text-[11px] font-semibold text-muted-foreground leading-tight">
+                {pendingFile.type.startsWith("image/") ? "Imagen" : pendingFile.type.startsWith("video/") ? "Video" : "Documento"}
+              </p>
+              <p className="text-xs text-muted-foreground/70 truncate">{pendingFile.name}</p>
+            </div>
+            <button type="button" onClick={() => setPendingFile(null)} className="p-1 text-muted-foreground hover:text-foreground shrink-0">
+              <X size={13} />
+            </button>
+          </div>
+        )}
         <input
           ref={fileInputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/gif,video/mp4,video/3gpp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif,video/mp4,video/3gpp,.mp4,.3gp,application/pdf,.pdf,application/msword,.doc,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx,application/vnd.ms-excel,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx,application/vnd.ms-powerpoint,.ppt,application/vnd.openxmlformats-officedocument.presentationml.presentation,.pptx,text/plain,.txt,.zip,.rar"
           className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) handleMediaUpload(f); e.target.value = ""; }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) setPendingFile(f); e.target.value = ""; }}
         />
         {/* Quick Replies Popover (B19-9) */}
         {showQrPopover && qrSuggestions.length > 0 && (
@@ -6097,7 +6125,7 @@ const ChatPanel = ({
                     : <Pencil size={13} className="text-blue-500/50 shrink-0" />
                 }
                 <span className="text-sm text-muted-foreground/55 truncate">
-                  {isInternalMode ? "Nota interna — solo visible para el equipo..." : conv.mode === "AI" ? "Activa nota interna o toma el control..." : pendingQrMedia ? "Caption (opcional)..." : "Escribe un mensaje..."}
+                  {isInternalMode ? "Nota interna — solo visible para el equipo..." : conv.mode === "AI" ? "Activa nota interna o toma el control..." : (pendingQrMedia || pendingFile) ? "Caption (opcional)..." : "Escribe un mensaje..."}
                 </span>
               </div>
             )}
@@ -6221,9 +6249,9 @@ const ChatPanel = ({
             {/* Send */}
             <button
               onClick={handleSend}
-              disabled={sending || uploadingMedia || (!text.trim() && !pendingQrMedia) || (conv.mode === "AI" && !isInternalMode)}
+              disabled={sending || uploadingMedia || (!text.trim() && !pendingQrMedia && !pendingFile) || (conv.mode === "AI" && !isInternalMode)}
               className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-full text-white transition-all shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
-              style={{ backgroundColor: (text.trim() || pendingQrMedia) && !(conv.mode === "AI" && !isInternalMode) ? (isInternalMode ? "#d97706" : "#1877F2") : undefined }}
+              style={{ backgroundColor: (text.trim() || pendingQrMedia || pendingFile) && !(conv.mode === "AI" && !isInternalMode) ? (isInternalMode ? "#d97706" : "#1877F2") : undefined }}
               title={isInternalMode ? "Guardar nota interna" : "Enviar"}
             >
               {sending ? <Loader2 size={18} className="animate-spin" /> : isInternalMode ? <StickyNote size={17} /> : <Send size={18} />}
