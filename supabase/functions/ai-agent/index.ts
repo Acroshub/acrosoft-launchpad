@@ -2125,8 +2125,9 @@ Si algún requisito NO se cumple:
   let base: string;
   if (hasStrategicConfig) {
     const identidad = `Eres ${config.agent_name}${business?.business_name ? `, del equipo de ${business.business_name}` : ""}.`;
-    // Añadir instrucciones adicionales — omitir si contiene variables de plantilla legacy ({{negocio.nombre}})
-    const rawExtra = (config.agent_extra_prompt ?? config.system_prompt ?? "").trim();
+    // system_prompt es el campo principal (editado por el usuario en el UI).
+    // agent_extra_prompt es fallback legacy — se ignora si system_prompt tiene contenido.
+    const rawExtra = (config.system_prompt?.trim() || config.agent_extra_prompt?.trim() || "");
     const isLegacyTemplate = rawExtra.includes("{{negocio.");
     if (rawExtra && !isLegacyTemplate) {
       // El prompt específico va PRIMERO para establecer el flujo conversacional como marco principal.
