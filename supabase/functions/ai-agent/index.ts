@@ -2125,12 +2125,16 @@ Si algún requisito NO se cumple:
   let base: string;
   if (hasStrategicConfig) {
     const identidad = `Eres ${config.agent_name}${business?.business_name ? `, del equipo de ${business.business_name}` : ""}.`;
-    base = identidad + "\n\n" + strategicInstructions;
     // Añadir instrucciones adicionales — omitir si contiene variables de plantilla legacy ({{negocio.nombre}})
     const rawExtra = (config.agent_extra_prompt ?? config.system_prompt ?? "").trim();
     const isLegacyTemplate = rawExtra.includes("{{negocio.");
     if (rawExtra && !isLegacyTemplate) {
-      base += "\n\nINSTRUCCIONES ESPECÍFICAS (tienen prioridad absoluta sobre todo lo anterior — síguelas al pie de la letra):\n" + rawExtra;
+      // El prompt específico va PRIMERO para establecer el flujo conversacional como marco principal.
+      // Las directrices estratégicas son complementarias y nunca deben anular el script del prompt.
+      base = identidad + "\n\nINSTRUCCIONES ESPECÍFICAS (sigue este script al pie de la letra — tiene prioridad sobre cualquier otra directriz):\n" + rawExtra
+        + "\n\nDirectrices estratégicas complementarias (aplícalas en coherencia con las instrucciones anteriores, sin reemplazarlas):\n" + strategicInstructions;
+    } else {
+      base = identidad + "\n\n" + strategicInstructions;
     }
   } else {
     base = config.system_prompt?.trim() ||
