@@ -1768,16 +1768,18 @@ function buildStrategicInstructions(config: AgentConfig, businessFaqs: Array<{ q
     parts.push(emojiMap[config.emoji_level]);
   }
 
-  // Data collection (solo si también puede crear contactos)
-  if (config.agent_data_collect?.length && config.can_create_contacts) {
-    const fields = config.agent_data_collect.join(", ");
+  // Data collection automática — activa siempre que can_create_contacts esté habilitado
+  // No requiere configurar agent_data_collect: Claude detecta automáticamente qué datos recopilar
+  if (config.can_create_contacts) {
+    const specificFields = config.agent_data_collect?.length
+      ? `Durante la conversación recopila en particular: ${config.agent_data_collect.join(", ")}. `
+      : "";
     parts.push(
-      `Durante la conversación, intenta obtener de forma natural los siguientes datos del cliente: ${fields}.\n` +
-      `Cuando el cliente proporcione alguno de esos datos, añade al FINAL de tu respuesta (invisible para el cliente) el marcador:\n` +
+      `${specificFields}Cada vez que el cliente proporcione cualquier dato sobre sí mismo o su negocio (nombre, empresa, ciudad, teléfono, email, objetivos, servicios, presupuesto, etc.), añade al FINAL de tu respuesta el siguiente marcador — el cliente NUNCA lo verá, el sistema lo procesa automáticamente:\n` +
       `[CONTACT_DATA|campo1:valor1|campo2:valor2]\n` +
-      `Usa el nombre exacto del campo en español, en minúsculas sin espacios (ej: nombre, presupuesto, email). ` +
-      `Solo incluye los datos obtenidos en ESTE mensaje. No repitas datos ya mencionados antes.\n` +
-      `Si necesitas guardar un resumen o nota interna sobre el prospecto, incluye el campo notas_internas en el marcador (ej: [CONTACT_DATA|notas_internas:Interesado en landing pages, empresa de consultoría]).`
+      `Usa nombres descriptivos en español, en minúsculas con guiones bajos (ej: nombre_negocio, ciudad, telefono_pagina, objetivo_sitio). ` +
+      `Solo incluye los datos obtenidos en ESTE mensaje. No repitas datos ya capturados antes.\n` +
+      `Si tienes una nota interna relevante sobre el prospecto, usa el campo notas_internas (ej: [CONTACT_DATA|notas_internas:Interesado en landing pages]).`
     );
   }
 
