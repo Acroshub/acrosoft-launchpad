@@ -1717,7 +1717,7 @@ function buildStrategicInstructions(config: AgentConfig, businessFaqs: Array<{ q
       // CTA de agendamiento solo se inyecta si hay calendario configurado
       ...( canSchedule ? { "Agendar citas": "Siempre que sea pertinente, invita al cliente a agendar una cita." } : {}),
       "Vender productos": "Siempre que sea pertinente, orienta al cliente hacia la compra.",
-      "Capturar leads": "Procura obtener los datos de contacto del cliente para hacer seguimiento.",
+      "Capturar leads": "Cuando la conversación fluya de forma natural, procura obtener los datos de contacto del cliente. No interrumpas el hilo de la conversación ni hagas preguntas directas sobre datos personales antes de que haya un contexto claro para pedirlos.",
       "Calificar prospectos": "Haz las preguntas necesarias para calificar si el cliente es un prospecto válido.",
       "Dar soporte postventa": "Enfócate en resolver el problema del cliente de forma eficiente.",
       "Responder dudas": "Responde con claridad y precisión las preguntas del cliente.",
@@ -2129,7 +2129,9 @@ Si algún requisito NO se cumple:
     // Añadir instrucciones adicionales — omitir si contiene variables de plantilla legacy ({{negocio.nombre}})
     const rawExtra = (config.agent_extra_prompt ?? config.system_prompt ?? "").trim();
     const isLegacyTemplate = rawExtra.includes("{{negocio.");
-    if (rawExtra && !isLegacyTemplate) base += "\n\n" + rawExtra;
+    if (rawExtra && !isLegacyTemplate) {
+      base += "\n\nINSTRUCCIONES ESPECÍFICAS (tienen prioridad absoluta sobre todo lo anterior — síguelas al pie de la letra):\n" + rawExtra;
+    }
   } else {
     base = config.system_prompt?.trim() ||
       `Eres ${config.agent_name}, un asistente virtual amable. Responde en español neutro, en mensajes breves de 2 a 4 líneas.`;
