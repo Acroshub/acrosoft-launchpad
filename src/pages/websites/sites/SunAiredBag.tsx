@@ -68,7 +68,7 @@ const INDUSTRIES = [
   {
     name: "Correctional Facilities",
     desc: "Numbered, secure bag systems for inmate property management. Quick to audit, built for heavy use, and compliant with institutional requirements across all facility types.",
-    img: "photo-1605349136563-0fc55e9cc6be", // institutional corridor / correctional facility
+    img: "photo-1486406146926-c627a92ad1ab", // institutional/government building exterior
     Icon: Shield,
     stat: "Trusted by state & county facilities",
   },
