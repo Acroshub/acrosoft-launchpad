@@ -69,6 +69,17 @@ const PROJECTS: Project[] = [
     accentColor: "#BE185D",
     initials: "LBS",
   },
+  {
+    slug: "sun-aired-bag",
+    name: "Sun Aired Bag Co.",
+    industry: "Industrial Bag Systems Manufacturer",
+    city: "Redondo Beach, CA",
+    description: "B2B single-page proposal for a checking bag manufacturer serving public pools, correctional facilities, and film productions since 1947.",
+    tags: ["B2B", "Single Page", "Industrial"],
+    primaryColor: "#0B1D3A",
+    accentColor: "#0EA5E9",
+    initials: "SAB",
+  },
 ];
 
 function ProjectCard({ project }: { project: Project }) {
