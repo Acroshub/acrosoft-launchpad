@@ -6,19 +6,19 @@ import {
   ChevronDown, ChevronUp, Loader2,
 } from "lucide-react";
 
-// ── BRAND PALETTE (unchanged) ─────────────────────────────────────────────────
+// ── BRAND PALETTE ─────────────────────────────────────────────────────────────
 const C = {
-  navy:   "#1B3668",
-  navyD:  "#0F2147",
-  navyXD: "#091530",
-  blueL:  "#EBF1FB",
-  blue100:"#D4E3F5",
-  gold:   "#B8922A",
-  goldL:  "#FBF5E6",
+  navy:   "#040957",
+  navyD:  "#030744",
+  navyXD: "#020530",
+  blueL:  "#F1F1F1",
+  blue100:"#C2D8FF",
+  gold:   "#0080FF",
+  goldL:  "#E6F2FF",
   white:  "#FFFFFF",
-  text:   "#0D1B2A",
-  muted:  "#5B7194",
-  border: "#CBD8EE",
+  text:   "#040957",
+  muted:  "#6B7A99",
+  border: "#E0E4EF",
 };
 
 const PHONE   = "(310) 372-7225";
@@ -82,10 +82,9 @@ const INDUSTRIES = [
 ];
 
 const PILLARS = [
-  { Icon: Clock,  title: "Since 1947",      body: "Over 75 years of continuous manufacturing. Generational experience in building systems that last." },
-  { Icon: Award,  title: "Made in USA",      body: "All products built to American commercial standards. Engineered for heavy daily use in demanding environments." },
-  { Icon: Wrench, title: "Custom Sizing",    body: "We manufacture to your facility's specifications. Standard and custom sizes available. Just call and ask." },
-  { Icon: Truck,  title: "Ships Nationwide", body: "From Redondo Beach, CA to all 50 states. Reliable delivery on standard and custom orders." },
+  { Icon: Wrench,  title: "Custom Sizing",    body: "We manufacture to your facility's specifications. Standard and custom sizes available. Just call and ask." },
+  { Icon: Truck,   title: "Ships Nationwide", body: "From Redondo Beach, CA to all 50 states. Reliable delivery on standard and custom orders." },
+  { Icon: Package, title: "No Minimum Order", body: "Order as few or as many as you need. No minimums, no pressure. Volume discounts kick in at 100+ units." },
 ];
 
 const TESTIMONIALS = [
@@ -273,8 +272,8 @@ function QuoteForm() {
             {sent ? (
               <div className="py-10 text-center">
                 <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-                  style={{ background: "#ECFDF5" }}>
-                  <Check size={30} style={{ color: "#16A34A" }} />
+                  style={{ background: C.blueL }}>
+                  <Check size={30} style={{ color: C.gold }} />
                 </div>
                 <h3 className="text-xl font-black mb-2" style={{ color: C.navy }}>Quote Request Sent!</h3>
                 <p className="text-sm mb-5" style={{ color: C.muted }}>
@@ -587,188 +586,89 @@ export default function SunAiredBag() {
         )}
       </header>
 
-      {/* ── TRUST STRIP (hidden on mobile — those pixels belong to the headline) ── */}
-      <div className="hidden md:block border-b" style={{ background: C.navyD, borderColor: C.navyXD }}>
-        <div className="max-w-7xl mx-auto px-6 py-2.5 flex flex-wrap items-center justify-center gap-6 text-xs font-bold tracking-wider uppercase"
-          style={{ color: "rgba(255,255,255,0.65)" }}>
-          {[
-            [Award,  "Est. 1947 — Redondo Beach, CA"],
-            [Globe,  "Ships to All 50 States"],
-            [Shield, "No Minimum Order"],
-            [Truck,  "Ships in 3–5 Business Days"],
-          ].map(([Icon, label]) => (
-            <div key={label as string} className="flex items-center gap-1.5">
-              {/* @ts-ignore */}
-              <Icon size={11} style={{ color: C.gold }} />
-              {label as string}
+
+      {/* ── HERO ── */}
+      <section className="relative overflow-hidden" style={{ minHeight: "88vh" }}>
+        {/* Background image — full bleed */}
+        <div className="absolute inset-0">
+          <img
+            src="/images/hero-bag.jpg"
+            alt="Sun Aired mesh checking bag system"
+            className="w-full h-full object-cover object-center"
+            loading="eager"
+            style={{ objectPosition: "60% center" }}
+          />
+          {/* Gradient overlay: dark left for text readability, transparent right to show image */}
+          <div className="absolute inset-0" style={{
+            background: "linear-gradient(to right, rgba(4,9,87,0.85) 0%, rgba(4,9,87,0.62) 45%, rgba(4,9,87,0.22) 75%, rgba(4,9,87,0.05) 100%)"
+          }} />
+          {/* Bottom fade for smooth section transition */}
+          <div className="absolute bottom-0 left-0 right-0 h-32" style={{
+            background: "linear-gradient(to bottom, transparent, rgba(4,9,87,0.40))"
+          }} />
+        </div>
+
+        <div className="relative z-10 max-w-7xl mx-auto px-6 pt-16 pb-20 md:pt-24 md:pb-32 flex items-center" style={{ minHeight: "88vh" }}>
+          <div className="max-w-xl">
+            <h1 className="text-[clamp(2.6rem,5.5vw,4rem)] font-black leading-[1.05] tracking-tight mb-6 text-white">
+              Professional<br />
+              Bag Systems Built<br />
+              for Demanding<br />
+              Facilities.
+            </h1>
+
+            <p className="text-lg leading-relaxed mb-8 max-w-md" style={{ color: "rgba(255,255,255,0.75)" }}>
+              Sun Aired Bag Co. supplies mesh checking bags, wall racks, and carousel systems to public pools, correctional facilities, and film productions across the United States.
+            </p>
+
+            {/* CTAs */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-5">
+              <a href="#contact"
+                className="flex items-center justify-center gap-2 text-white font-black px-8 py-4 rounded cursor-pointer hover:opacity-90 transition-opacity"
+                style={{ background: C.navy, border: `2px solid rgba(255,255,255,0.25)` }}>
+                <Send size={16} /> Get My Free Quote
+              </a>
+              <a href={`tel:${PHONE}`}
+                className="flex items-center justify-center gap-2 font-black px-8 py-4 rounded cursor-pointer hover:bg-white/10 transition-colors"
+                style={{ color: C.white, border: `2px solid rgba(255,255,255,0.35)` }}>
+                <Phone size={16} /> {PHONE}
+              </a>
+            </div>
+
+          </div>
+        </div>
+
+      </section>
+
+      {/* ── STATS STRIP ── */}
+      <div className="px-6 relative z-10 -mt-10">
+        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-0 text-center" style={{ background: C.navy }}>
+          {[["1947","Year Founded"],["500+","Facilities Served"],["50","States Covered"],["75+","Years of Excellence"]].map(([v, l], i) => (
+            <div key={l}
+              className={`py-8 px-4 border-white/10
+                ${i % 2 === 0 ? 'border-r' : ''}
+                ${i < 2 ? 'border-b' : ''}
+                md:border-b-0
+                ${i < 3 ? 'md:border-r' : 'md:border-r-0'}
+              `}>
+              <div className="text-3xl md:text-4xl font-black text-white leading-none mb-1.5">{v}</div>
+              <div className="text-[10px] md:text-xs font-bold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.4)" }}>{l}</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ── HERO ── */}
-      <section className="relative overflow-hidden md:min-h-[88vh]" style={{ background: C.navyD }}>
-        {/* Mesh texture */}
-        <div className="absolute inset-0 pointer-events-none" aria-hidden style={{
-          backgroundImage: `
-            linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
-            linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)
-          `,
-          backgroundSize: "48px 48px",
-        }} />
-        <div className="absolute inset-0 pointer-events-none" aria-hidden
-          style={{ background: `linear-gradient(135deg, ${C.navyXD} 0%, transparent 70%)` }} />
-
-        <div className="relative z-10 max-w-7xl mx-auto px-6 pt-10 pb-16 md:py-24 grid lg:grid-cols-2 gap-16 items-center">
-          <div>
-            {/* Heritage badge */}
-            <div className="inline-flex items-center gap-2 rounded px-4 py-2 mb-8 text-xs font-black tracking-wider uppercase"
-              style={{ background: C.goldL, color: C.gold, border: `1px solid ${C.gold}40` }}>
-              <Award size={11} /> The Most Trustable Checking Storage System Since 1947
-            </div>
-
-            <h1 className="text-[clamp(2.6rem,5.5vw,4rem)] font-black leading-[1.05] tracking-tight mb-6 text-white">
-              Professional<br />
-              Bag Systems Built<br />
-              <span style={{ color: C.blue100 }}>for Demanding</span><br />
-              Facilities.
-            </h1>
-
-            <p className="text-lg leading-relaxed mb-8 max-w-md" style={{ color: "rgba(255,255,255,0.65)" }}>
-              Sun Aired Bag Co. supplies mesh checking bags, wall racks, and carousel systems to public pools, correctional facilities, and film productions across the United States.
-            </p>
-
-            {/* CRO: Primary CTA clearly labeled "Free" + no commitment copy */}
-            <div className="flex flex-col sm:flex-row gap-3 mb-5">
-              <a href="#contact"
-                className="flex items-center justify-center gap-2 text-white font-black px-8 py-4 rounded cursor-pointer hover:opacity-90 transition-opacity"
-                style={{ background: C.navy, border: `2px solid ${C.blue100}40` }}>
-                <Send size={16} /> Get My Free Quote
-              </a>
-              <a href={`tel:${PHONE}`}
-                className="flex items-center justify-center gap-2 font-black px-8 py-4 rounded cursor-pointer hover:bg-white/10 transition-colors"
-                style={{ color: C.white, border: `2px solid rgba(255,255,255,0.25)` }}>
-                <Phone size={16} /> {PHONE}
-              </a>
-            </div>
-
-            {/* CRO: micro-copy below CTAs — removes hesitation */}
-            <p className="text-xs mb-8" style={{ color: "rgba(255,255,255,0.4)" }}>
-              Free quote · No minimum order · Response within 1 business day
-            </p>
-
-            {/* Logo stripe motif */}
-            <div className="flex flex-col gap-[3px] w-24 mb-8" aria-hidden>
-              <div style={{ height: 3, background: C.gold }} />
-              <div style={{ height: 2, background: C.gold, opacity: 0.55 }} />
-              <div style={{ height: 1, background: C.gold, opacity: 0.25 }} />
-            </div>
-
-            {/* CRO: Social proof numbers as text — scannable in 2 seconds */}
-            <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm font-bold" style={{ color: "rgba(255,255,255,0.5)" }}>
-              <span>· 500+ Facilities Served</span>
-              <span>· 75+ Years in Business</span>
-              <span>· All 50 States</span>
-            </div>
-          </div>
-
-          {/* Hero image card */}
-          <div className="hidden lg:block relative">
-            <div className="absolute -top-2 left-0 right-16 flex flex-col gap-[3px]" aria-hidden>
-              <div style={{ height: 3, background: C.gold }} />
-              <div style={{ height: 2, background: C.gold, opacity: 0.5 }} />
-            </div>
-            <div className="rounded-sm overflow-hidden border-2" style={{ borderColor: "rgba(255,255,255,0.1)" }}>
-              <img
-                src="https://images.unsplash.com/photo-1571902943202-507ec2618e8f?auto=format&fit=crop&w=800&q=85"
-                alt="Indoor aquatic center with swim lanes — primary market for Sun Aired Bag systems"
-                className="w-full h-[440px] object-cover"
-                loading="eager"
-              />
-              <div className="absolute bottom-4 left-4 right-4 rounded px-4 py-3"
-                style={{ background: "rgba(11,21,48,0.88)", backdropFilter: "blur(8px)" }}>
-                <p className="text-xs font-black uppercase tracking-wider text-white/40 mb-0.5">Primary Market</p>
-                <p className="text-sm font-black text-white">Public Pools & Aquatic Centers</p>
-              </div>
-            </div>
-            <div className="absolute -bottom-2 right-0 left-16 flex flex-col gap-[3px] items-end" aria-hidden>
-              <div style={{ height: 2, background: C.gold, opacity: 0.5, width: "100%" }} />
-              <div style={{ height: 3, background: C.gold, width: "100%" }} />
-            </div>
-          </div>
-        </div>
-
-        {/* CRO: scroll invitation arrow — desktop only, no extra space on mobile */}
-        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 hidden md:flex flex-col items-center gap-1 cursor-pointer"
-          style={{ color: "rgba(255,255,255,0.3)" }}
-          onClick={() => document.getElementById("how")?.scrollIntoView({ behavior: "smooth" })}>
-          <span className="text-[10px] font-black uppercase tracking-widest">See how it works</span>
-          <ChevronDown size={20} />
-        </div>
-      </section>
-
-      {/* ── CRO: HOW IT WORKS — reduces buying friction ── */}
-      <section id="how" className="py-16 px-6 bg-white border-b" style={{ borderColor: C.border }}>
-        <div className="max-w-5xl mx-auto">
-          <p className="text-xs font-black tracking-widest uppercase text-center mb-10" style={{ color: C.gold }}>
-            How It Works
-          </p>
-          <div className="grid md:grid-cols-3 gap-0 border" style={{ borderColor: C.border }}>
-            {HOW_STEPS.map((step, i) => {
-              const Icon = step.Icon;
-              return (
-                <div key={step.n}
-                  className="flex flex-col p-8 border-b last:border-b-0 md:border-b-0 md:border-r md:last:border-r-0"
-                  style={{ borderColor: C.border }}>
-                  <div className="flex items-center gap-3 mb-4">
-                    <span className="text-3xl font-black leading-none" style={{ color: C.blue100 }}>
-                      {step.n}
-                    </span>
-                    <div className="w-9 h-9 rounded-sm flex items-center justify-center"
-                      style={{ background: C.blueL }}>
-                      <Icon size={17} style={{ color: C.navy }} />
-                    </div>
-                  </div>
-                  <h3 className="font-black text-base mb-2" style={{ color: C.navy }}>{step.title}</h3>
-                  <p className="text-sm leading-relaxed" style={{ color: C.muted }}>{step.body}</p>
-                  {/* CRO: link to next action from step 1 */}
-                  {i === 0 && (
-                    <a href="#contact"
-                      className="mt-4 inline-flex items-center gap-1 text-xs font-black uppercase tracking-wider cursor-pointer transition-opacity hover:opacity-60"
-                      style={{ color: C.navy }}>
-                      Start here <ChevronRight size={12} />
-                    </a>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </section>
 
       {/* ── PRODUCTS ── */}
       <section id="products" className="py-20 px-6 bg-white">
         <div className="max-w-7xl mx-auto">
-          <div className="grid lg:grid-cols-2 gap-8 items-end mb-14">
-            <div>
-              <StripeRule />
-              <div className="mt-5">
-                <p className="text-xs font-black tracking-widest uppercase mb-1" style={{ color: C.gold }}>Our Products</p>
-                <h2 className="text-4xl font-black tracking-tight" style={{ color: C.navy }}>
-                  Complete Checking<br />Bag Systems
-                </h2>
-              </div>
-            </div>
-            <div className="self-end">
-              <p className="text-base leading-relaxed mb-4" style={{ color: C.muted }}>
-                From individual bags to full rack systems — everything your facility needs to manage personal belongings efficiently.
-              </p>
-              {/* CRO: section-level CTA for users who are already sold */}
-              <a href="#contact"
-                className="inline-flex items-center gap-2 text-white text-sm font-black px-5 py-3 rounded cursor-pointer hover:opacity-90 transition-opacity"
-                style={{ background: C.navy }}>
-                <Send size={14} /> Request All Pricing
-              </a>
+          <div className="mb-14">
+            <StripeRule />
+            <div className="mt-5">
+              <p className="text-xs font-black tracking-widest uppercase mb-1" style={{ color: C.gold }}>Our Products</p>
+              <h2 className="text-4xl font-black tracking-tight" style={{ color: C.navy }}>
+                Complete Checking<br />Bag Systems
+              </h2>
             </div>
           </div>
 
@@ -777,7 +677,7 @@ export default function SunAiredBag() {
               const Icon = prod.Icon;
               return (
                 <div key={prod.name}
-                  className="flex flex-col border-r last:border-r-0 border-b group cursor-pointer transition-all duration-200 hover:bg-[#F4F8FF]"
+                  className="flex flex-col border-r last:border-r-0 border-b group cursor-pointer transition-all duration-200 hover:bg-[#E6F2FF]"
                   style={{ borderColor: C.border }}>
                   <div className="relative h-40 overflow-hidden">
                     <img
@@ -786,7 +686,7 @@ export default function SunAiredBag() {
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     />
                     <div className="absolute inset-0"
-                      style={{ background: `linear-gradient(to top, ${C.navyD}CC 0%, transparent 50%)` }} />
+                      style={{ background: `linear-gradient(to top, ${C.navy}CC 0%, transparent 50%)` }} />
                     <div className="absolute top-3 left-3 w-7 h-7 rounded-sm flex items-center justify-center text-xs font-black"
                       style={{ background: C.navy, color: C.white }}>
                       {String(i + 1).padStart(2, "0")}
@@ -817,17 +717,58 @@ export default function SunAiredBag() {
             })}
           </div>
           <div className="border-x border-b" style={{ borderColor: C.border, height: 0 }} />
+
+          <div className="mt-8 flex flex-col items-center gap-4 text-center">
+            <p className="text-base max-w-lg" style={{ color: C.muted }}>
+              From individual bags to full rack systems — everything your facility needs to manage personal belongings efficiently.
+            </p>
+            <a href="#contact"
+              className="inline-flex items-center gap-2 text-white text-sm font-black px-5 py-3 rounded cursor-pointer hover:opacity-90 transition-opacity"
+              style={{ background: C.navy }}>
+              <Send size={14} /> Request All Pricing
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* ── WHY SUN AIRED ── */}
+      <section id="why" className="py-20 px-6" style={{ background: C.gold }}>
+        <div className="max-w-7xl mx-auto">
+          <div className="mb-14">
+            <StripeRule color={C.white} />
+            <div className="mt-5">
+              <p className="text-xs font-black tracking-widest uppercase mb-1" style={{ color: "rgba(255,255,255,0.65)" }}>Why Sun Aired</p>
+              <h2 className="text-4xl font-black tracking-tight text-white">
+                The Standard in Checking<br />Bag Systems
+              </h2>
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-6">
+            {PILLARS.map(p => {
+              const Icon = p.Icon;
+              return (
+                <div key={p.title} className="p-8 rounded bg-white">
+                  <div className="w-12 h-12 rounded-sm flex items-center justify-center mb-5"
+                    style={{ background: C.navy }}>
+                    <Icon size={22} style={{ color: C.white }} />
+                  </div>
+                  <h3 className="font-black text-lg mb-2" style={{ color: C.navy }}>{p.title}</h3>
+                  <p className="text-sm leading-relaxed" style={{ color: C.muted }}>{p.body}</p>
+                </div>
+              );
+            })}
+          </div>
         </div>
       </section>
 
       {/* ── INDUSTRIES ── */}
-      <section id="industries" className="py-20 px-6" style={{ background: C.blueL }}>
+      <section id="industries" className="py-20 px-6" style={{ background: C.navy }}>
         <div className="max-w-7xl mx-auto">
           <div className="mb-14">
-            <StripeRule color={C.navy} />
+            <StripeRule color={C.white} />
             <div className="mt-5">
               <p className="text-xs font-black tracking-widest uppercase mb-1" style={{ color: C.gold }}>Industries Served</p>
-              <h2 className="text-4xl font-black tracking-tight" style={{ color: C.navy }}>Who We Work With</h2>
+              <h2 className="text-4xl font-black tracking-tight text-white">Who We Work With</h2>
             </div>
           </div>
 
@@ -845,7 +786,7 @@ export default function SunAiredBag() {
                       className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
                     />
                     <div className="absolute inset-0"
-                      style={{ background: `linear-gradient(to top, ${C.navyD}D0 0%, transparent 55%)` }} />
+                      style={{ background: `linear-gradient(to top, ${C.navy}D0 0%, transparent 55%)` }} />
                     <div className="absolute top-4 left-4 flex items-center gap-2 rounded px-3 py-1.5"
                       style={{ background: C.navy }}>
                       <Icon size={13} className="text-white" />
@@ -855,7 +796,6 @@ export default function SunAiredBag() {
                     </div>
                   </div>
                   <div className="border-t-2 p-6" style={{ borderColor: C.navy }}>
-                    {/* CRO: social proof stat per industry */}
                     <p className="text-[10px] font-black uppercase tracking-widest mb-2" style={{ color: C.gold }}>
                       {ind.stat}
                     </p>
@@ -874,87 +814,24 @@ export default function SunAiredBag() {
         </div>
       </section>
 
-      {/* ── WHY SUN AIRED ── */}
-      <section id="why" className="py-20 px-6" style={{ background: C.navy }}>
-        <div className="max-w-7xl mx-auto">
-          <div className="mb-14">
-            <StripeRule color={C.gold} />
-            <div className="mt-5">
-              <p className="text-xs font-black tracking-widest uppercase mb-1" style={{ color: C.gold }}>Why Sun Aired</p>
-              <h2 className="text-4xl font-black tracking-tight text-white">
-                The Standard in Checking<br />Bag Systems
-              </h2>
-            </div>
-          </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-0 border border-b-0"
-            style={{ borderColor: "rgba(255,255,255,0.1)" }}>
-            {PILLARS.map(p => {
-              const Icon = p.Icon;
-              return (
-                <div key={p.title} className="p-8 border-r last:border-r-0 border-b"
-                  style={{ borderColor: "rgba(255,255,255,0.1)" }}>
-                  <div className="w-12 h-12 rounded-sm flex items-center justify-center mb-5"
-                    style={{ background: "rgba(255,255,255,0.08)", border: "1px solid rgba(255,255,255,0.12)" }}>
-                    <Icon size={22} style={{ color: C.gold }} />
-                  </div>
-                  <h3 className="font-black text-lg mb-2 text-white">{p.title}</h3>
-                  <p className="text-sm leading-relaxed" style={{ color: "rgba(255,255,255,0.55)" }}>{p.body}</p>
-                </div>
-              );
-            })}
-          </div>
-          <div className="border-x border-b" style={{ borderColor: "rgba(255,255,255,0.1)", height: 0 }} />
-        </div>
-      </section>
-
-      {/* ── STATS STRIP ── */}
-      <div style={{ background: C.navyXD }}>
-        <div className="max-w-7xl mx-auto px-6 py-14 grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
-          {[["1947","Year Founded"],["500+","Facilities Served"],["50","States Covered"],["75+","Years of Excellence"]].map(([v, l]) => (
-            <div key={l}>
-              <div className="text-4xl font-black text-white leading-none mb-1.5">{v}</div>
-              <div className="text-xs font-bold uppercase tracking-wider" style={{ color: "rgba(255,255,255,0.4)" }}>{l}</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {/* ── TESTIMONIALS ── */}
-      <section className="py-20 px-6 bg-white">
+      <section className="py-20 px-6" style={{ background: C.blueL }}>
         <div className="max-w-7xl mx-auto">
-          <div className="mb-14">
-            <StripeRule />
-            <div className="mt-5">
-              <p className="text-xs font-black tracking-widest uppercase mb-1" style={{ color: C.gold }}>Testimonials</p>
-              <h2 className="text-4xl font-black tracking-tight" style={{ color: C.navy }}>
-                Trusted by Facility<br />Managers Nationwide
-              </h2>
-            </div>
-          </div>
-
           <div className="grid md:grid-cols-3 gap-6">
             {TESTIMONIALS.map(t => (
               <div key={t.name}
-                className="border flex flex-col p-7 transition-all duration-200 hover:shadow-md"
-                style={{ borderColor: C.border, borderTopWidth: 2, borderTopColor: C.navy }}>
-                <div className="flex items-center justify-between mb-4">
-                  <div className="flex gap-0.5">
-                    {[...Array(t.stars)].map((_, i) => (
-                      <Star key={i} size={13} fill={C.gold} style={{ color: C.gold }} />
-                    ))}
-                  </div>
-                  {/* CRO: "Verified customer" badge adds credibility */}
-                  <span className="text-[10px] font-black uppercase tracking-wider px-2 py-1 rounded"
-                    style={{ background: C.blueL, color: C.navy }}>
-                    Verified Customer
-                  </span>
+                className="bg-white rounded-lg flex flex-col p-7 transition-all duration-200 hover:shadow-md"
+                style={{ border: `1px solid ${C.border}` }}>
+                <div className="flex gap-1 mb-4">
+                  {[...Array(t.stars)].map((_, i) => (
+                    <Star key={i} size={16} fill={C.gold} style={{ color: C.gold }} />
+                  ))}
                 </div>
-                <p className="text-sm leading-relaxed flex-1 mb-6 italic" style={{ color: C.muted }}>
+                <p className="text-sm leading-relaxed flex-1 mb-6" style={{ color: C.text }}>
                   "{t.text}"
                 </p>
-                <div className="flex items-center gap-3 pt-5 border-t" style={{ borderColor: C.border }}>
-                  <div className="w-10 h-10 rounded-sm overflow-hidden shrink-0 border"
-                    style={{ borderColor: C.border }}>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full overflow-hidden shrink-0">
                     <img
                       src={`https://images.unsplash.com/photo-${t.img}?auto=format&fit=crop&w=80&h=80&q=80`}
                       alt={t.name}
@@ -964,7 +841,6 @@ export default function SunAiredBag() {
                   <div>
                     <p className="font-black text-sm" style={{ color: C.navy }}>{t.name}</p>
                     <p className="text-xs" style={{ color: C.muted }}>{t.role}</p>
-                    <p className="text-xs font-bold mt-0.5" style={{ color: C.navy }}>{t.org}</p>
                   </div>
                 </div>
               </div>
@@ -974,29 +850,37 @@ export default function SunAiredBag() {
       </section>
 
       {/* ── CTA BANNER ── */}
-      <div style={{ background: C.navy }}>
-        <div className="max-w-7xl mx-auto px-6 py-16 flex flex-col md:flex-row items-center justify-between gap-8">
-          <div>
-            <StripeRule color={C.gold} count={2} />
-            {/* CRO: specific, benefit-led headline */}
-            <h2 className="mt-4 text-3xl font-black text-white">
+      <div className="overflow-hidden">
+        <div className="flex flex-col md:grid md:grid-cols-2">
+          {/* Image — top on mobile, right on desktop */}
+          <div className="relative h-56 md:h-auto md:min-h-[280px] overflow-hidden md:order-2">
+            <img
+              src="/images/cta-banner.jpg"
+              alt="Facility manager"
+              className="w-full h-full object-cover"
+              style={{ objectPosition: "center top" }}
+            />
+          </div>
+          {/* Text + CTAs — below image on mobile, left on desktop */}
+          <div className="flex flex-col justify-center px-8 md:px-10 py-12 md:py-20 md:order-1" style={{ background: C.navy }}>
+            <h2 className="text-3xl font-black text-white mb-2 leading-snug">
               Join 500+ facilities that trust<br />Sun Aired Bag Co.
             </h2>
-            <p className="mt-2 text-base" style={{ color: "rgba(255,255,255,0.55)" }}>
+            <p className="text-sm mb-8" style={{ color: "rgba(255,255,255,0.55)" }}>
               Free quote · No commitment · Ships in 3–5 business days
             </p>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-3 shrink-0">
-            <a href="#contact"
-              className="flex items-center justify-center gap-2 text-white font-black px-8 py-4 rounded cursor-pointer hover:opacity-90 transition-opacity"
-              style={{ background: C.gold }}>
-              <Send size={16} /> Get My Free Quote
-            </a>
-            <a href={`tel:${PHONE}`}
-              className="flex items-center justify-center gap-2 font-black px-8 py-4 rounded cursor-pointer hover:bg-white/10 transition-colors"
-              style={{ color: C.white, border: `2px solid rgba(255,255,255,0.25)` }}>
-              <Phone size={16} /> {PHONE}
-            </a>
+            <div className="flex flex-col sm:flex-row gap-3">
+              <a href="#contact"
+                className="flex items-center justify-center gap-2 text-white font-black px-7 py-3.5 rounded cursor-pointer hover:opacity-90 transition-opacity"
+                style={{ background: C.gold }}>
+                <Send size={15} /> Get My Free Quote
+              </a>
+              <a href={`tel:${PHONE}`}
+                className="flex items-center justify-center gap-2 font-black px-7 py-3.5 rounded cursor-pointer hover:bg-white/10 transition-colors"
+                style={{ color: C.white, border: `2px solid rgba(255,255,255,0.25)` }}>
+                <Phone size={15} /> {PHONE}
+              </a>
+            </div>
           </div>
         </div>
       </div>
@@ -1014,22 +898,6 @@ export default function SunAiredBag() {
           <div className="border-t" style={{ borderColor: C.border }}>
             {FAQS.map(f => <FaqItem key={f.q} {...f} />)}
           </div>
-          {/* CRO: CTA after FAQ — users are primed after objections are resolved */}
-          <div className="mt-8 flex flex-col sm:flex-row items-center gap-4">
-            <p className="text-sm" style={{ color: C.muted }}>Still have questions?</p>
-            <div className="flex gap-3">
-              <a href="#contact"
-                className="inline-flex items-center gap-2 text-white text-sm font-black px-5 py-3 rounded cursor-pointer hover:opacity-90 transition-opacity"
-                style={{ background: C.navy }}>
-                <Send size={14} /> Get a Free Quote
-              </a>
-              <a href={`tel:${PHONE}`}
-                className="inline-flex items-center gap-2 text-sm font-black px-5 py-3 rounded border cursor-pointer hover:opacity-80 transition-opacity"
-                style={{ borderColor: C.navy, color: C.navy }}>
-                <Phone size={14} /> Call Us
-              </a>
-            </div>
-          </div>
         </div>
       </section>
 
@@ -1037,12 +905,8 @@ export default function SunAiredBag() {
       <QuoteForm />
 
       {/* ── FOOTER ── */}
-      <footer className="pb-20 md:pb-0" style={{ background: C.navyXD }}>
-        <div className="flex flex-col gap-[3px]" aria-hidden>
-          <div style={{ height: 1, background: C.gold, opacity: 0.2 }} />
-          <div style={{ height: 2, background: C.gold, opacity: 0.45 }} />
-          <div style={{ height: 4, background: C.gold }} />
-        </div>
+      <footer className="pb-20 md:pb-0" style={{ background: C.navy }}>
+        <div style={{ height: 4, background: C.gold }} />
         <div className="max-w-7xl mx-auto px-6 py-14 grid md:grid-cols-3 gap-12">
           <div>
             <LogoPlaceholder dark />
@@ -1109,7 +973,7 @@ export default function SunAiredBag() {
         style={{ background: "rgba(255,255,255,0.98)", borderColor: C.border, backdropFilter: "blur(8px)" }}>
         {/* CRO: trust micro-copy above bar */}
         <div className="text-center py-1.5 text-[10px] font-bold uppercase tracking-wider border-b"
-          style={{ color: C.gold, borderColor: C.border, background: C.goldL }}>
+          style={{ color: C.gold, borderColor: C.border, background: C.blueL }}>
           Free quote · No minimums · 1-day response
         </div>
         <div className="px-4 py-3 flex gap-3">
