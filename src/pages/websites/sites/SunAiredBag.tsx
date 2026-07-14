@@ -851,36 +851,37 @@ export default function SunAiredBag() {
 
       {/* ── CTA BANNER ── */}
       <div className="overflow-hidden">
-        <div className="flex flex-col md:grid md:grid-cols-2">
-          {/* Image — top on mobile, right on desktop */}
-          <div className="relative h-56 md:h-auto md:min-h-[280px] overflow-hidden md:order-2">
+        <div className="flex flex-col md:flex-row">
+          {/* Text + CTAs */}
+          <div className="flex-1 flex flex-col justify-center md:h-[360px]" style={{ background: C.navy }}>
+            <div className="px-6 py-5 md:py-0 md:pr-12 md:pl-6 w-full max-w-2xl md:ml-auto">
+              <h2 className="text-3xl font-black text-white mb-2 leading-snug">
+                Join 500+ facilities that trust<br />Sun Aired Bag Co.
+              </h2>
+              <p className="text-sm mb-8" style={{ color: "rgba(255,255,255,0.55)" }}>
+                Free quote · No commitment · Ships in 3–5 business days
+              </p>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <a href="#contact"
+                  className="flex items-center justify-center gap-2 text-white font-black px-7 py-3.5 rounded cursor-pointer hover:opacity-90 transition-opacity"
+                  style={{ background: C.gold }}>
+                  <Send size={15} /> Get My Free Quote
+                </a>
+                <a href={`tel:${PHONE}`}
+                  className="flex items-center justify-center gap-2 font-black px-7 py-3.5 rounded cursor-pointer hover:bg-white/10 transition-colors"
+                  style={{ color: C.white, border: `2px solid rgba(255,255,255,0.25)` }}>
+                  <Phone size={15} /> {PHONE}
+                </a>
+              </div>
+            </div>
+          </div>
+          {/* Image — 612×408 (3:2), container matches exactly so object-contain fills with no gaps */}
+          <div className="hidden md:block md:w-[540px] md:h-[360px] md:shrink-0 overflow-hidden">
             <img
               src="/images/cta-banner.jpg"
               alt="Facility manager"
-              className="w-full h-full object-cover"
-              style={{ objectPosition: "center top" }}
+              className="w-full h-full object-contain object-right"
             />
-          </div>
-          {/* Text + CTAs — below image on mobile, left on desktop */}
-          <div className="flex flex-col justify-center px-8 md:px-10 py-12 md:py-20 md:order-1" style={{ background: C.navy }}>
-            <h2 className="text-3xl font-black text-white mb-2 leading-snug">
-              Join 500+ facilities that trust<br />Sun Aired Bag Co.
-            </h2>
-            <p className="text-sm mb-8" style={{ color: "rgba(255,255,255,0.55)" }}>
-              Free quote · No commitment · Ships in 3–5 business days
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <a href="#contact"
-                className="flex items-center justify-center gap-2 text-white font-black px-7 py-3.5 rounded cursor-pointer hover:opacity-90 transition-opacity"
-                style={{ background: C.gold }}>
-                <Send size={15} /> Get My Free Quote
-              </a>
-              <a href={`tel:${PHONE}`}
-                className="flex items-center justify-center gap-2 font-black px-7 py-3.5 rounded cursor-pointer hover:bg-white/10 transition-colors"
-                style={{ color: C.white, border: `2px solid rgba(255,255,255,0.25)` }}>
-                <Phone size={15} /> {PHONE}
-              </a>
-            </div>
           </div>
         </div>
       </div>
