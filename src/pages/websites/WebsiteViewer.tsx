@@ -8,6 +8,7 @@ const SITES: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   "bella-shine-cleaning":   lazy(() => import("./sites/BellaShine")),
   "luna-beauty-studio":     lazy(() => import("./sites/LunaBeauty")),
   "sun-aired-bag":          lazy(() => import("./sites/SunAiredBag")),
+  "sun-aired-bag-ecom":     lazy(() => import("./sites/SunAiredBagEcom")),
 };
 
 function LoadingScreen() {
