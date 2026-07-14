@@ -854,7 +854,7 @@ export default function SunAiredBag() {
         <div className="flex flex-col md:flex-row">
           {/* Text + CTAs */}
           <div className="flex-1 flex flex-col justify-center md:h-[360px]" style={{ background: C.navy }}>
-            <div className="px-6 py-5 md:py-0 md:pr-12 md:pl-6 w-full max-w-2xl md:ml-auto">
+            <div className="px-6 py-5 md:py-0 md:px-12 w-full max-w-xl mx-auto">
               <h2 className="text-3xl font-black text-white mb-2 leading-snug">
                 Join 500+ facilities that trust<br />Sun Aired Bag Co.
               </h2>
@@ -875,12 +875,12 @@ export default function SunAiredBag() {
               </div>
             </div>
           </div>
-          {/* Image — 612×408 (3:2), container matches exactly so object-contain fills with no gaps */}
-          <div className="hidden md:block md:w-[540px] md:h-[360px] md:shrink-0 overflow-hidden">
+          {/* Image — top on mobile, right on desktop */}
+          <div className="order-first md:order-last w-full md:w-[540px] md:h-[360px] md:shrink-0 overflow-hidden">
             <img
               src="/images/cta-banner.jpg"
               alt="Facility manager"
-              className="w-full h-full object-contain object-right"
+              className="w-full h-auto md:w-full md:h-full md:object-contain md:object-right"
             />
           </div>
         </div>
