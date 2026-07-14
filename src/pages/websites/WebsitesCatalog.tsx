@@ -80,6 +80,17 @@ const PROJECTS: Project[] = [
     accentColor: "#0EA5E9",
     initials: "SAB",
   },
+  {
+    slug: "gonzales",
+    name: "Gonzalez Herriquez Landscaping",
+    industry: "Landscaping & Tree Services",
+    city: "Punta Gorda, FL",
+    description: "Professional landscaping and tree service company serving Punta Gorda & Port Charlotte, FL. Emergency response, work guarantee, and free on-site estimates.",
+    tags: ["Local Business", "Tree Service", "Florida"],
+    primaryColor: "#162018",
+    accentColor: "#B86A30",
+    initials: "GHL",
+  },
 ];
 
 function ProjectCard({ project }: { project: Project }) {
