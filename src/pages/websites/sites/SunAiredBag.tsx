@@ -467,6 +467,7 @@ export default function SunAiredBag() {
   const [scrolled, setScrolled] = useState(false);
   // CRO: active section tracking for nav highlight
   const [activeSection, setActiveSection] = useState("");
+  const [showStickyBar, setShowStickyBar] = useState(false);
   const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
   useEffect(() => {
@@ -480,6 +481,11 @@ export default function SunAiredBag() {
         if (el && window.scrollY >= el.offsetTop - 120) current = id;
       }
       setActiveSection(current);
+
+      // Sticky bar: show from #products onward
+      const productsEl = document.getElementById("products");
+      const pastProducts = productsEl ? window.scrollY >= productsEl.offsetTop - 80 : false;
+      setShowStickyBar(pastProducts);
     };
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
@@ -722,11 +728,13 @@ export default function SunAiredBag() {
             <p className="text-base max-w-lg" style={{ color: C.muted }}>
               From individual bags to full rack systems — everything your facility needs to manage personal belongings efficiently.
             </p>
-            <a href="#contact"
-              className="inline-flex items-center gap-2 text-white text-sm font-black px-5 py-3 rounded cursor-pointer hover:opacity-90 transition-opacity"
-              style={{ background: C.navy }}>
-              <Send size={14} /> Request All Pricing
-            </a>
+            <div className="flex flex-col sm:flex-row sm:justify-center gap-3 w-full">
+              <a href="#contact"
+                className="flex items-center justify-center gap-2 text-white font-black px-8 py-4 rounded cursor-pointer hover:opacity-90 transition-opacity"
+                style={{ background: C.navy }}>
+                <Send size={16} /> Request All Pricing
+              </a>
+            </div>
           </div>
         </div>
       </section>
@@ -906,7 +914,7 @@ export default function SunAiredBag() {
       <QuoteForm />
 
       {/* ── FOOTER ── */}
-      <footer className="pb-20 md:pb-0" style={{ background: C.navy }}>
+      <footer className="pb-24 md:pb-8" style={{ background: C.navy }}>
         <div style={{ height: 4, background: C.gold }} />
         <div className="max-w-7xl mx-auto px-6 py-14 grid md:grid-cols-3 gap-12">
           <div>
@@ -970,7 +978,7 @@ export default function SunAiredBag() {
       </footer>
 
       {/* ── CRO: STICKY MOBILE BAR (enhanced for mobile conversion) ── */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden border-t"
+      <div className={`fixed bottom-0 left-0 right-0 z-50 md:hidden border-t transition-transform duration-300 ${showStickyBar ? "translate-y-0" : "translate-y-full"}`}
         style={{ background: "rgba(255,255,255,0.98)", borderColor: C.border, backdropFilter: "blur(8px)" }}>
         {/* CRO: trust micro-copy above bar */}
         <div className="text-center py-1.5 text-[10px] font-bold uppercase tracking-wider border-b"
