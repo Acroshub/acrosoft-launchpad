@@ -912,7 +912,7 @@ function ConfirmationView({ onShop }: { onShop: () => void }) {
 
 // ── FOOTER ────────────────────────────────────────────────────────────────────
 
-function EcomFooter({ onHome, onShop }: { onHome: () => void; onShop: () => void }) {
+function EcomFooter() {
   return (
     <footer style={{ background: C.navy }} className="mt-auto">
       <div className="max-w-7xl mx-auto px-6 py-12 grid md:grid-cols-3 gap-10">
@@ -921,18 +921,6 @@ function EcomFooter({ onHome, onShop }: { onHome: () => void; onShop: () => void
           <p className="mt-4 text-sm" style={{ color: "rgba(255,255,255,0.5)" }}>
             Professional bag systems for demanding facilities since 1947.
           </p>
-        </div>
-        <div>
-          <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: "rgba(255,255,255,0.4)" }}>Quick Links</p>
-          <div className="flex flex-col gap-2">
-            {[["Home", onHome], ["Shop", onShop]].map(([label, fn]) => (
-              <button key={label as string} onClick={fn as () => void}
-                className="text-sm text-left cursor-pointer hover:opacity-60 transition-opacity"
-                style={{ color: "rgba(255,255,255,0.7)" }}>
-                {label as string}
-              </button>
-            ))}
-          </div>
         </div>
         <div>
           <p className="text-xs font-black uppercase tracking-widest mb-4" style={{ color: "rgba(255,255,255,0.4)" }}>Contact</p>
@@ -952,7 +940,7 @@ function EcomFooter({ onHome, onShop }: { onHome: () => void; onShop: () => void
 
 // ── MAIN SPA ──────────────────────────────────────────────────────────────────
 
-type View = "home" | "catalog" | "product" | "checkout" | "confirmation";
+type View = "home" | "product" | "checkout" | "confirmation";
 
 export default function SunAiredBagEcom() {
   const [view, setView] = useState<View>("home");
@@ -963,7 +951,6 @@ export default function SunAiredBagEcom() {
   const cartCount = cart.reduce((s, i) => s + i.qty, 0);
 
   const goHome = () => setView("home");
-  const goCatalog = () => setView("catalog");
 
   const goProduct = (p: Product) => {
     setSelectedProduct(p);
@@ -1023,21 +1010,20 @@ export default function SunAiredBagEcom() {
 
       <main className="flex-1">
         {view === "home" && <HomeView onProduct={goProduct} />}
-        {view === "catalog" && <CatalogView onProduct={goProduct} />}
         {view === "product" && selectedProduct && (
-          <ProductView product={selectedProduct} onBack={goCatalog} onAddToCart={addToCart} />
+          <ProductView product={selectedProduct} onBack={goHome} onAddToCart={addToCart} />
         )}
         {view === "checkout" && (
           <CheckoutView
             items={cart}
             onConfirm={() => { setCart([]); setView("confirmation"); window.scrollTo(0, 0); }}
-            onBack={() => { setCartOpen(true); setView("catalog"); }}
+            onBack={() => { setCartOpen(true); setView("home"); }}
           />
         )}
         {view === "confirmation" && <ConfirmationView onShop={goHome} />}
       </main>
 
-      <EcomFooter onHome={goHome} onShop={goCatalog} />
+      <EcomFooter />
     </div>
   );
 }
