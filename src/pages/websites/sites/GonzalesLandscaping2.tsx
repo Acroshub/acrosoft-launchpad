@@ -357,7 +357,7 @@ export default function GonzalesLandscaping2() {
       `}</style>
 
       {/* ── NAVBAR ── */}
-      <nav className="md:fixed top-0 left-0 right-0 z-50 w-full relative">
+      <nav className="relative w-full z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-center md:justify-between gap-4 bg-[#162018] border-b border-white/[0.08]">
           <div className="flex items-center shrink-0">
             <div className="border-2 border-dashed border-white/30 rounded-lg px-3 py-2">
@@ -378,7 +378,7 @@ export default function GonzalesLandscaping2() {
       </nav>
 
       {/* ── HERO ── */}
-      <section className="relative min-h-screen md:pt-16 overflow-hidden"
+      <section className="relative min-h-screen overflow-hidden"
         style={{ backgroundImage: "url('/images/gh-hero.jpg')", backgroundSize: "cover", backgroundPosition: "center top" }}>
         <div className="absolute inset-0 bg-[#071209]/[0.88]" />
         <div className="absolute inset-0 bg-gradient-to-br from-[#1A4020]/45 via-[#0D2415]/15 to-transparent" />

@@ -179,7 +179,7 @@ export default function GonzalesLandscaping() {
       `}</style>
 
       {/* ── NAVBAR ── */}
-      <nav className="md:fixed top-0 left-0 right-0 z-50 w-full relative">
+      <nav className="relative w-full z-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-center md:justify-between gap-4 bg-[#162018] border-b border-white/[0.08]">
           <div className="flex items-center shrink-0">
             <div className="border-2 border-dashed border-white/30 rounded-lg px-3 py-2">
@@ -200,7 +200,7 @@ export default function GonzalesLandscaping() {
       </nav>
 
       {/* ── HERO ── */}
-      <section className="relative min-h-screen bg-[#162018] md:pt-16 overflow-hidden">
+      <section className="relative min-h-screen bg-[#162018] overflow-hidden">
         <div className="absolute inset-0 opacity-[0.04]" style={{ backgroundImage: "radial-gradient(circle at 1px 1px, #7DB87F 1px, transparent 0)", backgroundSize: "28px 28px" }} />
         <svg className="absolute inset-0 w-full h-full opacity-[0.04] pointer-events-none" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">
           <line x1="0" y1="100%" x2="100%" y2="0" stroke="#7DB87F" strokeWidth="1.5" />
