@@ -91,6 +91,17 @@ const PROJECTS: Project[] = [
     accentColor: "#B86A30",
     initials: "GHL",
   },
+  {
+    slug: "ledesma",
+    name: "Ledesma Cleaning Services",
+    industry: "Commercial & Residential Cleaning",
+    city: "Dalton, GA",
+    description: "Professional cleaning company serving Dalton, GA. Residential and commercial services, eco-friendly products, fully insured, and satisfaction guaranteed.",
+    tags: ["Local Business", "Cleaning", "Georgia"],
+    primaryColor: "#0A2540",
+    accentColor: "#0BC5EA",
+    initials: "LCS",
+  },
 ];
 
 function ProjectCard({ project }: { project: Project }) {
