@@ -357,8 +357,8 @@ export default function GonzalesLandscaping2() {
       `}</style>
 
       {/* ── NAVBAR ── */}
-      <nav className="relative w-full z-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-center md:justify-between gap-4 bg-[#162018] border-b border-white/[0.08]">
+      <nav className="relative w-full z-50 bg-[#162018] border-b border-white/[0.08]">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 h-16 flex items-center justify-center md:justify-between gap-4">
           <div className="flex items-center shrink-0">
             <div className="border-2 border-dashed border-white/30 rounded-lg px-3 py-2">
               <span className="text-white/45 text-[10px] font-semibold tracking-wider gh-heading">Tu logo va aquí</span>
