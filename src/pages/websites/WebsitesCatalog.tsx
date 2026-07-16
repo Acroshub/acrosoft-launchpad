@@ -102,6 +102,17 @@ const PROJECTS: Project[] = [
     accentColor: "#0BC5EA",
     initials: "LCS",
   },
+  {
+    slug: "ledesma-2",
+    name: "Ledesma Cleaning — Booking",
+    industry: "Commercial & Residential Cleaning",
+    city: "Dalton, GA",
+    description: "Variante con calendario de reservas integrado en el hero. Mismo diseño Ledesma con paleta sky/navy y wizard de booking multistep.",
+    tags: ["Booking Calendar", "Cleaning", "Georgia"],
+    primaryColor: "#0A2540",
+    accentColor: "#0EA5E9",
+    initials: "LC2",
+  },
 ];
 
 function ProjectCard({ project }: { project: Project }) {
