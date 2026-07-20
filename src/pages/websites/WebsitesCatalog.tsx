@@ -113,6 +113,28 @@ const PROJECTS: Project[] = [
     accentColor: "#0EA5E9",
     initials: "LC2",
   },
+  {
+    slug: "martinez-cleaning",
+    name: "Martinez Cleaning Services",
+    industry: "Residential Cleaning",
+    city: "Dallas, TX",
+    description: "Residential cleaning by home size and pets. Eco-friendly, fully insured, satisfaction guaranteed. Serving all Dallas neighborhoods.",
+    tags: ["Local Business", "Cleaning", "Texas"],
+    primaryColor: "#0A2540",
+    accentColor: "#0EA5E9",
+    initials: "MCS",
+  },
+  {
+    slug: "martinez-cleaning-booking",
+    name: "Martinez Cleaning — Booking",
+    industry: "Residential Cleaning",
+    city: "Dallas, TX",
+    description: "Variante con calendario de reservas integrado en el hero. Mismo diseño Martinez con paleta sky/navy y wizard de booking multistep.",
+    tags: ["Booking Calendar", "Cleaning", "Texas"],
+    primaryColor: "#0A2540",
+    accentColor: "#0EA5E9",
+    initials: "MC2",
+  },
 ];
 
 function ProjectCard({ project }: { project: Project }) {

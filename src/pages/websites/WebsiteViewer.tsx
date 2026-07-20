@@ -13,6 +13,8 @@ const SITES: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   "gonzales-2":             lazy(() => import("./sites/GonzalesLandscaping2")),
   "ledesma":                lazy(() => import("./sites/LedesmaCleaning")),
   "ledesma-2":              lazy(() => import("./sites/LedesmaCleaning2")),
+  "martinez-cleaning":      lazy(() => import("./sites/MartinezCleaning")),
+  "martinez-cleaning-booking": lazy(() => import("./sites/MartinezCleaning2")),
 };
 
 function LoadingScreen() {
