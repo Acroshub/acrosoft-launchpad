@@ -21,6 +21,7 @@ import CourseAccess from "./pages/CourseAccess.tsx";
 import CoursePlayer from "./pages/CoursePlayer.tsx";
 import WebsitesCatalog from "./pages/websites/WebsitesCatalog.tsx";
 import WebsiteViewer from "./pages/websites/WebsiteViewer.tsx";
+import ClaseGratisTreeService from "./pages/ClaseGratisTreeService.tsx";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -44,6 +45,7 @@ const App = () => (
           <Route path="/terms"   element={<TerminosPoliticas />} />
           <Route path="/oauth/google-calendar" element={<GoogleCalendarCallback />} />
           <Route path="/vip" element={<VipLanding />} />
+          <Route path="/clase-gratis-tree-service" element={<ClaseGratisTreeService />} />
 
           {/* Client invitation setup — public (session comes from invite link) */}
           <Route path="/crm-setup" element={<CrmSetup />} />
