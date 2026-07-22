@@ -105,18 +105,25 @@ const WA_SVG = (
 );
 
 const COUNTRIES = [
-  { code: "1",   flag: "🇺🇸", label: "+1"   },
-  { code: "52",  flag: "🇲🇽", label: "+52"  },
-  { code: "502", flag: "🇬🇹", label: "+502" },
-  { code: "503", flag: "🇸🇻", label: "+503" },
-  { code: "504", flag: "🇭🇳", label: "+504" },
-  { code: "505", flag: "🇳🇮", label: "+505" },
-  { code: "506", flag: "🇨🇷", label: "+506" },
-  { code: "57",  flag: "🇨🇴", label: "+57"  },
-  { code: "58",  flag: "🇻🇪", label: "+58"  },
-  { code: "51",  flag: "🇵🇪", label: "+51"  },
-  { code: "56",  flag: "🇨🇱", label: "+56"  },
-  { code: "55",  flag: "🇧🇷", label: "+55"  },
+  { code: "1",   label: "🇺🇸 +1"   },  // USA / PR / DO (comparten +1)
+  { code: "52",  label: "🇲🇽 +52"  },
+  { code: "502", label: "🇬🇹 +502" },
+  { code: "503", label: "🇸🇻 +503" },
+  { code: "504", label: "🇭🇳 +504" },
+  { code: "505", label: "🇳🇮 +505" },
+  { code: "506", label: "🇨🇷 +506" },
+  { code: "507", label: "🇵🇦 +507" },
+  { code: "53",  label: "🇨🇺 +53"  },
+  { code: "57",  label: "🇨🇴 +57"  },
+  { code: "58",  label: "🇻🇪 +58"  },
+  { code: "593", label: "🇪🇨 +593" },
+  { code: "51",  label: "🇵🇪 +51"  },
+  { code: "591", label: "🇧🇴 +591" },
+  { code: "56",  label: "🇨🇱 +56"  },
+  { code: "54",  label: "🇦🇷 +54"  },
+  { code: "595", label: "🇵🇾 +595" },
+  { code: "598", label: "🇺🇾 +598" },
+  { code: "55",  label: "🇧🇷 +55"  },
 ];
 
 // ── REG FORM ─────────────────────────────────────────────────────────────────
@@ -158,8 +165,8 @@ function RegForm({ onSuccess }: { onSuccess: () => void }) {
       <div className="flex gap-2">
         <select value={countryCode} onChange={e => setCountryCode(e.target.value)}
           className={`${base} px-2 py-3.5 shrink-0`} style={{ width: "96px" }}>
-          {COUNTRIES.map(c => (
-            <option key={c.code} value={c.code}>{c.flag} {c.label}</option>
+          {COUNTRIES.map((c, i) => (
+            <option key={i} value={c.code}>{c.label}</option>
           ))}
         </select>
         <input type="tel" placeholder="Número de WhatsApp" value={phone}
@@ -215,18 +222,19 @@ function SuccessCard() {
 }
 
 // ── FORM CARD ─────────────────────────────────────────────────────────────────
-function FormCard({ done, onSuccess, anchorId }: { done: boolean; onSuccess: () => void; anchorId?: string }) {
-  const timer   = useCountdown();
-  const viewers = useFakeViewers(63);
-  const pct     = Math.round((TAKEN_SPOTS / TOTAL_SPOTS) * 100);
+function FormCard({ done, onSuccess, anchorId, viewers }: { done: boolean; onSuccess: () => void; anchorId?: string; viewers: number }) {
+  const timer = useCountdown();
+  const pct   = Math.round((TAKEN_SPOTS / TOTAL_SPOTS) * 100);
+  const [barFilled, setBarFilled] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setBarFilled(true), 250); return () => clearTimeout(t); }, []);
 
   return (
     <div id={anchorId} className="bg-white border border-[#E5DDD5] rounded-2xl overflow-hidden shadow-xl shadow-[#1B3A2D]/10">
       {/* Header */}
-      <div className="bg-[#1B3A2D] px-6 py-4">
+      <div className="bg-[#1B3A2D] px-6 py-4 text-center">
         <p className="text-white/50 text-[10px] font-bold tracking-[2px] uppercase mb-0.5">Clase gratis · Sábado 2 de Agosto · 6 PM EST</p>
         <p className="text-white font-black text-xl leading-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
-          Sí, quiero conseguir más trabajos cada mes
+          Regístrate Aquí
         </p>
       </div>
 
@@ -238,12 +246,9 @@ function FormCard({ done, onSuccess, anchorId }: { done: boolean; onSuccess: () 
             <div className="w-9 h-9 rounded-lg bg-[#F97316]/10 border border-[#F97316]/20 flex items-center justify-center shrink-0">
               <Calendar size={16} className="text-[#F97316]"/>
             </div>
-            <div>
-              <p className="text-[#1B3A2D] text-sm leading-none">
-                <strong className="font-black">Sábado 2 de Agosto, 2026</strong>
-                {" "}·{" "}
-                <strong className="text-[#F97316] font-black">6:00 PM EST</strong>
-              </p>
+            <div className="text-left">
+              <p className="text-[#1B3A2D] text-sm font-black leading-snug">Sábado 2 de Agosto, 2026</p>
+              <p className="text-[#F97316] text-sm font-black leading-snug">6:00 PM EST</p>
               <p className="text-[#9CA3AF] text-xs mt-1">En vivo · Online · Gratis</p>
             </div>
           </div>
@@ -278,7 +283,7 @@ function FormCard({ done, onSuccess, anchorId }: { done: boolean; onSuccess: () 
             <span className="text-[#F97316] text-xs font-black">{pct}% lleno · ¡Se está llenando!</span>
           </div>
           <div className="h-2.5 bg-[#E5E0D8] rounded-full overflow-hidden">
-            <div className="h-full bg-[#F97316] rounded-full" style={{ width: `${pct}%` }}/>
+            <div className="h-full rounded-full occ-bar" style={{ width: barFilled ? `${pct}%` : "0%" }}/>
           </div>
           <p className="text-[#9CA3AF] text-[10px] mt-1.5">Ya el {pct}% de los cupos está reservado</p>
         </div>
@@ -296,6 +301,7 @@ export default function ClaseGratisTreeService() {
   const [done, setDone] = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const formRef = useRef<HTMLDivElement>(null);
+  const viewers = useFakeViewers(63);
   const PP = { fontFamily: "'Poppins', sans-serif" };
 
   const handleSuccess = () => { setDone(true); setShowOverlay(true); };
@@ -310,6 +316,17 @@ export default function ClaseGratisTreeService() {
         }
         .live-ring-1 { animation: live-ring 1.6s ease-in-out infinite; }
         .live-ring-2 { animation: live-ring 1.6s ease-in-out 0.4s infinite; }
+        @keyframes bar-stripes {
+          0%   { background-position: 0 0; }
+          100% { background-position: 17px 0; }
+        }
+        .occ-bar {
+          background-color: #F97316;
+          background-image: repeating-linear-gradient(45deg, transparent 0px, transparent 6px, rgba(255,255,255,0.2) 6px, rgba(255,255,255,0.2) 12px);
+          background-size: 17px 17px;
+          transition: width 1.4s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+          animation: bar-stripes 0.7s linear infinite;
+        }
       `}</style>
 
       {/* ── BANNER ── */}
@@ -353,7 +370,7 @@ export default function ClaseGratisTreeService() {
             {/* LEFT */}
             <div>
               <h1 className="leading-[1.08] mb-3 text-[#1B3A2D]"
-                style={{ ...PP, fontSize: "clamp(2.2rem, 5.2vw, 3.8rem)", fontWeight: 900 }}>
+                style={{ ...PP, fontSize: "clamp(2.8rem, 5.2vw, 3.8rem)", fontWeight: 900 }}>
                 Consigue{" "}
                 <span className="text-[#F97316]">+20 trabajos nuevos</span>{" "}
                 de Tree Service cada mes
@@ -391,7 +408,7 @@ export default function ClaseGratisTreeService() {
 
             {/* RIGHT: form */}
             <div ref={formRef} className="lg:sticky lg:top-5">
-              <FormCard done={done} onSuccess={handleSuccess} anchorId="registro"/>
+              <FormCard done={done} onSuccess={handleSuccess} anchorId="registro" viewers={viewers}/>
             </div>
           </div>
         </div>
@@ -750,7 +767,7 @@ export default function ClaseGratisTreeService() {
             Cada semana que pasa sin clientes nuevos es dinero que no entra. Esta clase es gratis y solo ocurre una vez.
           </p>
 
-          <FormCard done={done} onSuccess={handleSuccess}/>
+          <FormCard done={done} onSuccess={handleSuccess} viewers={viewers}/>
 
           <div className="flex flex-wrap justify-center gap-5 mt-6">
             {["100% Gratis", "Sin tarjeta de crédito", "Solo para Tree Services", "En Español"].map(b => (
@@ -766,8 +783,8 @@ export default function ClaseGratisTreeService() {
       {showOverlay && (
         <div className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center px-5" style={{ fontFamily: "'Inter', sans-serif" }}>
           <div className="text-center max-w-sm w-full">
-            <div className="w-20 h-20 rounded-full bg-[#25D366]/15 border-2 border-[#25D366]/30 flex items-center justify-center mx-auto mb-6">
-              <Check size={36} className="text-[#25D366]"/>
+            <div className="w-20 h-20 rounded-full bg-[#25D366] flex items-center justify-center mx-auto mb-6">
+              <Check size={36} className="text-white"/>
             </div>
             <h3 className="text-white font-black text-3xl mb-2" style={PP}>¡Cupo Confirmado!</h3>
             <p className="text-white/50 text-sm leading-relaxed mb-2">
