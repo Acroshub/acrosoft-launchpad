@@ -370,7 +370,7 @@ export default function ClaseGratisTreeService() {
             {/* LEFT */}
             <div>
               <h1 className="leading-[1.08] mb-3 text-[#1B3A2D]"
-                style={{ ...PP, fontSize: "clamp(2.8rem, 5.2vw, 3.8rem)", fontWeight: 900 }}>
+                style={{ ...PP, fontSize: "clamp(2.4rem, 5.2vw, 3.8rem)", fontWeight: 900 }}>
                 Consigue{" "}
                 <span className="text-[#F97316]">+20 trabajos nuevos</span>{" "}
                 de Tree Service cada mes
