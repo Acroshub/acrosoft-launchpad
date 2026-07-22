@@ -224,9 +224,9 @@ function FormCard({ done, onSuccess, anchorId }: { done: boolean; onSuccess: () 
     <div id={anchorId} className="bg-white border border-[#E5DDD5] rounded-2xl overflow-hidden shadow-xl shadow-[#1B3A2D]/10">
       {/* Header */}
       <div className="bg-[#1B3A2D] px-6 py-4">
-        <p className="text-white/50 text-[10px] font-bold tracking-[2px] uppercase mb-0.5">Evento 100% Gratuito</p>
+        <p className="text-white/50 text-[10px] font-bold tracking-[2px] uppercase mb-0.5">Clase gratis · Sábado 2 de Agosto · 6 PM EST</p>
         <p className="text-white font-black text-xl leading-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
-          Reserva tu cupo ahora
+          Sí, quiero conseguir más trabajos cada mes
         </p>
       </div>
 
@@ -352,13 +352,16 @@ export default function ClaseGratisTreeService() {
 
             {/* LEFT */}
             <div>
-              <h1 className="leading-[1.06] mb-6 text-[#1B3A2D]"
+              <h1 className="leading-[1.08] mb-3 text-[#1B3A2D]"
                 style={{ ...PP, fontSize: "clamp(2.2rem, 5.2vw, 3.8rem)", fontWeight: 900 }}>
-                Llena tu agenda con{" "}
-                <span className="text-[#F97316]">10 Clientes Nuevos</span>{" "}
-                en Menos de{" "}
-                <span className="text-[#F97316]">30 Días</span>
+                Consigue{" "}
+                <span className="text-[#F97316]">+20 trabajos nuevos</span>{" "}
+                de Tree Service cada mes
               </h1>
+              <p className="text-[#F97316] font-bold mb-6 leading-snug"
+                style={{ ...PP, fontSize: "clamp(1.1rem, 2.2vw, 1.4rem)" }}>
+                Sin contratar agencias de marketing costosas
+              </p>
 
               {/* 3 Sin... */}
               <div className="space-y-3 mb-8">
@@ -556,93 +559,35 @@ export default function ClaseGratisTreeService() {
         </div>
       </section>
 
-      {/* ══════ TESTIMONIALS — DARK GREEN ════════════════════════════════════ */}
+      {/* ══════ INSTRUCTOR — DARK GREEN ══════════════════════════════════════ */}
       <section className="bg-[#1B3A2D] py-20 px-5 sm:px-8">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-12">
-            <span className="text-[#F97316] text-xs font-bold tracking-[2px] uppercase block mb-3">Casos de éxito</span>
-            <h2 style={{ ...PP, fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 900 }} className="text-white leading-[1.1]">
-              Lo que dicen los que tomaron la clase
-            </h2>
-          </div>
-          <div className="grid sm:grid-cols-3 gap-5">
-            {[
-              {
-                ini: "JH", bg: "#2D6A4F",
-                name: "Juan Hernández",
-                biz:  "JH Tree Services · Houston, TX",
-                result: "+12 clientes nuevos en el primer mes",
-                quote: "Antes solo recibía 2–3 llamadas por semana. Después de aplicar lo que aprendí en la clase me llegaron 12 trabajos nuevos en el primer mes. Uno solo de esos pagó más de lo que gasté en publicidad en todo el mes.",
-              },
-              {
-                ini: "CR", bg: "#1F5C41",
-                name: "Carlos Reyes",
-                biz:  "Reyes Tree & Landscaping · Orlando, FL",
-                result: "De $7k/mes a $18k/mes en 45 días",
-                quote: "No sabía nada de Facebook Ads y le tenía miedo a gastar dinero. La clase fue paso a paso. En 45 días mi ingreso mensual subió de $7,000 a más de $18,000. Tuve que contratar helpers más para cubrir el trabajo.",
-              },
-              {
-                ini: "RM", bg: "#155534",
-                name: "Roberto Martínez",
-                biz:  "Martinez Tree Experts · Atlanta, GA",
-                result: "Agenda llena para los próximos 3 meses",
-                quote: "Nunca pensé que lo que enseñaron en esa clase gratis iba a cambiar tanto mi negocio. Hoy tengo trabajo programado para los próximos 3 meses y seguimos creciendo.",
-              },
-            ].map(t => (
-              <div key={t.name} className="bg-white/8 border border-white/10 rounded-2xl p-5 flex flex-col hover:bg-white/12 transition-colors">
-                <Stars light/>
-                <p className="text-white/65 text-sm leading-relaxed mt-3 mb-4 flex-1">"{t.quote}"</p>
-                <div className="pt-4 border-t border-white/10">
-                  <div className="inline-block bg-[#F97316]/15 border border-[#F97316]/25 text-[#F97316] text-xs font-semibold px-3 py-1 rounded-full mb-3">
-                    {t.result}
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-[10px] font-black text-white shrink-0" style={{ backgroundColor: t.bg }}>
-                      {t.ini}
-                    </div>
-                    <div>
-                      <p className="text-white font-bold text-sm leading-none">{t.name}</p>
-                      <p className="text-white/35 text-xs mt-0.5">{t.biz}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* Aggregate */}
-          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4 py-5 bg-white/5 border border-white/10 rounded-2xl">
-            <div className="text-center sm:text-left">
-              <p className="text-white font-black text-4xl" style={PP}>4.9 / 5</p>
-              <div className="flex justify-center sm:justify-start gap-0.5 mt-1">
-                {[1,2,3,4,5].map(i => <Star key={i} size={14} className="text-[#FCD34D] fill-[#FCD34D]"/>)}
-              </div>
-            </div>
-            <div className="w-px h-10 bg-white/15 hidden sm:block"/>
-            <p className="text-white/50 text-sm text-center sm:text-left">
-              Basado en testimonios reales de dueños de tree service que asistieron a la clase
-            </p>
-          </div>
-
-          <SectionCTA formId="registro" variant="onDark"/>
-        </div>
-      </section>
-
-      {/* ══════ INSTRUCTOR — CREAM ════════════════════════════════════════════ */}
-      <section className="bg-[#FDF8F3] py-20 px-5 sm:px-8">
         <div className="max-w-4xl mx-auto">
           <div className="grid lg:grid-cols-[1fr_300px] gap-10 items-start">
             <div>
               <span className="text-[#F97316] text-xs font-bold tracking-[2px] uppercase block mb-4">Tu instructor</span>
-              <h2 style={{ ...PP, fontSize: "clamp(1.8rem, 4vw, 2.8rem)", fontWeight: 900 }} className="text-[#1B3A2D] leading-[1.1] mb-5">
+              <h2 style={{ ...PP, fontSize: "clamp(1.8rem, 4vw, 2.8rem)", fontWeight: 900 }} className="text-white leading-[1.1] mb-5">
                 Especialista en hacer crecer negocios latinos en Estados Unidos
               </h2>
-              <p className="text-[#4B5563] text-base leading-relaxed mb-4">
+              <p className="text-white/70 text-base leading-relaxed mb-4">
                 Daniel Acero ha ayudado a decenas de dueños de tree service, limpieza y otros negocios latinos en USA a conseguir más clientes usando Facebook e Instagram — sin necesitar ser expertos en tecnología.
               </p>
-              <p className="text-[#4B5563] text-base leading-relaxed mb-6">
+              <p className="text-white/70 text-base leading-relaxed mb-8">
                 Esta clase gratis es para personas que apenas saben usar el teléfono y nunca han puesto un anuncio en Facebook. Si eres así, esta clase es para ti.
               </p>
+              <div className="flex flex-wrap gap-3">
+                <div className="inline-flex items-center gap-2.5 bg-white/8 border border-white/15 rounded-xl px-4 py-3">
+                  <span className="text-[#F97316] font-black text-xl" style={PP}>+$100K</span>
+                  <span className="text-white/60 text-xs leading-snug">en Meta Ads<br/>gestionados</span>
+                </div>
+                <div className="inline-flex items-center gap-2.5 bg-white/8 border border-white/15 rounded-xl px-4 py-3">
+                  <span className="text-[#F97316] font-black text-xl" style={PP}>6 años</span>
+                  <span className="text-white/60 text-xs leading-snug">de experiencia<br/>en negocios latinos</span>
+                </div>
+                <div className="inline-flex items-center gap-2.5 bg-white/8 border border-white/15 rounded-xl px-4 py-3">
+                  <span className="text-[#F97316] font-black text-xl" style={PP}>50+</span>
+                  <span className="text-white/60 text-xs leading-snug">negocios latinos<br/>ayudados en USA</span>
+                </div>
+              </div>
             </div>
 
             <div className="bg-white border border-[#E5DDD5] rounded-2xl overflow-hidden shadow-md">
@@ -671,7 +616,120 @@ export default function ClaseGratisTreeService() {
             </div>
           </div>
 
+          <SectionCTA formId="registro" variant="onDark"/>
+        </div>
+      </section>
+
+      {/* ══════ TESTIMONIALS — CREAM ═════════════════════════════════════════ */}
+      <section className="bg-[#FDF8F3] py-20 px-5 sm:px-8">
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-12">
+            <span className="text-[#F97316] text-xs font-bold tracking-[2px] uppercase block mb-3">Casos de éxito</span>
+            <h2 style={{ ...PP, fontSize: "clamp(1.8rem, 4vw, 3rem)", fontWeight: 900 }} className="text-[#1B3A2D] leading-[1.1]">
+              Lo que dicen los que ya lo aplicaron
+            </h2>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-5">
+            {[
+              {
+                ini: "JH", bg: "#2D6A4F",
+                name: "Juan Hernández",
+                biz:  "JH Tree Services · Houston, TX",
+                result: "+12 trabajos nuevos el primer mes",
+                quote: "Llevo 8 años en tree service y siempre fue solo de boca en boca. Al principio no creía que Facebook iba a funcionar para mí. Puse el anuncio como me enseñaron y en las primeras 2 semanas me llamaron 6 personas. Ese primer mes cerré 12 trabajos — uno solo fue una remoción grande que me pagó $2,400.",
+              },
+              {
+                ini: "CR", bg: "#1F5C41",
+                name: "Carlos Reyes",
+                biz:  "Reyes Tree & Landscaping · Orlando, FL",
+                result: "De $7k a $18k al mes en 45 días",
+                quote: "Le tenía miedo a los anuncios de Facebook porque pensé que era para empresas grandes. En la clase vi que se puede empezar con poco. Empecé con $12 al día y en 45 días mi ingreso subió de $7,000 a más de $18,000 al mes. Tuve que conseguir un helper porque no me alcanzaba para tanto trabajo.",
+              },
+              {
+                ini: "RM", bg: "#155534",
+                name: "Roberto Martínez",
+                biz:  "Martinez Tree Experts · Atlanta, GA",
+                result: "Trabajo asegurado para 3 meses",
+                quote: "Yo no sabía ni cómo entrar a Facebook para poner un anuncio — mi hijo me ayudó la primera vez. Pero después lo hice yo solo. Hoy tengo trabajo programado para los próximos 3 meses y me siguen llegando llamadas. En 11 años de negocio nunca había tenido tanta estabilidad.",
+              },
+            ].map(t => (
+              <div key={t.name} className="bg-white border border-[#E5DDD5] rounded-2xl p-5 flex flex-col hover:border-[#1B3A2D]/30 hover:shadow-md transition-all">
+                <Stars/>
+                <p className="text-[#4B5563] text-sm leading-relaxed mt-3 mb-4 flex-1">"{t.quote}"</p>
+                <div className="pt-4 border-t border-[#E5DDD5]">
+                  <div className="inline-block bg-[#F97316]/10 border border-[#F97316]/20 text-[#F97316] text-xs font-semibold px-3 py-1 rounded-full mb-3">
+                    {t.result}
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full flex items-center justify-center text-[10px] font-black text-white shrink-0" style={{ backgroundColor: t.bg }}>
+                      {t.ini}
+                    </div>
+                    <div>
+                      <p className="text-[#1B3A2D] font-bold text-sm leading-none">{t.name}</p>
+                      <p className="text-[#9CA3AF] text-xs mt-0.5">{t.biz}</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Aggregate */}
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-4 py-5 bg-[#1B3A2D]/5 border border-[#1B3A2D]/10 rounded-2xl">
+            <div className="text-center sm:text-left">
+              <p className="text-[#1B3A2D] font-black text-4xl" style={PP}>4.9 / 5</p>
+              <div className="flex justify-center sm:justify-start gap-0.5 mt-1">
+                {[1,2,3,4,5].map(i => <Star key={i} size={14} className="text-[#F97316] fill-[#F97316]"/>)}
+              </div>
+            </div>
+            <div className="w-px h-10 bg-[#1B3A2D]/15 hidden sm:block"/>
+            <p className="text-[#6B7280] text-sm text-center sm:text-left">
+              Basado en testimonios de dueños de tree service que ya aplicaron estas estrategias
+            </p>
+          </div>
+
           <SectionCTA formId="registro"/>
+        </div>
+      </section>
+
+      {/* ══════ FAQ — WHITE ══════════════════════════════════════════════════ */}
+      <section className="bg-white py-20 px-5 sm:px-8 border-y border-[#E5DDD5]">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center mb-10">
+            <span className="text-[#F97316] text-xs font-bold tracking-[2px] uppercase block mb-3">Preguntas frecuentes</span>
+            <h2 style={{ ...PP, fontSize: "clamp(1.6rem, 3.5vw, 2.4rem)", fontWeight: 900 }} className="text-[#1B3A2D] leading-[1.2]">
+              Preguntas que nos hacen seguido
+            </h2>
+          </div>
+          <div className="space-y-3">
+            {[
+              {
+                q: "¿De verdad es gratis? ¿Al final me van a vender algo?",
+                a: "Sí, es 100% gratis. En la clase te enseñamos lo que funciona para conseguir clientes con Facebook. Si al final quieres que te ayudemos directamente, tienes esa opción — pero nunca es una obligación. Puedes aprender todo y aplicarlo tú solo.",
+              },
+              {
+                q: "¿Necesito saber de computadoras o tecnología?",
+                a: "No. La clase está hecha para personas que apenas usan el teléfono y nunca han puesto un anuncio en Facebook. Todo lo explicamos paso a paso, desde cero. Si sabes usar WhatsApp, puedes aplicar lo que vas a aprender.",
+              },
+              {
+                q: "¿Puedo verla desde mi teléfono?",
+                a: "Sí. Solo necesitas tu celular y conexión a internet. No necesitas computadora ni nada especial. Cuando te registras, te enviamos el link al grupo de WhatsApp y ahí te mandamos todo lo que necesitas para conectarte.",
+              },
+              {
+                q: "¿Qué pasa si no puedo a las 6 PM EST? ¿Queda grabada?",
+                a: "Sí, la grabación se enviará — pero solo a las personas que se registraron. Si no puedes estar en vivo, regístrate de todas formas y te la mandamos al grupo de WhatsApp después de la clase. Por eso es importante que apartes tu cupo aunque no puedas conectarte a tiempo.",
+              },
+              {
+                q: "¿Esto funciona si tengo un negocio pequeño o trabajo solo?",
+                a: "Sí. Las estrategias que enseñamos funcionan para cualquier tamaño de negocio — ya sea que trabajes solo, con uno o dos helpers, o que tengas un equipo. Lo importante es que tengas un negocio de Tree Service activo en USA.",
+              },
+            ].map((item, i) => (
+              <div key={i} className="bg-[#FDF8F3] border border-[#E5DDD5] rounded-xl p-5">
+                <p className="text-[#1B3A2D] font-bold text-sm mb-2" style={PP}>{item.q}</p>
+                <p className="text-[#6B7280] text-sm leading-relaxed">{item.a}</p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
