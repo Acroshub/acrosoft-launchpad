@@ -254,13 +254,31 @@ export default function ClaseGratisTreeService() {
     <div className="min-h-screen text-[#1B3A2D]" style={{ fontFamily: "'Inter', sans-serif" }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800;900&family=Inter:wght@400;500;600&display=swap');
+        @keyframes live-ring {
+          0%,100% { opacity: 1; }
+          50%      { opacity: 0.25; }
+        }
+        .live-ring-1 { animation: live-ring 1.6s ease-in-out infinite; }
+        .live-ring-2 { animation: live-ring 1.6s ease-in-out 0.4s infinite; }
       `}</style>
 
       {/* ── BANNER ── */}
-      <div className="bg-[#1B3A2D] py-2.5 text-center">
-        <p className="text-white text-[11px] font-semibold tracking-[1.5px] uppercase">
-          Clase Gratis · En Vivo · 2 de Agosto · 6 PM EST
-        </p>
+      <div className="bg-[#1B3A2D] py-2.5">
+        <div className="flex items-center justify-center gap-2.5">
+          {/* Animated live icon on red circle */}
+          <span className="w-7 h-7 bg-red-600 rounded-full flex items-center justify-center shrink-0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="2.8" fill="white"/>
+              <path className="live-ring-1" d="M7.8 16.2A6 6 0 0 1 7.8 7.8" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none"/>
+              <path className="live-ring-1" d="M16.2 7.8A6 6 0 0 1 16.2 16.2" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none"/>
+              <path className="live-ring-2" d="M4.5 19.5A10.5 10.5 0 0 1 4.5 4.5" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none"/>
+              <path className="live-ring-2" d="M19.5 4.5A10.5 10.5 0 0 1 19.5 19.5" stroke="white" strokeWidth="2" strokeLinecap="round" fill="none"/>
+            </svg>
+          </span>
+          <p className="text-white text-[11px] font-semibold tracking-[1.5px] uppercase">
+            Clase Gratis · En Vivo · 2 de Agosto · 6 PM EST
+          </p>
+        </div>
       </div>
 
       {/* ══════ HERO — CREAM ══════════════════════════════════════════════════ */}
@@ -381,9 +399,15 @@ export default function ClaseGratisTreeService() {
       <section className="bg-[#FDF8F3] py-20 px-5 sm:px-8">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-12">
-            <span className="text-[#F97316] text-xs font-bold tracking-[2px] uppercase block mb-3">Lo que aprenderás en la clase</span>
-            <h2 style={{ ...PP, fontSize: "clamp(1.8rem, 4.5vw, 3rem)", fontWeight: 900 }} className="leading-[1.1] text-[#1B3A2D]">
-              El plan completo, paso a paso, en una sola clase gratis
+            <h2 style={{ ...PP, fontSize: "clamp(1.6rem, 4vw, 2.6rem)", fontWeight: 900 }} className="leading-[1.3] text-[#1B3A2D]">
+              ¿Qué aprenderás el día{" "}
+              <span className="relative inline-block text-[#F97316]">
+                Sábado 2 de Agosto
+                <svg className="absolute -bottom-2 left-0 w-full overflow-visible" height="8" viewBox="0 0 300 8" preserveAspectRatio="none" aria-hidden="true">
+                  <path d="M0 4 C37 0,63 8,100 4 C137 0,163 8,200 4 C237 0,263 8,300 4" stroke="#F97316" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
+                </svg>
+              </span>{" "}
+              a las 6:00 PM EST?
             </h2>
           </div>
 
@@ -582,7 +606,8 @@ export default function ClaseGratisTreeService() {
               </div>
               <div className="px-5 pb-5 pt-2 text-center">
                 <p className="text-[#1B3A2D] font-black text-lg mb-0.5" style={PP}>Ing. Daniel Acero</p>
-                <p className="text-[#6B7280] text-xs mb-3">Experto en Meta Ads · Negocios Latinos en USA</p>
+                <p className="text-[#6B7280] text-xs mb-0.5">Experto en Meta Ads</p>
+                <p className="text-[#F97316] text-xs font-semibold mb-3">Ayudó a más de 50 negocios latinos en USA</p>
                 <div className="border-t border-[#E5DDD5] pt-3 flex justify-center">
                   <div className="inline-flex items-center gap-2 bg-[#EEF4FF] border border-blue-200 rounded-lg px-3 py-2">
                     <MetaLogo className="h-4 w-auto"/>
@@ -605,13 +630,13 @@ export default function ClaseGratisTreeService() {
         <div className="max-w-xl mx-auto text-center">
           <div className="flex items-center justify-center gap-2 mb-5">
             <AlertTriangle size={15} className="text-[#F97316] shrink-0"/>
-            <p className="text-white/70 text-sm font-medium">
-              Ya el <strong className="text-[#F97316]">{Math.round((TAKEN_SPOTS / TOTAL_SPOTS) * 100)}%</strong> de los cupos está reservado
+            <p className="text-[#F97316] text-sm font-semibold">
+              Ya el <strong>{Math.round((TAKEN_SPOTS / TOTAL_SPOTS) * 100)}%</strong> de los cupos está reservado
             </p>
           </div>
 
           <h2 style={{ ...PP, fontSize: "clamp(2rem, 5vw, 3.5rem)", fontWeight: 900 }} className="leading-[1.1] mb-4 text-white">
-            Tu competencia ya está aprendiendo esto
+            Si tú no aprendes esto ahora, tu competencia lo hará
           </h2>
           <p className="text-white/60 text-base mb-10 leading-relaxed max-w-sm mx-auto">
             Cada semana que pasa sin clientes nuevos es dinero que no entra. Esta clase es gratis y solo ocurre una vez.
