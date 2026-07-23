@@ -5,7 +5,7 @@ import { Check, Star, AlertTriangle, ChevronRight, Eye, Calendar } from "lucide-
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 const WA_LINK = "https://chat.whatsapp.com/E6TRKY81nbk0ipYxgV3r0P?s=cl&p=i&ilr=1&amv=2";
-const EVENT_DATE = new Date("2026-08-02T22:00:00.000Z");
+const EVENT_DATE = new Date("2026-08-09T22:00:00.000Z");
 const TOTAL_SPOTS = 100;
 const TAKEN_SPOTS = 78;
 
@@ -207,7 +207,7 @@ function SuccessCard() {
       </div>
       <h4 className="text-[#1B3A2D] font-black text-xl mb-1" style={{ fontFamily: "'Poppins', sans-serif" }}>¡Cupo Confirmado!</h4>
       <p className="text-[#6B7280] text-sm mb-5 leading-relaxed">
-        Te esperamos el <strong className="text-[#1B3A2D]">Sábado 2 de Agosto</strong> a las{" "}
+        Te esperamos el <strong className="text-[#1B3A2D]">Domingo 9 de Agosto</strong> a las{" "}
         <strong className="text-[#F97316]">6:00 PM EST</strong>.
         Únete al grupo para recibir el link.
       </p>
@@ -232,7 +232,7 @@ function FormCard({ done, onSuccess, anchorId, viewers }: { done: boolean; onSuc
     <div id={anchorId} className="bg-white border border-[#E5DDD5] rounded-2xl overflow-hidden shadow-xl shadow-[#1B3A2D]/10">
       {/* Header */}
       <div className="bg-[#1B3A2D] px-6 py-4 text-center">
-        <p className="text-white/50 text-[10px] font-bold tracking-[2px] uppercase mb-0.5">Clase gratis · Sábado 2 de Agosto · 6 PM EST</p>
+        <p className="text-white/50 text-[10px] font-bold tracking-[2px] uppercase mb-0.5">Clase gratis · Domingo 9 de Agosto · 6 PM EST</p>
         <p className="text-white font-black text-xl leading-tight" style={{ fontFamily: "'Poppins', sans-serif" }}>
           Regístrate Aquí
         </p>
@@ -247,7 +247,7 @@ function FormCard({ done, onSuccess, anchorId, viewers }: { done: boolean; onSuc
               <Calendar size={16} className="text-[#F97316]"/>
             </div>
             <div className="text-left">
-              <p className="text-[#1B3A2D] text-sm font-black leading-snug">Sábado 2 de Agosto, 2026</p>
+              <p className="text-[#1B3A2D] text-sm font-black leading-snug">Domingo 9 de Agosto, 2026</p>
               <p className="text-[#F97316] text-sm font-black leading-snug">6:00 PM EST</p>
               <p className="text-[#9CA3AF] text-xs mt-1">En vivo · Online · Gratis</p>
             </div>
@@ -343,7 +343,7 @@ export default function ClaseGratisTreeService() {
             </svg>
           </span>
           <p className="text-white text-[11px] font-semibold tracking-[1.5px] uppercase">
-            Clase Gratis · En Vivo · 2 de Agosto · 6 PM EST
+            Clase Gratis · En Vivo · 9 de Agosto · 6 PM EST
           </p>
         </div>
       </div>
@@ -472,7 +472,7 @@ export default function ClaseGratisTreeService() {
             <h2 style={{ ...PP, fontSize: "clamp(1.6rem, 4vw, 2.6rem)", fontWeight: 900 }} className="leading-[1.3] text-[#1B3A2D]">
               ¿Qué aprenderás el día{" "}
               <span className="relative inline-block text-[#F97316]">
-                Sábado 2 de Agosto
+                Domingo 9 de Agosto
                 <svg className="absolute -bottom-2 left-0 w-full overflow-visible" height="8" viewBox="0 0 300 8" preserveAspectRatio="none" aria-hidden="true">
                   <path d="M0 4 C37 0,63 8,100 4 C137 0,163 8,200 4 C237 0,263 8,300 4" stroke="#F97316" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
                 </svg>
@@ -789,7 +789,7 @@ export default function ClaseGratisTreeService() {
             <h3 className="text-white font-black text-3xl mb-2" style={PP}>¡Cupo Confirmado!</h3>
             <p className="text-white/50 text-sm leading-relaxed mb-2">
               Te esperamos el{" "}
-              <strong className="text-white">Sábado 2 de Agosto</strong>{" "}
+              <strong className="text-white">Domingo 9 de Agosto</strong>{" "}
               a las{" "}
               <strong className="text-[#F97316]">6:00 PM EST</strong>.
             </p>
