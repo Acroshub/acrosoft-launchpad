@@ -197,6 +197,10 @@ async function processPayload(payload: any, tenantUserId: string, isActive: bool
           status.status === "sent"      ? "sent"      :
           status.status === "failed"    ? "failed"    : null;
         if (newStatus) {
+          if (newStatus === "failed") {
+            const errs = status.errors ?? [];
+            console.error(`[webhook] delivery FAILED wamid=${status.id} errors=${JSON.stringify(errs)}`);
+          }
           await supabase
             .from("crm_wa_messages")
             .update({ delivery_status: newStatus })
