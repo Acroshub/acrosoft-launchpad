@@ -22,6 +22,7 @@ import CoursePlayer from "./pages/CoursePlayer.tsx";
 import WebsitesCatalog from "./pages/websites/WebsitesCatalog.tsx";
 import WebsiteViewer from "./pages/websites/WebsiteViewer.tsx";
 import ClaseGratisTreeService from "./pages/ClaseGratisTreeService.tsx";
+import ClaseGratisTreeServiceGame from "./pages/ClaseGratisTreeServiceGame.tsx";
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -46,6 +47,7 @@ const App = () => (
           <Route path="/oauth/google-calendar" element={<GoogleCalendarCallback />} />
           <Route path="/vip" element={<VipLanding />} />
           <Route path="/clase-gratis-tree-service" element={<ClaseGratisTreeService />} />
+          <Route path="/clase-gratis-tree-service-game" element={<ClaseGratisTreeServiceGame />} />
 
           {/* Client invitation setup — public (session comes from invite link) */}
           <Route path="/crm-setup" element={<CrmSetup />} />
