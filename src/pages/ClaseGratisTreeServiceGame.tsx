@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Check, Star, AlertTriangle, Eye, ShieldCheck, ArrowDown } from "lucide-react";
+import { Check, Star, AlertTriangle, Eye, ShieldCheck, ArrowDown, Megaphone, Globe, CalendarCheck } from "lucide-react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
@@ -372,19 +372,26 @@ function Screen2({ onNext }: { onNext: () => void }) {
 // ── SCREEN 3 — LA SOLUCIÓN ───────────────────────────────────────────────────
 function Screen3({ onNext }: { onNext: () => void }) {
   const steps = [
-    { num: 1, letter: "A", label: "Anuncios",    body: "No es solo poner un anuncio y rezar. Es saber exactamente cuáles anuncios traen clientes de tree service y cuáles solo queman dinero." },
-    { num: 2, letter: "P", label: "Página Web",  body: "No es cualquier página. Es una página lista con todo: tus fotos, tus precios, por qué elegirte a ti. Diseñada para que el cliente quiera llamarte. Y no necesitas saber nada de tecnología para usarla." },
-    { num: 3, letter: "C", label: "Calendario",  body: "Olvídate de andar persiguiendo clientes por WhatsApp o teléfono. El cliente entra a tu página, elige el día y la hora, y tú recibes la cita directo en tu teléfono. Automático. Solo." },
+    {
+      num: 1, letter: "A", label: "Anuncios",
+      icon: <Megaphone size={16} className="text-[#F97316]"/>,
+      body: "No sirve cualquier anuncio. Las agencias de marketing no conocen tu negocio al 100% y hacen anuncios genéricos que no funcionan para tree service. Lo que sí funciona son anuncios que otros dueños de tree service ya probaron y dieron resultado. Adáptalos para tu negocio.",
+    },
+    {
+      num: 2, letter: "P", label: "Página Web",
+      icon: <Globe size={16} className="text-[#F97316]"/>,
+      body: "No sirve cualquier página. La mayoría tiene una página bonita pero nadie llama. Eso pasa porque no está hecha para tree service. Una página que funciona le dice al cliente en segundos por qué llamarte a ti — y no a tu competencia.",
+    },
+    {
+      num: 3, letter: "C", label: "Calendario",
+      icon: <CalendarCheck size={16} className="text-[#F97316]"/>,
+      body: "No sirve solo tener un número de teléfono. Cuando el cliente llama y tú no contestas, llama al siguiente. Y ese trabajo se pierde. Con un calendario, el cliente agenda solo — aunque tú estés en el trabajo. Es la única forma de no perder ninguna cita.",
+    },
   ];
 
   return (
-    <div className="min-h-screen bg-[#1B3A2D] flex flex-col items-center justify-center px-6 py-20 relative overflow-hidden">
-      <div className="absolute inset-0 pointer-events-none">
-        <img src="/tree-service.jpg" alt="" className="w-full h-full object-cover opacity-[0.13]"/>
-        <div className="absolute inset-0 bg-[#1B3A2D]/65"/>
-      </div>
-
-      <div className="max-w-lg w-full relative z-10">
+    <div className="min-h-screen bg-[#1B3A2D] flex flex-col items-center justify-center px-6 py-20">
+      <div className="max-w-lg w-full">
 
         <h2 className="text-[#FDF8F3] font-black leading-[1.1] mb-2"
           style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
@@ -394,7 +401,7 @@ function Screen3({ onNext }: { onNext: () => void }) {
 
         <p className="text-[#F97316] font-bold italic leading-snug mb-5"
           style={{ ...PP, fontSize: "clamp(0.95rem, 2.2vw, 1.1rem)" }}>
-          Y por qué es importante que lo aprendas ahora, antes de que otra empresa de tree service en tu área lo descubra primero.
+          Y por qué es importante que lo aprendas ahora, antes de que tu competencia lo aplique primero.
         </p>
 
         <p className="text-[#FDF8F3]/60 text-base leading-relaxed mb-7">
@@ -402,18 +409,29 @@ function Screen3({ onNext }: { onNext: () => void }) {
           <strong className="text-white">Pero juntos, te traen clientes nuevos cada semana — solos.</strong>
         </p>
 
-        <div className="space-y-4 mb-6">
+        <div className="mb-6">
           {steps.map((step, i) => (
-            <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className="w-9 h-9 rounded-xl bg-[#F97316] flex items-center justify-center shrink-0">
-                  <span className="text-white font-black text-base" style={PP}>{step.num}</span>
+            <div key={i}>
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
+                <div className="flex items-start gap-4 mb-3">
+                  <div className="w-12 h-12 rounded-xl bg-[#F97316] flex items-center justify-center shrink-0">
+                    <span className="text-white font-black text-2xl leading-none" style={PP}>{step.num}</span>
+                  </div>
+                  <div className="pt-1">
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      {step.icon}
+                      <p className="text-[#F97316] font-black text-base leading-none" style={PP}>{step.label}</p>
+                    </div>
+                    <p className="text-white/30 text-[10px] font-bold tracking-widest uppercase">{step.letter} — Método APC</p>
+                  </div>
                 </div>
-                <p className="text-[#F97316] font-black text-xs tracking-widest uppercase">
-                  {step.letter} — {step.label}
-                </p>
+                <p className="text-[#FDF8F3]/80 text-sm leading-relaxed">{step.body}</p>
               </div>
-              <p className="text-[#FDF8F3]/80 text-sm leading-relaxed">{step.body}</p>
+              {i < steps.length - 1 && (
+                <div className="flex justify-center py-2">
+                  <ArrowDown size={20} strokeWidth={2.5} className="text-[#F97316]/50"/>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -473,14 +491,14 @@ function Screen4({ viewers, done, onSuccess }: { viewers: number; done: boolean;
         {/* Fecha */}
         <h2 className="text-[#1B3A2D] font-black leading-[1.15] mb-2 text-center"
           style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
-          La clase{" "}
+          Te enseñaremos en una clase{" "}
           <span className="text-[#F97316]">Gratis</span>{" "}
-          es este{" "}
+          en vivo este{" "}
           <span className="text-[#F97316]">Domingo 9 de Agosto.</span>
         </h2>
 
         <p className="text-[#4B5563] text-sm mb-6 leading-relaxed text-center">
-          <strong className="text-[#F97316]">6:00 PM hora del Este</strong> · En vivo.{" "}
+          <strong className="text-[#F97316]">6:00 PM EST</strong> · En vivo.{" "}
           <strong className="text-[#1B3A2D]">La grabación solo para los que se registren.</strong>
         </p>
 
