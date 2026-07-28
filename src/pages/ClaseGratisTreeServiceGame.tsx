@@ -557,7 +557,7 @@ function Screen4({ viewers, done, onSuccess }: { viewers: number; done: boolean;
           <div className="flex items-start gap-4 p-5">
             <div className="flex flex-col items-center gap-1.5 shrink-0">
               <img
-                src="/instructor.jpg"
+                src="/picprofilewebsite.jpg"
                 alt="Ing. Daniel Acero"
                 className="w-20 h-20 rounded-xl object-cover object-top"
               />
