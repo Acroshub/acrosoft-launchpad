@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Check, Star, AlertTriangle, Eye } from "lucide-react";
+import { Check, Star, AlertTriangle, Eye, ShieldCheck, ArrowDown } from "lucide-react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
@@ -37,6 +37,41 @@ const COUNTRIES = [
   { code: "598", label: "🇺🇾 +598" },
   { code: "55",  label: "🇧🇷 +55"  },
 ];
+
+// ── META PIXEL ────────────────────────────────────────────────────────────────
+const PIXEL_ID = "1013028214851437";
+
+function fbq(...args: unknown[]) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fn = (window as any).fbq;
+  if (typeof fn === "function") fn(...args);
+}
+
+function initPixel() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const w = window as any;
+  if (w.fbq) return;
+  const n = (w.fbq = function (...a: unknown[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (n as any).callMethod ? (n as any).callMethod(...a) : (n as any).queue.push(a);
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (!w._fbq) w._fbq = n;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (n as any).push = n; (n as any).loaded = true; (n as any).version = "2.0"; (n as any).queue = [];
+  const t = document.createElement("script");
+  t.async = true;
+  t.src = "https://connect.facebook.net/en_US/fbevents.js";
+  document.head.appendChild(t);
+  // noscript fallback
+  const ns = document.createElement("noscript");
+  const img = document.createElement("img");
+  img.height = 1; img.width = 1;
+  img.style.display = "none";
+  img.src = `https://www.facebook.com/tr?id=${PIXEL_ID}&ev=PageView&noscript=1`;
+  ns.appendChild(img);
+  document.head.appendChild(ns);
+}
 
 // ── HOOKS ─────────────────────────────────────────────────────────────────────
 function useCountdown() {
@@ -122,7 +157,7 @@ function RegForm({ onSuccess }: { onSuccess: () => void }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
-      <input type="text" placeholder="Tu nombre completo" value={name}
+      <input type="text" placeholder="Nombre y Apellido" value={name}
         onChange={e => setName(e.target.value)}
         className={`w-full ${base} px-4 py-3.5 placeholder-[#A89F96]`} required/>
       <div className="flex gap-2">
@@ -191,64 +226,155 @@ function Screen0({ onNext }: { onNext: () => void }) {
         <button onClick={onNext}
           className="bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-10 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
           style={PP}>
-          <span className="block text-lg">Sí, ese soy yo →</span>
-          <span className="block text-xs font-normal opacity-70 mt-0.5">Quiero conseguir más trabajos cada mes</span>
+          <span className="block text-lg">Sí, quiero más trabajos →</span>
+          <span className="block text-xs font-normal opacity-70 mt-0.5">Muéstrame cómo funciona</span>
         </button>
       </div>
     </div>
   );
 }
 
-// ── SCREEN 1 — LA HERIDA ──────────────────────────────────────────────────────
+// ── SCREEN 1 — MINI-QUIZ ──────────────────────────────────────────────────────
 function Screen1({ onNext }: { onNext: () => void }) {
+  const options = [
+    "Dependo solo de que me recomienden para conseguir clientes",
+    "Tengo meses buenos y meses en que casi no hay trabajo",
+    "Ya intenté Facebook Ads y solo perdí dinero",
+    "No sé nada de tecnología ni de publicidad en internet",
+  ];
+
+  const [selected, setSelected] = useState<Set<number>>(new Set());
+
+  const toggle = (i: number) => setSelected(prev => {
+    const next = new Set(prev);
+    if (next.has(i)) next.delete(i); else next.add(i);
+    return next;
+  });
+
+  const pct = Math.round((selected.size / options.length) * 100);
+
+  const urgencyLabel =
+    selected.size === 0 ? "" :
+    selected.size === 1 ? "Tu negocio puede mejorar" :
+    selected.size === 2 ? "Esto te está costando clientes" :
+    selected.size === 3 ? "Necesitas aprender esto cuanto antes" :
+    "¡Esto tiene solución! No pares, sigue para ver cómo";
+
+  const urgencyColor = selected.size <= 2 ? "#F97316" : "#dc2626";
+
   return (
     <div className="min-h-screen bg-[#FDF8F3] flex flex-col items-center justify-center px-6 py-20">
       <div className="max-w-lg w-full">
 
-        <p className="text-[#F97316] text-[10px] font-bold tracking-[4px] uppercase mb-7">
-          El problema
-        </p>
+        <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-2"
+          style={{ ...PP, fontSize: "clamp(1.6rem, 4vw, 2.2rem)" }}>
+          ¿Cuál de estas frases
+          <br/>describe tu negocio hoy?
+        </h2>
+        <p className="text-[#9CA3AF] text-sm mb-8">Selecciona todo lo que te aplica</p>
+
+        <div className="space-y-3 mb-8">
+          {options.map((opt, i) => (
+            <button key={i} onClick={() => toggle(i)}
+              className={`w-full text-left px-5 py-4 rounded-xl border-2 transition-colors duration-150 cursor-pointer ${
+                selected.has(i)
+                  ? "bg-[#1B3A2D] border-[#1B3A2D] text-white"
+                  : "bg-white border-[#E5DDD5] text-[#1B3A2D] hover:border-[#1B3A2D]/40"
+              }`} style={PP}>
+              <div className="flex items-center gap-3">
+                <div className={`w-5 h-5 rounded-full border-2 shrink-0 flex items-center justify-center ${
+                  selected.has(i) ? "bg-[#F97316] border-[#F97316]" : "border-[#D1C9BF]"
+                }`}>
+                  {selected.has(i) && <Check size={10} className="text-white" strokeWidth={3}/>}
+                </div>
+                <span className="text-sm font-medium leading-snug">{opt}</span>
+              </div>
+            </button>
+          ))}
+        </div>
+
+        {selected.size > 0 && (
+          <>
+            <div className="mb-7">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-xs font-black" style={{ color: urgencyColor }}>{urgencyLabel}</span>
+                <span className="text-xs font-black" style={{ color: urgencyColor }}>{pct}%</span>
+              </div>
+              <div className="h-3 bg-[#E5DDD5] rounded-full overflow-hidden">
+                <div className="h-full rounded-full transition-all duration-500"
+                  style={{ width: `${pct}%`, backgroundColor: urgencyColor }}/>
+              </div>
+            </div>
+
+            <button onClick={onNext}
+              className="w-full bg-[#1B3A2D] hover:bg-[#142D22] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
+              style={PP}>
+              <span className="block text-base">Esto me está pasando a mí →</span>
+              <span className="block text-xs font-normal opacity-55 mt-0.5">Quiero ver qué puedo hacer</span>
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ── SCREEN 2 — AGITACIÓN ─────────────────────────────────────────────────────
+function Screen2({ onNext }: { onNext: () => void }) {
+  const pains = [
+    { text: "Hay meses que casi no hay trabajo. Pero igual hay que pagar el truck, el seguro y la renta." },
+    { text: "Cuando alguien busca tree service, llama a otro. Ese otro sabe algo de internet que tú todavía no sabes." },
+    { text: "Los referidos no siempre llegan. No puedes esperar a que te recomienden." },
+    { text: "Tal vez ya gastaste en publicidad. El dinero se fue y no pasó nada." },
+  ];
+
+  return (
+    <div className="min-h-screen bg-[#FDF8F3] flex flex-col items-center justify-center px-6 py-20">
+      <div className="max-w-lg w-full">
 
         <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-8"
-          style={{ ...PP, fontSize: "clamp(1.8rem, 4.5vw, 2.7rem)" }}>
-          Hay otros con peor trabajo que tú.
-          <br/>
-          <span className="text-[#F97316]">Y tienen más clientes.</span>
+          style={{ ...PP, fontSize: "clamp(1.75rem, 4.5vw, 2.6rem)" }}>
+          Trabajas duro todos los días.{" "}
+          <span className="text-[#F97316]">Pero hay meses que el teléfono no suena.</span>
         </h2>
 
-        <div className="space-y-5 text-[#374151] leading-relaxed" style={{ fontSize: "1.05rem" }}>
-          <p>
-            No es porque sean mejores.
-            Es porque saben cómo{" "}
-            <strong className="text-[#1B3A2D]">conseguir clientes por internet.</strong>
-          </p>
-          <p>
-            Tú sigues esperando que te llamen.
-            Esperando referidos. Esperando que el teléfono suene.
-          </p>
-          <p>
-            Y hay meses buenos... y meses en que{" "}
-            <strong className="text-[#F97316]">el trabajo no alcanza.</strong>
+        <div className="space-y-3 mb-8">
+          {pains.map((p, i) => (
+            <div key={i} className="flex items-center gap-4 bg-white border border-[#E5DDD5] rounded-xl p-4 shadow-sm">
+              <ArrowDown size={18} strokeWidth={3.5} className="text-red-500 shrink-0"/>
+              <p className="text-[#374151] text-sm leading-relaxed">{p.text}</p>
+            </div>
+          ))}
+        </div>
+
+        <div className="bg-[#1B3A2D] rounded-2xl p-5 mb-8">
+          <p className="text-[#FDF8F3] leading-relaxed text-base">
+            <strong className="text-[#F97316]">Lo peor es esto:</strong>{" "}
+            Hay otras empresas de tree service con peor trabajo que el tuyo. Y tienen más clientes.
+            <br/><br/>
+            No porque cobren más barato. Sino porque conocen{" "}
+            <span className="inline-block bg-[#F97316] text-white font-black px-2 py-0.5 rounded-md mx-0.5">"El Método de 3 Pasos: APC"</span>
+            {" "}— que les trae clientes solos desde internet. Y tú todavía no lo sabes.
           </p>
         </div>
 
         <button onClick={onNext}
-          className="mt-12 w-full bg-[#1B3A2D] hover:bg-[#142D22] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
+          className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
           style={PP}>
-          <span className="block text-base">Quiero saber su secreto →</span>
-          <span className="block text-xs font-normal opacity-55 mt-0.5">La diferencia entre ellos y tú te va a sorprender</span>
+          <span className="block text-base">Quiero conocer el Método APC →</span>
+          <span className="block text-xs font-normal opacity-70 mt-0.5">El Método de 3 Pasos: APC</span>
         </button>
       </div>
     </div>
   );
 }
 
-// ── SCREEN 2 — EL GIRO ───────────────────────────────────────────────────────
-function Screen2({ onNext }: { onNext: () => void }) {
-  const bullets = [
-    "Cómo poner anuncios en Facebook para conseguir clientes de tree service",
-    "Con cuánto dinero puedes empezar (desde $10 al día)",
-    "Cómo conseguir +20 trabajos nuevos cada mes",
+// ── SCREEN 3 — LA SOLUCIÓN ───────────────────────────────────────────────────
+function Screen3({ onNext }: { onNext: () => void }) {
+  const steps = [
+    { num: 1, letter: "A", label: "Anuncios",    body: "No es solo poner un anuncio y rezar. Es saber exactamente cuáles anuncios traen clientes de tree service y cuáles solo queman dinero." },
+    { num: 2, letter: "P", label: "Página Web",  body: "No es cualquier página. Es una página lista con todo: tus fotos, tus precios, por qué elegirte a ti. Diseñada para que el cliente quiera llamarte. Y no necesitas saber nada de tecnología para usarla." },
+    { num: 3, letter: "C", label: "Calendario",  body: "Olvídate de andar persiguiendo clientes por WhatsApp o teléfono. El cliente entra a tu página, elige el día y la hora, y tú recibes la cita directo en tu teléfono. Automático. Solo." },
   ];
 
   return (
@@ -260,223 +386,211 @@ function Screen2({ onNext }: { onNext: () => void }) {
 
       <div className="max-w-lg w-full relative z-10">
 
-        <p className="text-[#F97316]/60 text-[10px] font-bold tracking-[4px] uppercase mb-7">
-          La solución
-        </p>
-
         <h2 className="text-[#FDF8F3] font-black leading-[1.1] mb-2"
-          style={{ ...PP, fontSize: "clamp(1.6rem, 4vw, 2.4rem)" }}>
-          Usan Facebook Ads.
+          style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
+          ¿Qué es el{" "}
+          <span className="text-[#F97316]">Método APC?</span>
         </h2>
 
-        <p className="text-[#F97316] font-black leading-tight mb-4"
-          style={{ ...PP, fontSize: "clamp(1.15rem, 2.8vw, 1.5rem)" }}>
-          Desde $10 al día. Sin agencias. Ellos mismos.
+        <p className="text-[#F97316] font-bold italic leading-snug mb-5"
+          style={{ ...PP, fontSize: "clamp(0.95rem, 2.2vw, 1.1rem)" }}>
+          Y por qué es importante que lo aprendas ahora, antes de que otra empresa de tree service en tu área lo descubra primero.
         </p>
 
-        <p className="text-[#FDF8F3]/55 text-base leading-relaxed mb-8">
-          Y tú también puedes aprender a hacerlo.
-          <br/>
-          Este <strong className="text-white">Domingo 9 de Agosto</strong> te enseño cómo,
-          en una clase en vivo y{" "}
-          <strong className="text-white">100% gratis.</strong>
+        <p className="text-[#FDF8F3]/60 text-base leading-relaxed mb-7">
+          Son 3 pasos simples. Cada uno por separado no sirve mucho.{" "}
+          <strong className="text-white">Pero juntos, te traen clientes nuevos cada semana — solos.</strong>
         </p>
 
-        {/* What you'll learn */}
-        <div className="bg-white/5 border border-white/10 rounded-2xl p-6 mb-8">
-          <p className="text-[#FDF8F3]/40 text-[10px] font-bold tracking-[2px] uppercase mb-5">
-            En la clase vas a aprender
-          </p>
-          <div className="space-y-4">
-            {bullets.map((item, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <div className="w-5 h-5 rounded-full bg-[#F97316] flex items-center justify-center shrink-0 mt-0.5">
-                  <Check size={10} className="text-white" strokeWidth={3}/>
+        <div className="space-y-4 mb-6">
+          {steps.map((step, i) => (
+            <div key={i} className="bg-white/5 border border-white/10 rounded-2xl p-5">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 rounded-xl bg-[#F97316] flex items-center justify-center shrink-0">
+                  <span className="text-white font-black text-base" style={PP}>{step.num}</span>
                 </div>
-                <p className="text-[#FDF8F3]/80 text-sm leading-snug">{item}</p>
+                <p className="text-[#F97316] font-black text-xs tracking-widest uppercase">
+                  {step.letter} — {step.label}
+                </p>
               </div>
-            ))}
-          </div>
-        </div>
-
-        <button onClick={onNext}
-          className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer shadow-xl shadow-[#F97316]/20"
-          style={PP}>
-          <span className="block text-base">Quiero aprender a hacerlo →</span>
-          <span className="block text-xs font-normal opacity-70 mt-0.5">Clase gratis · Dom 9 de Agosto · 6 PM EST</span>
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// ── SCREEN 3 — LA PRUEBA ─────────────────────────────────────────────────────
-function Screen3({ onNext }: { onNext: () => void }) {
-  const testimonials = [
-    {
-      name: "Miguel Hernández",
-      location: "Houston, TX",
-      text: "El primer mes cerré 7 trabajos nuevos solo con los anuncios. Antes esperaba semanas para llenar la agenda.",
-    },
-    {
-      name: "Carlos Reyes",
-      location: "Dallas, TX",
-      text: "Gasto $15 al día en Facebook y me llaman 4 clientes nuevos cada semana. No necesité ninguna agencia.",
-    },
-    {
-      name: "Luis Mendoza",
-      location: "Miami, FL",
-      text: "En 30 días triplicamos los trabajos. Antes dependía solo del boca a boca.",
-    },
-  ];
-
-  return (
-    <div className="min-h-screen bg-[#FDF8F3] flex flex-col items-center justify-center px-6 py-20">
-      <div className="max-w-lg w-full">
-
-        <p className="text-[#F97316] text-[10px] font-bold tracking-[4px] uppercase mb-7">
-          Ya lo están haciendo
-        </p>
-
-        <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-8"
-          style={{ ...PP, fontSize: "clamp(1.65rem, 4.2vw, 2.5rem)" }}>
-          Otros dueños de tree service
-          <br/>
-          ya lo están usando.
-        </h2>
-
-        {/* Testimonials */}
-        <div className="space-y-4 mb-8">
-          {testimonials.map((t, i) => (
-            <div key={i} className="bg-white border border-[#E5DDD5] rounded-2xl p-5 shadow-sm">
-              <Stars/>
-              <p className="text-[#374151] text-sm leading-relaxed mt-2.5 mb-3 italic">
-                "{t.text}"
-              </p>
-              <div>
-                <p className="text-[#1B3A2D] text-xs font-black">{t.name}</p>
-                <p className="text-[#9CA3AF] text-[11px]">{t.location}</p>
-              </div>
+              <p className="text-[#FDF8F3]/80 text-sm leading-relaxed">{step.body}</p>
             </div>
           ))}
         </div>
 
-        {/* Instructor */}
-        <div className="bg-[#1B3A2D] rounded-2xl p-5 mb-8">
-          <p className="text-[#FDF8F3]/40 text-[10px] font-bold tracking-[2px] uppercase mb-4">
-            Quien te enseña
+        <div className="text-center mb-6">
+          <p className="text-[#FDF8F3] font-black leading-tight mb-2"
+            style={{ ...PP, fontSize: "clamp(1.5rem, 4vw, 2rem)" }}>
+            ¿Quieres que te enseñemos a hacer esto{" "}
+            <span className="text-[#F97316]">Rápido, Fácil y Gratis?</span>
           </p>
-          <div className="flex items-start gap-4">
-            <div className="w-14 h-14 rounded-full bg-[#F97316]/15 border-2 border-[#F97316]/30 flex items-center justify-center shrink-0">
-              <span className="text-[#F97316] font-black text-xl" style={PP}>DA</span>
-            </div>
-            <div>
-              <p className="text-white font-black text-base mb-1" style={PP}>Daniel Acero</p>
-              <div className="flex flex-wrap gap-2">
-                {["+$100K en ads gestionados", "6 años de experiencia", "50+ negocios ayudados"].map((b, i) => (
-                  <span key={i} className="bg-white/8 border border-white/10 rounded-lg px-2.5 py-1 text-[#FDF8F3]/60 text-[10px] font-bold">
-                    {b}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </div>
+          <p className="text-[#FDF8F3]/50 text-sm">Antes de que tu competencia lo aplique</p>
         </div>
 
         <button onClick={onNext}
           className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
           style={PP}>
-          <span className="block text-base">Guardar mi cupo ahora →</span>
-          <span className="block text-xs font-normal opacity-70 mt-0.5">Es gratis · Quedan solo {TOTAL_SPOTS - TAKEN_SPOTS} lugares</span>
+          <span className="block text-lg">Sí, quiero la clase gratis →</span>
+          <span className="block text-xs font-normal opacity-70 mt-0.5">Clase en vivo · Domingo 9 de Agosto · 6 PM EST · 100% gratis</span>
         </button>
       </div>
     </div>
   );
 }
 
-// ── SCREEN 4 — EL REGISTRO ───────────────────────────────────────────────────
+// ── SCREEN 4 — FECHA + REGISTRO + TESTIMONIOS ────────────────────────────────
 function Screen4({ viewers, done, onSuccess }: { viewers: number; done: boolean; onSuccess: () => void }) {
   const timer = useCountdown();
   const pct   = Math.round((TAKEN_SPOTS / TOTAL_SPOTS) * 100);
   const [barFilled, setBarFilled] = useState(false);
-  useEffect(() => { const t = setTimeout(() => setBarFilled(true), 250); return () => clearTimeout(t); }, []);
+  useEffect(() => { const t = setTimeout(() => setBarFilled(true), 300); return () => clearTimeout(t); }, []);
+
+  const testimonials = [
+    {
+      name: "Miguel Hernández",
+      location: "Houston, TX",
+      result: "De 3 a 22 trabajos en 4 semanas",
+      text: "El primer mes cerré 22 trabajos. Antes con suerte llegaba a 3 en todo el mes.",
+    },
+    {
+      name: "Carlos Reyes",
+      location: "Dallas, TX",
+      result: "4 clientes nuevos por semana · $15/día",
+      text: "Gasto $15 al día y me llaman 4 clientes nuevos cada semana. Sin ninguna agencia.",
+    },
+    {
+      name: "Luis Mendoza",
+      location: "Miami, FL",
+      result: "Triplicó trabajos en 30 días",
+      text: "En 30 días triplicamos los trabajos. Llevaba 2 años esperando que me recomendaran.",
+    },
+  ];
 
   return (
-    <div className="min-h-screen bg-[#1B3A2D] flex flex-col items-center justify-center px-4 py-20 relative overflow-hidden">
-      <div className="absolute inset-0 pointer-events-none">
-        <img src="/tree-service.jpg" alt="" className="w-full h-full object-cover opacity-[0.13]"/>
-        <div className="absolute inset-0 bg-[#1B3A2D]/65"/>
-      </div>
+    <div className="bg-[#FDF8F3] px-5 py-16">
+      <div className="max-w-md mx-auto">
 
-      <div className="max-w-md w-full relative z-10">
+        {/* Fecha */}
+        <h2 className="text-[#1B3A2D] font-black leading-[1.15] mb-2 text-center"
+          style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
+          La clase{" "}
+          <span className="text-[#F97316]">Gratis</span>{" "}
+          es este{" "}
+          <span className="text-[#F97316]">Domingo 9 de Agosto.</span>
+        </h2>
 
-        {/* Heading */}
-        <div className="text-center mb-7">
-          <p className="text-[#F97316]/70 text-[10px] font-bold tracking-[4px] uppercase mb-3">
-            ¡Último paso!
-          </p>
-          <h2 className="text-[#FDF8F3] font-black text-2xl leading-tight mb-1" style={PP}>
-            Guarda tu lugar en la clase
-          </h2>
-          <p className="text-[#FDF8F3]/40 text-sm">
-            Domingo 9 de Agosto · 6 PM EST · En vivo · Gratis
-          </p>
-        </div>
+        <p className="text-[#4B5563] text-sm mb-6 leading-relaxed text-center">
+          <strong className="text-[#F97316]">6:00 PM hora del Este</strong> · En vivo.{" "}
+          <strong className="text-[#1B3A2D]">La grabación solo para los que se registren.</strong>
+        </p>
 
-        {/* Countdown */}
-        <div className="mb-6">
-          <p className="text-[#FDF8F3]/30 text-[10px] font-bold tracking-[2px] uppercase mb-3 text-center">
-            La clase comienza en
-          </p>
-          <div className="flex items-start justify-center gap-2.5">
-            <CountBox value={timer.days}    label="Días"/>
-            <span className="text-white/40 text-2xl font-black mt-3">:</span>
-            <CountBox value={timer.hours}   label="Horas"/>
-            <span className="text-white/40 text-2xl font-black mt-3">:</span>
-            <CountBox value={timer.minutes} label="Min"/>
-            <span className="text-white/40 text-2xl font-black mt-3">:</span>
-            <CountBox value={timer.seconds} label="Seg"/>
-          </div>
-        </div>
+        {/* Tarjeta única: urgencia + formulario */}
+        <div className="bg-white border border-[#E5DDD5] rounded-2xl overflow-hidden shadow-xl mb-10">
 
-        {/* Viewers + occupancy */}
-        <div className="mb-6 space-y-3">
-          <div className="flex items-center justify-center gap-2">
-            <Eye size={13} className="text-[#F97316]"/>
-            <span className="text-[#FDF8F3]/50 text-xs">
-              <strong className="text-[#F97316] font-black">{viewers}</strong>{" "}
-              personas viendo esto ahora
-            </span>
-          </div>
-          <div>
-            <div className="flex justify-between text-[10px] mb-1.5">
-              <span className="text-[#FDF8F3]/30 font-bold uppercase tracking-widest">Cupos tomados</span>
-              <span className="text-[#F97316] font-black">{pct}%</span>
-            </div>
-            <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-              <div className="h-full rounded-full occ-bar"
-                style={{ width: barFilled ? `${pct}%` : "0%" }}/>
-            </div>
-            <p className="text-[#FDF8F3]/25 text-[10px] mt-1 text-right">
-              Solo {TOTAL_SPOTS - TAKEN_SPOTS} lugares disponibles
+          {/* Zona verde: countdown + viewers + barra */}
+          <div className="bg-[#1B3A2D] px-5 pt-5 pb-4">
+            <p className="text-white/30 text-[10px] font-bold tracking-[2px] uppercase mb-3 text-center">
+              La clase empieza en
             </p>
-          </div>
-        </div>
+            <div className="flex items-start justify-center gap-2 mb-4">
+              <CountBox value={timer.days}    label="Días"/>
+              <span className="text-white/20 text-xl font-black mt-3">:</span>
+              <CountBox value={timer.hours}   label="Horas"/>
+              <span className="text-white/20 text-xl font-black mt-3">:</span>
+              <CountBox value={timer.minutes} label="Min"/>
+              <span className="text-white/20 text-xl font-black mt-3">:</span>
+              <CountBox value={timer.seconds} label="Seg"/>
+            </div>
 
-        {/* Form card */}
-        <div className="bg-white border border-[#E5DDD5] rounded-2xl overflow-hidden shadow-2xl shadow-black/30">
-          <div className="bg-[#1B3A2D] px-6 py-4 text-center border-b border-white/10">
-            <p className="text-white/50 text-[10px] font-bold tracking-[2px] uppercase mb-0.5">
-              Clase gratis · Domingo 9 de Agosto · 6 PM EST
-            </p>
-            <p className="text-white font-black text-xl leading-tight" style={PP}>
+            {/* Viewers + barra integrados */}
+            <div className="bg-white/[0.07] rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-1.5">
+                  <Eye size={11} className="text-[#F97316]"/>
+                  <span className="text-white/50 text-[11px]">
+                    <strong className="text-[#F97316] font-black">{viewers}</strong> personas quieren registrarse ahora
+                  </span>
+                </div>
+                <span className="text-[#F97316] font-black text-[11px]">{pct}% lugares tomados</span>
+              </div>
+              <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                <div className="h-full rounded-full occ-bar" style={{ width: barFilled ? `${pct}%` : "0%" }}/>
+              </div>
+            </div>
+          </div>
+
+          {/* Separador con label */}
+          <div className="border-b border-[#F0E8E0] px-6 py-3 text-center bg-[#FDF8F3]">
+            <p className="text-[#1B3A2D] font-black text-lg flex items-center justify-center gap-2" style={PP}>
+              <ArrowDown size={18} strokeWidth={3} className="text-[#1B3A2D]"/>
               Regístrate Aquí
+              <ArrowDown size={18} strokeWidth={3} className="text-[#1B3A2D]"/>
             </p>
           </div>
+
+          {/* Formulario */}
           <div className="p-6">
             {done ? <SuccessState/> : <RegForm onSuccess={onSuccess}/>}
           </div>
         </div>
+
+        {/* Instructor */}
+        <div className="bg-[#1B3A2D] rounded-2xl overflow-hidden mb-8">
+          <div className="flex items-start gap-4 p-5">
+            <div className="flex flex-col items-center gap-1.5 shrink-0">
+              <img
+                src="/instructor.jpg"
+                alt="Ing. Daniel Acero"
+                className="w-20 h-20 rounded-xl object-cover object-top"
+              />
+              <div className="bg-white rounded-xl px-3 py-1.5 flex items-center justify-center w-20">
+                <img src="https://asset.brandfetch.io/idWvz5T3V7/idqXDhX7JG.png" alt="Meta" className="h-6 w-auto"/>
+              </div>
+            </div>
+            <div className="min-w-0">
+              <span className="text-[#F97316] text-[10px] font-bold tracking-[2px] uppercase block mb-1">Tu instructor</span>
+              <p className="text-white font-black text-base leading-tight mb-0.5" style={PP}>Ing. Daniel Acero</p>
+              <p className="text-white/50 text-xs mb-2">Experto en Meta Ads · Facebook & Instagram</p>
+              <p className="text-white/70 text-xs leading-relaxed">
+                Ha ayudado a más de 50 negocios latinos en USA a conseguir clientes sin ser expertos en tecnología.
+              </p>
+            </div>
+          </div>
+          <div className="border-t border-white/10 px-4 py-4 grid grid-cols-3 gap-2">
+            {[
+              { value: "+$100K", label: "en Meta Ads gestionados" },
+              { value: "6 años", label: "de experiencia" },
+              { value: "50+",    label: "negocios latinos ayudados" },
+            ].map((b) => (
+              <div key={b.value} className="bg-white/[0.07] border border-white/10 rounded-xl p-3 flex flex-col items-center text-center gap-1.5">
+                <ShieldCheck size={16} className="text-[#F97316] shrink-0"/>
+                <span className="text-white font-black text-base leading-none" style={PP}>{b.value}</span>
+                <span className="text-white/75 text-[10px] leading-snug">{b.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Social proof */}
+        <p className="text-[#9CA3AF] text-xs font-bold text-center uppercase tracking-widest mb-5">
+          Lo que dicen otros dueños de tree service
+        </p>
+        <div className="space-y-3">
+          {testimonials.map((t, i) => (
+            <div key={i} className="bg-white border border-[#E5DDD5] rounded-xl p-4 shadow-sm">
+              <Stars/>
+              <div className="mt-2.5 mb-2.5 inline-block bg-[#1B3A2D]/6 border border-[#1B3A2D]/10 rounded-lg px-3 py-1">
+                <p className="text-[#1B3A2D] text-xs font-black">{t.result}</p>
+              </div>
+              <p className="text-[#374151] text-sm leading-relaxed italic mb-2.5">"{t.text}"</p>
+              <div>
+                <p className="text-[#1B3A2D] text-xs font-black">{t.name}</p>
+                <p className="text-[#9CA3AF] text-[11px]">Tree Service · {t.location}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
       </div>
     </div>
   );
@@ -495,6 +609,7 @@ function SuccessState() {
         Únete al grupo para recibir el link.
       </p>
       <a href={WA_LINK} target="_blank" rel="noopener noreferrer"
+        onClick={() => fbq("track", "Lead")}
         className="w-full flex items-center justify-center gap-3 bg-[#25D366] hover:bg-[#1DB954] text-white font-bold py-4 rounded-xl transition-all duration-200 cursor-pointer hover:scale-[1.02]"
         style={PP}>
         {WA_SVG}
@@ -511,6 +626,13 @@ export default function ClaseGratisTreeServiceGame() {
   const [done, setDone]             = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const viewers = useFakeViewers(63);
+
+  useEffect(() => {
+    initPixel();
+    fbq("init", PIXEL_ID);
+    fbq("track", "PageView");
+    fbq("track", "ViewContent");
+  }, []);
 
   const advance = () => {
     setFading(true);
@@ -548,9 +670,7 @@ export default function ClaseGratisTreeServiceGame() {
         {screen === 1 && <Screen1 onNext={advance}/>}
         {screen === 2 && <Screen2 onNext={advance}/>}
         {screen === 3 && <Screen3 onNext={advance}/>}
-        {screen === 4 && (
-          <Screen4 viewers={viewers} done={done} onSuccess={handleSuccess}/>
-        )}
+        {screen === 4 && <Screen4 viewers={viewers} done={done} onSuccess={handleSuccess}/>}
       </div>
 
       {/* Success overlay */}
@@ -567,7 +687,7 @@ export default function ClaseGratisTreeServiceGame() {
             </p>
             <p className="text-[#F97316] font-black text-xl mb-8">6:00 PM EST · En vivo</p>
             <a href={WA_LINK}
-              onClick={() => setShowOverlay(false)}
+              onClick={() => { fbq("track", "Lead"); setShowOverlay(false); }}
               target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-3 w-full bg-[#25D366] hover:bg-[#1DB954] text-white font-bold py-5 rounded-2xl text-lg transition-all duration-200 cursor-pointer hover:scale-[1.02]"
               style={PP}>
