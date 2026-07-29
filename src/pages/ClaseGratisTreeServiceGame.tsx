@@ -156,22 +156,22 @@ function RegForm({ onSuccess }: { onSuccess: () => void }) {
   const base = "bg-[#F9F6F2] border border-[#E5E0D8] focus:border-[#1B3A2D] rounded-lg text-[#1B3A2D] text-base outline-none transition-colors";
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-3">
+    <form onSubmit={handleSubmit} className="space-y-3 w-full">
       <input type="text" placeholder="Nombre y Apellido" value={name}
         onChange={e => setName(e.target.value)}
         className={`w-full ${base} px-4 py-3.5 placeholder-[#A89F96]`} required/>
-      <div className="flex gap-2">
+      <div className="flex gap-2 min-w-0">
         <select value={countryCode} onChange={e => setCountryCode(e.target.value)}
-          className={`${base} px-2 py-3.5 shrink-0`} style={{ width: "96px" }}>
+          className={`${base} px-2 py-3.5 shrink-0 w-24`}>
           {COUNTRIES.map((c, i) => (
             <option key={i} value={c.code}>{c.label}</option>
           ))}
         </select>
         <input type="tel" placeholder="Número de WhatsApp" value={phone}
           onChange={e => setPhone(e.target.value)}
-          className={`flex-1 ${base} px-4 py-3.5 placeholder-[#A89F96]`} required/>
+          className={`flex-1 min-w-0 ${base} px-4 py-3.5 placeholder-[#A89F96]`} required/>
       </div>
-      <p className="text-[#6B7280] text-[11px] leading-snug">
+      <p className="text-[#6B7280] text-xs leading-snug text-center">
         Necesita tener <strong className="text-[#25D366]">WhatsApp</strong> — por ahí te enviamos el acceso a la clase.
       </p>
       {error && (
@@ -184,9 +184,13 @@ function RegForm({ onSuccess }: { onSuccess: () => void }) {
         style={PP}>
         {loading
           ? <><svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" className="opacity-75"/></svg>Registrando…</>
-          : <>{WA_SVG}<div className="flex flex-col items-start leading-tight"><span className="text-[0.95rem]">Reservar mi cupo gratis</span><span className="text-[11px] font-normal opacity-70">Clase en vivo · Dom 9 Ago · 6 PM EST</span></div></>
+          : <>{WA_SVG}<span className="text-[0.95rem]">Reservar mi cupo gratis</span></>
         }
       </button>
+      <p className="text-[#1B3A2D] text-xs text-center font-black mt-1 flex items-center justify-center gap-1" style={PP}>
+        <CalendarCheck size={13} className="text-[#1B3A2D] shrink-0"/>
+        Clase en vivo · Dom 9 Ago · 6 PM EST
+      </p>
       <p className="text-[#A89F96] text-[10px] text-center">100% gratis · Sin tarjeta · Sin compromisos</p>
     </form>
   );
@@ -581,17 +585,24 @@ function Screen5({ viewers, done, onSuccess }: { viewers: number; done: boolean;
       <div className="max-w-md mx-auto">
 
         {/* Fecha */}
-        <h2 className="text-[#1B3A2D] font-black leading-[1.15] mb-2 text-center"
+        {/* Desktop */}
+        <h2 className="hidden md:block text-[#1B3A2D] font-black leading-[1.15] mb-2 text-center"
           style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
-          Este{" "}
-          <span className="text-[#F97316]">Domingo 9 de Agosto</span>{" "}
-          aprenderás{" "}
-          <span className="text-[#F97316]">Gratis</span>{" "}
-          a aplicar el Método APC
+          Este <span className="text-[#F97316]">Domingo 9 de Agosto</span> aprenderás{" "}
+          <span className="text-[#F97316]">Gratis</span> a aplicar el Método APC
+        </h2>
+        {/* Mobile */}
+        <h2 className="md:hidden text-[#1B3A2D] font-black text-center mb-2" style={PP}>
+          <span className="block leading-snug" style={{ fontSize: "clamp(1.1rem, 3vw, 1.5rem)" }}>
+            Este <span className="text-[#F97316]">Domingo 9 de Agosto</span>
+          </span>
+          <span className="block leading-tight" style={{ fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
+            Aprenderás <span className="text-[#F97316]">Gratis</span> a aplicar el Método APC
+          </span>
         </h2>
 
         <p className="text-[#4B5563] text-sm mb-6 leading-relaxed text-center">
-          <strong className="text-[#F97316]">6:00 PM EST</strong> · En vivo.{" "}
+          <strong className="text-[#F97316]">6:00 PM EST</strong> · En vivo.<br className="md:hidden"/>{" "}
           <strong className="text-[#1B3A2D]">La grabación solo para los que se registren.</strong>
         </p>
 
@@ -615,14 +626,14 @@ function Screen5({ viewers, done, onSuccess }: { viewers: number; done: boolean;
 
             {/* Viewers + barra integrados */}
             <div className="bg-white/[0.07] rounded-xl px-4 py-3">
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-1.5">
-                  <Eye size={11} className="text-[#F97316]"/>
-                  <span className="text-white/50 text-[11px]">
+              <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-1 mb-2">
+                <div className="flex items-center justify-center md:justify-start gap-1.5">
+                  <Eye size={12} className="text-[#F97316] shrink-0"/>
+                  <span className="text-white/50 text-xs md:text-[11px]">
                     <strong className="text-[#F97316] font-black">{viewers}</strong> personas quieren registrarse ahora
                   </span>
                 </div>
-                <span className="text-[#F97316] font-black text-[11px]">{pct}% lugares tomados</span>
+                <span className="text-[#F97316] font-black text-xs md:text-[11px] text-center md:text-right">{pct}% lugares tomados</span>
               </div>
               <div className="h-2 bg-white/10 rounded-full overflow-hidden">
                 <div className="h-full rounded-full occ-bar" style={{ width: barFilled ? `${pct}%` : "0%" }}/>
