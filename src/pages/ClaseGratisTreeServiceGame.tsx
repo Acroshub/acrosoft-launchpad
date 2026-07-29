@@ -805,10 +805,15 @@ function Screen5({ viewers, done, onSuccess, copy }: { viewers: number; done: bo
           </span>
         </h2>
 
+        <p className="text-[#1B3A2D] text-sm mb-6 leading-relaxed text-center">
+          <strong className="text-[#1B3A2D]">Para que consigas +20 Clientes Nuevos Cada Mes</strong>
+        </p>
+
         <p className="text-[#4B5563] text-sm mb-6 leading-relaxed text-center">
           <strong className="text-[#F97316]">6:00 PM EST</strong> · En vivo.<br className="md:hidden"/>{" "}
           <strong className="text-[#1B3A2D]">La grabación solo para los que se registren.</strong>
         </p>
+        
 
         {/* Tarjeta única: urgencia + formulario */}
         <div className="bg-white border border-[#E5DDD5] rounded-2xl overflow-hidden shadow-xl mb-10">
