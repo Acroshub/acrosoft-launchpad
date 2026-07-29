@@ -1,9 +1,194 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Check, Star, AlertTriangle, Eye, ShieldCheck, ArrowDown, Megaphone, Globe, CalendarCheck, Lock, LockOpen } from "lucide-react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+
+// ── A/B VARIANTS ──────────────────────────────────────────────────────────────
+const VARIANTS = {
+  s1_title: {
+    A: "¿Cuál de estas frases te describe a ti y tu negocio hoy mismo?",
+    B: "¿Cuál de estos problemas tienes en tu negocio de tree service?",
+    C: "Selecciona lo que estás viviendo en tu negocio ahora mismo:",
+  },
+  s1_cta: {
+    A: { main: "Esto me está pasando a mí →", sub: "Quiero ver qué puedo hacer" },
+    B: { main: "Sí, esto me pasa a mí →",    sub: "Quiero ver la solución" },
+    C: { main: "Así está mi negocio hoy →",  sub: "Muéstrame cómo mejorar" },
+  },
+  s2_title: {
+    A: "Te entendemos. No es que tu trabajo sea malo.",
+    B: "No estás solo. Miles de dueños de tree service viven lo mismo.",
+    C: "No es tu culpa. El problema no es tu trabajo.",
+  },
+  s2_body: {
+    A: "Es que nadie te enseñó cómo conseguir clientes — sin esperar referidos, sin depender de agencias, y sin necesitar saber de tecnología.",
+    B: "El problema es que nadie te enseñó a conseguir clientes tú solo. Sin esperar que te recomienden. Sin gastar en agencias. Sin ser experto en internet.",
+    C: "Nadie te explicó cómo hacer que los clientes lleguen solos. Sin referidos. Sin agencias. Sin complicarte con la tecnología.",
+  },
+  s2_cta: {
+    A: "Quiero ver cuál es la solución →",
+    B: "¿Cuál es la solución? Muéstramela →",
+    C: "Sí quiero saber cómo arreglarlo →",
+  },
+  s3_title: {
+    A: "El secreto está en un Método de 3 Pasos para que:",
+    B: "Los dueños que sí tienen clientes cada mes hacen estas 3 cosas:",
+    C: "La diferencia entre tú y ellos es un método de 3 pasos que permite:",
+  },
+  s3_closing: {
+    A: 'Este método es "El Método APC". Y mientras tú lees esto, hay otros que ya lo están usando y te están quitando clientes.',
+    B: 'A este método lo llamamos "El Método APC". Y hay dueños de tree service en tu área que ya lo aplican. Cada día que pasa, más lejos se ponen de ti.',
+    C: 'Este método se llama "El Método APC". No es nuevo. Pero pocos lo conocen. Y los que lo aplican dejan de depender de referidos para siempre.',
+  },
+  s3_cta: {
+    A: 'Quiero conocer el "Método de 3 pasos APC" →',
+    B: "Muéstrame cómo funciona el Método APC →",
+    C: "Quiero aprender este método →",
+  },
+  s4_urgency: {
+    A: "Es importante que lo aprendas ahora, antes de que tu competencia lo aplique primero.",
+    B: "Mientras más esperes, más trabajos pierde tu negocio.",
+    C: "El que lo aprende primero, se queda con los clientes del área.",
+  },
+  s4_desc: {
+    A: "Son 3 pasos simples. Cada uno por separado no funcionará. Pero si lo haces bien desde un inicio te traen clientes nuevos cada semana.",
+    B: "Son 3 cosas que hacer en orden. Solas no sirven de nada. Pero cuando las combinas, los clientes empiezan a llegar solos.",
+    C: "No es magia. Son 3 pasos que ya funcionaron para otros dueños de tree service. Juntos hacen que los clientes te encuentren a ti — no a tu competencia.",
+  },
+  s4_step_a: {
+    A: "No sirve cualquier anuncio. Las agencias de marketing no conocen tu negocio al 100% y hacen anuncios genéricos que no funcionan para tree service. Lo que sí funciona son anuncios que otros dueños de tree service ya probaron y dieron resultado. Adáptalos para tu negocio.",
+    B: "No sirve cualquier anuncio. Si el anuncio no habla directo al cliente que necesita cortar un árbol hoy, no funciona. El secreto es usar un anuncio que ya fue probado por otros dueños de tree service — y adaptarlo a tu zona.",
+    C: "No sirve cualquier anuncio. La mayoría gasta en anuncios que hablan a todo el mundo — y no convierten. Un anuncio que funciona para tree service es específico, directo, y habla del problema del cliente. No del tuyo.",
+  },
+  s4_step_p: {
+    A: "No sirve cualquier página. La mayoría tiene una página bonita pero nadie llama. Eso pasa porque no está hecha para tree service. Una página que funciona le dice al cliente en segundos por qué llamarte a ti — y no a tu competencia.",
+    B: "No sirve cualquier página. Una página bonita no hace que te llamen. Lo que hace que te llamen es que el cliente entienda en 5 segundos qué haces, dónde lo haces, y por qué eres mejor opción que el de al lado.",
+    C: "No sirve cualquier página. Si el cliente entra a tu página y no sabe qué hacer en los primeros segundos, se va. Una página que funciona tiene un solo objetivo: que el cliente te llame o llene un formulario.",
+  },
+  s4_step_c: {
+    A: "No sirve solo tener un número de teléfono. Cuando el cliente llama y tú no contestas, llama al siguiente. Y ese trabajo se pierde. Con un calendario, el cliente agenda solo — aunque tú estés en el trabajo. Es la única forma de no perder ninguna cita.",
+    B: "No sirve solo el teléfono. Si no contestas a la primera, ese cliente ya llamó al que aparece después en Google. Con un calendario online, el cliente agenda en el momento que quiere — y tú recibes la cita sin perder el trabajo que estás haciendo.",
+    C: "No sirve solo esperar la llamada. El cliente de hoy quiere agendar rápido y sin hablar con nadie. Si no tienes un calendario donde pueda hacerlo solo, vas a perder ese trabajo aunque hayas pagado por el anuncio.",
+  },
+  s4_final_cta: {
+    A: { main: "Quiero aprender este método Gratis →",  sub: "Antes de que mi competencia lo haga" },
+    B: { main: "¿Cómo aprendo esto? Gratis →",           sub: "Sin pagar nada, sin tarjeta" },
+    C: { main: "Quiero que me lo enseñen Gratis →",      sub: "Clase este Domingo 9 de Agosto" },
+  },
+  s5_btn: {
+    A: "Reservar mi cupo gratis",
+    B: "Guardar mi lugar gratis",
+    C: "Sí, quiero mi cupo gratis",
+  },
+} as const;
+
+type VKey   = keyof typeof VARIANTS;
+type VChoice = "A" | "B" | "C";
+type Chosen = Record<VKey, VChoice>;
+
+type S1Copy = { title: string; cta: { main: string; sub: string } };
+type S2Copy = { title: string; body: string; cta: string };
+type S3Copy = { title: string; closing: string; cta: string };
+type S4Copy = { urgency: string; desc: string; steps: [string, string, string]; finalCta: { main: string; sub: string } };
+type S5Copy = { btn: string };
+
+// ── THOMPSON SAMPLING ─────────────────────────────────────────────────────────
+function gammaSample(shape: number): number {
+  let s = 0;
+  for (let i = 0; i < shape; i++) s -= Math.log(Math.random() || 1e-10);
+  return s;
+}
+
+function thompsonPick(stats: Record<VChoice, { impressions: number; conversions: number }>): VChoice {
+  const score = (v: VChoice) => {
+    const { impressions: n, conversions: c } = stats[v];
+    const a = gammaSample(c + 1);
+    const b = gammaSample(n - c + 1);
+    return a / (a + b);
+  };
+  const sA = score("A"), sB = score("B"), sC = score("C");
+  if (sA >= sB && sA >= sC) return "A";
+  if (sB >= sA && sB >= sC) return "B";
+  return "C";
+}
+
+function pickAll(statsMap: Record<string, Record<VChoice, { impressions: number; conversions: number }>>): Chosen {
+  const empty = { A: { impressions: 0, conversions: 0 }, B: { impressions: 0, conversions: 0 }, C: { impressions: 0, conversions: 0 } };
+  return Object.fromEntries(
+    (Object.keys(VARIANTS) as VKey[]).map(k => [k, thompsonPick(statsMap[k] ?? empty)])
+  ) as Chosen;
+}
+
+// ── AB TEST HOOK ──────────────────────────────────────────────────────────────
+function useABTest() {
+  const defaultChosen = Object.fromEntries((Object.keys(VARIANTS) as VKey[]).map(k => [k, "A"])) as Chosen;
+  const [chosen, setChosen] = useState<Chosen>(defaultChosen);
+  const sessionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      let statsMap: Record<string, Record<VChoice, { impressions: number; conversions: number }>> = {};
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/ab_stats?select=element_key,variant,impressions,conversions`, {
+          headers: { apikey: SUPABASE_ANON_KEY },
+        });
+        if (r.ok) {
+          const rows: { element_key: string; variant: string; impressions: number; conversions: number }[] = await r.json();
+          for (const row of rows) {
+            if (!statsMap[row.element_key]) statsMap[row.element_key] = { A: { impressions: 0, conversions: 0 }, B: { impressions: 0, conversions: 0 }, C: { impressions: 0, conversions: 0 } };
+            if (row.variant === "A" || row.variant === "B" || row.variant === "C")
+              statsMap[row.element_key][row.variant] = { impressions: row.impressions, conversions: row.conversions };
+          }
+        }
+      } catch { /* fallback: equal weights = random */ }
+
+      const picked = pickAll(statsMap);
+      setChosen(picked);
+
+      try {
+        const r = await fetch(`${SUPABASE_URL}/rest/v1/ab_sessions`, {
+          method: "POST",
+          headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json", Prefer: "return=representation" },
+          body: JSON.stringify({ variants: picked, max_screen: 0 }),
+        });
+        if (r.ok) { const [s] = await r.json(); sessionRef.current = s.id; }
+      } catch { /* non-critical */ }
+    })();
+  }, []);
+
+  const patch = async (body: Record<string, unknown>) => {
+    const sid = sessionRef.current;
+    if (!sid) return;
+    try {
+      await fetch(`${SUPABASE_URL}/rest/v1/ab_sessions?id=eq.${sid}`, {
+        method: "PATCH",
+        headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    } catch { /* non-critical */ }
+  };
+
+  const trackScreen    = (n: number) => patch({ max_screen: n });
+  const recordConversion = () => patch({ converted: true, converted_at: new Date().toISOString() });
+
+  const resolve = (c: Chosen): { s1: S1Copy; s2: S2Copy; s3: S3Copy; s4: S4Copy; s5: S5Copy } => ({
+    s1: { title: VARIANTS.s1_title[c.s1_title], cta: VARIANTS.s1_cta[c.s1_cta] },
+    s2: { title: VARIANTS.s2_title[c.s2_title], body: VARIANTS.s2_body[c.s2_body], cta: VARIANTS.s2_cta[c.s2_cta] },
+    s3: { title: VARIANTS.s3_title[c.s3_title], closing: VARIANTS.s3_closing[c.s3_closing], cta: VARIANTS.s3_cta[c.s3_cta] },
+    s4: {
+      urgency: VARIANTS.s4_urgency[c.s4_urgency],
+      desc: VARIANTS.s4_desc[c.s4_desc],
+      steps: [VARIANTS.s4_step_a[c.s4_step_a], VARIANTS.s4_step_p[c.s4_step_p], VARIANTS.s4_step_c[c.s4_step_c]],
+      finalCta: VARIANTS.s4_final_cta[c.s4_final_cta],
+    },
+    s5: { btn: VARIANTS.s5_btn[c.s5_btn] },
+  });
+
+  return { copy: resolve(chosen), trackScreen, recordConversion };
+}
+
 const WA_LINK     = "https://chat.whatsapp.com/JgHdi4DH3cWFkniv7rytoQ?s=cl&p=i&mlu=4&amv=1";
 const EVENT_DATE  = new Date("2026-08-09T22:00:00.000Z");
 const TOTAL_SPOTS = 100;
@@ -102,6 +287,26 @@ function useFakeViewers(base: number) {
   return n;
 }
 
+const RECENT_REGS = [
+  { name: "Miguel H.",  city: "Houston, TX",    min: 1  },
+  { name: "Carlos R.",  city: "Dallas, TX",      min: 3  },
+  { name: "Luis M.",    city: "Miami, FL",       min: 6  },
+  { name: "José P.",    city: "Atlanta, GA",     min: 9  },
+  { name: "Andrés F.",  city: "Charlotte, NC",   min: 13 },
+  { name: "Roberto C.", city: "Orlando, FL",     min: 17 },
+  { name: "Diego V.",   city: "Phoenix, AZ",     min: 21 },
+  { name: "Marcos L.",  city: "Denver, CO",      min: 26 },
+];
+
+function useRecentRegistration() {
+  const [idx, setIdx] = useState(() => Math.floor(Math.random() * RECENT_REGS.length));
+  useEffect(() => {
+    const id = setInterval(() => setIdx(i => (i + 1) % RECENT_REGS.length), 5500);
+    return () => clearInterval(id);
+  }, []);
+  return RECENT_REGS[idx];
+}
+
 // ── SHARED UI ─────────────────────────────────────────────────────────────────
 function Stars() {
   return (
@@ -127,7 +332,7 @@ function CountBox({ value, label }: { value: number; label: string }) {
 }
 
 // ── REG FORM ─────────────────────────────────────────────────────────────────
-function RegForm({ onSuccess }: { onSuccess: () => void }) {
+function RegForm({ onSuccess, btnText }: { onSuccess: () => void; btnText: string }) {
   const [name, setName]               = useState("");
   const [phone, setPhone]             = useState("");
   const [countryCode, setCountryCode] = useState("1");
@@ -184,7 +389,7 @@ function RegForm({ onSuccess }: { onSuccess: () => void }) {
         style={PP}>
         {loading
           ? <><svg className="animate-spin w-4 h-4" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25"/><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" className="opacity-75"/></svg>Registrando…</>
-          : <>{WA_SVG}<span className="text-[0.95rem]">Reservar mi cupo gratis</span></>
+          : <>{WA_SVG}<span className="text-[0.95rem]">{btnText}</span></>
         }
       </button>
       <p className="text-[#1B3A2D] text-xs text-center font-black mt-1 flex items-center justify-center gap-1" style={PP}>
@@ -239,7 +444,7 @@ function Screen0({ onNext }: { onNext: () => void }) {
 }
 
 // ── SCREEN 1 — MINI-QUIZ ──────────────────────────────────────────────────────
-function Screen1({ onNext }: { onNext: () => void }) {
+function Screen1({ onNext, copy }: { onNext: () => void; copy: S1Copy }) {
   const options = [
     "Dependo de que me recomienden — y los referidos no siempre llegan",
     "Ya gasté en publicidad y el dinero se fue sin resultado",
@@ -274,7 +479,7 @@ function Screen1({ onNext }: { onNext: () => void }) {
 
         <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-2"
           style={{ ...PP, fontSize: "clamp(1.6rem, 4vw, 2.2rem)" }}>
-          ¿Cuál de estas frases te describe a ti y tu negocio hoy mismo?
+          {copy.title}
         </h2>
         <p className="text-[#9CA3AF] text-sm mb-8">Selecciona todo lo que te aplica</p>
 
@@ -314,8 +519,8 @@ function Screen1({ onNext }: { onNext: () => void }) {
             <button onClick={onNext}
               className="w-full bg-[#1B3A2D] hover:bg-[#142D22] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
               style={PP}>
-              <span className="block text-base">Esto me está pasando a mí →</span>
-              <span className="block text-xs font-normal opacity-55 mt-0.5">Quiero ver qué puedo hacer</span>
+              <span className="block text-base">{copy.cta.main}</span>
+              <span className="block text-xs font-normal opacity-55 mt-0.5">{copy.cta.sub}</span>
             </button>
           </>
         )}
@@ -325,20 +530,19 @@ function Screen1({ onNext }: { onNext: () => void }) {
 }
 
 // ── SCREEN 2 — EMPATÍA ───────────────────────────────────────────────────────
-function Screen2({ onNext }: { onNext: () => void }) {
+function Screen2({ onNext, copy }: { onNext: () => void; copy: S2Copy }) {
   return (
     <div className="min-h-screen bg-[#FDF8F3] flex flex-col items-center justify-center px-6 py-20">
       <div className="max-w-lg w-full">
 
         <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-5"
           style={{ ...PP, fontSize: "clamp(1.75rem, 4.5vw, 2.6rem)" }}>
-          Te entendemos.{" "}
-          <span className="text-[#F97316]">No es que tu trabajo sea malo.</span>{" "}
+          {copy.title}
         </h2>
 
-        <div className="space-y-4 mb-8">        
+        <div className="space-y-4 mb-8">
           <p className="text-[#374151] text-base leading-relaxed">
-            Es que nadie te enseñó cómo conseguir clientes — sin esperar referidos, sin depender de agencias, y sin necesitar saber de tecnología.
+            {copy.body}
           </p>
           <p className="text-[#1B3A2D] font-black text-base leading-relaxed">
             Eso no es culpa tuya. Pero sí tiene solución.
@@ -348,7 +552,7 @@ function Screen2({ onNext }: { onNext: () => void }) {
         <button onClick={onNext}
           className="w-full bg-[#1B3A2D] hover:bg-[#142D22] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
           style={PP}>
-          <span className="block text-base">Quiero ver cuál es la solución →</span>
+          <span className="block text-base">{copy.cta}</span>
         </button>
       </div>
     </div>
@@ -356,16 +560,14 @@ function Screen2({ onNext }: { onNext: () => void }) {
 }
 
 // ── SCREEN 3 — REVELACIÓN APC ─────────────────────────────────────────────────
-function Screen3({ onNext }: { onNext: () => void }) {
+function Screen3({ onNext, copy }: { onNext: () => void; copy: S3Copy }) {
   return (
     <div className="min-h-screen bg-[#FDF8F3] flex flex-col items-center justify-center px-6 py-20">
       <div className="max-w-lg w-full">
 
         <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-6"
           style={{ ...PP, fontSize: "clamp(1.9rem, 4.5vw, 2.6rem)" }}>
-          El secreto está en un{" "}
-          <span className="text-[#F97316]">Método de 3 Pasos</span>{" "}
-          para que:
+          {copy.title}
         </h2>
 
         <div className="bg-[#1B3A2D] rounded-2xl p-6 mb-8">
@@ -385,15 +587,17 @@ function Screen3({ onNext }: { onNext: () => void }) {
         </div>
 
         <p className="text-[#1B3A2D] leading-relaxed text-base font-semibold mb-8" style={PP}>
-          Este método es{" "}
-          <span className="text-[#F97316] font-black">"El Método APC"</span>.{" "}
-          <strong>Y mientras tú lees esto, hay otros que ya lo están usando y te están quitando clientes.</strong>
+          {copy.closing.split(/(El Método APC|"El Método APC")/).map((part, i) =>
+            part === "El Método APC" || part === '"El Método APC"'
+              ? <span key={i} className="text-[#F97316] font-black">{part}</span>
+              : <span key={i}>{part}</span>
+          )}
         </p>
 
         <button onClick={onNext}
           className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
           style={PP}>
-          <span className="block text-base">Quiero conocer el "Método de 3 pasos APC" →</span>
+          <span className="block text-base">{copy.cta}</span>
         </button>
       </div>
     </div>
@@ -401,24 +605,24 @@ function Screen3({ onNext }: { onNext: () => void }) {
 }
 
 // ── SCREEN 4 — LA SOLUCIÓN ───────────────────────────────────────────────────
-function Screen4({ onNext }: { onNext: () => void }) {
+function Screen4({ onNext, copy }: { onNext: () => void; copy: S4Copy }) {
   const [sub, setSub] = useState(0);
 
   const steps = [
     {
       num: 1, letter: "A", label: "Anuncios",
       icon: <Megaphone size={20} className="text-[#F97316]"/>,
-      body: "No sirve cualquier anuncio. Las agencias de marketing no conocen tu negocio al 100% y hacen anuncios genéricos que no funcionan para tree service. Lo que sí funciona son anuncios que otros dueños de tree service ya probaron y dieron resultado. Adáptalos para tu negocio.",
+      body: copy.steps[0],
     },
     {
       num: 2, letter: "P", label: "Página Web",
       icon: <Globe size={20} className="text-[#F97316]"/>,
-      body: "No sirve cualquier página. La mayoría tiene una página bonita pero nadie llama. Eso pasa porque no está hecha para tree service. Una página que funciona le dice al cliente en segundos por qué llamarte a ti — y no a tu competencia.",
+      body: copy.steps[1],
     },
     {
       num: 3, letter: "C", label: "Calendario",
       icon: <CalendarCheck size={20} className="text-[#F97316]"/>,
-      body: "No sirve solo tener un número de teléfono. Cuando el cliente llama y tú no contestas, llama al siguiente. Y ese trabajo se pierde. Con un calendario, el cliente agenda solo — aunque tú estés en el trabajo. Es la única forma de no perder ninguna cita.",
+      body: copy.steps[2],
     },
   ];
 
@@ -446,10 +650,10 @@ function Screen4({ onNext }: { onNext: () => void }) {
           </h2>
           <p className="text-[#F97316] font-bold leading-snug mb-4"
             style={{ ...PP, fontSize: "clamp(0.95rem, 2.2vw, 1.1rem)" }}>
-            Es importante que lo aprendas ahora, antes de que tu competencia lo aplique primero.
+            {copy.urgency}
           </p>
           <p className="text-[#FDF8F3]/60 text-base leading-relaxed mb-6">
-            Son 3 pasos simples. Cada uno por separado no funcionará.{" "}
+            {copy.desc}{" "}
             <strong className="text-white">Pero si lo haces bien desde un inicio te traen clientes nuevos cada semana.</strong>
           </p>
 
@@ -514,8 +718,8 @@ function Screen4({ onNext }: { onNext: () => void }) {
               <button onClick={onNext}
                 className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
                 style={PP}>
-                <span className="block text-lg">Quiero aprender este método Gratis →</span>
-                <span className="block text-xs font-normal opacity-80 mt-1">Antes de que mi competencia lo haga</span>
+                <span className="block text-lg">{copy.finalCta.main}</span>
+                <span className="block text-xs font-normal opacity-80 mt-1">{copy.finalCta.sub}</span>
               </button>
               <p className="text-center text-[#FDF8F3]/40 text-xs mt-3">
                 Clase en vivo · Domingo 9 de Agosto · 6 PM EST · 100% gratis
@@ -553,7 +757,7 @@ function Screen4({ onNext }: { onNext: () => void }) {
 }
 
 // ── SCREEN 5 — FECHA + REGISTRO + TESTIMONIOS ────────────────────────────────
-function Screen5({ viewers, done, onSuccess }: { viewers: number; done: boolean; onSuccess: () => void }) {
+function Screen5({ viewers, done, onSuccess, copy }: { viewers: number; done: boolean; onSuccess: () => void; copy: S5Copy }) {
   const timer = useCountdown();
   const pct   = Math.round((TAKEN_SPOTS / TOTAL_SPOTS) * 100);
   const [barFilled, setBarFilled] = useState(false);
@@ -652,7 +856,7 @@ function Screen5({ viewers, done, onSuccess }: { viewers: number; done: boolean;
 
           {/* Formulario */}
           <div className="p-6">
-            {done ? <SuccessState/> : <RegForm onSuccess={onSuccess}/>}
+            {done ? <SuccessState/> : <RegForm onSuccess={onSuccess} btnText={copy.btn}/>}
           </div>
         </div>
 
@@ -743,11 +947,12 @@ function SuccessState() {
 
 // ── MAIN ──────────────────────────────────────────────────────────────────────
 export default function ClaseGratisTreeServiceGame() {
-  const [screen, setScreen]         = useState(0);
-  const [fading, setFading]         = useState(false);
-  const [done, setDone]             = useState(false);
+  const [screen, setScreen]           = useState(0);
+  const [fading, setFading]           = useState(false);
+  const [done, setDone]               = useState(false);
   const [showOverlay, setShowOverlay] = useState(false);
   const viewers = useFakeViewers(63);
+  const { copy, trackScreen, recordConversion } = useABTest();
 
   useEffect(() => {
     initPixel();
@@ -759,13 +964,17 @@ export default function ClaseGratisTreeServiceGame() {
   const advance = () => {
     setFading(true);
     setTimeout(() => {
-      setScreen(s => s + 1);
+      setScreen(s => {
+        const next = s + 1;
+        trackScreen(next);
+        return next;
+      });
       setFading(false);
       window.scrollTo({ top: 0 });
     }, 380);
   };
 
-  const handleSuccess = () => { setDone(true); setShowOverlay(true); };
+  const handleSuccess = () => { setDone(true); setShowOverlay(true); recordConversion(); };
 
   return (
     <>
@@ -789,11 +998,11 @@ export default function ClaseGratisTreeServiceGame() {
         style={{ transitionDuration: "380ms", opacity: fading ? 0 : 1 }}
       >
         {screen === 0 && <Screen0 onNext={advance}/>}
-        {screen === 1 && <Screen1 onNext={advance}/>}
-        {screen === 2 && <Screen2 onNext={advance}/>}
-        {screen === 3 && <Screen3 onNext={advance}/>}
-        {screen === 4 && <Screen4 onNext={advance}/>}
-        {screen === 5 && <Screen5 viewers={viewers} done={done} onSuccess={handleSuccess}/>}
+        {screen === 1 && <Screen1 onNext={advance} copy={copy.s1}/>}
+        {screen === 2 && <Screen2 onNext={advance} copy={copy.s2}/>}
+        {screen === 3 && <Screen3 onNext={advance} copy={copy.s3}/>}
+        {screen === 4 && <Screen4 onNext={advance} copy={copy.s4}/>}
+        {screen === 5 && <Screen5 viewers={viewers} done={done} onSuccess={handleSuccess} copy={copy.s5}/>}
       </div>
 
       {/* Success overlay */}
