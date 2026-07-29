@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Check, Star, AlertTriangle, Eye, ShieldCheck, ArrowDown, Megaphone, Globe, CalendarCheck } from "lucide-react";
+import { Check, Star, AlertTriangle, Eye, ShieldCheck, ArrowDown, Megaphone, Globe, CalendarCheck, Lock, LockOpen } from "lucide-react";
 
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
@@ -237,10 +237,11 @@ function Screen0({ onNext }: { onNext: () => void }) {
 // ── SCREEN 1 — MINI-QUIZ ──────────────────────────────────────────────────────
 function Screen1({ onNext }: { onNext: () => void }) {
   const options = [
-    "Dependo solo de que me recomienden para conseguir clientes",
+    "Dependo de que me recomienden — y los referidos no siempre llegan",
+    "Ya gasté en publicidad y el dinero se fue sin resultado",
+    "Hay meses que casi no hay trabajo. Pero igual hay que pagar el truck, el seguro y la renta.",
+    "No soy muy bueno con la tecnología ni con el internet",
     "Tengo meses buenos y meses en que casi no hay trabajo",
-    "Ya intenté Facebook Ads y solo perdí dinero",
-    "No sé nada de tecnología ni de publicidad en internet",
   ];
 
   const [selected, setSelected] = useState<Set<number>>(new Set());
@@ -258,7 +259,8 @@ function Screen1({ onNext }: { onNext: () => void }) {
     selected.size === 1 ? "Tu negocio puede mejorar" :
     selected.size === 2 ? "Esto te está costando clientes" :
     selected.size === 3 ? "Necesitas aprender esto cuanto antes" :
-    "¡Esto tiene solución! No pares, sigue para ver cómo";
+    selected.size === 4 ? "¡Esto tiene solución! No pares, sigue para ver cómo" :
+    "¡Entendemos exactamente lo que vives. Hay solución!";
 
   const urgencyColor = selected.size <= 2 ? "#F97316" : "#dc2626";
 
@@ -268,8 +270,7 @@ function Screen1({ onNext }: { onNext: () => void }) {
 
         <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-2"
           style={{ ...PP, fontSize: "clamp(1.6rem, 4vw, 2.2rem)" }}>
-          ¿Cuál de estas frases
-          <br/>describe tu negocio hoy?
+          ¿Cuál de estas frases te describe a ti y tu negocio hoy mismo?
         </h2>
         <p className="text-[#9CA3AF] text-sm mb-8">Selecciona todo lo que te aplica</p>
 
@@ -319,130 +320,232 @@ function Screen1({ onNext }: { onNext: () => void }) {
   );
 }
 
-// ── SCREEN 2 — AGITACIÓN ─────────────────────────────────────────────────────
+// ── SCREEN 2 — EMPATÍA ───────────────────────────────────────────────────────
 function Screen2({ onNext }: { onNext: () => void }) {
-  const pains = [
-    { text: "Hay meses que casi no hay trabajo. Pero igual hay que pagar el truck, el seguro y la renta." },
-    { text: "Cuando alguien busca tree service, llama a otro. Ese otro sabe algo de internet que tú todavía no sabes." },
-    { text: "Los referidos no siempre llegan. No puedes esperar a que te recomienden." },
-    { text: "Tal vez ya gastaste en publicidad. El dinero se fue y no pasó nada." },
-  ];
-
   return (
     <div className="min-h-screen bg-[#FDF8F3] flex flex-col items-center justify-center px-6 py-20">
       <div className="max-w-lg w-full">
 
-        <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-8"
+        <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-5"
           style={{ ...PP, fontSize: "clamp(1.75rem, 4.5vw, 2.6rem)" }}>
-          Trabajas duro todos los días.{" "}
-          <span className="text-[#F97316]">Pero hay meses que el teléfono no suena.</span>
+          Te entendemos.{" "}
+          <span className="text-[#F97316]">No es que tu trabajo sea malo.</span>{" "}
         </h2>
 
-        <div className="space-y-3 mb-8">
-          {pains.map((p, i) => (
-            <div key={i} className="flex items-center gap-4 bg-white border border-[#E5DDD5] rounded-xl p-4 shadow-sm">
-              <ArrowDown size={18} strokeWidth={3.5} className="text-red-500 shrink-0"/>
-              <p className="text-[#374151] text-sm leading-relaxed">{p.text}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="bg-[#1B3A2D] rounded-2xl p-5 mb-8">
-          <p className="text-[#FDF8F3] leading-relaxed text-base">
-            <strong className="text-[#F97316]">Lo peor es esto:</strong>{" "}
-            Hay otras empresas de tree service con peor trabajo que el tuyo. Y tienen más clientes.
-            <br/><br/>
-            No porque cobren más barato. Sino porque conocen{" "}
-            <span className="inline-block bg-[#F97316] text-white font-black px-2 py-0.5 rounded-md mx-0.5">"El Método de 3 Pasos: APC"</span>
-            {" "}— que les trae clientes solos desde internet. Y tú todavía no lo sabes.
+        <div className="space-y-4 mb-8">        
+          <p className="text-[#374151] text-base leading-relaxed">
+            Es que nadie te enseñó cómo conseguir clientes — sin esperar referidos, sin depender de agencias, y sin necesitar saber de tecnología.
+          </p>
+          <p className="text-[#1B3A2D] font-black text-base leading-relaxed">
+            Eso no es culpa tuya. Pero sí tiene solución.
           </p>
         </div>
 
         <button onClick={onNext}
-          className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
+          className="w-full bg-[#1B3A2D] hover:bg-[#142D22] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
           style={PP}>
-          <span className="block text-base">Quiero conocer el Método APC →</span>
-          <span className="block text-xs font-normal opacity-70 mt-0.5">El Método de 3 Pasos: APC</span>
+          <span className="block text-base">Quiero ver cuál es la solución →</span>
         </button>
       </div>
     </div>
   );
 }
 
-// ── SCREEN 3 — LA SOLUCIÓN ───────────────────────────────────────────────────
+// ── SCREEN 3 — REVELACIÓN APC ─────────────────────────────────────────────────
 function Screen3({ onNext }: { onNext: () => void }) {
+  return (
+    <div className="min-h-screen bg-[#FDF8F3] flex flex-col items-center justify-center px-6 py-20">
+      <div className="max-w-lg w-full">
+
+        <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-6"
+          style={{ ...PP, fontSize: "clamp(1.6rem, 4vw, 2.2rem)" }}>
+          El secreto está en un{" "}
+          <span className="text-[#F97316]">Método de 3 Pasos</span>{" "}
+          para que:
+        </h2>
+
+        <div className="bg-[#1B3A2D] rounded-2xl p-6 mb-8">
+          <ul className="text-[#FDF8F3] leading-relaxed text-base space-y-3">
+            {[
+              "Puedas cobrar caro y aún así cerrar ventas sin quejas.",
+              "No dependas de referidos.",
+              "No gastes dinero cada mes con agencias de marketing carísimas que no conocen tu negocio.",
+              "Los clientes te encuentren solos en internet y te llamen directamente a ti.",
+            ].map((item) => (
+              <li key={item} className="flex items-center gap-3">
+                <span className="shrink-0 w-2 h-2 rounded-full bg-[#F97316]" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <p className="text-[#1B3A2D] leading-relaxed text-base font-semibold mb-8" style={PP}>
+          Este método es{" "}
+          <span className="text-[#F97316] font-black">"El Método APC"</span>.{" "}
+          <strong>Y mientras tú lees esto, hay otros que ya lo están usando y te están quitando clientes.</strong>
+        </p>
+
+        <button onClick={onNext}
+          className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
+          style={PP}>
+          <span className="block text-base">Quiero conocer el "Método de 3 pasos APC" →</span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── SCREEN 4 — LA SOLUCIÓN ───────────────────────────────────────────────────
+function Screen4({ onNext }: { onNext: () => void }) {
+  const [sub, setSub] = useState(0);
+
   const steps = [
     {
       num: 1, letter: "A", label: "Anuncios",
-      icon: <Megaphone size={16} className="text-[#F97316]"/>,
+      icon: <Megaphone size={20} className="text-[#F97316]"/>,
       body: "No sirve cualquier anuncio. Las agencias de marketing no conocen tu negocio al 100% y hacen anuncios genéricos que no funcionan para tree service. Lo que sí funciona son anuncios que otros dueños de tree service ya probaron y dieron resultado. Adáptalos para tu negocio.",
     },
     {
       num: 2, letter: "P", label: "Página Web",
-      icon: <Globe size={16} className="text-[#F97316]"/>,
+      icon: <Globe size={20} className="text-[#F97316]"/>,
       body: "No sirve cualquier página. La mayoría tiene una página bonita pero nadie llama. Eso pasa porque no está hecha para tree service. Una página que funciona le dice al cliente en segundos por qué llamarte a ti — y no a tu competencia.",
     },
     {
       num: 3, letter: "C", label: "Calendario",
-      icon: <CalendarCheck size={16} className="text-[#F97316]"/>,
+      icon: <CalendarCheck size={20} className="text-[#F97316]"/>,
       body: "No sirve solo tener un número de teléfono. Cuando el cliente llama y tú no contestas, llama al siguiente. Y ese trabajo se pierde. Con un calendario, el cliente agenda solo — aunque tú estés en el trabajo. Es la única forma de no perder ninguna cita.",
     },
   ];
 
+  // Sub-screens 0-2: one step each. Sub-screen 3: summary + CTA.
+  if (sub <= 2) {
+    const step = steps[sub];
+    return (
+      <div className="min-h-screen bg-[#1B3A2D] flex flex-col items-center justify-center px-6 py-20">
+        <style>{`
+          @keyframes unlock-shake {
+            0%,60%,100% { transform: rotate(0deg) translateY(0); }
+            15% { transform: rotate(-14deg) translateY(-3px); }
+            30% { transform: rotate(0deg) translateY(-5px); }
+            45% { transform: rotate(14deg) translateY(-3px); }
+          }
+          .lock-anim { animation: unlock-shake 2.2s ease-in-out infinite; }
+        `}</style>
+        <div className="max-w-lg w-full">
+
+          {/* Intro text — always visible */}
+          <h2 className="text-[#FDF8F3] font-black leading-[1.1] mb-2"
+            style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
+            ¿Qué es el{" "}
+            <span className="text-[#F97316]">Método APC?</span>
+          </h2>
+          <p className="text-[#F97316] font-bold leading-snug mb-4"
+            style={{ ...PP, fontSize: "clamp(0.95rem, 2.2vw, 1.1rem)" }}>
+            Es importante que lo aprendas ahora, antes de que tu competencia lo aplique primero.
+          </p>
+          <p className="text-[#FDF8F3]/60 text-base leading-relaxed mb-6">
+            Son 3 pasos simples. Cada uno por separado no funcionará.{" "}
+            <strong className="text-white">Pero si lo haces bien desde un inicio te traen clientes nuevos cada semana.</strong>
+          </p>
+
+          {/* Roadmap */}
+          <div className="flex items-center gap-1.5 mb-6">
+            {steps.map((s, i) => {
+              const unlocked = i <= sub;
+              return (
+                <div key={i} className="flex items-center gap-1.5 flex-1">
+                  <div className={`flex-1 rounded-xl px-2.5 py-2 flex flex-col gap-1 border transition-all duration-300 ${
+                    unlocked ? "bg-[#F97316]/15 border-[#F97316]/40" : "bg-white/5 border-white/10"
+                  }`}>
+                    <span className={`text-[8px] font-bold tracking-widest uppercase leading-none ${unlocked ? "text-[#F97316]/60" : "text-white/20"}`}>
+                      Paso {i + 1}
+                    </span>
+                    <div className="flex items-center gap-1">
+                      {unlocked
+                        ? <LockOpen size={10} className="text-[#F97316] shrink-0" />
+                        : <Lock size={10} className="text-white/25 shrink-0" />
+                      }
+                      <span className={`text-[10px] font-bold leading-none truncate tracking-widest ${unlocked ? "text-[#F97316]" : "text-white/25"}`}>
+                        {unlocked ? s.label : "••••••"}
+                      </span>
+                    </div>
+                  </div>
+                  {i < 2 && <span className="text-white/20 text-xs shrink-0">›</span>}
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Step card */}
+          <div className="bg-white/5 border border-white/10 rounded-2xl p-5 mb-8">
+            <p className="text-[#F97316]/70 text-xs font-bold tracking-widest uppercase mb-4">
+              Paso {step.num} de 3 · Método APC
+            </p>
+            <div className="flex items-center gap-4 mb-4">
+              <div className="w-14 h-14 rounded-2xl bg-[#F97316] flex items-center justify-center shrink-0">
+                <span className="text-white font-black text-2xl leading-none" style={PP}>{step.num}</span>
+              </div>
+              <div>
+                <div className="flex items-center gap-2 mb-0.5">
+                  {step.icon}
+                  <h2 className="text-[#F97316] font-black text-2xl leading-none" style={PP}>{step.label}</h2>
+                </div>
+                <p className="text-white/30 text-[10px] font-bold tracking-widest uppercase">{step.letter} — Método APC</p>
+              </div>
+            </div>
+            <p className="text-[#FDF8F3]/85 text-sm leading-relaxed">{step.body}</p>
+          </div>
+
+          {/* Next button */}
+          <button onClick={() => setSub(s => s + 1)}
+            className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer flex items-center justify-center gap-3"
+            style={PP}>
+            <span className="text-lg">
+              {sub < 2 ? `Ver paso ${step.num + 1}` : "Ver el resumen"}
+            </span>
+            <LockOpen size={22} className="lock-anim shrink-0" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Sub-screen 4: summary + CTA
   return (
     <div className="min-h-screen bg-[#1B3A2D] flex flex-col items-center justify-center px-6 py-20">
       <div className="max-w-lg w-full">
 
         <h2 className="text-[#FDF8F3] font-black leading-[1.1] mb-2"
-          style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
-          ¿Qué es el{" "}
-          <span className="text-[#F97316]">Método APC?</span>
+          style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.4rem)" }}>
+          El{" "}
+          <span className="text-[#F97316]">Método APC</span>{" "}
+          completo:
         </h2>
-
-        <p className="text-[#F97316] font-bold italic leading-snug mb-5"
-          style={{ ...PP, fontSize: "clamp(0.95rem, 2.2vw, 1.1rem)" }}>
-          Y por qué es importante que lo aprendas ahora, antes de que tu competencia lo aplique primero.
-        </p>
-
-        <p className="text-[#FDF8F3]/60 text-base leading-relaxed mb-7">
+        <p className="text-[#FDF8F3]/50 text-sm mb-6 leading-relaxed">
           Son 3 pasos simples. Cada uno por separado no sirve mucho.{" "}
-          <strong className="text-white">Pero juntos, te traen clientes nuevos cada semana — solos.</strong>
+          <strong className="text-white/80">Pero juntos, te traen clientes nuevos cada semana — solos.</strong>
         </p>
 
-        <div className="mb-6">
-          {steps.map((step, i) => (
-            <div key={i}>
-              <div className="bg-white/5 border border-white/10 rounded-2xl p-5">
-                <div className="flex items-start gap-4 mb-3">
-                  <div className="w-12 h-12 rounded-xl bg-[#F97316] flex items-center justify-center shrink-0">
-                    <span className="text-white font-black text-2xl leading-none" style={PP}>{step.num}</span>
-                  </div>
-                  <div className="pt-1">
-                    <div className="flex items-center gap-1.5 mb-0.5">
-                      {step.icon}
-                      <p className="text-[#F97316] font-black text-base leading-none" style={PP}>{step.label}</p>
-                    </div>
-                    <p className="text-white/30 text-[10px] font-bold tracking-widest uppercase">{step.letter} — Método APC</p>
-                  </div>
-                </div>
-                <p className="text-[#FDF8F3]/80 text-sm leading-relaxed">{step.body}</p>
+        <div className="grid grid-cols-3 gap-3 mb-8">
+          {steps.map((step) => (
+            <div key={step.num} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col items-center gap-2 text-center">
+              <div className="w-10 h-10 rounded-xl bg-[#F97316] flex items-center justify-center shrink-0">
+                <span className="text-white font-black text-xl leading-none" style={PP}>{step.num}</span>
               </div>
-              {i < steps.length - 1 && (
-                <div className="flex justify-center py-2">
-                  <ArrowDown size={20} strokeWidth={2.5} className="text-[#F97316]/50"/>
-                </div>
-              )}
+              {step.icon}
+              <p className="text-[#F97316] font-black text-xs leading-tight" style={PP}>{step.label}</p>
             </div>
           ))}
         </div>
 
         <div className="text-center mb-6">
           <p className="text-[#FDF8F3] font-black leading-tight mb-2"
-            style={{ ...PP, fontSize: "clamp(1.5rem, 4vw, 2rem)" }}>
-            ¿Quieres que te enseñemos a hacer esto{" "}
+            style={{ ...PP, fontSize: "clamp(1.4rem, 4vw, 1.9rem)" }}>
+            ¿Quieres que te enseñemos a aplicar este método{" "}
             <span className="text-[#F97316]">Rápido, Fácil y Gratis?</span>
           </p>
-          <p className="text-[#FDF8F3]/50 text-sm">Antes de que tu competencia lo aplique</p>
+          <p className="text-[#FDF8F3]/50 text-sm">Antes de que tu competencia lo haga</p>
         </div>
 
         <button onClick={onNext}
@@ -456,8 +559,8 @@ function Screen3({ onNext }: { onNext: () => void }) {
   );
 }
 
-// ── SCREEN 4 — FECHA + REGISTRO + TESTIMONIOS ────────────────────────────────
-function Screen4({ viewers, done, onSuccess }: { viewers: number; done: boolean; onSuccess: () => void }) {
+// ── SCREEN 5 — FECHA + REGISTRO + TESTIMONIOS ────────────────────────────────
+function Screen5({ viewers, done, onSuccess }: { viewers: number; done: boolean; onSuccess: () => void }) {
   const timer = useCountdown();
   const pct   = Math.round((TAKEN_SPOTS / TOTAL_SPOTS) * 100);
   const [barFilled, setBarFilled] = useState(false);
@@ -688,7 +791,8 @@ export default function ClaseGratisTreeServiceGame() {
         {screen === 1 && <Screen1 onNext={advance}/>}
         {screen === 2 && <Screen2 onNext={advance}/>}
         {screen === 3 && <Screen3 onNext={advance}/>}
-        {screen === 4 && <Screen4 viewers={viewers} done={done} onSuccess={handleSuccess}/>}
+        {screen === 4 && <Screen4 onNext={advance}/>}
+        {screen === 5 && <Screen5 viewers={viewers} done={done} onSuccess={handleSuccess}/>}
       </div>
 
       {/* Success overlay */}
