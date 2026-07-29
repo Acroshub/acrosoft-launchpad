@@ -153,7 +153,7 @@ function RegForm({ onSuccess }: { onSuccess: () => void }) {
     }
   };
 
-  const base = "bg-[#F9F6F2] border border-[#E5E0D8] focus:border-[#1B3A2D] rounded-lg text-[#1B3A2D] text-sm outline-none transition-colors";
+  const base = "bg-[#F9F6F2] border border-[#E5E0D8] focus:border-[#1B3A2D] rounded-lg text-[#1B3A2D] text-base outline-none transition-colors";
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
@@ -498,14 +498,26 @@ function Screen4({ onNext }: { onNext: () => void }) {
           </div>
 
           {/* Next button */}
-          <button onClick={() => setSub(s => s + 1)}
-            className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer flex items-center justify-center gap-3"
-            style={PP}>
-            <span className="text-lg">
-              {sub < 2 ? `Ver paso ${step.num + 1}` : "Ver el resumen"}
-            </span>
-            <LockOpen size={22} className="lock-anim shrink-0" />
-          </button>
+          {sub < 2 ? (
+            <button onClick={() => setSub(s => s + 1)}
+              className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer flex items-center justify-center gap-3"
+              style={PP}>
+              <span className="text-lg">{`Ver paso ${step.num + 1}`}</span>
+              <LockOpen size={22} className="lock-anim shrink-0" />
+            </button>
+          ) : (
+            <>
+              <button onClick={onNext}
+                className="w-full bg-[#F97316] hover:bg-[#EA6B00] text-white font-bold px-8 py-5 rounded-2xl transition-colors duration-200 cursor-pointer"
+                style={PP}>
+                <span className="block text-lg">Quiero aprender este método Gratis →</span>
+                <span className="block text-xs font-normal opacity-80 mt-1">Antes de que mi competencia lo haga</span>
+              </button>
+              <p className="text-center text-[#FDF8F3]/40 text-xs mt-3">
+                Clase en vivo · Domingo 9 de Agosto · 6 PM EST · 100% gratis
+              </p>
+            </>
+          )}
         </div>
       </div>
     );
@@ -516,36 +528,13 @@ function Screen4({ onNext }: { onNext: () => void }) {
     <div className="min-h-screen bg-[#1B3A2D] flex flex-col items-center justify-center px-6 py-20">
       <div className="max-w-lg w-full">
 
-        <h2 className="text-[#FDF8F3] font-black leading-[1.1] mb-2"
-          style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.4rem)" }}>
-          El{" "}
-          <span className="text-[#F97316]">Método APC</span>{" "}
-          completo:
-        </h2>
-        <p className="text-[#FDF8F3]/50 text-sm mb-6 leading-relaxed">
-          Son 3 pasos simples. Cada uno por separado no sirve mucho.{" "}
-          <strong className="text-white/80">Pero juntos, te traen clientes nuevos cada semana — solos.</strong>
-        </p>
-
-        <div className="grid grid-cols-3 gap-3 mb-8">
-          {steps.map((step) => (
-            <div key={step.num} className="bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col items-center gap-2 text-center">
-              <div className="w-10 h-10 rounded-xl bg-[#F97316] flex items-center justify-center shrink-0">
-                <span className="text-white font-black text-xl leading-none" style={PP}>{step.num}</span>
-              </div>
-              {step.icon}
-              <p className="text-[#F97316] font-black text-xs leading-tight" style={PP}>{step.label}</p>
-            </div>
-          ))}
-        </div>
-
-        <div className="text-center mb-6">
-          <p className="text-[#FDF8F3] font-black leading-tight mb-2"
-            style={{ ...PP, fontSize: "clamp(1.4rem, 4vw, 1.9rem)" }}>
+        <div className="text-center mb-8">
+          <p className="text-[#FDF8F3] font-black leading-tight mb-3"
+            style={{ ...PP, fontSize: "clamp(1.6rem, 4vw, 2.2rem)" }}>
             ¿Quieres que te enseñemos a aplicar este método{" "}
             <span className="text-[#F97316]">Rápido, Fácil y Gratis?</span>
           </p>
-          <p className="text-[#FDF8F3]/50 text-sm">Antes de que tu competencia lo haga</p>
+          <p className="text-[#FDF8F3]/50 text-base">Antes de que tu competencia lo haga</p>
         </div>
 
         <button onClick={onNext}
@@ -594,10 +583,11 @@ function Screen5({ viewers, done, onSuccess }: { viewers: number; done: boolean;
         {/* Fecha */}
         <h2 className="text-[#1B3A2D] font-black leading-[1.15] mb-2 text-center"
           style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
-          Te enseñaremos en una clase{" "}
+          Este{" "}
+          <span className="text-[#F97316]">Domingo 9 de Agosto</span>{" "}
+          aprenderás{" "}
           <span className="text-[#F97316]">Gratis</span>{" "}
-          en vivo este{" "}
-          <span className="text-[#F97316]">Domingo 9 de Agosto.</span>
+          a aplicar el Método APC
         </h2>
 
         <p className="text-[#4B5563] text-sm mb-6 leading-relaxed text-center">
