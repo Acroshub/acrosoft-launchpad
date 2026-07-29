@@ -4,7 +4,7 @@ import { Check, Star, AlertTriangle, Eye, ShieldCheck, ArrowDown, Megaphone, Glo
 // ── CONSTANTS ─────────────────────────────────────────────────────────────────
 const SUPABASE_URL      = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-const WA_LINK     = "https://chat.whatsapp.com/E6TRKY81nbk0ipYxgV3r0P?s=cl&p=i&ilr=1&amv=2";
+const WA_LINK     = "https://chat.whatsapp.com/JgHdi4DH3cWFkniv7rytoQ?s=cl&p=i&mlu=4&amv=1";
 const EVENT_DATE  = new Date("2026-08-09T22:00:00.000Z");
 const TOTAL_SPOTS = 100;
 const TAKEN_SPOTS = 78;
