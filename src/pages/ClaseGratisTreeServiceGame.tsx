@@ -362,7 +362,7 @@ function Screen3({ onNext }: { onNext: () => void }) {
       <div className="max-w-lg w-full">
 
         <h2 className="text-[#1B3A2D] font-black leading-[1.2] mb-6"
-          style={{ ...PP, fontSize: "clamp(1.6rem, 4vw, 2.2rem)" }}>
+          style={{ ...PP, fontSize: "clamp(1.9rem, 4.5vw, 2.6rem)" }}>
           El secreto está en un{" "}
           <span className="text-[#F97316]">Método de 3 Pasos</span>{" "}
           para que:
@@ -589,7 +589,7 @@ function Screen5({ viewers, done, onSuccess }: { viewers: number; done: boolean;
         <h2 className="hidden md:block text-[#1B3A2D] font-black leading-[1.15] mb-2 text-center"
           style={{ ...PP, fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
           Este <span className="text-[#F97316]">Domingo 9 de Agosto</span> aprenderás{" "}
-          <span className="text-[#F97316]">Gratis</span> a aplicar el Método APC
+          <span className="text-[#F97316]">Gratis</span> a aplicar el "Método APC"
         </h2>
         {/* Mobile */}
         <h2 className="md:hidden text-[#1B3A2D] font-black text-center mb-2" style={PP}>
@@ -597,7 +597,7 @@ function Screen5({ viewers, done, onSuccess }: { viewers: number; done: boolean;
             Este <span className="text-[#F97316]">Domingo 9 de Agosto</span>
           </span>
           <span className="block leading-tight" style={{ fontSize: "clamp(1.7rem, 4vw, 2.5rem)" }}>
-            Aprenderás <span className="text-[#F97316]">Gratis</span> a aplicar el Método APC
+            Aprenderás <span className="text-[#F97316]">Gratis</span> a aplicar el "Método APC"
           </span>
         </h2>
 
