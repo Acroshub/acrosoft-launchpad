@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, ChevronRight, ChevronLeft, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell, Store, MessageCircle, Bot } from "lucide-react";
-import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, useBusinessProfile, useUpsertBusinessProfile, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient } from "@/hooks/useCrmData";
+import { Activity, Loader2, Filter, Users, ChevronDown, ChevronRight, ChevronLeft, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, UserCog, Bell, MessageCircle, Bot } from "lucide-react";
+import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmLog, CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
@@ -362,6 +362,7 @@ type PermKey = keyof Pick<
   | "perm_mi_negocio_datos"
   | "perm_mi_negocio_personal"
   | "perm_servicios"
+  | "perm_productos"
   | "perm_dashboard"
   | "perm_ventas"
   | "perm_calendarios"
@@ -374,6 +375,7 @@ type PermKey = keyof Pick<
 const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermission)[] }[] = [
   { key: "perm_mi_negocio_datos",    label: "Mi Negocio — Datos del negocio",  actions: ["read", "edit"] },
   { key: "perm_servicios",           label: "Servicios",                        actions: ["read", "edit", "create", "delete"] },
+  { key: "perm_productos",           label: "Productos",                        actions: ["read", "edit", "create", "delete"] },
   { key: "perm_dashboard",           label: "Dashboard",                        actions: ["read"] },
   { key: "perm_ventas",              label: "Registro de Ventas",               actions: ["read", "edit", "create", "delete"] },
   { key: "perm_calendarios",         label: "Calendarios",                      actions: ["read", "edit", "create", "delete"] },
@@ -384,13 +386,14 @@ const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermiss
 ];
 
 const DEFAULT_PERMS = (): Pick<CrmStaff,
-  "perm_mi_negocio_datos" | "perm_mi_negocio_personal" | "perm_servicios" |
+  "perm_mi_negocio_datos" | "perm_mi_negocio_personal" | "perm_servicios" | "perm_productos" |
   "perm_dashboard" | "perm_ventas" | "perm_calendarios" | "perm_formularios" |
   "perm_contactos" | "perm_recordatorios" | "perm_agente_ia"
 > => ({
   perm_mi_negocio_datos:    { read: true,  edit: false },
   perm_mi_negocio_personal: { read: true,  edit: true  }, // always on — staff can always see/edit their own info
   perm_servicios:           { read: true,  edit: false, create: false, delete: false },
+  perm_productos:           { read: true,  edit: false, create: false, delete: false },
   perm_dashboard:           { read: false },
   perm_ventas:              { read: false, edit: false, create: false, delete: false },
   perm_calendarios:         { read: false, edit: false, create: false, delete: false },
@@ -620,6 +623,7 @@ const StaffDialog = ({
           perm_mi_negocio_datos:    initial.perm_mi_negocio_datos,
           perm_mi_negocio_personal: initial.perm_mi_negocio_personal,
           perm_servicios:           initial.perm_servicios,
+          perm_productos:           initial.perm_productos,
           perm_dashboard:           initial.perm_dashboard,
           perm_ventas:              initial.perm_ventas,
           perm_calendarios:         initial.perm_calendarios,
@@ -1074,146 +1078,6 @@ const RemindersTab = () => {
 
 // ─── General Tab (admin only) ─────────────────────────────────────────────────
 
-const GeneralTab = () => {
-  const { data: calendars = [], isLoading: loadingCals } = useCalendars();
-  const { data: profile, isLoading: loadingProfile }     = useBusinessProfile();
-  const upsert = useUpsertBusinessProfile();
-
-  const [selected, setSelected] = useState<string>("");
-  const [dirty, setDirty]       = useState(false);
-
-  useEffect(() => {
-    if (profile !== undefined) {
-      setSelected(profile?.landing_calendar_id ?? "");
-      setDirty(false);
-    }
-  }, [profile?.landing_calendar_id]);
-
-  const handleSave = async () => {
-    try {
-      await upsert.mutateAsync({ landing_calendar_id: selected || null });
-      toast.success("Calendario de landing actualizado");
-      setDirty(false);
-    } catch {
-      toast.error("Error al guardar");
-    }
-  };
-
-  if (loadingCals || loadingProfile) {
-    return (
-      <div className="flex justify-center py-16">
-        <Loader2 size={22} className="animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-card border rounded-2xl p-5 space-y-4">
-        <div className="flex items-start gap-3">
-          <Globe size={16} className="text-primary mt-0.5 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold">Calendario de la Landing Page</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Elige qué calendario se mostrará en la página pública de reservas.
-            </p>
-          </div>
-        </div>
-
-        {calendars.length === 0 ? (
-          <div className="text-center py-8 bg-secondary/30 rounded-xl">
-            <CalendarDays size={24} className="mx-auto text-muted-foreground/30 mb-2" />
-            <p className="text-sm text-muted-foreground">No hay calendarios creados aún.</p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            <div className="space-y-1.5">
-              {calendars.map((cal) => {
-                const isActive = selected === cal.id;
-                return (
-                  <button
-                    key={cal.id}
-                    type="button"
-                    onClick={() => { setSelected(cal.id); setDirty(true); }}
-                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
-                      isActive
-                        ? "border-primary bg-primary/5"
-                        : "border-border hover:border-primary/40 hover:bg-secondary/30"
-                    }`}
-                  >
-                    <CalendarDays
-                      size={15}
-                      className={isActive ? "text-primary shrink-0" : "text-muted-foreground/50 shrink-0"}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${isActive ? "text-primary" : ""}`}>
-                        {cal.name ?? "Sin nombre"}
-                      </p>
-                      {cal.slug && (
-                        <p className="text-[10px] text-muted-foreground/60 mt-0.5 truncate font-mono">
-                          /{cal.slug}
-                        </p>
-                      )}
-                    </div>
-                    {isActive && (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary text-primary-foreground shrink-0">
-                        Activo
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-
-              {/* Option to clear selection (use fallback) */}
-              <button
-                type="button"
-                onClick={() => { setSelected(""); setDirty(true); }}
-                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
-                  selected === ""
-                    ? "border-primary bg-primary/5"
-                    : "border-border hover:border-primary/40 hover:bg-secondary/30"
-                }`}
-              >
-                <Globe
-                  size={15}
-                  className={selected === "" ? "text-primary shrink-0" : "text-muted-foreground/50 shrink-0"}
-                />
-                <div className="flex-1 min-w-0">
-                  <p className={`text-sm font-medium ${selected === "" ? "text-primary" : "text-muted-foreground"}`}>
-                    Automático (más antiguo)
-                  </p>
-                  <p className="text-[10px] text-muted-foreground/60 mt-0.5">
-                    Usa el primer calendario creado como fallback.
-                  </p>
-                </div>
-                {selected === "" && (
-                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-primary text-primary-foreground shrink-0">
-                    Activo
-                  </span>
-                )}
-              </button>
-            </div>
-
-            {dirty && (
-              <div className="flex justify-end pt-1">
-                <Button
-                  size="sm"
-                  onClick={handleSave}
-                  disabled={upsert.isPending}
-                  className="h-8 text-xs rounded-xl"
-                >
-                  {upsert.isPending && <Loader2 size={12} className="animate-spin mr-1.5" />}
-                  Guardar cambios
-                </Button>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
 // ─── Support Notifications Tab (admin only) ───────────────────────────────────
 
 const SupportTab = () => {
@@ -1453,7 +1317,7 @@ const IACostosTab = () => {
   );
 };
 
-type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte" | "ia_costos";
+type TabId = "logs" | "staff" | "reminders" | "saas" | "soporte" | "ia_costos";
 
 type TabDef = {
   id: TabId;
@@ -1467,7 +1331,6 @@ type TabDef = {
 };
 
 const ALL_TABS: TabDef[] = [
-  { id: "general",      label: "Mi Negocio",       description: "Perfil, marca y servicios",  icon: Store,         group: "General",      adminOnly: true,                           Component: GeneralTab          },
   { id: "staff",        label: "Staff",             description: "Equipo y permisos",          icon: Users,         group: "General",      adminOnly: true,  saasClientVisible: true,   Component: StaffTab            },
   { id: "reminders",    label: "Recordatorios",     description: "Email y WhatsApp",           icon: Bell,          group: "Comunicación",                                             Component: RemindersTab        },
   { id: "soporte",      label: "Soporte",           description: "Canal de soporte",           icon: MessageCircle, group: "Comunicación", adminOnly: true,                           Component: SupportTab          },
@@ -1483,7 +1346,7 @@ const CrmSettings = ({ isSuperAdmin, isSaasClient }: { isSuperAdmin?: boolean; i
     return true;
   });
 
-  const defaultTab = (isSuperAdmin ? "general" : "reminders") as TabId;
+  const defaultTab: TabId = "reminders";
   const [selectedId, setSelectedId] = useState<TabId>(defaultTab);
   const [showMobileContent, setShowMobileContent] = useState(false);
 

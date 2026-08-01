@@ -395,11 +395,12 @@ const NEW_PRODUCT_DRAFT_KEY = "crm_new_product_draft";
 const readNewProductDraft = () => { try { return JSON.parse(sessionStorage.getItem(NEW_PRODUCT_DRAFT_KEY) ?? "null"); } catch { return null; } };
 const clearNewProductDraft = () => sessionStorage.removeItem(NEW_PRODUCT_DRAFT_KEY);
 
-function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
+function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, canDelete = true }: {
   initialProduct: CrmProduct | null;
   fromCatalogId: string | null;
   allCatalogs: CrmCatalog[];
   onBack: () => void;
+  canDelete?: boolean;
 }) {
   const { user } = useCurrentUser();
   const upsertProduct  = useUpsertProduct();
@@ -854,10 +855,12 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
           <h2 className="text-lg font-semibold">{name}</h2>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => setConfirmDelete(true)}
-            className="h-9 px-4 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30">
-            <Trash2 size={13} className="mr-1.5" /> Eliminar
-          </Button>
+          {canDelete && (
+            <Button variant="outline" onClick={() => setConfirmDelete(true)}
+              className="h-9 px-4 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30">
+              <Trash2 size={13} className="mr-1.5" /> Eliminar
+            </Button>
+          )}
           <Button onClick={() => handleSave()} disabled={saving} className="h-9 px-5">
             {saving && <Loader2 size={13} className="animate-spin mr-1.5" />}
             {saving ? "Guardando..." : "Guardar cambios"}
@@ -901,11 +904,12 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack }: {
 }
 
 // ─── Catalog View ─────────────────────────────────────────────────────────────
-function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProduct, onCreateProduct }: {
+function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProduct, onCreateProduct, canCreate = true, canEdit = true }: {
   catalog: CrmCatalog; allProducts: CrmProduct[]; variantStockMap: Map<string, number>;
   onBack: () => void;
   onEditProduct: (p: CrmProduct) => void;
   onCreateProduct: (catalogId: string) => void;
+  canCreate?: boolean; canEdit?: boolean;
 }) {
   const { data: catalogProducts = [], refetch } = useCatalogProducts(catalog.id);
   const toggleCatalog = useToggleCatalogProduct();
@@ -941,14 +945,16 @@ function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProd
           <h2 className="text-lg font-semibold">{catalog.name}</h2>
           <p className="text-xs text-muted-foreground">{catalogProducts.length} producto{catalogProducts.length !== 1 ? "s" : ""}</p>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowAddExisting(v => !v)} className="h-8 text-xs gap-1">
-            <Plus size={12} /> Añadir existente
-          </Button>
-          <Button size="sm" onClick={() => onCreateProduct(catalog.id)} className="h-8 text-xs gap-1">
-            <Plus size={12} /> Nuevo producto
-          </Button>
-        </div>
+        {canCreate && (
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => setShowAddExisting(v => !v)} className="h-8 text-xs gap-1">
+              <Plus size={12} /> Añadir existente
+            </Button>
+            <Button size="sm" onClick={() => onCreateProduct(catalog.id)} className="h-8 text-xs gap-1">
+              <Plus size={12} /> Nuevo producto
+            </Button>
+          </div>
+        )}
       </div>
 
       {showAddExisting && (
@@ -985,16 +991,18 @@ function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProd
         <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
           <Package size={32} className="opacity-20" />
           <p className="text-sm">Sin productos en este catálogo</p>
-          <Button size="sm" onClick={() => onCreateProduct(catalog.id)} className="gap-1 mt-1">
-            <Plus size={12} /> Crear primer producto
-          </Button>
+          {canCreate && (
+            <Button size="sm" onClick={() => onCreateProduct(catalog.id)} className="gap-1 mt-1">
+              <Plus size={12} /> Crear primer producto
+            </Button>
+          )}
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {catalogProducts.map(p => (
             <div key={p.id}
-              className="bg-card border rounded-2xl overflow-hidden hover:shadow-sm transition-shadow group cursor-pointer"
-              onClick={() => onEditProduct(p)}>
+              className={`bg-card border rounded-2xl overflow-hidden hover:shadow-sm transition-shadow group ${canEdit ? "cursor-pointer" : "cursor-default"}`}
+              onClick={() => canEdit && onEditProduct(p)}>
               <div className="h-36 bg-secondary/40 overflow-hidden">
                 {p.images[0] ? (
                   <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
@@ -1007,16 +1015,18 @@ function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProd
               <div className="p-3.5 space-y-1.5">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-semibold leading-tight flex-1">{p.name}</p>
-                  <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button onClick={e => { e.stopPropagation(); onEditProduct(p); }}
-                      className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors" title="Editar producto">
-                      <Pencil size={12} />
-                    </button>
-                    <button onClick={e => { e.stopPropagation(); setRemoveTarget({ id: p.id, name: p.name }); }}
-                      className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Quitar del catálogo">
-                      <X size={12} />
-                    </button>
-                  </div>
+                  {canEdit && (
+                    <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <button onClick={e => { e.stopPropagation(); onEditProduct(p); }}
+                        className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors" title="Editar producto">
+                        <Pencil size={12} />
+                      </button>
+                      <button onClick={e => { e.stopPropagation(); setRemoveTarget({ id: p.id, name: p.name }); }}
+                        className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Quitar del catálogo">
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <p className="text-sm font-medium text-primary">
                   {(p.discount_pct ?? 0) > 0
@@ -1048,9 +1058,10 @@ function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProd
 }
 
 // ─── Catalog Card ─────────────────────────────────────────────────────────────
-function CatalogCard({ catalog, onEnter, onEdit, onDelete }: {
+function CatalogCard({ catalog, onEnter, onEdit, onDelete, canEdit = true, canDelete = true }: {
   catalog: CrmCatalog;
   onEnter: () => void; onEdit: () => void; onDelete: () => void;
+  canEdit?: boolean; canDelete?: boolean;
 }) {
   const { data: products = [] } = useCatalogProducts(catalog.id);
 
@@ -1090,20 +1101,26 @@ function CatalogCard({ catalog, onEnter, onEdit, onDelete }: {
               : <p className="text-xs text-muted-foreground/40 mt-0.5">{products.length} producto{products.length !== 1 ? "s" : ""}</p>
             }
           </div>
-          <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button
-              onClick={e => { e.stopPropagation(); onEdit(); }}
-              className="p-1.5 rounded-xl hover:bg-secondary text-muted-foreground transition-colors"
-            >
-              <Pencil size={12} />
-            </button>
-            <button
-              onClick={e => { e.stopPropagation(); onDelete(); }}
-              className="p-1.5 rounded-xl hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-            >
-              <Trash2 size={12} />
-            </button>
-          </div>
+          {(canEdit || canDelete) && (
+            <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              {canEdit && (
+                <button
+                  onClick={e => { e.stopPropagation(); onEdit(); }}
+                  className="p-1.5 rounded-xl hover:bg-secondary text-muted-foreground transition-colors"
+                >
+                  <Pencil size={12} />
+                </button>
+              )}
+              {canDelete && (
+                <button
+                  onClick={e => { e.stopPropagation(); onDelete(); }}
+                  className="p-1.5 rounded-xl hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
+                >
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="flex items-center justify-between pt-0.5">
@@ -1212,7 +1229,9 @@ function CatalogForm({ initial, userId, agentPhone, onSave, onCancel, saving }: 
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function CrmProductos() {
+export default function CrmProductos({ canEdit = true, canCreate = true, canDelete = true }: {
+  canEdit?: boolean; canCreate?: boolean; canDelete?: boolean;
+} = {}) {
   const { user } = useCurrentUser();
   const { data: catalogs = [], isLoading: catalogsLoading } = useCatalogs();
   const { data: allProducts = [], isLoading: productsLoading } = useProducts();
@@ -1243,7 +1262,7 @@ export default function CrmProductos() {
   const [view, setViewRaw] = useState<"catalogs"|"catalog"|"product">(() => {
     const savedView  = localStorage.getItem("crm_productos_view");
     const savedProdId = localStorage.getItem("crm_productos_product_id");
-    return savedView === "product" && !savedProdId ? "product" : "catalogs";
+    return savedView === "product" && !savedProdId && canCreate ? "product" : "catalogs";
   });
   const [selectedCatalog, setSelectedCatalogRaw] = useState<CrmCatalog | null>(null);
   const [selectedProduct, setSelectedProductRaw] = useState<CrmProduct | null>(null);
@@ -1282,6 +1301,9 @@ export default function CrmProductos() {
       if (savedProdId && !savedProd) {
         // Product ID was saved but no longer exists (deleted) → reset to list
         localStorage.setItem("crm_productos_view", "catalogs");
+      } else if (savedProdId ? !canEdit : !canCreate) {
+        // No permission to view this editor (permissions changed since last visit) → reset to list
+        localStorage.setItem("crm_productos_view", "catalogs");
       } else {
         // Either editing an existing product (savedProd found) or creating a new one (no savedProdId)
         setSelectedCatalogRaw(savedCat);
@@ -1296,7 +1318,7 @@ export default function CrmProductos() {
       // Catalog was deleted
       localStorage.setItem("crm_productos_view", "catalogs");
     }
-  }, [isLoading, catalogs, allProducts]);
+  }, [isLoading, catalogs, allProducts, canEdit, canCreate]);
 
   if (!user) return null;
 
@@ -1314,6 +1336,7 @@ export default function CrmProductos() {
       initialProduct={selectedProduct}
       fromCatalogId={fromCatalogId}
       allCatalogs={catalogs}
+      canDelete={canDelete}
       onBack={() => {
         clearNewProductDraft();
         setView(selectedCatalog ? "catalog" : "catalogs");
@@ -1327,9 +1350,11 @@ export default function CrmProductos() {
       catalog={selectedCatalog}
       allProducts={allProducts}
       variantStockMap={variantStockMap}
+      canCreate={canCreate}
+      canEdit={canEdit}
       onBack={() => setView("catalogs")}
-      onEditProduct={p => { setSelectedProduct(p); setFromCatalogId(selectedCatalog.id); setView("product"); }}
-      onCreateProduct={catalogId => { setSelectedProduct(null); setFromCatalogId(catalogId); setView("product"); }}
+      onEditProduct={p => { if (canEdit) { setSelectedProduct(p); setFromCatalogId(selectedCatalog.id); setView("product"); } }}
+      onCreateProduct={catalogId => { if (canCreate) { setSelectedProduct(null); setFromCatalogId(catalogId); setView("product"); } }}
     />
   );
 
@@ -1358,7 +1383,7 @@ export default function CrmProductos() {
             ? `${catalogs.length} catálogo${catalogs.length !== 1 ? "s" : ""} · ${allProducts.length} producto${allProducts.length !== 1 ? "s" : ""}`
             : "Organiza y comparte tus productos en catálogos públicos"}
         </p>
-        {!showCatalogForm && !editingCatalog && (
+        {!showCatalogForm && !editingCatalog && canCreate && (
           <Button size="sm" onClick={() => setShowCatalogForm(true)} className="h-9 text-sm font-semibold gap-1.5 rounded-2xl shrink-0">
             <Plus size={13} /> Nuevo catálogo
           </Button>
@@ -1422,9 +1447,11 @@ export default function CrmProductos() {
             <p className="text-sm font-semibold">Sin catálogos todavía</p>
             <p className="text-xs text-muted-foreground mt-1">Crea tu primer catálogo para organizar y compartir tus productos</p>
           </div>
-          <Button size="sm" onClick={() => setShowCatalogForm(true)} className="gap-1.5 rounded-2xl">
-            <Plus size={13} /> Crear catálogo
-          </Button>
+          {canCreate && (
+            <Button size="sm" onClick={() => setShowCatalogForm(true)} className="gap-1.5 rounded-2xl">
+              <Plus size={13} /> Crear catálogo
+            </Button>
+          )}
         </div>
       ) : !showCatalogForm && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1432,6 +1459,8 @@ export default function CrmProductos() {
             <CatalogCard
               key={cat.id}
               catalog={cat}
+              canEdit={canEdit}
+              canDelete={canDelete}
               onEnter={() => { setSelectedCatalog(cat); setView("catalog"); }}
               onEdit={() => { setEditingCatalog(cat); setShowCatalogForm(false); }}
               onDelete={() => setDeleteTarget(cat.id)}
@@ -1456,8 +1485,8 @@ export default function CrmProductos() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {orphanProducts.map(p => (
               <div key={p.id}
-                className="bg-card border border-dashed rounded-2xl overflow-hidden hover:shadow-sm transition-shadow group cursor-pointer"
-                onClick={() => { setSelectedProduct(p); setFromCatalogId(null); setView("product"); }}>
+                className={`bg-card border border-dashed rounded-2xl overflow-hidden hover:shadow-sm transition-shadow group ${canEdit ? "cursor-pointer" : "cursor-default"}`}
+                onClick={() => { if (canEdit) { setSelectedProduct(p); setFromCatalogId(null); setView("product"); } }}>
                 <div className="h-28 bg-secondary/30 overflow-hidden">
                   {p.images[0]
                     ? <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
@@ -1467,12 +1496,14 @@ export default function CrmProductos() {
                 <div className="p-3.5 space-y-1.5">
                   <div className="flex items-start justify-between gap-2">
                     <p className="text-sm font-semibold truncate flex-1">{p.name}</p>
-                    <button
-                      onClick={e => { e.stopPropagation(); setSelectedProduct(p); setFromCatalogId(null); setView("product"); }}
-                      className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-                      title="Editar producto">
-                      <Pencil size={12} />
-                    </button>
+                    {canEdit && (
+                      <button
+                        onClick={e => { e.stopPropagation(); setSelectedProduct(p); setFromCatalogId(null); setView("product"); }}
+                        className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+                        title="Editar producto">
+                        <Pencil size={12} />
+                      </button>
+                    )}
                   </div>
                   <p className="text-sm font-medium text-primary">
                     {(p.discount_pct ?? 0) > 0

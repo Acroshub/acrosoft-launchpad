@@ -1,15 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  Pencil, User, Building2, Image as ImageIcon, Briefcase, ShoppingBag,
+  Pencil, User, Building2, Image as ImageIcon,
   Check, Loader2, Trash2, Upload, Store, Globe, MapPin, Phone,
   Mail, Instagram, Facebook, Clock, Shield, Palette,
   ChevronRight, ChevronLeft, HelpCircle, Plus, X,
 } from "lucide-react";
 import PhoneInput from "@/components/shared/PhoneInput";
-import CrmServices from "./CrmServices";
-import CrmProductos from "./CrmProductos";
 import { useBusinessProfile, useUpsertBusinessProfile, useUpdateStaff } from "@/hooks/useCrmData";
-import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
+import { useStaffPermissions } from "@/hooks/useAuth";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import type { CrmBusinessProfile, CrmStaff } from "@/lib/supabase";
@@ -17,14 +15,12 @@ import { validateEmail, validateUrl } from "@/lib/validators";
 
 const LOGO_BUCKET = "form-uploads";
 
-type Tab = "personal" | "negocio" | "logo" | "servicios" | "productos";
+type Tab = "personal" | "negocio" | "logo";
 
 const tabs: { id: Tab; label: string; icon: React.ElementType }[] = [
   { id: "personal",  label: "Personal",  icon: User        },
   { id: "negocio",   label: "Negocio",   icon: Building2   },
   { id: "logo",      label: "Marca",     icon: Palette     },
-  { id: "servicios", label: "Servicios", icon: Briefcase   },
-  { id: "productos", label: "Productos", icon: ShoppingBag },
 ];
 
 // ─── Input base class ─────────────────────────────────────────────────────────
@@ -755,30 +751,23 @@ const LogoColoresTab = ({
   );
 };
 
-const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
-
 const TAB_DESCS: Record<Tab, string> = {
   personal:  "Nombre, email, teléfono y cargo",
   negocio:   "Datos, ubicación y redes sociales",
   logo:      "Logo, colores y tema de marca",
-  servicios: "Servicios que ofreces a clientes",
-  productos: "Catálogos y productos digitales",
 };
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 const CrmBusiness = ({ initialTab }: { initialTab?: Tab }) => {
-  const { user }                      = useCurrentUser();
   const { isStaff, staffRecord, can } = useStaffPermissions();
   const { data: profile, isLoading }  = useBusinessProfile();
   const upsertProfile                 = useUpsertBusinessProfile();
   const updateStaff                   = useUpdateStaff();
-  const isSuperAdmin                  = user?.email === SUPER_ADMIN_EMAIL;
 
   const visibleTabs = isStaff
     ? tabs.filter(({ id }) => {
         if (id === "personal")  return can("mi_negocio_personal", "read");
         if (id === "negocio")   return can("mi_negocio_datos",    "read");
-        if (id === "servicios") return can("servicios",           "read");
         return false;
       })
     : tabs;
@@ -838,16 +827,6 @@ const CrmBusiness = ({ initialTab }: { initialTab?: Tab }) => {
       )}
       {activeTab === "negocio"   && <NegocioTab profile={profile} update={handleUpdate} readOnly={isStaff && !can("mi_negocio_datos", "edit")} />}
       {activeTab === "logo"      && <LogoColoresTab profile={profile} update={handleUpdate} />}
-      {activeTab === "servicios" && (
-        <CrmServices
-          isSuperAdmin={isSuperAdmin}
-          canEdit={!isStaff || can("servicios", "edit")}
-          canCreate={!isStaff || can("servicios", "create")}
-          canDelete={!isStaff || can("servicios", "delete")}
-          canReorder={!isStaff || can("servicios", "edit")}
-        />
-      )}
-      {activeTab === "productos" && <CrmProductos />}
     </>
   );
 

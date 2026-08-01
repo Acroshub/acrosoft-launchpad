@@ -15,6 +15,7 @@ export type Section =
   | "mi_negocio_datos"
   | "mi_negocio_personal"
   | "servicios"
+  | "productos"
   | "dashboard"
   | "ventas"
   | "calendarios"
@@ -32,6 +33,7 @@ export const SECTION_TO_KEY: Record<Section, PermKey> = {
   mi_negocio_datos:    "perm_mi_negocio_datos",
   mi_negocio_personal: "perm_mi_negocio_personal",
   servicios:           "perm_servicios",
+  productos:           "perm_productos",
   dashboard:           "perm_dashboard",
   ventas:              "perm_ventas",
   calendarios:         "perm_calendarios",
@@ -105,20 +107,22 @@ export function canAccessItem(
  */
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
-    return new Set(["overview", "business", "calendar", "forms", "contacts", "ventas", "reminders", "settings", "soporte", "tutoriales", "cursos", "agente_ia"]);
+    return new Set(["overview", "servicios", "productos", "cursos", "business", "calendar", "forms", "contacts", "ventas", "settings", "soporte", "tutoriales", "agente_ia"]);
   }
 
   const can = buildPermChecker(staffRecord);
   const visible = new Set<string>();
 
   if (can("dashboard",        "read")) visible.add("overview");
-  if (can("mi_negocio_datos", "read") || can("mi_negocio_personal", "read") || can("servicios", "read"))
+  if (can("mi_negocio_datos", "read") || can("mi_negocio_personal", "read"))
     visible.add("business");
+  if (can("servicios", "read")) visible.add("servicios");
+  if (can("productos", "read")) visible.add("productos");
+  // Cursos: solo el principal lo ve (filtrado adicional en Crm.tsx por isSaasClient) — staff no accede
   if (can("calendarios",  "read")) visible.add("calendar");
   if (can("formularios",  "read")) visible.add("forms");
   if (can("contactos",     "read")) visible.add("contacts");
   if (can("ventas",       "read")) visible.add("ventas");
-  if (can("recordatorios","read")) visible.add("reminders");
   if (can("agente_ia",    "read")) visible.add("agente_ia");
   // Soporte es visible para todo el staff (sin permiso específico requerido)
   visible.add("soporte");

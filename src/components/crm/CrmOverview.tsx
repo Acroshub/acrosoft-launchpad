@@ -49,8 +49,8 @@ const INTERVAL_LABELS: Record<string, string> = {
   semiannual: "Semestral",
 };
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts"
-  | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "agente_ia";
+type View = "overview" | "business" | "servicios" | "productos" | "calendar" | "forms" | "contacts"
+  | "ventas" | "settings" | "soporte" | "videos" | "agente_ia";
 
 const selectCls = "w-full h-12 px-3.5 rounded-xl border border-border bg-card text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer";
 const inputCls  = "w-full h-12 px-4 rounded-xl border border-border bg-card text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-muted-foreground/50";

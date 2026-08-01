@@ -248,7 +248,6 @@ export type CrmBusinessProfile = {
   color_accent: string
   theme: string
   metrics_order?: Json
-  landing_calendar_id?: string | null
   timezone: string
   slug: string | null
   onboarding_flags?: Record<string, boolean>
@@ -451,6 +450,7 @@ export type CrmStaff = {
   perm_mi_negocio_datos: StaffPermission
   perm_mi_negocio_personal: StaffPermission
   perm_servicios: StaffPermission
+  perm_productos: StaffPermission
   perm_dashboard: StaffPermission
   perm_ventas: StaffPermission
   perm_calendarios: StaffPermission

@@ -793,12 +793,12 @@ export const useLandingProfile = () =>
     queryFn: async () => {
       const { data, error } = await supabasePublic
         .from("crm_business_profile")
-        .select("user_id, landing_calendar_id")
+        .select("user_id")
         .order("created_at", { ascending: true })
         .limit(1)
         .maybeSingle();
       if (error) throw error;
-      return data as { user_id: string; landing_calendar_id: string | null } | null;
+      return data as { user_id: string } | null;
     },
   });
 
@@ -1321,63 +1321,6 @@ export const useReminders = () => {
       return data as CrmReminder[];
     },
     enabled: !!user,
-  });
-};
-
-export const usePersonalReminders = () => {
-  const { user } = useCurrentUser();
-  return useQuery({
-    queryKey: ["crm_reminders_personal", user?.id],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("crm_reminders")
-        .select("*")
-        .eq("is_personal", true)
-        .order("scheduled_at", { ascending: true });
-      if (error) throw error;
-      return data as CrmReminder[];
-    },
-    enabled: !!user,
-  });
-};
-
-export const useCreateReminder = () => {
-  const qc = useQueryClient();
-  const { ownerUserId } = useStaffPermissions();
-  return useMutation({
-    mutationFn: async (reminder: Omit<CrmReminder, "id" | "created_at" | "user_id" | "status" | "sent_at" | "error">) => {
-      const { data, error } = await supabase
-        .from("crm_reminders")
-        .insert({ ...reminder, user_id: ownerUserId!, status: "pending" })
-        .select()
-        .single();
-      if (error) throw error;
-      // Enqueue for processing — RLS allows insert when reminder belongs to current user
-      const { error: qErr } = await supabase
-        .from("crm_reminder_queue")
-        .insert({ reminder_id: (data as CrmReminder).id });
-      if (qErr) console.error("crm_reminder_queue insert failed:", qErr.message);
-      return data as CrmReminder;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm_reminders"] });
-      qc.invalidateQueries({ queryKey: ["crm_reminders_personal"] });
-    },
-  });
-};
-
-export const useDeleteReminder = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      await supabase.from("crm_reminder_queue").delete().eq("reminder_id", id);
-      const { error } = await supabase.from("crm_reminders").delete().eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm_reminders"] });
-      qc.invalidateQueries({ queryKey: ["crm_reminders_personal"] });
-    },
   });
 };
 

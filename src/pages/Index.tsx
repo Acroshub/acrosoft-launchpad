@@ -6,12 +6,11 @@ import { useLandingProfile } from "@/hooks/useCrmData";
 import { useCurrentUser } from "@/hooks/useAuth";
 import LandingContent from "@/components/shared/LandingContent";
 
-const useLandingCalendar = (profile: { user_id: string; landing_calendar_id: string | null } | null | undefined) =>
+const useLandingCalendar = (profile: { user_id: string } | null | undefined) =>
   useQuery({
     queryKey: ["landing_calendar", profile?.user_id],
     queryFn: async () => {
       if (!profile) return null;
-      if (profile.landing_calendar_id) return profile.landing_calendar_id;
       const { data } = await supabasePublic
         .from("crm_calendar_config")
         .select("id")

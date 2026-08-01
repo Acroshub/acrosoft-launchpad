@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, CalendarDays, Users, LogOut, ClipboardList,
   Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle,
-  PlayCircle, Bot, GraduationCap, Menu, X, ChevronRight, BookOpen, Video, SendHorizonal,
+  PlayCircle, Bot, GraduationCap, Menu, X, ChevronRight, ShoppingBag, BookOpen, Briefcase, Video,
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
@@ -13,33 +13,44 @@ import CrmForms from "@/components/crm/CrmForms";
 import CrmContacts from "@/components/crm/CrmContacts";
 import CrmBusiness from "@/components/crm/CrmBusiness";
 import CrmSettings from "@/components/crm/CrmSettings";
-import CrmReminders from "@/components/crm/CrmReminders";
 import CrmVentas from "@/components/crm/CrmVentas";
 import CrmSupport from "@/components/crm/CrmSupport";
 import CrmSupportAdmin from "@/components/crm/CrmSupportAdmin";
 import CrmVideos from "@/components/crm/CrmVideos";
 import CrmAgentIA from "@/components/crm/CrmAgentIA";
+import CrmServices from "@/components/crm/CrmServices";
+import CrmProductos from "@/components/crm/CrmProductos";
 import CrmCourses from "@/components/crm/CrmCourses";
 import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount } from "@/hooks/useCrmData";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "ventas" | "reminders" | "settings" | "soporte" | "tutoriales" | "agente_ia" | "cursos";
+type View = "overview" | "business" | "servicios" | "productos" | "cursos" | "calendar" | "forms" | "contacts" | "ventas" | "settings" | "soporte" | "tutoriales" | "agente_ia";
 
-const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
-  { id: "overview",     label: "Resumen",             icon: LayoutDashboard, group: "Principal"  },
-  { id: "business",     label: "Mi Negocio",          icon: Store,           group: "Principal"  },
+type NavChild = { id: View; label: string; icon: React.ElementType };
+type NavItem = { id: string; label: string; icon: React.ElementType; group: string; children?: NavChild[] };
+
+const PRODUCTOS_CHILDREN: NavChild[] = [
+  { id: "servicios", label: "Servicios", icon: Briefcase   },
+  { id: "productos", label: "Productos", icon: ShoppingBag },
+  { id: "cursos",    label: "Cursos",    icon: BookOpen    },
+];
+
+const navItems: NavItem[] = [
+  { id: "overview",       label: "Inicio",              icon: LayoutDashboard, group: "Principal"  },
+  { id: "productos_menu", label: "Productos",           icon: ShoppingBag,     group: "Principal", children: PRODUCTOS_CHILDREN },
+  { id: "business",       label: "Mi Negocio",          icon: Store,           group: "Principal"  },
   { id: "ventas",       label: "Ventas",              icon: DollarSign,      group: "Principal"  },
   { id: "contacts",     label: "Contactos",           icon: Users,           group: "CRM"        },
   { id: "forms",        label: "Formularios",         icon: ClipboardList,   group: "CRM"        },
   { id: "calendar",     label: "Calendarios",         icon: CalendarDays,    group: "CRM"        },
-  { id: "reminders",    label: "Envíos",               icon: SendHorizonal,   group: "CRM"        },
   { id: "agente_ia",    label: "Agente IA",           icon: Bot,             group: "CRM"        },
-  { id: "cursos",        label: "Cursos",              icon: BookOpen,        group: "CRM"        },
   { id: "tutoriales",   label: "Tutoriales",          icon: Video,           group: "Ajustes"    },
   { id: "soporte",      label: "Soporte",             icon: MessageCircle,   group: "Ajustes"    },
   { id: "settings",     label: "Configuración",       icon: Settings,        group: "Ajustes"    },
 ];
+
+const flatNavItems: NavChild[] = navItems.flatMap(n => (n.children ?? [n]) as NavChild[]);
 
 const groups = [...new Set(navItems.map(n => n.group))];
 
@@ -61,7 +72,7 @@ const Crm = () => {
   const brandLogo    = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
 
-  const VALID_VIEWS: View[] = ["overview","business","calendar","forms","contacts","ventas","reminders","settings","soporte","tutoriales","agente_ia","cursos"];
+  const VALID_VIEWS: View[] = ["overview","business","servicios","productos","cursos","calendar","forms","contacts","ventas","settings","soporte","tutoriales","agente_ia"];
   const [view, setViewRaw]                         = useState<View>(() => {
     const saved = localStorage.getItem("crm_view") as View | null;
     return saved && VALID_VIEWS.includes(saved) ? saved : "overview";
@@ -69,6 +80,11 @@ const Crm = () => {
   const [pendingBusinessTab, setPendingBusinessTab] = useState<string | undefined>(undefined);
   const [pendingContactId, setPendingContactId]   = useState<string | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen]             = useState(false);
+  const [productosOpen, setProductosOpen]         = useState(() => PRODUCTOS_CHILDREN.some(c => c.id === view));
+
+  useEffect(() => {
+    if (PRODUCTOS_CHILDREN.some(c => c.id === view)) setProductosOpen(true);
+  }, [view]);
 
   const setView = (v: View) => {
     localStorage.setItem("crm_view", v);
@@ -146,16 +162,31 @@ const Crm = () => {
   const renderView = () => {
     switch (view) {
       case "overview":  return <CrmOverview isSuperAdmin={effectiveIsAdmin} onNavigate={navigateTo} />;
-      case "business":  return (!isStaff || can("mi_negocio_personal","read") || can("mi_negocio_datos","read") || can("servicios","read")) ? <CrmBusiness initialTab={pendingBusinessTab as any} /> : null;
+      case "business":  return (!isStaff || can("mi_negocio_personal","read") || can("mi_negocio_datos","read")) ? <CrmBusiness initialTab={pendingBusinessTab as any} /> : null;
+      case "servicios": return (!isStaff || can("servicios","read")) ? (
+        <CrmServices
+          isSuperAdmin={effectiveIsAdmin}
+          canEdit={!isStaff || can("servicios","edit")}
+          canCreate={!isStaff || can("servicios","create")}
+          canDelete={!isStaff || can("servicios","delete")}
+          canReorder={!isStaff || can("servicios","edit")}
+        />
+      ) : null;
+      case "productos": return (!isStaff || can("productos","read")) ? (
+        <CrmProductos
+          canEdit={!isStaff || can("productos","edit")}
+          canCreate={!isStaff || can("productos","create")}
+          canDelete={!isStaff || can("productos","delete")}
+        />
+      ) : null;
+      case "cursos":    return (!isStaff && (effectiveIsAdmin || isSaasClient)) ? <CrmCourses /> : null;
       case "calendar":  return can("calendarios","read")    ? <CrmCalendar onNavigateToContact={handleNavigateToContact} />  : null;
       case "forms":     return can("formularios","read")    ? <CrmForms />     : null;
       case "contacts":  return can("contactos","read")      ? <CrmContacts isSuperAdmin={effectiveIsAdmin} initialContactId={pendingContactId} /> : null;
       case "ventas":    return can("ventas","read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} /> : null;
-      case "reminders": return can("recordatorios","read")  ? <CrmReminders /> : null;
       case "settings":  return !isStaff                     ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} /> : null;
       case "soporte":   return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;
       case "tutoriales": return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
-      case "cursos":       return <CrmCourses />;
       case "agente_ia":    return <CrmAgentIA
         isSuperAdmin={effectiveIsAdmin}
         isSaasClient={isSaasClient}
@@ -185,12 +216,21 @@ const Crm = () => {
       {/* Nav */}
       <nav className="flex-1 px-3 pb-2 overflow-y-auto space-y-4">
         {groups.map(group => {
-          const items = navItems.filter(n =>
-            n.group === group &&
-            allowedNavItems.has(n.id) &&
-            (n.id !== "tutoriales"   || effectiveIsAdmin || isSaasClient) &&
-            (n.id !== "cursos"       || isSaasClient    || effectiveIsAdmin)
-          );
+          const items = navItems
+            .filter(n => n.group === group)
+            .map(n => {
+              if (n.children) {
+                const visibleChildren = n.children.filter(c =>
+                  allowedNavItems.has(c.id) &&
+                  (c.id !== "cursos" || effectiveIsAdmin || isSaasClient)
+                );
+                return visibleChildren.length ? { ...n, children: visibleChildren } : null;
+              }
+              if (!allowedNavItems.has(n.id)) return null;
+              if (n.id === "tutoriales" && !(effectiveIsAdmin || isSaasClient)) return null;
+              return n;
+            })
+            .filter((n): n is NavItem => n !== null);
           if (!items.length) return null;
           return (
             <div key={group}>
@@ -199,12 +239,54 @@ const Crm = () => {
               </p>
               <div className="space-y-0.5">
                 {items.map(item => {
-                  const Icon  = item.icon;
+                  const Icon = item.icon;
+
+                  if (item.children) {
+                    const hasActiveChild = item.children.some(c => c.id === view);
+                    return (
+                      <div key={item.id}>
+                        <button
+                          onClick={() => setProductosOpen(o => !o)}
+                          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group relative ${
+                            hasActiveChild ? "text-primary" : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+                          }`}
+                        >
+                          <Icon size={15} className="shrink-0" />
+                          <span className="flex-1 text-left truncate">{item.label}</span>
+                          <ChevronRight size={13} className={`shrink-0 transition-transform ${productosOpen ? "rotate-90" : ""}`} />
+                        </button>
+                        {productosOpen && (
+                          <div className="mt-0.5 ml-4 pl-2 border-l border-border/60 space-y-0.5">
+                            {item.children.map(child => {
+                              const ChildIcon = child.icon;
+                              const childActive = view === child.id;
+                              return (
+                                <button
+                                  key={child.id}
+                                  onClick={() => handleNavClick(child.id)}
+                                  style={childActive && brandPrimary ? { backgroundColor: `${brandPrimary}18`, color: brandPrimary } : {}}
+                                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-sm font-medium transition-all ${
+                                    childActive
+                                      ? brandPrimary ? "" : "bg-primary/8 text-primary"
+                                      : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
+                                  }`}
+                                >
+                                  <ChildIcon size={14} className="shrink-0" />
+                                  <span className="flex-1 text-left truncate">{child.label}</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
                   const active = view === item.id;
                   return (
                     <button
                       key={item.id}
-                      onClick={() => handleNavClick(item.id)}
+                      onClick={() => handleNavClick(item.id as View)}
                       style={active && brandPrimary ? { backgroundColor: `${brandPrimary}18`, color: brandPrimary, borderLeftColor: brandPrimary } : {}}
                       className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group relative ${
                         active
@@ -253,8 +335,8 @@ const Crm = () => {
     </div>
   );
 
-  const currentLabel = navItems.find(n => n.id === view)?.label ?? "";
-  const CurrentIcon  = navItems.find(n => n.id === view)?.icon ?? LayoutDashboard;
+  const currentLabel = flatNavItems.find(n => n.id === view)?.label ?? "";
+  const CurrentIcon  = flatNavItems.find(n => n.id === view)?.icon ?? LayoutDashboard;
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">
