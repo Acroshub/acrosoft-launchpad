@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabasePublic } from "@/lib/supabase";
-import { useLandingProfile, useLandingServices } from "@/hooks/useCrmData";
+import { useLandingProfile } from "@/hooks/useCrmData";
 import { useCurrentUser } from "@/hooks/useAuth";
 import LandingContent from "@/components/shared/LandingContent";
 
@@ -36,9 +36,8 @@ const Index = () => {
 
   const { data: adminProfile } = useLandingProfile();
   const { data: calendarId }   = useLandingCalendar(adminProfile);
-  const { data: services = [] } = useLandingServices();
 
-  return <LandingContent calendarId={calendarId} services={services} />;
+  return <LandingContent calendarId={calendarId} />;
 };
 
 export default Index;

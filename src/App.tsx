@@ -4,7 +4,6 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Index from "./pages/Index.tsx";
-import Onboarding from "./pages/Onboarding.tsx";
 import FormPage from "./pages/FormPage.tsx";
 import BookingPage from "./pages/BookingPage.tsx";
 import Login from "./pages/Login.tsx";
@@ -14,14 +13,10 @@ import NotFound from "./pages/NotFound.tsx";
 import TerminosPoliticas from "./pages/TerminosPoliticas.tsx";
 import ProtectedRoute from "./components/shared/ProtectedRoute.tsx";
 import GoogleCalendarCallback from "./pages/GoogleCalendarCallback.tsx";
-import VipLanding from "./pages/VipLanding.tsx";
-import VendorLanding from "./pages/VendorLanding.tsx";
-import CatalogPublic from "./pages/CatalogPublic.tsx";
 import CourseAccess from "./pages/CourseAccess.tsx";
 import CoursePlayer from "./pages/CoursePlayer.tsx";
 import WebsitesCatalog from "./pages/websites/WebsitesCatalog.tsx";
 import WebsiteViewer from "./pages/websites/WebsiteViewer.tsx";
-import ClaseGratisTreeService from "./pages/ClaseGratisTreeService.tsx";
 import ClaseGratisTreeServiceGame from "./pages/ClaseGratisTreeServiceGame.tsx";
 
 const queryClient = new QueryClient({
@@ -37,7 +32,6 @@ const App = () => (
         <Routes>
           {/* Public routes */}
           <Route path="/"              element={<Index />} />
-          <Route path="/onboarding"    element={<Onboarding />} />
           <Route path="/login"         element={<Login />} />
           <Route path="/f/:formId"     element={<FormPage />} />
           <Route path="/book/:calendarId" element={<BookingPage />} />
@@ -45,8 +39,6 @@ const App = () => (
           <Route path="/privacy" element={<TerminosPoliticas />} />
           <Route path="/terms"   element={<TerminosPoliticas />} />
           <Route path="/oauth/google-calendar" element={<GoogleCalendarCallback />} />
-          <Route path="/vip" element={<VipLanding />} />
-          <Route path="/clase-gratis-tree-service" element={<ClaseGratisTreeService />} />
           <Route path="/clase-gratis-tree-service-game" element={<ClaseGratisTreeServiceGame />} />
 
           {/* Client invitation setup — public (session comes from invite link) */}
@@ -55,19 +47,13 @@ const App = () => (
           {/* Protected routes */}
           <Route path="/crm" element={<ProtectedRoute><Crm /></ProtectedRoute>} />
 
-          {/* Public catalog pages — must be before /:vendorSlug catch-all */}
-          <Route path="/catalogo/:businessSlug/:catalogSlug" element={<CatalogPublic />} />
-
           {/* Curso — gate de acceso y player (públicos, sin auth Supabase) */}
           <Route path="/curso/:tenantSlug/:courseSlug"      element={<CourseAccess />} />
           <Route path="/curso/:tenantSlug/:courseSlug/ver"  element={<CoursePlayer />} />
 
-          {/* Public websites portfolio — before /:vendorSlug catch-all */}
+          {/* Public websites portfolio */}
           <Route path="/websites" element={<WebsitesCatalog />} />
           <Route path="/websites/:slug" element={<WebsiteViewer />} />
-
-          {/* Vendor landing pages — must be before * catch-all */}
-          <Route path="/:vendorSlug" element={<VendorLanding />} />
 
           <Route path="*" element={<NotFound />} />
         </Routes>

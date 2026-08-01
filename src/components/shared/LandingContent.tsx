@@ -14,7 +14,6 @@ import type { CrmService } from "@/lib/supabase";
 
 interface Props {
   calendarId: string | null | undefined;
-  services: CrmService[];
 }
 
 // ─── Palette tokens ───────────────────────────────────────────────────────────
@@ -72,6 +71,85 @@ const TESTIMONIALS = [
     stars: 5,
     result: "0 cancelaciones",
     quote: "Los recordatorios automáticos redujeron las cancelaciones a casi cero. Acrosoft entiende a los negocios latinos.",
+  },
+];
+
+type PricingPlan = Pick<CrmService,
+  | "id" | "name" | "description" | "price" | "discount_pct"
+  | "is_recurring" | "recurring_price" | "recurring_interval" | "recurring_label" | "recurring_discount_pct"
+  | "delivery_time" | "benefits" | "is_recommended"
+>;
+
+const PRICING_PLANS: PricingPlan[] = [
+  {
+    id: "starter-landing-page",
+    name: "Starter - Landing Page",
+    description: "Lanzamiento rápido para tu negocio",
+    price: 500,
+    discount_pct: 30,
+    is_recurring: true,
+    recurring_price: 49,
+    recurring_interval: "mes",
+    recurring_label: "/mes mantenimiento",
+    recurring_discount_pct: 0,
+    delivery_time: "3–5 días hábiles",
+    benefits: [
+      "1 página profesional bilingüe (ES / EN)",
+      "Diseño moderno enfocado en conversión",
+      "Textos optimizados",
+      "Integración de analytics y píxeles",
+      "Formulario de contacto integrado",
+      "Botones directos (WhatsApp / llamada)",
+      "100% adaptable a celular",
+      "Publicación online incluida",
+    ],
+    is_recommended: false,
+  },
+  {
+    id: "essential-website-profesional",
+    name: "Essential - Website Profesional",
+    description: "Presencia completa para tu negocio",
+    price: 1500,
+    discount_pct: 30,
+    is_recurring: true,
+    recurring_price: 99,
+    recurring_interval: "mes",
+    recurring_label: "/mes mantenimiento",
+    recurring_discount_pct: 0,
+    delivery_time: "10–14 días hábiles",
+    benefits: [
+      "Todo lo incluido en Single Page",
+      "Hasta 6 páginas completas",
+      "SEO local (para aparecer en Google)",
+      "Galería dinámica de imágenes",
+      "Integración de analytics y píxeles",
+      "Navegación clara y optimizada",
+      "Diseño escalable para crecer",
+    ],
+    is_recommended: false,
+  },
+  {
+    id: "business-booking-system",
+    name: "Business - Booking System",
+    description: "Plataforma con reservas 24/7",
+    price: 5000,
+    discount_pct: 30,
+    is_recurring: true,
+    recurring_price: 250,
+    recurring_interval: "mes",
+    recurring_label: "/mes mantenimiento",
+    recurring_discount_pct: 0,
+    delivery_time: "21–30 días hábiles",
+    benefits: [
+      "Todo lo incluido en Multi Page",
+      "Sistema de reservas online 24/7",
+      "Calendario para agendar citas",
+      "Panel de administración (dashboard)",
+      "Base de datos de clientes organizada",
+      "Recordatorios automáticos por email",
+      "Soporte prioritario por WhatsApp",
+    ],
+    is_recommended: true,
   },
 ];
 
@@ -211,7 +289,7 @@ function MiniCalendar() {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 
-const LandingContent = ({ calendarId, services }: Props) => {
+const LandingContent = ({ calendarId }: Props) => {
   const T     = translations.es;
   const steps = T.steps.items.map((item, i) => ({ icon: STEP_ICONS[i], ...item }));
   const [openFaq, setOpenFaq] = useState<number | null>(null);
@@ -223,11 +301,9 @@ const LandingContent = ({ calendarId, services }: Props) => {
       }),
       { threshold: 0.08 },
     );
-    // Re-observe when services load — cards rendered after initial mount
-    // start with opacity:0 and never become visible without re-observing.
     document.querySelectorAll(".lp-reveal:not(.lp-visible)").forEach(el => obs.observe(el));
     return () => obs.disconnect();
-  }, [services]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-background selection:bg-blue-500/20 pb-16 sm:pb-0">
@@ -877,15 +953,12 @@ const LandingContent = ({ calendarId, services }: Props) => {
             ))}
           </div>
 
-          {services.length === 0 ? (
-            <p className="text-center text-slate-400 text-sm">Cargando planes…</p>
-          ) : (
-            <div className={`grid gap-6 max-w-5xl mx-auto ${
-              services.length === 1 ? "max-w-sm" :
-              services.length === 2 ? "md:grid-cols-2 max-w-2xl" :
-              "md:grid-cols-3"
-            }`}>
-              {services.map((svc, idx) => {
+          <div className={`grid gap-6 max-w-5xl mx-auto ${
+            PRICING_PLANS.length === 1 ? "max-w-sm" :
+            PRICING_PLANS.length === 2 ? "md:grid-cols-2 max-w-2xl" :
+            "md:grid-cols-3"
+          }`}>
+            {PRICING_PLANS.map((svc, idx) => {
                 const popular    = svc.is_recommended ?? false;
                 const features   = (svc.benefits ?? []) as string[];
                 const discounted = svc.discount_pct > 0
@@ -999,8 +1072,7 @@ const LandingContent = ({ calendarId, services }: Props) => {
                   </div>
                 );
               })}
-            </div>
-          )}
+          </div>
         </div>
       </section>
 

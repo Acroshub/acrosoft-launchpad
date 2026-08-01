@@ -22,10 +22,7 @@ const CrmVendorLinks = ({ vendorProfile }: Props) => {
 
   if (isLoading) return null;
 
-  const landingUrl = `${window.location.origin}/${vendorProfile.slug}`;
-
   const linkItems: { title: string; url: string }[] = [
-    { title: "Landing Page con Calendario", url: landingUrl },
     ...(links?.payment_link
       ? [{ title: links.payment_link_title || "Link de Pago", url: links.payment_link }]
       : []),

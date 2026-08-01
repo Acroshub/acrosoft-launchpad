@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Trash2, Loader2, Package, ImageIcon,
-  Copy, Check, Pencil, X, Link, FileText, ExternalLink,
+  Check, Pencil, X, Link, FileText, ExternalLink,
   AlertTriangle, Minus,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,7 +17,7 @@ import {
   useProducts, useCatalogProducts, useProductCatalogIds,
   useUpsertProduct, useDeleteProduct, useToggleCatalogProduct,
   useProductVariants, useUpsertProductVariant, useDeleteProductVariant,
-  useOrphanProducts, useBusinessProfile, useAIAgentConfig,
+  useOrphanProducts, useAIAgentConfig,
   useAllProductVariants, usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs,
 } from "@/hooks/useCrmData";
 import type { CrmCatalog, CrmProduct, CrmProductVariant } from "@/lib/supabase";
@@ -1048,14 +1048,10 @@ function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProd
 }
 
 // ─── Catalog Card ─────────────────────────────────────────────────────────────
-function CatalogCard({ catalog, businessSlug, onEnter, onEdit, onDelete }: {
-  catalog: CrmCatalog; businessSlug: string | null;
+function CatalogCard({ catalog, onEnter, onEdit, onDelete }: {
+  catalog: CrmCatalog;
   onEnter: () => void; onEdit: () => void; onDelete: () => void;
 }) {
-  const [copied, setCopied] = useState(false);
-  const publicUrl = businessSlug
-    ? `${window.location.origin}/catalogo/${businessSlug}/${catalog.slug}`
-    : null;
   const { data: products = [] } = useCatalogProducts(catalog.id);
 
   return (
@@ -1114,23 +1110,6 @@ function CatalogCard({ catalog, businessSlug, onEnter, onEdit, onDelete }: {
           <span className="text-[10px] font-medium text-muted-foreground bg-secondary px-2 py-1 rounded-xl">
             {products.length} producto{products.length !== 1 ? "s" : ""}
           </span>
-          {catalog.is_active && publicUrl && (
-            <button
-              onClick={e => {
-                e.stopPropagation();
-                navigator.clipboard.writeText(publicUrl);
-                setCopied(true);
-                setTimeout(() => setCopied(false), 2000);
-              }}
-              className={`flex items-center gap-1.5 text-[10px] font-semibold px-2.5 py-1 rounded-xl transition-all ${
-                copied
-                  ? "bg-emerald-500/10 text-emerald-600"
-                  : "text-primary bg-primary/8 hover:bg-primary/15"
-              }`}
-            >
-              {copied ? <><Check size={10} /> Copiado</> : <><Copy size={10} /> Compartir</>}
-            </button>
-          )}
         </div>
       </div>
     </div>
@@ -1180,12 +1159,9 @@ function CatalogForm({ initial, userId, agentPhone, onSave, onCancel, saving }: 
           <Input value={name} onChange={e => handleNameChange(e.target.value)} placeholder="Ej: Colección Verano" className="h-9 text-sm" />
         </div>
         <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Slug (URL pública)</label>
-          <div className="flex items-center gap-1">
-            <span className="text-[11px] text-muted-foreground whitespace-nowrap">/catalogo/</span>
-            <Input value={slug} onChange={e => { slugEdited.current = true; setSlug(generateSlug(e.target.value)); }}
-              placeholder="coleccion-verano" className="h-9 text-sm font-mono flex-1" />
-          </div>
+          <label className="text-xs font-medium text-muted-foreground">Slug</label>
+          <Input value={slug} onChange={e => { slugEdited.current = true; setSlug(generateSlug(e.target.value)); }}
+            placeholder="coleccion-verano" className="h-9 text-sm font-mono" />
         </div>
       </div>
       <div className="space-y-1.5">
@@ -1242,13 +1218,11 @@ export default function CrmProductos() {
   const { data: allProducts = [], isLoading: productsLoading } = useProducts();
   const isLoading = catalogsLoading || productsLoading;
   const { data: orphanProducts = [] }      = useOrphanProducts();
-  const { data: businessProfile }          = useBusinessProfile();
   const { data: agentConfig }              = useAIAgentConfig();
   const { data: allVariants = [] }         = useAllProductVariants();
   const upsertCatalog = useUpsertCatalog();
   const deleteCatalog = useDeleteCatalog();
 
-  const businessSlug = businessProfile?.slug ?? null;
   const agentPhone   = agentConfig?.verified_phone ?? null;
 
   // Mapa productId → suma total de stocks de variantes (solo variantes con tracking: stock !== null)
@@ -1458,7 +1432,6 @@ export default function CrmProductos() {
             <CatalogCard
               key={cat.id}
               catalog={cat}
-              businessSlug={businessSlug}
               onEnter={() => { setSelectedCatalog(cat); setView("catalog"); }}
               onEdit={() => { setEditingCatalog(cat); setShowCatalogForm(false); }}
               onDelete={() => setDeleteTarget(cat.id)}

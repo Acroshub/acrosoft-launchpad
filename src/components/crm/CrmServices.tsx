@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, GripVertical, Tag, CreditCard, Globe } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, GripVertical, Tag, CreditCard } from "lucide-react";
 import { useServices, useCreateService, useUpdateService, useDeleteService, usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs } from "@/hooks/useCrmData";
 import type { CrmService } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
@@ -434,20 +434,16 @@ const SortableServiceItem = ({
   svc,
   handleEdit,
   handleDelete,
-  handleToggleLanding,
   canEdit,
   canDelete,
   canReorder,
-  isSuperAdmin,
 }: {
   svc: CrmService;
   handleEdit: (id: string) => void;
   handleDelete: (id: string) => void;
-  handleToggleLanding: (id: string, value: boolean) => void;
   canEdit: boolean;
   canDelete: boolean;
   canReorder: boolean;
-  isSuperAdmin: boolean;
 }) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: svc.id });
 
@@ -554,12 +550,6 @@ const SortableServiceItem = ({
                   Destacado
                 </span>
               )}
-              {isSuperAdmin && (
-                <span className={`flex items-center gap-1 text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${svc.show_on_landing ? "text-sky-600 bg-sky-500/10" : "text-muted-foreground bg-secondary"}`}>
-                  <Globe size={9} />
-                  {svc.show_on_landing ? "Landing" : "Sin landing"}
-                </span>
-              )}
               {(svc.benefits?.filter(Boolean).length ?? 0) > 0 && (
                 <span className="text-[9px] text-muted-foreground/70">
                   {svc.benefits?.filter(Boolean).length} beneficios
@@ -570,17 +560,8 @@ const SortableServiceItem = ({
         </div>
 
         {/* Actions */}
-        {(canEdit || canDelete || isSuperAdmin) && (
+        {(canEdit || canDelete) && (
           <div className="flex items-center gap-0.5 px-2 border-l">
-            {isSuperAdmin && (
-              <button
-                onClick={(e) => { e.stopPropagation(); handleToggleLanding(svc.id, !svc.show_on_landing); }}
-                title={svc.show_on_landing ? "Quitar de Landing Page" : "Mostrar en Landing Page"}
-                className={`w-9 h-9 flex items-center justify-center rounded-xl transition-colors ${svc.show_on_landing ? "text-sky-500 hover:bg-sky-500/10" : "text-muted-foreground/40 hover:bg-secondary hover:text-muted-foreground"}`}
-              >
-                <Globe size={14} />
-              </button>
-            )}
             {canEdit && (
               <Button
                 variant="ghost"
@@ -684,14 +665,6 @@ const CrmServices = ({
       toast.error("Error al eliminar");
     } finally {
       setDeleteTarget(null);
-    }
-  };
-
-  const handleToggleLanding = async (id: string, value: boolean) => {
-    try {
-      await updateService.mutateAsync({ id, show_on_landing: value });
-    } catch {
-      toast.error("Error al actualizar");
     }
   };
 
@@ -806,11 +779,9 @@ const CrmServices = ({
                     svc={svc}
                     handleEdit={handleEdit}
                     handleDelete={handleDelete}
-                    handleToggleLanding={handleToggleLanding}
                     canEdit={canEdit}
                     canDelete={canDelete}
                     canReorder={canReorder}
-                    isSuperAdmin={isSuperAdmin}
                   />
                 ))}
               </div>

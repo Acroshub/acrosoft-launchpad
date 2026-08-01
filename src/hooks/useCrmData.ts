@@ -1297,32 +1297,6 @@ export const useLandingProfile = () =>
     },
   });
 
-// Self-contained: resolves admin user_id internally so it never depends on
-// a parent query completing first. Always fires immediately on mount.
-export const useLandingServices = () =>
-  useQuery({
-    queryKey: ["landing_services"],
-    staleTime: 10 * 60 * 1000,
-    queryFn: async () => {
-      const { data: profile } = await supabasePublic
-        .from("crm_business_profile")
-        .select("user_id")
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle();
-      if (!profile?.user_id) return [];
-      const { data, error } = await supabasePublic
-        .from("crm_services")
-        .select("*")
-        .eq("user_id", profile.user_id)
-        .eq("active", true)
-        .eq("show_on_landing", true)
-        .order("sort_order", { ascending: true });
-      if (error) throw error;
-      return (data ?? []) as CrmService[];
-    },
-  });
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export const usePublicCalendar = (calendarId: string) =>
