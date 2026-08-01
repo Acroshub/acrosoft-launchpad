@@ -1,18 +1,18 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import {
-  DollarSign, Plus, Loader2, RefreshCcw, X, Filter, Crown,
-  CheckCircle2, ExternalLink, UserCheck, TrendingUp, Percent,
-  Calendar, Upload, AlertTriangle, Bot, Check, XCircle, Pencil, Trash2,
+  DollarSign, Plus, Loader2, RefreshCcw, X, Filter,
+  CheckCircle2, ExternalLink, TrendingUp,
+  Calendar, Upload, Bot, Check, XCircle, Pencil, Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   useContacts, useServices, useProducts, useProductVariants, useCourses, useSales, useCreateSale, useUpdateSale, useDeleteSale,
-  useClientAccounts, useVendors, useMarkSalePaid, useMaintenancePayments, useUpsertMaintenancePayment,
+  useClientAccounts,
 } from "@/hooks/useCrmData";
 import { useStaffPermissions, useCurrentUser } from "@/hooks/useAuth";
-import type { CrmSale, CrmVendor } from "@/lib/supabase";
+import type { CrmSale } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import SalesTable from "@/components/crm/SalesTable";
@@ -99,219 +99,12 @@ const ProofUpload = ({ onUploaded }: { onUploaded: (url: string) => void }) => {
   );
 };
 
-// ─── Vendor Sales View ────────────────────────────────────────────────────────
-
-const VendorSalesView = ({ vendorProfile }: { vendorProfile: CrmVendor }) => {
-  const { data: salesData = [], isLoading } = useSales();
-  const { data: maint = [] }                = useMaintenancePayments();
-  const commissionPct                       = vendorProfile.commission_pct;
-
-  const totalVentas    = salesData.length;
-  const initialSales   = salesData.filter(s => s.type === "initial");
-  const recurringSales = salesData.filter(s => s.type === "recurring");
-
-  const firstRecurringSaleIds = useMemo(() => {
-    const firstByKey: Record<string, string> = {};
-    const sorted = [...salesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    for (const sale of sorted) {
-      if (sale.type !== "recurring" || !sale.contact_id || !sale.service_id) continue;
-      const key = `${sale.contact_id}|${sale.service_id}`;
-      if (!firstByKey[key]) firstByKey[key] = sale.id;
-    }
-    return new Set(Object.values(firstByKey));
-  }, [salesData]);
-
-  const effectivePct = (sale: CrmSale) =>
-    sale.commission_pct > 0 ? sale.commission_pct : commissionPct;
-
-  const comisionesIniciales   = initialSales.reduce((s, x) => s + (x.amount * effectivePct(x) / 100), 0);
-  const comisionesRecurrentes = recurringSales
-    .filter(x => !firstRecurringSaleIds.has(x.id))
-    .reduce((s, x) => s + (x.amount * effectivePct(x) / 100), 0);
-  const totalComisiones = comisionesIniciales + comisionesRecurrentes;
-
-  const vendorCurrency = useMemo(() => {
-    if (!salesData.length) return "USD";
-    const counts: Record<string, number> = {};
-    for (const s of salesData) counts[s.currency] = (counts[s.currency] || 0) + 1;
-    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? "USD";
-  }, [salesData]);
-
-  const KPIS = [
-    { icon: TrendingUp,  label: "Ventas totales",              value: String(totalVentas),                                      iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
-    { icon: DollarSign,  label: `Total comisiones (${commissionPct}%)`, value: fmtSaleAmt(totalComisiones, vendorCurrency, 0),   iconCls: "text-primary",          bgCls: "bg-primary/10" },
-    { icon: Percent,     label: `Iniciales · ${initialSales.length} vta${initialSales.length !== 1 ? "s" : ""}`, value: fmtSaleAmt(comisionesIniciales, vendorCurrency, 0),   iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
-    { icon: RefreshCcw,  label: `Mantenimientos · ${recurringSales.length} activo${recurringSales.length !== 1 ? "s" : ""}`, value: fmtSaleAmt(comisionesRecurrentes, vendorCurrency, 0), iconCls: "text-muted-foreground", bgCls: "bg-secondary"  },
-  ];
-
-  return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-xl font-bold tracking-tight">Mis Ventas</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">Resumen de comisiones y actividad</p>
-      </div>
-
-      {/* KPIs */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {KPIS.map(({ icon: Icon, label, value, iconCls, bgCls }) => (
-          <div key={label} className="bg-card border rounded-2xl p-4">
-            <div className={`w-8 h-8 rounded-xl ${bgCls} flex items-center justify-center mb-3`}>
-              <Icon size={15} className={iconCls} />
-            </div>
-            <p className="text-2xl font-bold text-foreground leading-tight">{value}</p>
-            <p className="text-xs text-muted-foreground mt-1 leading-tight">{label}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* Historial de ventas */}
-      <div className="bg-card border rounded-2xl overflow-hidden">
-        <div className="px-5 py-4 border-b flex items-center gap-2.5">
-          <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
-            <DollarSign size={13} className="text-primary" />
-          </div>
-          <h2 className="text-sm font-semibold">Historial de Ventas</h2>
-        </div>
-        {isLoading ? (
-          <div className="flex justify-center py-12">
-            <Loader2 size={20} className="animate-spin text-muted-foreground" />
-          </div>
-        ) : salesData.length === 0 ? (
-          <div className="px-5 py-10 flex flex-col items-center gap-2 text-center">
-            <div className="w-10 h-10 rounded-2xl bg-secondary flex items-center justify-center">
-              <DollarSign size={18} className="text-muted-foreground/50" />
-            </div>
-            <p className="text-sm font-medium text-muted-foreground">No hay ventas registradas</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead>
-                <tr className="border-b bg-secondary/30">
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Fecha</th>
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Cliente</th>
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Servicio / Producto</th>
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Tipo</th>
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Mi Comisión</th>
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Estado</th>
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Comprobante</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {salesData.map((sale) => {
-                  const isFirstRec = firstRecurringSaleIds.has(sale.id);
-                  const commission = isFirstRec ? 0 : sale.amount * effectivePct(sale) / 100;
-                  return (
-                    <tr key={sale.id} className="hover:bg-secondary/20 transition-colors">
-                      <td className="px-5 py-3.5 text-xs text-muted-foreground whitespace-nowrap">
-                        {new Date(sale.created_at).toLocaleDateString("es-ES")}
-                      </td>
-                      <td className="px-5 py-3.5 font-medium">{sale.contact_name ?? "—"}</td>
-                      <td className="px-5 py-3.5 text-muted-foreground text-sm">{sale.course_name ?? sale.product_name ?? sale.service_name ?? "—"}</td>
-                      <td className="px-5 py-3.5">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          sale.type === "recurring"
-                            ? "bg-blue-500/10 text-blue-600"
-                            : "bg-secondary text-muted-foreground"
-                        }`}>
-                          {sale.type === "recurring" ? "Mantenimiento" : "Inicial"}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3.5 text-right">
-                        {isFirstRec
-                          ? <span className="text-[10px] text-muted-foreground italic">Incluido en inicial</span>
-                          : <span className="font-semibold text-emerald-600">{fmtSaleAmt(commission, sale.currency, 2)}</span>}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        {sale.is_paid ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                            <CheckCircle2 size={11} /> Pagado
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-muted-foreground">Pendiente</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3.5">
-                        {sale.payment_proof_url ? (
-                          <a href={sale.payment_proof_url} target="_blank" rel="noreferrer"
-                            className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline">
-                            <ExternalLink size={10} /> Ver
-                          </a>
-                        ) : <span className="text-[11px] text-muted-foreground">—</span>}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Historial de mantenimientos */}
-      {maint.length > 0 && (
-        <div className="bg-card border rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center">
-              <Calendar size={13} className="text-muted-foreground" />
-            </div>
-            <h2 className="text-sm font-semibold">Historial de Mantenimientos</h2>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead>
-                <tr className="border-b bg-secondary/30">
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Mes</th>
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Monto</th>
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Mi Comisión</th>
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Estado</th>
-                  <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Comprobante</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {maint.map(m => (
-                  <tr key={m.id} className="hover:bg-secondary/20 transition-colors">
-                    <td className="px-5 py-3.5 font-medium">{m.month}</td>
-                    <td className="px-5 py-3.5 text-right">{fmtSaleAmt(m.amount, undefined, 2)}</td>
-                    <td className="px-5 py-3.5 text-right font-semibold text-emerald-600">{fmtSaleAmt(m.commission_amount, undefined, 2)}</td>
-                    <td className="px-5 py-3.5">
-                      {m.is_paid ? (
-                        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                          <CheckCircle2 size={11} /> Pagado
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground">Pendiente</span>
-                      )}
-                    </td>
-                    <td className="px-5 py-3.5">
-                      {m.proof_url ? (
-                        <a href={m.proof_url} target="_blank" rel="noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline">
-                          <ExternalLink size={10} /> Ver
-                        </a>
-                      ) : "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 const CrmVentas = ({
   isSuperAdmin = false,
-  isVendor = false,
-  vendorProfile = null,
 }: {
   isSuperAdmin?: boolean;
-  isVendor?: boolean;
-  vendorProfile?: CrmVendor | null;
 }) => {
   const { user }      = useCurrentUser();
   const { can }       = useStaffPermissions();
@@ -323,30 +116,14 @@ const CrmVentas = ({
   const { data: services = [] }                            = useServices();
   const { data: salesData = [], isLoading: loadingSales }  = useSales();
   const { data: clientAccounts = [] }                      = useClientAccounts();
-  const { data: vendors = [] }                             = useVendors();
-  const { data: maintPayments = [] }                       = useMaintenancePayments();
   const createSale  = useCreateSale();
   const updateSale  = useUpdateSale();
   const deleteSale  = useDeleteSale();
-  const markSalePaid = useMarkSalePaid();
-  const upsertMaint  = useUpsertMaintenancePayment();
 
-  const vendorMap = useMemo(
-    () => Object.fromEntries(vendors.map(v => [v.id, v])),
-    [vendors]
-  );
-  const vendorByUserId = useMemo(
-    () => Object.fromEntries(vendors.filter(v => v.vendor_user_id).map(v => [v.vendor_user_id!, v])),
-    [vendors]
-  );
   const accountByContact = useMemo(
     () => Object.fromEntries(clientAccounts.map(a => [a.contact_id, a])),
     [clientAccounts]
   );
-
-  if (isVendor && vendorProfile) {
-    return <VendorSalesView vendorProfile={vendorProfile} />;
-  }
 
   // ─── Sale modal ───────────────────────────────────────────────────────────
   const [saleModal, setSaleModal] = useState<
@@ -378,47 +155,6 @@ const CrmVentas = ({
       await deleteSale.mutateAsync({ id: saleModal.sale.id, contactName: saleModal.sale.contact_name ?? "—", serviceName: saleModal.sale.service_name ?? "—", amount: saleModal.sale.amount, justification: justification.trim() });
       toast.success("Venta eliminada"); closeSaleModal();
     } catch { toast.error("Error al eliminar la venta"); }
-  };
-
-  // ─── Mark as paid modal ───────────────────────────────────────────────────
-  const [payModal, setPayModal] = useState<CrmSale | null>(null);
-  const [proofUrl, setProofUrl] = useState("");
-  const [paying, setPaying]     = useState(false);
-
-  const openPayModal  = (sale: CrmSale) => { setPayModal(sale); setProofUrl(""); };
-  const closePayModal = () => { setPayModal(null); setProofUrl(""); };
-
-  const handleMarkPaid = async () => {
-    if (!payModal) return;
-    setPaying(true);
-    try {
-      await markSalePaid.mutateAsync({ id: payModal.id, proof_url: proofUrl || undefined });
-      toast.success("Venta marcada como pagada");
-      closePayModal();
-    } catch { toast.error("Error al marcar como pagada"); }
-    finally { setPaying(false); }
-  };
-
-  // ─── Maintenance pay modal ────────────────────────────────────────────────
-  const [maintModal, setMaintModal]       = useState<{ vendor: CrmVendor; month: string; amount: number; commissionAmount: number } | null>(null);
-  const [maintProofUrl, setMaintProofUrl] = useState("");
-  const [payingMaint, setPayingMaint]     = useState(false);
-  const today = new Date();
-
-  const handleMarkMaintPaid = async () => {
-    if (!maintModal) return;
-    setPayingMaint(true);
-    try {
-      await upsertMaint.mutateAsync({
-        vendor_id: maintModal.vendor.id, month: maintModal.month,
-        amount: maintModal.amount, commission_pct: maintModal.vendor.commission_pct,
-        commission_amount: maintModal.commissionAmount, is_paid: true,
-        paid_at: new Date().toISOString(), proof_url: maintProofUrl.trim() || null, notes: null,
-      });
-      toast.success("Mantenimiento marcado como pagado");
-      setMaintModal(null); setMaintProofUrl("");
-    } catch { toast.error("Error al marcar mantenimiento"); }
-    finally { setPayingMaint(false); }
   };
 
   // ─── New sale form ────────────────────────────────────────────────────────
@@ -594,13 +330,11 @@ const CrmVentas = ({
         finalNotes = finalNotes ? `[${typeLabel}] ${finalNotes}` : `[${typeLabel}]`;
       }
       try {
-        const vendorForContact = vendorByUserId[contact.user_id] ?? null;
         await createSale.mutateAsync({
           contact_id: contact.id, contact_name: contact.name,
           service_id: service.id, service_name: service.name,
           amount: Number(saleAmount), currency: saleCurrency,
           type: saleType, notes: finalNotes || null,
-          ...(vendorForContact ? { vendor_id: vendorForContact.id, commission_pct: vendorForContact.commission_pct } : {}),
         });
         const existingAccount = accountByContact[contact.id];
         if ((service as any).is_saas && !existingAccount && user) {
@@ -622,14 +356,12 @@ const CrmVentas = ({
       const selectedVariantObj = selectedVariant ? productVariants.find(v => v.id === selectedVariant) : undefined;
       const variantName = selectedVariantObj ? ` (${selectedVariantObj.name})` : "";
       try {
-        const vendorForContact = vendorByUserId[contact.user_id] ?? null;
         await createSale.mutateAsync({
           contact_id: contact.id, contact_name: contact.name,
           product_id: product.id, product_name: product.name + variantName,
           ...(selectedVariant ? { product_variant_id: selectedVariant } : {}),
           amount: Number(saleAmount), currency: saleCurrency,
           type: "initial", notes: saleNotes || null,
-          ...(vendorForContact ? { vendor_id: vendorForContact.id, commission_pct: vendorForContact.commission_pct } : {}),
         } as any);
         toast.success("Venta registrada");
         resetSaleForm();
@@ -639,13 +371,11 @@ const CrmVentas = ({
       const course = courses.find(c => c.id === selectedCourse);
       if (!course) return;
       try {
-        const vendorForContact = vendorByUserId[contact.user_id] ?? null;
         await createSale.mutateAsync({
           contact_id: contact.id, contact_name: contact.name,
           course_id: course.id, course_name: course.title,
           amount: Number(saleAmount), currency: saleCurrency,
           type: "initial", notes: saleNotes || null,
-          ...(vendorForContact ? { vendor_id: vendorForContact.id, commission_pct: vendorForContact.commission_pct } : {}),
         } as any);
         toast.success("Venta registrada");
         resetSaleForm();
@@ -658,20 +388,13 @@ const CrmVentas = ({
   const [filterDateTo,   setFilterDateTo]   = useState("");
   const [filterService,  setFilterService]  = useState("");
   const [filterContact,  setFilterContact]  = useState("");
-  const [filterVip,      setFilterVip]      = useState(false);
-  const [filterVendor,   setFilterVendor]   = useState("");
   const [filterCurrency, setFilterCurrency] = useState("");
 
-  const hasFilters = !!(filterDateFrom || filterDateTo || filterService || filterContact || filterVip || filterVendor || filterCurrency);
+  const hasFilters = !!(filterDateFrom || filterDateTo || filterService || filterContact || filterCurrency);
 
   const clearFilters = () => {
     setFilterDateFrom(""); setFilterDateTo(""); setFilterService("");
-    setFilterContact(""); setFilterVip(false); setFilterVendor(""); setFilterCurrency("");
-  };
-
-  const handleToggleVip = async (sale: CrmSale) => {
-    try { await updateSale.mutateAsync({ id: sale.id, is_vip: !sale.is_vip, justification: "VIP toggle" } as any); }
-    catch { toast.error("Error al cambiar estado VIP"); }
+    setFilterContact(""); setFilterCurrency("");
   };
 
   // ─── AI sale confirm/reject ────────────────────────────────────────────────
@@ -707,11 +430,6 @@ const CrmVentas = ({
     [salesData]
   );
 
-  const totalComisiones = useMemo(
-    () => confirmedSales.reduce((s, x) => s + (x.vendor_id ? x.amount * (x.commission_pct || 0) / 100 : 0), 0),
-    [confirmedSales]
-  );
-
   const totalPorMoneda = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of confirmedSales) { const c = s.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount); }
@@ -732,26 +450,6 @@ const CrmVentas = ({
   const salesThisMonth = useMemo(() => {
     const now = new Date();
     return confirmedSales.filter(s => { const d = new Date(s.created_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).length;
-  }, [confirmedSales]);
-
-  const comisionesPorMoneda = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of confirmedSales) {
-      if (!s.vendor_id) continue;
-      const c = s.currency ?? "USD";
-      map.set(c, (map.get(c) ?? 0) + s.amount * (s.commission_pct > 0 ? s.commission_pct : 0) / 100);
-    }
-    return [...map.entries()];
-  }, [confirmedSales]);
-
-  const gananciaPorMoneda = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of confirmedSales) {
-      const c = s.currency ?? "USD";
-      const comm = s.vendor_id ? s.amount * (s.commission_pct > 0 ? s.commission_pct : 0) / 100 : 0;
-      map.set(c, (map.get(c) ?? 0) + s.amount - comm);
-    }
-    return [...map.entries()];
   }, [confirmedSales]);
 
   const availableCurrencies = useMemo(() => {
@@ -781,74 +479,6 @@ const CrmVentas = ({
     }));
   }, [services, salesData]);
 
-  const currentMonth = useMemo(() => {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  }, []);
-
-  const firstRecurringSaleIds = useMemo(() => {
-    const firstByKey: Record<string, string> = {};
-    const sorted = [...salesData].sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
-    for (const sale of sorted) {
-      if (sale.type !== "recurring" || !sale.contact_id || !sale.service_id || !sale.vendor_id) continue;
-      const key = `${sale.contact_id}|${sale.service_id}`;
-      if (!firstByKey[key]) firstByKey[key] = sale.id;
-    }
-    return new Set(Object.values(firstByKey));
-  }, [salesData]);
-
-  const maintByVendor = useMemo(() => {
-    if (!isSuperAdmin || vendors.length === 0) return [];
-    const byVendor: Record<string, { vendor: CrmVendor; amount: number; count: number; currency: string }> = {};
-    for (const sale of salesData) {
-      if (sale.type !== "recurring" || !sale.vendor_id || firstRecurringSaleIds.has(sale.id)) continue;
-      const now = new Date(); const d = new Date(sale.created_at);
-      if (d.getFullYear() !== now.getFullYear() || d.getMonth() !== now.getMonth()) continue;
-      const vendor = vendorMap[sale.vendor_id]; if (!vendor) continue;
-      if (!byVendor[vendor.id]) byVendor[vendor.id] = { vendor, amount: 0, count: 0, currency: sale.currency ?? "USD" };
-      byVendor[vendor.id].amount += sale.amount;
-      byVendor[vendor.id].count++;
-    }
-    return Object.values(byVendor).map(({ vendor, amount, count, currency }) => ({
-      vendor, amount, count, currency,
-      commissionAmount: amount * vendor.commission_pct / 100,
-      paid: maintPayments.find(m => m.vendor_id === vendor.id && m.month === currentMonth)?.is_paid ?? false,
-    }));
-  }, [isSuperAdmin, vendors, salesData, vendorMap, maintPayments, currentMonth, firstRecurringSaleIds]);
-
-  const lastMonthStr = useMemo(() => {
-    const d = new Date();
-    const lm = new Date(d.getFullYear(), d.getMonth() - 1, 1);
-    return `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, "0")}`;
-  }, []);
-
-  const lastMonthLabel = useMemo(() => {
-    const d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
-    return `${MONTHS_ES[d.getMonth()]} ${d.getFullYear()}`;
-  }, []);
-
-  const maintByVendorLastMonth = useMemo(() => {
-    if (!isSuperAdmin || vendors.length === 0) return [] as Array<{ vendor: CrmVendor; amount: number; count: number; commissionAmount: number; paid: boolean }>;
-    const now = new Date();
-    const lmYear  = now.getMonth() === 0 ? now.getFullYear() - 1 : now.getFullYear();
-    const lmMonth = now.getMonth() === 0 ? 11 : now.getMonth() - 1;
-    const byVendor: Record<string, { vendor: CrmVendor; amount: number; count: number }> = {};
-    for (const sale of salesData) {
-      if (sale.type !== "recurring" || !sale.vendor_id || firstRecurringSaleIds.has(sale.id)) continue;
-      const d = new Date(sale.created_at);
-      if (d.getFullYear() !== lmYear || d.getMonth() !== lmMonth) continue;
-      const vendor = vendorMap[sale.vendor_id]; if (!vendor) continue;
-      if (!byVendor[vendor.id]) byVendor[vendor.id] = { vendor, amount: 0, count: 0 };
-      byVendor[vendor.id].amount += sale.amount;
-      byVendor[vendor.id].count++;
-    }
-    return Object.values(byVendor).map(({ vendor, amount, count }) => ({
-      vendor, amount, count,
-      commissionAmount: amount * vendor.commission_pct / 100,
-      paid: maintPayments.find(m => m.vendor_id === vendor.id && m.month === lastMonthStr)?.is_paid ?? false,
-    }));
-  }, [isSuperAdmin, vendors, salesData, vendorMap, maintPayments, lastMonthStr, firstRecurringSaleIds]);
-
   // ─── Filtered history ─────────────────────────────────────────────────────
   const allSales = useMemo(() => salesData.map(s => ({
     id: s.id, raw: s,
@@ -859,11 +489,7 @@ const CrmVentas = ({
     serviceName: s.course_name ?? s.product_name ?? s.service_name ?? "—",
     amount:      s.amount, notes: s.notes ?? "",
     serviceId:   s.service_id ?? "", contactId: s.contact_id ?? "",
-    vendorId:    s.vendor_id ?? "",
-    vendorName:  s.vendor_id ? (vendorMap[s.vendor_id]?.name ?? "Vendedor") : "",
-    commission:  (s.vendor_id && !firstRecurringSaleIds.has(s.id)) ? s.amount * (s.commission_pct > 0 ? s.commission_pct : (vendorMap[s.vendor_id]?.commission_pct ?? 0)) / 100 : 0,
-    isFirstRecurring: firstRecurringSaleIds.has(s.id),
-  })), [salesData, contacts, vendorMap, firstRecurringSaleIds]);
+  })), [salesData, contacts]);
 
   const filteredSales = useMemo(() => {
     let r = allSales;
@@ -871,11 +497,9 @@ const CrmVentas = ({
     if (filterDateTo)   r = r.filter(s => s.dateKey <= filterDateTo);
     if (filterService)  r = r.filter(s => s.serviceId === filterService);
     if (filterContact)  r = r.filter(s => s.contactId === filterContact);
-    if (filterVip)      r = r.filter(s => s.raw.is_vip);
-    if (filterVendor)   r = r.filter(s => s.vendorId === filterVendor);
     if (filterCurrency) r = r.filter(s => (s.raw.currency ?? "USD") === filterCurrency);
     return r;
-  }, [allSales, filterDateFrom, filterDateTo, filterService, filterContact, filterVip, filterVendor, filterCurrency]);
+  }, [allSales, filterDateFrom, filterDateTo, filterService, filterContact, filterCurrency]);
 
   const filteredTotal = useMemo(
     () => filteredSales.filter(s => s.raw.status !== "pending_review" && s.raw.status !== "rejected").reduce((s, x) => s + x.amount, 0),
@@ -940,68 +564,6 @@ const CrmVentas = ({
         </DialogContent>
       </Dialog>
 
-      {/* ─── Mark as Paid Modal ─── */}
-      <Dialog open={!!payModal} onOpenChange={(o) => { if (!o) closePayModal(); }}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader><DialogTitle>Marcar como pagado</DialogTitle></DialogHeader>
-          {payModal && (
-            <div className="space-y-4 py-1">
-              <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1 text-sm">
-                <p className="font-medium">{payModal.contact_name ?? "—"}</p>
-                <p className="text-muted-foreground text-xs">{payModal.product_name ?? payModal.service_name ?? "—"}</p>
-                <p className="text-primary font-semibold">{fmtSaleAmt(payModal.amount, payModal.currency, 2)}</p>
-                {payModal.vendor_id && vendorMap[payModal.vendor_id] && (
-                  <p className="text-[11px] text-muted-foreground">
-                    Vendedor: {vendorMap[payModal.vendor_id].name} · Comisión: {fmtSaleAmt(payModal.amount * (payModal.commission_pct || vendorMap[payModal.vendor_id].commission_pct) / 100, payModal.currency, 2)}
-                  </p>
-                )}
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Comprobante de pago</label>
-                <ProofUpload onUploaded={setProofUrl} />
-                <p className="text-[10px] text-muted-foreground">Opcional. El vendedor podrá verlo.</p>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="ghost" onClick={closePayModal}>Cancelar</Button>
-            <Button onClick={handleMarkPaid} disabled={paying} className="gap-1.5">
-              {paying ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-              Confirmar pago
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* ─── Mark Maintenance as Paid Modal ─── */}
-      <Dialog open={!!maintModal} onOpenChange={(o) => { if (!o) { setMaintModal(null); setMaintProofUrl(""); } }}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader><DialogTitle>Marcar mantenimiento como pagado</DialogTitle></DialogHeader>
-          {maintModal && (
-            <div className="space-y-4 py-1">
-              <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1 text-sm">
-                <p className="font-medium">{maintModal.vendor.name}</p>
-                <p className="text-muted-foreground text-xs">Mes: {maintModal.month}</p>
-                <p className="font-semibold">Total: {fmtSaleAmt(maintModal.amount, undefined, 2)}</p>
-                <p className="text-emerald-600 text-xs font-semibold">Comisión a pagar: {fmtSaleAmt(maintModal.commissionAmount, undefined, 2)} ({maintModal.vendor.commission_pct}%)</p>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Comprobante</label>
-                <ProofUpload onUploaded={setMaintProofUrl} />
-                <p className="text-[10px] text-muted-foreground">Opcional. El vendedor podrá verlo.</p>
-              </div>
-            </div>
-          )}
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => { setMaintModal(null); setMaintProofUrl(""); }}>Cancelar</Button>
-            <Button onClick={handleMarkMaintPaid} disabled={payingMaint} className="gap-1.5">
-              {payingMaint ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-              Confirmar pago
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <div className="space-y-6">
 
         {/* ── Header ── */}
@@ -1048,20 +610,6 @@ const CrmVentas = ({
             <p className="text-2xl font-bold">{salesThisMonth}</p>
             <p className="text-xs text-muted-foreground mt-1">Ventas este mes</p>
           </div>
-
-          {/* Ganancia neta — un card por moneda */}
-          {isSuperAdmin && totalComisiones > 0 && gananciaPorMoneda.map(([cur, total]) => (
-            <div key={`ganancia-${cur}`} className="bg-card border rounded-2xl p-4">
-              <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
-                <Percent size={15} className="text-muted-foreground" />
-              </div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
-                <p className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">Ganancia {cur}</p>
-            </div>
-          ))}
 
           {/* IRE — un card por intervalo */}
           {isSuperAdmin && recurringByInterval.map(({ interval, byCurrency }) =>
@@ -1122,137 +670,6 @@ const CrmVentas = ({
                       {confirmingAiSale === sale.id + "reject" ? <Loader2 size={12} className="animate-spin" /> : <XCircle size={12} />}
                       Rechazar
                     </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Día de pago recurrente ── */}
-        {isSuperAdmin && today.getDate() === 1 && maintByVendorLastMonth.length > 0 && maintByVendorLastMonth.some(r => !r.paid) && (
-          <div className="border border-amber-200 bg-amber-50 rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b border-amber-200 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
-                <AlertTriangle size={15} className="text-amber-600" />
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-bold text-amber-800">Día de Pago Recurrente</p>
-                <p className="text-xs text-amber-700 mt-0.5">Comisiones de mantenimientos — {lastMonthLabel}</p>
-              </div>
-            </div>
-            <div className="divide-y divide-amber-100">
-              {maintByVendorLastMonth.map(({ vendor, amount, count, commissionAmount, paid }) => (
-                <div key={`lm-${vendor.id}`} className="px-5 py-3.5 flex items-center gap-3 flex-wrap sm:flex-nowrap">
-                  <div className="flex items-center gap-2.5 flex-1 min-w-0">
-                    <div className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                      style={{ backgroundColor: getAvatarColor(vendor.name) }}>
-                      {vendor.name.charAt(0)}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold truncate">{vendor.name}</p>
-                      <p className="text-xs text-muted-foreground">{count} cliente{count !== 1 ? "s" : ""} · Total: ${amount.toFixed(2)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-amber-700">${commissionAmount.toFixed(2)}</p>
-                      <p className="text-[10px] text-amber-600/70">{vendor.commission_pct}%</p>
-                    </div>
-                    {paid ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
-                        <CheckCircle2 size={11} /> Pagado
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => { setMaintModal({ vendor, month: lastMonthStr, amount, commissionAmount }); setMaintProofUrl(""); }}
-                        className="h-8 px-3 rounded-xl text-xs font-bold text-amber-700 border border-amber-300 bg-white hover:bg-amber-50 transition-colors flex items-center gap-1"
-                      >
-                        <CheckCircle2 size={11} /> Pagar
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── Comisiones por vendedor ── */}
-        {isSuperAdmin && vendors.length > 0 && (
-          <div className="bg-card border rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center">
-                <UserCheck size={13} className="text-muted-foreground" />
-              </div>
-              <h2 className="text-sm font-semibold">Comisiones por Vendedor</h2>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b bg-secondary/30">
-                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-left">Vendedor</th>
-                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Ventas</th>
-                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Ingresos</th>
-                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Comisión</th>
-                    <th className="px-5 py-3 text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 text-right">Total</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {vendors.map(v => {
-                    const vSales   = allSales.filter(s => s.vendorId === v.id);
-                    const vRevenue = vSales.reduce((s, x) => s + x.amount, 0);
-                    const vComm    = vSales.reduce((s, x) => s + x.commission, 0);
-                    return (
-                      <tr key={v.id} className="hover:bg-secondary/20 transition-colors">
-                        <td className="px-5 py-3.5">
-                          <div className="flex items-center gap-2.5">
-                            <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                              style={{ backgroundColor: getAvatarColor(v.name) }}>
-                              {v.name.charAt(0)}
-                            </div>
-                            <span className="font-medium">{v.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3.5 text-right text-muted-foreground">{vSales.length}</td>
-                        <td className="px-5 py-3.5 text-right font-medium">${vRevenue.toFixed(2)}</td>
-                        <td className="px-5 py-3.5 text-right text-muted-foreground">{v.commission_pct}%</td>
-                        <td className="px-5 py-3.5 text-right font-semibold text-emerald-600">${vComm.toFixed(2)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-
-        {/* ── Mantenimientos del mes (solo info) ── */}
-        {isSuperAdmin && maintByVendor.length > 0 && (
-          <div className="bg-card border rounded-2xl overflow-hidden">
-            <div className="px-5 py-4 border-b flex items-center gap-2.5">
-              <div className="w-7 h-7 rounded-lg bg-secondary flex items-center justify-center">
-                <Calendar size={13} className="text-muted-foreground" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <h2 className="text-sm font-semibold">Mantenimientos — {MONTHS_ES[new Date().getMonth()]} {new Date().getFullYear()}</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">El pago se habilitará el 1° de {MONTHS_ES[(new Date().getMonth() + 1) % 12]}</p>
-              </div>
-            </div>
-            <div className="divide-y divide-border">
-              {maintByVendor.map(({ vendor, amount, count, commissionAmount, currency }) => (
-                <div key={vendor.id} className="px-5 py-3.5 flex items-center gap-3">
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                    style={{ backgroundColor: getAvatarColor(vendor.name) }}>
-                    {vendor.name.charAt(0)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{vendor.name}</p>
-                    <p className="text-xs text-muted-foreground">{count} cliente{count !== 1 ? "s" : ""}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-medium">{fmtSaleAmt(amount, currency)}</p>
-                    <p className="text-xs text-emerald-600 font-semibold">+{fmtSaleAmt(commissionAmount, currency)}</p>
                   </div>
                 </div>
               ))}
@@ -1435,18 +852,6 @@ const CrmVentas = ({
                   {filteredSales.length} resultado{filteredSales.length !== 1 ? "s" : ""}
                 </span>
               )}
-              {isSuperAdmin && (
-                <button
-                  onClick={() => setFilterVip(v => !v)}
-                  className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-xl border font-semibold transition-colors ${
-                    filterVip
-                      ? "bg-amber-100 border-amber-300 text-amber-700"
-                      : "border-border text-muted-foreground hover:text-foreground"
-                  }`}
-                >
-                  <Crown size={11} /> VIP
-                </button>
-              )}
               {hasFilters && (
                 <button onClick={clearFilters} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors">
                   <X size={11} /> Limpiar
@@ -1483,19 +888,6 @@ const CrmVentas = ({
                   <Chevron />
                 </div>
               </div>
-              {isSuperAdmin && vendors.length > 0 && (
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Vendedor</label>
-                  <div className="relative">
-                    <select className={F_SELECT} value={filterVendor} onChange={(e) => setFilterVendor(e.target.value)}>
-                      <option value="">Todos</option>
-                      <option value="__direct__">Sin vendedor</option>
-                      {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                    </select>
-                    <Chevron />
-                  </div>
-                </div>
-              )}
               {availableCurrencies.length > 1 && (
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Moneda</label>
@@ -1520,7 +912,6 @@ const CrmVentas = ({
           <SalesTable
             rows={filteredSales}
             isLoading={loadingSales}
-            isSuperAdmin={isSuperAdmin}
             canEdit={canEditSale}
             canDelete={canDeleteSale}
             emptyText="No hay ventas registradas."
@@ -1529,8 +920,6 @@ const CrmVentas = ({
             hasFilters={hasFilters}
             onEdit={openEditSale}
             onDelete={openDeleteSale}
-            onToggleVip={handleToggleVip}
-            onMarkPaid={openPayModal}
           />
         </div>
 

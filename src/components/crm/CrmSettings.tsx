@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, ChevronRight, ChevronLeft, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell, Store, Link, MessageCircle, Bot, User } from "lucide-react";
-import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, usePipelines, useBusinessProfile, useUpsertBusinessProfile, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient, useVendorProfile, useUpdateVendor, useVendorLinks, useUpsertVendorLinks } from "@/hooks/useCrmData";
+import { Activity, Loader2, Filter, Users, ChevronDown, ChevronRight, ChevronLeft, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, Globe, CalendarDays, UserCog, Bell, Store, MessageCircle, Bot } from "lucide-react";
+import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, useBusinessProfile, useUpsertBusinessProfile, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmLog, CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
@@ -8,7 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import PhoneInputField from "@/components/shared/PhoneInput";
 import { Badge } from "@/components/ui/badge";
-import CrmVendors from "@/components/crm/CrmVendors";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
@@ -368,7 +367,6 @@ type PermKey = keyof Pick<
   | "perm_calendarios"
   | "perm_formularios"
   | "perm_contactos"
-  | "perm_pipeline"
   | "perm_recordatorios"
   | "perm_agente_ia"
 >;
@@ -381,7 +379,6 @@ const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermiss
   { key: "perm_calendarios",         label: "Calendarios",                      actions: ["read", "edit", "create", "delete"] },
   { key: "perm_formularios",         label: "Formularios",                      actions: ["read", "edit", "create", "delete"] },
   { key: "perm_contactos",           label: "Contactos",                        actions: ["read", "edit", "create", "delete"] },
-  { key: "perm_pipeline",            label: "Pipeline",                         actions: ["read", "edit", "create", "delete"] },
   { key: "perm_recordatorios",       label: "Recordatorios",                    actions: ["read", "create"] },
   { key: "perm_agente_ia",           label: "Agente IA (solo conversaciones)",  actions: ["read"] },
 ];
@@ -389,7 +386,7 @@ const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermiss
 const DEFAULT_PERMS = (): Pick<CrmStaff,
   "perm_mi_negocio_datos" | "perm_mi_negocio_personal" | "perm_servicios" |
   "perm_dashboard" | "perm_ventas" | "perm_calendarios" | "perm_formularios" |
-  "perm_contactos" | "perm_pipeline" | "perm_recordatorios" | "perm_agente_ia"
+  "perm_contactos" | "perm_recordatorios" | "perm_agente_ia"
 > => ({
   perm_mi_negocio_datos:    { read: true,  edit: false },
   perm_mi_negocio_personal: { read: true,  edit: true  }, // always on — staff can always see/edit their own info
@@ -399,7 +396,6 @@ const DEFAULT_PERMS = (): Pick<CrmStaff,
   perm_calendarios:         { read: false, edit: false, create: false, delete: false },
   perm_formularios:         { read: false, edit: false, create: false, delete: false },
   perm_contactos:           { read: false, edit: false, create: false, delete: false },
-  perm_pipeline:            { read: false, edit: false, create: false, delete: false },
   perm_recordatorios:       { read: false, create: false },
   perm_agente_ia:           { read: false },
 });
@@ -408,7 +404,7 @@ const DEFAULT_PERMS = (): Pick<CrmStaff,
 
 type ItemPerms = Record<string, StaffItemPermission>
 
-const ITEM_SECTION_KEYS = new Set<PermKey>(["perm_calendarios", "perm_formularios", "perm_pipeline"]);
+const ITEM_SECTION_KEYS = new Set<PermKey>(["perm_calendarios", "perm_formularios"]);
 
 type ItemSectionMode = "none" | "ver_todos" | "admin_todos" | "seleccionar";
 
@@ -436,9 +432,8 @@ const PermMatrix = ({
   itemData: {
     calendarios: { items: ItemPerms | null; available: { id: string; name: string }[] };
     formularios:  { items: ItemPerms | null; available: { id: string; name: string }[] };
-    pipeline:     { items: ItemPerms | null; available: { id: string; name: string }[] };
   };
-  onItemData: (section: "calendarios" | "formularios" | "pipeline", items: ItemPerms | null) => void;
+  onItemData: (section: "calendarios" | "formularios", items: ItemPerms | null) => void;
 }) => {
   const toggleRead = (key: PermKey) => {
     const current = perms[key] as StaffPermission;
@@ -458,7 +453,7 @@ const PermMatrix = ({
     onChange({ ...perms, [key]: updated });
   };
 
-  const setItemMode = (section: "calendarios" | "formularios" | "pipeline", mode: ItemSectionMode) => {
+  const setItemMode = (section: "calendarios" | "formularios", mode: ItemSectionMode) => {
     const key = `perm_${section}` as PermKey;
     const current = getItemMode(perms[key] as StaffPermission, itemData[section].items);
     // Clicking the active mode toggles it off → "none"
@@ -483,7 +478,7 @@ const PermMatrix = ({
     }
   };
 
-  const toggleItemRead = (section: "calendarios" | "formularios" | "pipeline", id: string) => {
+  const toggleItemRead = (section: "calendarios" | "formularios", id: string) => {
     const current = itemData[section].items ?? {};
     const perm = current[id];
     if (perm?.read) {
@@ -495,7 +490,7 @@ const PermMatrix = ({
     }
   };
 
-  const toggleItemEdit = (section: "calendarios" | "formularios" | "pipeline", id: string) => {
+  const toggleItemEdit = (section: "calendarios" | "formularios", id: string) => {
     const current = itemData[section].items ?? {};
     const perm = current[id] ?? { read: false, edit: false };
     onItemData(section, { ...current, [id]: { read: true, edit: !perm.edit } });
@@ -511,7 +506,7 @@ const PermMatrix = ({
 
         // Item-expandable sections
         if (ITEM_SECTION_KEYS.has(section.key)) {
-          const sectionName = section.key.replace("perm_", "") as "calendarios" | "formularios" | "pipeline";
+          const sectionName = section.key.replace("perm_", "") as "calendarios" | "formularios";
           const { items, available } = itemData[sectionName];
           const mode = getItemMode(perm, items);
           return (
@@ -614,7 +609,6 @@ const StaffDialog = ({
 }) => {
   const { data: calendars = [] }  = useCalendars();
   const { data: rawForms = [] }   = useForms();
-  const { data: pipelines = [] }  = usePipelines();
 
   const [name, setName]        = useState(initial?.name ?? "");
   const [email, setEmail]      = useState(initial?.email ?? "");
@@ -631,7 +625,6 @@ const StaffDialog = ({
           perm_calendarios:         initial.perm_calendarios,
           perm_formularios:         initial.perm_formularios,
           perm_contactos:           initial.perm_contactos,
-          perm_pipeline:            initial.perm_pipeline,
           perm_recordatorios:       initial.perm_recordatorios,
           perm_agente_ia:           initial.perm_agente_ia ?? { read: false },
         }
@@ -640,18 +633,15 @@ const StaffDialog = ({
 
   const [calItems,  setCalItems]  = useState<ItemPerms | null>(initial?.perm_calendarios_items ?? null);
   const [formItems, setFormItems] = useState<ItemPerms | null>(initial?.perm_formularios_items ?? null);
-  const [pipeItems, setPipeItems] = useState<ItemPerms | null>(initial?.perm_pipeline_items    ?? null);
 
   const itemData = {
     calendarios: { items: calItems,  available: calendars.map(c => ({ id: c.id, name: c.name ?? c.slug ?? c.id })) },
     formularios:  { items: formItems, available: rawForms.map(f => ({ id: f.id, name: f.name })) },
-    pipeline:     { items: pipeItems, available: pipelines.map(p => ({ id: p.id, name: p.name })) },
   };
 
-  const handleItemData = (section: "calendarios" | "formularios" | "pipeline", items: ItemPerms | null) => {
+  const handleItemData = (section: "calendarios" | "formularios", items: ItemPerms | null) => {
     if (section === "calendarios") setCalItems(items);
-    else if (section === "formularios") setFormItems(items);
-    else setPipeItems(items);
+    else setFormItems(items);
   };
 
   const phoneDigits = phone.replace(/\D/g, "");
@@ -668,7 +658,6 @@ const StaffDialog = ({
       ...perms,
       perm_calendarios_items: calItems,
       perm_formularios_items: formItems,
-      perm_pipeline_items:    pipeItems,
     });
   };
 
@@ -1317,178 +1306,6 @@ const SupportTab = () => {
   );
 };
 
-// ─── Vendor Profile Tab ───────────────────────────────────────────────────────
-
-const VendorProfileTab = () => {
-  const { data: vendorProfile, isLoading } = useVendorProfile();
-  const { data: calendars = [] }           = useCalendars();
-  const updateVendor = useUpdateVendor();
-  const [name, setName]               = useState("");
-  const [whatsapp, setWhatsapp]       = useState("");
-  const [landingCal, setLandingCal]   = useState("");
-  const [saving, setSaving]           = useState(false);
-  const initialized                   = useRef(false);
-
-  useEffect(() => {
-    if (vendorProfile && !initialized.current) {
-      initialized.current = true;
-      setName(vendorProfile.name);
-      setWhatsapp(vendorProfile.whatsapp ?? "");
-      setLandingCal(vendorProfile.landing_calendar_id ?? "");
-    }
-  }, [vendorProfile]);
-
-  const handleSave = async () => {
-    if (!vendorProfile || !name.trim()) return;
-    setSaving(true);
-    try {
-      await updateVendor.mutateAsync({
-        id: vendorProfile.id,
-        name: name.trim(),
-        whatsapp: whatsapp || null,
-        landing_calendar_id: landingCal || null,
-      });
-      toast.success("Perfil actualizado");
-    } catch {
-      toast.error("Error al guardar");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (isLoading) return null;
-
-  return (
-    <div className="space-y-5 max-w-md">
-      <div>
-        <h2 className="text-sm font-semibold">Mi Perfil</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">Edita tus datos personales</p>
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Nombre *</label>
-        <Input value={name} onChange={(e) => setName(e.target.value)} className="h-9 text-sm" />
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Correo electrónico</label>
-        <Input value={vendorProfile?.email ?? ""} disabled className="h-9 text-sm opacity-60" />
-        <p className="text-[10px] text-muted-foreground">El correo no se puede modificar.</p>
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">WhatsApp</label>
-        <PhoneInputField value={whatsapp} onChange={setWhatsapp} />
-      </div>
-
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Calendario de mi landing</label>
-        <select
-          value={landingCal}
-          onChange={(e) => setLandingCal(e.target.value)}
-          className="flex h-9 w-full rounded-md border border-input bg-background px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          <option value="">Sin calendario</option>
-          {calendars.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-        <p className="text-[10px] text-muted-foreground">
-          El calendario que verán tus clientes al visitar tu landing page.
-        </p>
-      </div>
-
-      <Button onClick={handleSave} disabled={saving || !name.trim()} className="rounded-xl h-9 text-sm">
-        {saving && <Loader2 size={13} className="animate-spin mr-1.5" />}
-        Guardar cambios
-      </Button>
-    </div>
-  );
-};
-
-// ─── Vendor Links Admin Tab ───────────────────────────────────────────────────
-
-const VendorLinksAdminTab = () => {
-  const { data: links }     = useVendorLinks();
-  const upsertLinks         = useUpsertVendorLinks();
-  const [paymentTitle,    setPaymentTitle]    = useState("");
-  const [paymentLink,     setPaymentLink]     = useState("");
-  const [onboardingTitle, setOnboardingTitle] = useState("");
-  const [onboardingLink,  setOnboardingLink]  = useState("");
-  const [saving, setSaving] = useState(false);
-  const initialized = useRef(false);
-
-  useEffect(() => {
-    if (links && !initialized.current) {
-      initialized.current = true;
-      setPaymentTitle(links.payment_link_title ?? "Link de Pago");
-      setPaymentLink(links.payment_link ?? "");
-      setOnboardingTitle(links.onboarding_link_title ?? "Link de Onboarding");
-      setOnboardingLink(links.onboarding_link ?? "");
-    }
-  }, [links]);
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await upsertLinks.mutateAsync({
-        payment_link_title:    paymentTitle.trim() || "Link de Pago",
-        payment_link:          paymentLink.trim() || null,
-        onboarding_link_title: onboardingTitle.trim() || "Link de Onboarding",
-        onboarding_link:       onboardingLink.trim() || null,
-      });
-      toast.success("Links guardados");
-    } catch {
-      toast.error("Error al guardar links");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="space-y-6 max-w-lg">
-      <div>
-        <h2 className="text-sm font-semibold">Links para Vendedores</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Estos links aparecerán en el tab "Links" de cada vendedor con su código de seguimiento ya incluido.
-        </p>
-      </div>
-
-      <div className="space-y-4 bg-card border rounded-2xl p-5">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Link de Pago</p>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Título</label>
-          <Input value={paymentTitle} onChange={(e) => setPaymentTitle(e.target.value)} placeholder="Link de Pago" className="h-9 text-sm" />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">URL</label>
-          <Input value={paymentLink} onChange={(e) => setPaymentLink(e.target.value)} placeholder="https://..." className="h-9 text-sm" />
-        </div>
-      </div>
-
-      <div className="space-y-4 bg-card border rounded-2xl p-5">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Link de Onboarding</p>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Título</label>
-          <Input value={onboardingTitle} onChange={(e) => setOnboardingTitle(e.target.value)} placeholder="Link de Onboarding" className="h-9 text-sm" />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">URL del formulario</label>
-          <Input value={onboardingLink} onChange={(e) => setOnboardingLink(e.target.value)} placeholder={`${window.location.origin}/f/...`} className="h-9 text-sm" />
-          <p className="text-[10px] text-muted-foreground">
-            Ingresa el link de tu formulario de onboarding. El código <span className="font-mono">?ref=slug</span> del vendedor se agrega automáticamente.
-          </p>
-        </div>
-      </div>
-
-      <Button onClick={handleSave} disabled={saving} className="rounded-xl h-9 text-sm">
-        {saving && <Loader2 size={13} className="animate-spin mr-1.5" />}
-        Guardar links
-      </Button>
-    </div>
-  );
-};
-
 // ─── Settings shell ───────────────────────────────────────────────────────────
 
 // ─── Tab: Costos IA ──────────────────────────────────────────────────────────
@@ -1636,7 +1453,7 @@ const IACostosTab = () => {
   );
 };
 
-type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte" | "perfil" | "vendor_links" | "vendedores" | "ia_costos";
+type TabId = "general" | "logs" | "staff" | "reminders" | "saas" | "soporte" | "ia_costos";
 
 type TabDef = {
   id: TabId;
@@ -1647,32 +1464,26 @@ type TabDef = {
   Component: React.ComponentType;
   adminOnly?: boolean;
   saasClientVisible?: boolean; // override adminOnly para clientes SaaS
-  vendorOnly?: boolean;
 };
 
 const ALL_TABS: TabDef[] = [
   { id: "general",      label: "Mi Negocio",       description: "Perfil, marca y servicios",  icon: Store,         group: "General",      adminOnly: true,                           Component: GeneralTab          },
   { id: "staff",        label: "Staff",             description: "Equipo y permisos",          icon: Users,         group: "General",      adminOnly: true,  saasClientVisible: true,   Component: StaffTab            },
-  { id: "vendedores",   label: "Vendedores",        description: "Gestión de vendedores",      icon: UserCog,       group: "General",      adminOnly: true,                           Component: CrmVendors          },
-  { id: "vendor_links", label: "Links Vendedores",  description: "URLs y recursos externos",   icon: Link,          group: "General",      adminOnly: true,                           Component: VendorLinksAdminTab },
   { id: "reminders",    label: "Recordatorios",     description: "Email y WhatsApp",           icon: Bell,          group: "Comunicación",                                             Component: RemindersTab        },
   { id: "soporte",      label: "Soporte",           description: "Canal de soporte",           icon: MessageCircle, group: "Comunicación", adminOnly: true,                           Component: SupportTab          },
   { id: "logs",         label: "Logs",              description: "Historial de actividad",     icon: Activity,      group: "Sistema",      adminOnly: true,  saasClientVisible: true,   Component: LogsTab             },
   { id: "ia_costos",    label: "Costos IA",         description: "Uso y costo del agente IA",  icon: Bot,           group: "Sistema",      adminOnly: true,                           Component: IACostosTab         },
-  { id: "perfil",       label: "Mi Perfil",         description: "Datos del vendedor",         icon: User,          group: "Mi Cuenta",    vendorOnly: true,                          Component: VendorProfileTab    },
 ];
 
-const SETTINGS_GROUPS = ["General", "Comunicación", "Sistema", "Mi Cuenta"];
+const SETTINGS_GROUPS = ["General", "Comunicación", "Sistema"];
 
-const CrmSettings = ({ isSuperAdmin, isSaasClient, isVendor, vendorId: _vendorId }: { isSuperAdmin?: boolean; isSaasClient?: boolean; isVendor?: boolean; vendorId?: string | null }) => {
+const CrmSettings = ({ isSuperAdmin, isSaasClient }: { isSuperAdmin?: boolean; isSaasClient?: boolean }) => {
   const visibleTabs = ALL_TABS.filter((t) => {
     if (t.adminOnly && !isSuperAdmin && !(t.saasClientVisible && isSaasClient)) return false;
-    if (t.vendorOnly && !isVendor) return false;
-    if (isVendor && (t.id === "staff" || t.id === "logs" || t.id === "general" || t.id === "soporte")) return false;
     return true;
   });
 
-  const defaultTab = (isSuperAdmin ? "general" : isVendor ? "perfil" : "reminders") as TabId;
+  const defaultTab = (isSuperAdmin ? "general" : "reminders") as TabId;
   const [selectedId, setSelectedId] = useState<TabId>(defaultTab);
   const [showMobileContent, setShowMobileContent] = useState(false);
 

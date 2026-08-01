@@ -6309,13 +6309,11 @@ const CrmAgentIA = ({
   isSuperAdmin = false,
   isSaasClient = false,
   isStaff      = false,
-  isVendor     = false,
   ownerUserId,
 }: {
   isSuperAdmin?: boolean;
   isSaasClient?: boolean;
   isStaff?:      boolean;
-  isVendor?:     boolean;
   ownerUserId?:  string | null;
 }) => {
   // Staff uses principal's userId to fetch config and conversations
@@ -6499,7 +6497,7 @@ const CrmAgentIA = ({
 
 
   // Access control
-  if (!isSuperAdmin && !isSaasClient && !isStaff && !isVendor) return null;
+  if (!isSuperAdmin && !isSaasClient && !isStaff) return null;
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-full">

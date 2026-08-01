@@ -11,7 +11,7 @@ import {
   useWaTemplates, useWaCampaigns, useCreateWaCampaign,
   useDeleteWaCampaign, useWaCampaignLogs,
   useProducts, useServices, useCourses,
-  usePipelines, useWaLabels, useAllContactTags, useContacts,
+  useWaLabels, useAllContactTags, useContacts,
   useInstantCampaigns, useInstantCampaignLogs,
   useCreateInstantCampaign, useDeleteInstantCampaign,
   useWaActiveConversations, useBusinessProfile,
@@ -61,7 +61,6 @@ function filterLabel(f: WaAudienceFilter): string {
   switch (f.type) {
     case "tag":                    return `Etiqueta: ${f.value}`;
     case "wa_label":               return `IA: ${f.labelName}`;
-    case "pipeline_stage":         return `Pipeline "${f.pipelineName}": ${f.stage}`;
     case "has_sale_any":           return "Tiene alguna compra";
     case "has_sale_product":       return `Compró: ${f.productName}`;
     case "has_sale_service":       return `Compró servicio: ${f.serviceName}`;
@@ -226,7 +225,7 @@ function StepVariables({ template, varMap, onChange }: { template: CrmWaTemplate
 type FilterType = WaAudienceFilter["type"];
 const FILTER_TYPE_LABELS: Record<FilterType, string> = {
   tag: "Etiqueta del contacto", wa_label: "Etiqueta del Agente IA",
-  pipeline_stage: "Estado en Pipeline", has_sale_any: "Tiene alguna compra",
+  has_sale_any: "Tiene alguna compra",
   has_sale_product: "Compró un producto", has_sale_service: "Compró un servicio",
   no_sale: "Sin compras registradas", has_appointment_ever: "Ha agendado alguna vez",
   has_appointment_recent: "Agendó recientemente", has_wa_conversation: "Tiene conversación con el Agente IA",
@@ -235,14 +234,11 @@ const FILTER_TYPE_LABELS: Record<FilterType, string> = {
 function FilterBuilder({ filters, onChange }: { filters: WaAudienceFilter[]; onChange: (f: WaAudienceFilter[]) => void }) {
   const { data: tags = [] }      = useAllContactTags();
   const { data: waLabels = [] }  = useWaLabels();
-  const { data: pipelines = [] } = usePipelines();
   const { data: products = [] }  = useProducts();
   const { data: services = [] }  = useServices();
   const [addType, setAddType]       = useState<FilterType>("tag");
   const [addTag, setAddTag]         = useState("");
   const [addLabelId, setAddLabelId] = useState("");
-  const [addPipeId, setAddPipeId]   = useState("");
-  const [addPipeStage, setAddPipeStage] = useState("");
   const [addProductId, setAddProductId] = useState("");
   const [addServiceId, setAddServiceId] = useState("");
   const [addDays, setAddDays]       = useState("30");
@@ -251,15 +247,12 @@ function FilterBuilder({ filters, onChange }: { filters: WaAudienceFilter[]; onC
     let filter: WaAudienceFilter | null = null;
     if (addType === "tag") { const tag = addTag || tags[0]; if (!tag) return; filter = { type: "tag", value: tag }; }
     else if (addType === "wa_label") { const lbl = waLabels.find(l => l.id === addLabelId) ?? waLabels[0]; if (!lbl) return; filter = { type: "wa_label", labelId: lbl.id, labelName: lbl.name }; }
-    else if (addType === "pipeline_stage") { const pipe = pipelines.find(p => p.id === addPipeId) ?? pipelines[0]; if (!pipe) return; const stage = addPipeStage || (pipe.column_names?.[0] ?? ""); if (!stage) return; filter = { type: "pipeline_stage", pipelineId: pipe.id, pipelineName: pipe.name, stage }; }
     else if (addType === "has_sale_product") { const prod = products.find(p => p.id === addProductId) ?? products[0]; if (!prod) return; filter = { type: "has_sale_product", productId: prod.id, productName: prod.name }; }
     else if (addType === "has_sale_service") { const svc = services.find(s => s.id === addServiceId) ?? services[0]; if (!svc) return; filter = { type: "has_sale_service", serviceId: svc.id, serviceName: svc.name }; }
     else if (addType === "has_appointment_recent") { filter = { type: "has_appointment_recent", days: Number(addDays) || 30 }; }
     else { filter = { type: addType } as WaAudienceFilter; }
     if (filter) onChange([...filters, filter]);
   };
-
-  const currentPipeline = pipelines.find(p => p.id === addPipeId) ?? pipelines[0];
 
   return (
     <div className="space-y-3">
@@ -281,7 +274,6 @@ function FilterBuilder({ filters, onChange }: { filters: WaAudienceFilter[]; onC
           </select>
           {addType === "tag" && tags.length > 0 && <select value={addTag || tags[0]} onChange={e => setAddTag(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">{tags.map((t: string) => <option key={t} value={t}>{t}</option>)}</select>}
           {addType === "wa_label" && waLabels.length > 0 && <select value={addLabelId || waLabels[0]?.id} onChange={e => setAddLabelId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">{waLabels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-          {addType === "pipeline_stage" && (<>{pipelines.length > 0 && <select value={addPipeId || pipelines[0]?.id} onChange={e => { setAddPipeId(e.target.value); setAddPipeStage(""); }} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">{pipelines.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}{currentPipeline?.column_names?.length > 0 && <select value={addPipeStage || currentPipeline.column_names[0]} onChange={e => setAddPipeStage(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">{currentPipeline.column_names.map((s: string) => <option key={s} value={s}>{s}</option>)}</select>}</>)}
           {addType === "has_sale_product" && products.length > 0 && <select value={addProductId || products[0]?.id} onChange={e => setAddProductId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 flex-1 min-w-0">{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
           {addType === "has_sale_service" && services.length > 0 && <select value={addServiceId || services[0]?.id} onChange={e => setAddServiceId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 flex-1 min-w-0">{services.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
           {addType === "has_appointment_recent" && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><input type="number" min={1} max={365} value={addDays} onChange={e => setAddDays(e.target.value)} className="w-16 h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 text-center" /><span>días</span></div>}

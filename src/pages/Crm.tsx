@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, CalendarDays, Users, Kanban, LogOut, ClipboardList,
+  LayoutDashboard, CalendarDays, Users, LogOut, ClipboardList,
   Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle,
-  PlayCircle, Link, Bot, GraduationCap, Menu, X, ChevronRight, BookOpen, Video, SendHorizonal,
+  PlayCircle, Bot, GraduationCap, Menu, X, ChevronRight, BookOpen, Video, SendHorizonal,
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
@@ -11,7 +11,6 @@ import CrmOverview from "@/components/crm/CrmOverview";
 import CrmCalendar from "@/components/crm/CrmCalendar";
 import CrmForms from "@/components/crm/CrmForms";
 import CrmContacts from "@/components/crm/CrmContacts";
-import CrmPipeline from "@/components/crm/CrmPipeline";
 import CrmBusiness from "@/components/crm/CrmBusiness";
 import CrmSettings from "@/components/crm/CrmSettings";
 import CrmReminders from "@/components/crm/CrmReminders";
@@ -19,16 +18,13 @@ import CrmVentas from "@/components/crm/CrmVentas";
 import CrmSupport from "@/components/crm/CrmSupport";
 import CrmSupportAdmin from "@/components/crm/CrmSupportAdmin";
 import CrmVideos from "@/components/crm/CrmVideos";
-import CrmVendorLinks from "@/components/crm/CrmVendorLinks";
-import CrmVendors from "@/components/crm/CrmVendors";
 import CrmAgentIA from "@/components/crm/CrmAgentIA";
 import CrmCourses from "@/components/crm/CrmCourses";
-import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount, useVendorProfile } from "@/hooks/useCrmData";
-import { vendorVisibleNavItems } from "@/lib/permissions";
+import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount } from "@/hooks/useCrmData";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline" | "ventas" | "reminders" | "settings" | "soporte" | "tutoriales" | "vendor_links" | "vendors" | "agente_ia" | "cursos";
+type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "ventas" | "reminders" | "settings" | "soporte" | "tutoriales" | "agente_ia" | "cursos";
 
 const navItems: { id: View; label: string; icon: React.ElementType; group: string }[] = [
   { id: "overview",     label: "Resumen",             icon: LayoutDashboard, group: "Principal"  },
@@ -37,10 +33,8 @@ const navItems: { id: View; label: string; icon: React.ElementType; group: strin
   { id: "contacts",     label: "Contactos",           icon: Users,           group: "CRM"        },
   { id: "forms",        label: "Formularios",         icon: ClipboardList,   group: "CRM"        },
   { id: "calendar",     label: "Calendarios",         icon: CalendarDays,    group: "CRM"        },
-  { id: "pipeline",     label: "Pipeline",            icon: Kanban,          group: "CRM"        },
   { id: "reminders",    label: "Envíos",               icon: SendHorizonal,   group: "CRM"        },
   { id: "agente_ia",    label: "Agente IA",           icon: Bot,             group: "CRM"        },
-  { id: "vendor_links", label: "Links",               icon: Link,            group: "CRM"        },
   { id: "cursos",        label: "Cursos",              icon: BookOpen,        group: "CRM"        },
   { id: "tutoriales",   label: "Tutoriales",          icon: Video,           group: "Ajustes"    },
   { id: "soporte",      label: "Soporte",             icon: MessageCircle,   group: "Ajustes"    },
@@ -67,7 +61,7 @@ const Crm = () => {
   const brandLogo    = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
 
-  const VALID_VIEWS: View[] = ["overview","business","calendar","forms","contacts","pipeline","ventas","reminders","settings","soporte","tutoriales","vendor_links","vendors","agente_ia","cursos"];
+  const VALID_VIEWS: View[] = ["overview","business","calendar","forms","contacts","ventas","reminders","settings","soporte","tutoriales","agente_ia","cursos"];
   const [view, setViewRaw]                         = useState<View>(() => {
     const saved = localStorage.getItem("crm_view") as View | null;
     return saved && VALID_VIEWS.includes(saved) ? saved : "overview";
@@ -94,18 +88,13 @@ const Crm = () => {
     setPendingBusinessTab(undefined);
   };
 
-  const { data: vendorProfile, isLoading: vendorLoading } = useVendorProfile();
-  const isVendor = !!vendorProfile && !isStaff;
-
   const isSuperAdmin     = user?.email === SUPER_ADMIN_EMAIL;
-  const effectiveIsAdmin = isSuperAdmin && !isStaff && !isVendor;
+  const effectiveIsAdmin = isSuperAdmin && !isStaff;
   const isSaasClient     = user?.user_metadata?.account_type === "saas_client";
 
   const { data: supportUnread = 0 } = useSupportUnreadCount();
   const { data: adminUnread   = 0 } = useAdminUnreadCount();
   const soporteBadge = effectiveIsAdmin ? adminUnread : supportUnread;
-
-  const effectiveAllowedNavItems = isVendor ? vendorVisibleNavItems() : allowedNavItems;
 
   const userEmail     = user?.email ?? "";
   const userInitial   = userEmail[0]?.toUpperCase() ?? "U";
@@ -156,25 +145,21 @@ const Crm = () => {
 
   const renderView = () => {
     switch (view) {
-      case "overview":  return <CrmOverview isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} onNavigate={navigateTo} />;
+      case "overview":  return <CrmOverview isSuperAdmin={effectiveIsAdmin} onNavigate={navigateTo} />;
       case "business":  return (!isStaff || can("mi_negocio_personal","read") || can("mi_negocio_datos","read") || can("servicios","read")) ? <CrmBusiness initialTab={pendingBusinessTab as any} /> : null;
       case "calendar":  return can("calendarios","read")    ? <CrmCalendar onNavigateToContact={handleNavigateToContact} />  : null;
       case "forms":     return can("formularios","read")    ? <CrmForms />     : null;
-      case "contacts":  return can("contactos","read")      ? <CrmContacts isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} initialContactId={pendingContactId} /> : null;
-      case "pipeline":  return can("pipeline","read")       ? <CrmPipeline />  : null;
-      case "ventas":    return can("ventas","read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} isVendor={isVendor} vendorProfile={vendorProfile ?? null} /> : null;
+      case "contacts":  return can("contactos","read")      ? <CrmContacts isSuperAdmin={effectiveIsAdmin} initialContactId={pendingContactId} /> : null;
+      case "ventas":    return can("ventas","read")         ? <CrmVentas isSuperAdmin={effectiveIsAdmin} /> : null;
       case "reminders": return can("recordatorios","read")  ? <CrmReminders /> : null;
-      case "settings":  return (!isStaff || isVendor)       ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} isVendor={isVendor} vendorId={vendorProfile?.id ?? null} /> : null;
+      case "settings":  return !isStaff                     ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} /> : null;
       case "soporte":   return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;
       case "tutoriales": return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
       case "cursos":       return <CrmCourses />;
-      case "vendor_links": return isVendor ? <CrmVendorLinks vendorProfile={vendorProfile!} /> : null;
-      case "vendors":      return effectiveIsAdmin ? <CrmVendors /> : null;
       case "agente_ia":    return <CrmAgentIA
         isSuperAdmin={effectiveIsAdmin}
         isSaasClient={isSaasClient}
         isStaff={isStaff}
-        isVendor={isVendor}
         ownerUserId={isStaff ? ownerUserId : null}
       />;
     }
@@ -202,10 +187,9 @@ const Crm = () => {
         {groups.map(group => {
           const items = navItems.filter(n =>
             n.group === group &&
-            effectiveAllowedNavItems.has(n.id) &&
+            allowedNavItems.has(n.id) &&
             (n.id !== "tutoriales"   || effectiveIsAdmin || isSaasClient) &&
-            (n.id !== "cursos"       || isSaasClient    || effectiveIsAdmin) &&
-            (n.id !== "vendor_links" || isVendor)
+            (n.id !== "cursos"       || isSaasClient    || effectiveIsAdmin)
           );
           if (!items.length) return null;
           return (

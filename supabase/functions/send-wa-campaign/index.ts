@@ -107,14 +107,6 @@ async function getFilterContactIds(
       const phones = new Set((convRows ?? []).map((r: any) => r.phone));
       return new Set(allContacts.filter(c => phones.has(c.phone)).map(c => c.id));
     }
-    case "pipeline_stage": {
-      const { data } = await supabase
-        .from("crm_contact_pipeline_memberships")
-        .select("contact_id")
-        .eq("pipeline_id", filter.pipelineId)
-        .eq("stage", filter.stage);
-      return new Set((data ?? []).map((r: any) => r.contact_id));
-    }
     case "has_sale_any": {
       const { data } = await supabase
         .from("crm_sales")

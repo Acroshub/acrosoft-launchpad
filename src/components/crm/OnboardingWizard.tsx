@@ -2,9 +2,8 @@ import { useState } from "react";
 import { CheckCircle2, Circle, ChevronDown, ChevronUp, ArrowRight, X } from "lucide-react";
 import { useOnboardingStatus, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline"
-  | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "vendor_links"
-  | "vendors" | "agente_ia";
+type View = "overview" | "business" | "calendar" | "forms" | "contacts"
+  | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "agente_ia";
 
 interface Props {
   onNavigate: (view: View, tab?: string) => void;

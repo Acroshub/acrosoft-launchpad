@@ -20,7 +20,6 @@ export type Section =
   | "calendarios"
   | "formularios"
   | "contactos"
-  | "pipeline"
   | "recordatorios"
   | "agente_ia";
 
@@ -38,7 +37,6 @@ export const SECTION_TO_KEY: Record<Section, PermKey> = {
   calendarios:         "perm_calendarios",
   formularios:         "perm_formularios",
   contactos:           "perm_contactos",
-  pipeline:            "perm_pipeline",
   recordatorios:       "perm_recordatorios",
   agente_ia:           "perm_agente_ia",
 };
@@ -59,13 +57,12 @@ export function buildPermChecker(staffRecord: CrmStaff | null) {
   };
 }
 
-type ItemSection = "calendarios" | "formularios" | "pipeline"
+type ItemSection = "calendarios" | "formularios"
 type ItemKey = `perm_${ItemSection}_items`
 
 const ITEM_KEY: Record<ItemSection, ItemKey> = {
   calendarios: "perm_calendarios_items",
   formularios:  "perm_formularios_items",
-  pipeline:     "perm_pipeline_items",
 }
 
 /**
@@ -108,7 +105,7 @@ export function canAccessItem(
  */
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
-    return new Set(["overview", "business", "calendar", "forms", "contacts", "pipeline", "ventas", "reminders", "settings", "soporte", "tutoriales", "cursos", "agente_ia"]);
+    return new Set(["overview", "business", "calendar", "forms", "contacts", "ventas", "reminders", "settings", "soporte", "tutoriales", "cursos", "agente_ia"]);
   }
 
   const can = buildPermChecker(staffRecord);
@@ -120,7 +117,6 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (can("calendarios",  "read")) visible.add("calendar");
   if (can("formularios",  "read")) visible.add("forms");
   if (can("contactos",     "read")) visible.add("contacts");
-  if (can("pipeline",     "read")) visible.add("pipeline");
   if (can("ventas",       "read")) visible.add("ventas");
   if (can("recordatorios","read")) visible.add("reminders");
   if (can("agente_ia",    "read")) visible.add("agente_ia");
@@ -130,24 +126,4 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   // Staff no accede a videos
 
   return visible;
-}
-
-/**
- * Nav sections visible for a vendor (vendedor).
- * Vendors have full access to their own resources but cannot see
- * business config, support, or videos.
- */
-export function vendorVisibleNavItems(): Set<string> {
-  return new Set([
-    "overview",
-    "calendar",
-    "forms",
-    "contacts",
-    "pipeline",
-    "ventas",
-    "reminders",
-    "agente_ia",
-    "settings",
-    "vendor_links",
-  ]);
 }

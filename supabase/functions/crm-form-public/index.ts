@@ -57,59 +57,6 @@ function extractContact(fields: any[], data: Record<string, any>) {
   return { name, email, phone };
 }
 
-/**
- * Adds the contact to ALL selected contacts pipelines via crm_contact_pipeline_memberships.
- * Each pipeline gets its own membership row (stage = first column of that pipeline).
- * If pipelineIds is empty, falls back to the user's first contacts pipeline.
- * Uses upsert so re-submissions don't create duplicates or overwrite existing stage.
- */
-async function addContactToPipelines(
-  userId: string,
-  contactId: string,
-  pipelineIds: string[],
-): Promise<void> {
-  try {
-    let pipelines: { id: string; column_names: string[] }[] = [];
-
-    if (pipelineIds.length > 0) {
-      const { data } = await supabase
-        .from("crm_pipelines")
-        .select("id, column_names")
-        .eq("user_id", userId)
-        .eq("type", "contacts")
-        .in("id", pipelineIds);
-      pipelines = data ?? [];
-    } else {
-      // Fallback: first contacts pipeline
-      const { data } = await supabase
-        .from("crm_pipelines")
-        .select("id, column_names")
-        .eq("user_id", userId)
-        .eq("type", "contacts")
-        .order("created_at", { ascending: true })
-        .limit(1);
-      pipelines = data ?? [];
-    }
-
-    if (!pipelines.length) return;
-
-    // Insert a membership row for EACH selected pipeline
-    for (const pipeline of pipelines) {
-      const firstStage = (pipeline.column_names as string[])?.[0];
-      if (!firstStage) continue;
-
-      await supabase
-        .from("crm_contact_pipeline_memberships")
-        .upsert(
-          { contact_id: contactId, pipeline_id: pipeline.id, stage: firstStage, position: 0 },
-          { onConflict: "contact_id,pipeline_id", ignoreDuplicates: true }
-        );
-    }
-  } catch (e) {
-    console.error("addContactToPipelines (non-fatal):", e);
-  }
-}
-
 function buildDocKeyMap(fields: any[], data: Record<string, any>): Record<string, any> {
   const map: Record<string, any> = {};
   for (const field of fields) {
@@ -194,8 +141,6 @@ async function handleServicesField(
   serviceId: string,
   siteUrl: string,
   docKeyMap: Record<string, any>,
-  isVipForm: boolean,
-  vendorOverride?: { user_id: string; vendor_id: string; commission_pct: number } | null,
 ): Promise<void> {
   try {
     const { data: service, error } = await supabase
@@ -210,14 +155,11 @@ async function handleServicesField(
       return;
     }
 
-    // user_id para la venta: el vendedor si hay ref, si no el dueño del form
-    const saleUserId = vendorOverride?.user_id ?? userId;
-
     // ── Prevent duplicate sales for same contact + service ────────────────
     const { data: existingSale } = await supabase
       .from("crm_sales")
       .select("id")
-      .eq("user_id", saleUserId)
+      .eq("user_id", userId)
       .eq("contact_id", contactId)
       .eq("service_id", service.id)
       .eq("type", "initial")
@@ -231,16 +173,8 @@ async function handleServicesField(
       ? service.price * (1 - discountPct / 100)
       : service.price;
 
-    // Determinar si la venta es VIP: por el formulario o por tags del contacto
-    let saleIsVip = isVipForm;
-    if (!saleIsVip) {
-      const { data: contactTags } = await supabase
-        .from("crm_contacts").select("tags").eq("id", contactId).single();
-      saleIsVip = Array.isArray(contactTags?.tags) && (contactTags.tags as string[]).includes("VIP");
-    }
-
     await supabase.from("crm_sales").insert({
-      user_id:        saleUserId,
+      user_id:        userId,
       contact_id:     contactId,
       contact_name:   contactName,
       service_id:     service.id,
@@ -249,11 +183,6 @@ async function handleServicesField(
       currency:       service.currency ?? "USD",
       type:           "initial",
       notes:          "[Venta automática via formulario]",
-      is_vip:         saleIsVip,
-      ...(vendorOverride ? {
-        vendor_id:      vendorOverride.vendor_id,
-        commission_pct: vendorOverride.commission_pct,
-      } : {}),
     });
 
     // ── If SaaS service, create calendar + client account ──────────────────
@@ -392,7 +321,7 @@ Deno.serve(async (req) => {
 
   try {
     const body = await req.json();
-    const { form_id, data, terms_accepted_at, vendor_ref } = body;
+    const { form_id, data, terms_accepted_at } = body;
 
     if (!isValidUUID(form_id)) return respond({ error: "form_id inválido" }, 400);
     if (data !== undefined && (typeof data !== "object" || Array.isArray(data))) {
@@ -401,29 +330,11 @@ Deno.serve(async (req) => {
 
     const { data: form, error: formError } = await supabase
       .from("crm_forms")
-      .select("user_id, fields, sections, auto_tags, pipeline_ids, slug, reminder_rules, is_vip")
+      .select("user_id, fields, sections, auto_tags, slug, reminder_rules")
       .eq("id", form_id)
       .single();
 
     if (formError || !form) return respond({ error: "Formulario no encontrado" }, 404);
-
-    // ── Resolver vendor si viene ?ref= ────────────────────────────────────────
-    let vendorOverride: { user_id: string; vendor_id: string; commission_pct: number } | null = null;
-    if (vendor_ref && typeof vendor_ref === "string") {
-      const { data: vendor } = await supabase
-        .from("crm_vendors")
-        .select("id, vendor_user_id, commission_pct")
-        .eq("slug", vendor_ref)
-        .eq("status", "active")
-        .maybeSingle();
-      if (vendor?.vendor_user_id) {
-        vendorOverride = {
-          user_id:        vendor.vendor_user_id,
-          vendor_id:      vendor.id,
-          commission_pct: vendor.commission_pct,
-        };
-      }
-    }
 
     const termsAt: string | null = typeof terms_accepted_at === "string" ? terms_accepted_at : null;
     const { data: submission, error: submissionError } = await supabase
@@ -433,7 +344,6 @@ Deno.serve(async (req) => {
         data: data ?? {},
         terms_accepted: termsAt !== null,
         terms_accepted_at: termsAt,
-        ...(vendor_ref ? { vendor_ref } : {}),
       })
       .select("id")
       .single();
@@ -448,8 +358,7 @@ Deno.serve(async (req) => {
     const formDataToStore = data && Object.keys(data).length > 0 ? { [form_id]: data } : {};
     const autoTags: string[] = Array.isArray(form.auto_tags) ? form.auto_tags : [];
 
-    // user_id para contacto/venta: el vendedor si hay ref, si no el dueño del form
-    const contactUserId = vendorOverride?.user_id ?? form.user_id;
+    const contactUserId = form.user_id;
 
     let contactId: string | null = null;
     let contactName = name;
@@ -477,7 +386,7 @@ Deno.serve(async (req) => {
         } else {
           const { data: nc } = await supabase.from("crm_contacts").insert({
             user_id: contactUserId, name: name || "Sin nombre", email,
-            phone: phone || null, tags: autoTags, stage: null,
+            phone: phone || null, tags: autoTags,
             company: null, notes: null, custom_fields: formDataToStore,
           }).select("id").single();
           contactId = nc?.id ?? null;
@@ -485,19 +394,13 @@ Deno.serve(async (req) => {
       } else if (name) {
         const { data: nc } = await supabase.from("crm_contacts").insert({
           user_id: contactUserId, name, email: null,
-          phone: phone || null, tags: autoTags, stage: null,
+          phone: phone || null, tags: autoTags,
           company: null, notes: null, custom_fields: formDataToStore,
         }).select("id").single();
         contactId = nc?.id ?? null;
       }
     } catch (e) {
       console.error("Contact upsert (non-fatal):", e);
-    }
-
-    if (contactId) {
-      // Para vendedores: usar sus propios pipelines (no los del form del superadmin)
-      const pipelineIds: string[] = vendorOverride ? [] : (Array.isArray(form.pipeline_ids) ? form.pipeline_ids : []);
-      await addContactToPipelines(contactUserId, contactId, pipelineIds);
     }
 
     // ── Handle logo upload — save URL to contact custom_fields ───────────────
@@ -515,7 +418,7 @@ Deno.serve(async (req) => {
         if (selectedServiceId && isValidUUID(selectedServiceId)) {
           const siteUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
           const docKeyMap = buildDocKeyMap(allFields, data ?? {});
-          await handleServicesField(form.user_id, contactId, contactName || name || "Sin nombre", selectedServiceId, siteUrl, docKeyMap, !!(form as any).is_vip, vendorOverride);
+          await handleServicesField(form.user_id, contactId, contactName || name || "Sin nombre", selectedServiceId, siteUrl, docKeyMap);
         }
       }
     }

@@ -84,10 +84,10 @@ export const useStaffPermissions = () => {
   const can = (section: Section, action: Action) =>
     buildPermChecker(staffRecord)(section, action)
 
-  const allowedIds = (section: "calendarios" | "formularios" | "pipeline") =>
+  const allowedIds = (section: "calendarios" | "formularios") =>
     getAllowedItemIds(staffRecord, section)
 
-  const canItem = (section: "calendarios" | "formularios" | "pipeline", itemId: string, action: "read" | "edit") =>
+  const canItem = (section: "calendarios" | "formularios", itemId: string, action: "read" | "edit") =>
     canAccessItem(staffRecord, section, itemId, action)
 
   return {

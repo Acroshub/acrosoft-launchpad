@@ -598,7 +598,7 @@ async function firePostBookingActions(
               const { data: { user: authUser } } = await supabase.auth.admin.getUserById(userId);
               emailVal = authUser?.email ?? "";
             }
-          } else if (targetId !== "vendor") {
+          } else {
             const { data: staff } = await supabase
               .from("crm_staff").select("email, phone").eq("id", targetId).single();
             emailVal = (staff as any)?.email ?? "";
@@ -1945,7 +1945,7 @@ async function buildSystemPrompt(
   if (contactId || conversationId) {
     const since7d = new Date(Date.now() - 7 * 86_400_000).toISOString();
 
-    const [salesRes, allApptsRes, dealsRes, calendarsRes, assignedLabelsRes] = await Promise.all([
+    const [salesRes, allApptsRes, calendarsRes, assignedLabelsRes] = await Promise.all([
       supabase.from("crm_sales")
         .select("created_at, service_name, product_name, amount, currency, status, is_paid, type")
         .eq("user_id", config.user_id)
@@ -1959,15 +1959,6 @@ async function buildSystemPrompt(
       contactId
         ? supabase.from("crm_appointments")
             .select("created_at, date, hour, minute, service, status, calendar_id")
-            .eq("user_id", config.user_id)
-            .eq("contact_id", contactId)
-            .gte("created_at", since7d)
-            .order("created_at", { ascending: false })
-            .limit(10)
-        : Promise.resolve({ data: [] }),
-      contactId
-        ? supabase.from("crm_pipeline_deals")
-            .select("created_at, title, stage, value, currency")
             .eq("user_id", config.user_id)
             .eq("contact_id", contactId)
             .gte("created_at", since7d)
@@ -2007,10 +1998,6 @@ async function buildSystemPrompt(
         a.hour, a.minute,
       )).toLocaleString("es-ES", { timeZone: config.timezone ?? "UTC", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
       eventLines.push(`[Cita agendada] ${fmtDate(a.created_at)} — Calendario: "${calName}" — Fecha de cita: ${dt} — Servicio: ${a.service ?? "—"} — Estado: ${a.status}`);
-    }
-
-    for (const d of (dealsRes as any).data ?? []) {
-      eventLines.push(`[Deal en pipeline] ${fmtDate(d.created_at)} — "${d.title}" — Etapa: ${d.stage} — Valor: ${d.value} ${d.currency}`);
     }
 
     const assignedLabelNames: string[] = ((assignedLabelsRes as any).data ?? [])
@@ -2082,7 +2069,7 @@ async function buildSystemPrompt(
       removeLabels.length ? `ETIQUETAS PARA QUITAR (marca: |REMOVE_LABELS|Nombre):\n${removeList}` : "",
     ].filter(Boolean).join("\n\n");
 
-    labelInstruction = `\n\nETIQUETADO AUTOMÁTICO — OBLIGATORIO: En cada respuesta evalúa si debes añadir o quitar etiquetas según las reglas. Los hints pueden referirse al contenido del chat, a las ETIQUETAS ACTUALMENTE ASIGNADAS o a los EVENTOS RECIENTES DEL SISTEMA (ventas registradas, citas agendadas, deals en pipeline). Añade las marcas al FINAL del mensaje (después del texto al cliente, nunca mezcladas).\nPuedes combinar ambas en la misma respuesta: |LABELS|EtiquetaA|REMOVE_LABELS|EtiquetaB\nSi no aplica ninguna, no añadas nada.\n\n${sections}`;
+    labelInstruction = `\n\nETIQUETADO AUTOMÁTICO — OBLIGATORIO: En cada respuesta evalúa si debes añadir o quitar etiquetas según las reglas. Los hints pueden referirse al contenido del chat, a las ETIQUETAS ACTUALMENTE ASIGNADAS o a los EVENTOS RECIENTES DEL SISTEMA (ventas registradas, citas agendadas). Añade las marcas al FINAL del mensaje (después del texto al cliente, nunca mezcladas).\nPuedes combinar ambas en la misma respuesta: |LABELS|EtiquetaA|REMOVE_LABELS|EtiquetaB\nSi no aplica ninguna, no añadas nada.\n\n${sections}`;
   }
 
   // Instrucciones globales fijas — aplican a TODOS los tenants, sin excepción

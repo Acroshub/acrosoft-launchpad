@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
-import { useForms, useCreateForm, useUpdateForm, useDeleteForm, useServices, usePipelines } from "@/hooks/useCrmData";
+import { useForms, useCreateForm, useUpdateForm, useDeleteForm, useServices } from "@/hooks/useCrmData";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import type { CrmForm } from "@/lib/supabase";
 
@@ -45,7 +45,6 @@ interface FormConfig {
   successRedirectUrl?: string;
   autoTags?: string[];
   facebookPixelId?: string;
-  pipelineIds?: string[];
   reminderRules?: ReminderRule[];
 }
 
@@ -636,7 +635,6 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
   const [autoTags, setAutoTags] = useState<string[]>(form.autoTags ?? []);
   const [newAutoTag, setNewAutoTag] = useState("");
   const [facebookPixelId, setFacebookPixelId] = useState(form.facebookPixelId ?? "");
-  const [pipelineIds, setPipelineIds] = useState<string[]>(form.pipelineIds ?? []);
   const [reminderRules, setReminderRules] = useState<ReminderRule[]>(form.reminderRules ?? []);
   const [mobileShowTabContent, setMobileShowTabContent] = useState(!!initialTab);
   const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
@@ -663,18 +661,17 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
         submitButtonText, successAction, successPopupMessage,
         successImageType, successRedirectUrl, autoTags,
         facebookPixelId: facebookPixelId || undefined,
-        pipelineIds, reminderRules,
+        reminderRules,
       });
       setAutoSaveStatus("saved");
       setTimeout(() => setAutoSaveStatus("idle"), 2000);
     }, 800);
     return () => clearTimeout(saveTimerRef.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fields, name, multiPage, showConfirmationStep, confirmationMessage, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId, pipelineIds, reminderRules, sections, readOnly]);
+  }, [fields, name, multiPage, showConfirmationStep, confirmationMessage, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId, reminderRules, sections, readOnly]);
 
   const { can: canPerm } = useStaffPermissions();
   const canEditReminders = canPerm("recordatorios", "create");
-  const { data: pipelines = [] } = usePipelines();
 
   const update = (id: string, patch: Partial<FormField>) =>
     setFields((fs) => fs.map((f) => (f.id === id ? { ...f, ...patch } : f)));
@@ -734,7 +731,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
       }
     }
     try {
-      onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId: facebookPixelId || undefined, pipelineIds, reminderRules });
+      onUpdate({ ...form, name, fields, sections: multiPage ? sections : undefined, multiPage, showConfirmationStep, confirmationMessage: confirmationMessage || undefined, submitButtonText, successAction, successPopupMessage, successImageType, successRedirectUrl, autoTags, facebookPixelId: facebookPixelId || undefined, reminderRules });
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
     } catch {
@@ -834,7 +831,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
       {(() => {
         const tabItems = [
           { id: "campos"         as const, label: "Campos",         desc: "Añade y configura los campos",  icon: Layers   },
-          { id: "configuracion"  as const, label: "Configuración",  desc: "Etiquetas, pipelines y éxito",  icon: Settings },
+          { id: "configuracion"  as const, label: "Configuración",  desc: "Etiquetas y éxito",  icon: Settings },
           { id: "notificaciones" as const, label: "Notificaciones", desc: "Recordatorios automáticos",     icon: Bell     },
           { id: "compartir"      as const, label: "Compartir",      desc: "Link directo, iFrame y embed",  icon: LinkIcon },
         ];
@@ -1215,43 +1212,6 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
               </div>
             </div>
 
-            {/* Pipelines (multi-select) */}
-            <div className="space-y-2 pt-2">
-              <div>
-                <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Agregar al Pipeline</label>
-                <p className="text-[11px] text-muted-foreground mt-0.5">
-                  Los nuevos contactos se añadirán a la primera columna de cada pipeline seleccionado.
-                </p>
-              </div>
-              {pipelines.filter((p: any) => p.type === "contacts").length === 0 ? (
-                <p className="text-xs text-muted-foreground italic">No hay pipelines de contactos creados.</p>
-              ) : (
-                <div className="space-y-2">
-                  {pipelines
-                    .filter((p: any) => p.type === "contacts")
-                    .map((p: any) => {
-                      const checked = pipelineIds.includes(p.id);
-                      return (
-                        <label key={p.id} className="flex items-center gap-2.5 cursor-pointer group/pl">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() =>
-                              setPipelineIds(checked
-                                ? pipelineIds.filter((id) => id !== p.id)
-                                : [...pipelineIds, p.id]
-                              )
-                            }
-                            className="rounded border-input h-3.5 w-3.5 text-primary focus:ring-primary"
-                          />
-                          <span className="text-sm group-hover/pl:text-primary transition-colors">{p.name}</span>
-                        </label>
-                      );
-                    })}
-                </div>
-              )}
-            </div>
-
             {/* Al completar el formulario */}
             <div className="space-y-2">
               <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Al completar el formulario</label>
@@ -1485,7 +1445,6 @@ const CrmForms = ({ preselectedFormId, initialFormTab }: { preselectedFormId?: s
     successRedirectUrl: f.redirect_url ?? "",
     autoTags: (f.auto_tags as string[] | null) ?? [],
     facebookPixelId: f.facebook_pixel_id ?? "",
-    pipelineIds: (f.pipeline_ids as string[] | null) ?? [],
     reminderRules: (f.reminder_rules as any[] | null) ?? [],
   }));
 
@@ -1564,7 +1523,6 @@ const CrmForms = ({ preselectedFormId, initialFormTab }: { preselectedFormId?: s
           redirect_url: updated.successRedirectUrl ?? null,
           auto_tags: updated.autoTags ?? [],
           facebook_pixel_id: updated.facebookPixelId || null,
-          pipeline_ids: updated.pipelineIds ?? [],
           reminder_rules: (updated.reminderRules ?? []) as any,
         });
         toast.success("Formulario guardado");

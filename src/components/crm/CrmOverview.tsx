@@ -49,15 +49,14 @@ const INTERVAL_LABELS: Record<string, string> = {
   semiannual: "Semestral",
 };
 
-type View = "overview" | "business" | "calendar" | "forms" | "contacts" | "pipeline"
-  | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "vendor_links"
-  | "vendors" | "agente_ia";
+type View = "overview" | "business" | "calendar" | "forms" | "contacts"
+  | "ventas" | "reminders" | "settings" | "soporte" | "videos" | "agente_ia";
 
 const selectCls = "w-full h-12 px-3.5 rounded-xl border border-border bg-card text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer";
 const inputCls  = "w-full h-12 px-4 rounded-xl border border-border bg-card text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-muted-foreground/50";
 
-const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
-  isSuperAdmin?: boolean; isVendor?: boolean; onNavigate?: (view: View, tab?: string) => void;
+const CrmOverview = ({ isSuperAdmin = false, onNavigate }: {
+  isSuperAdmin?: boolean; onNavigate?: (view: View, tab?: string) => void;
 }) => {
   const { user } = useCurrentUser();
   const { data: contacts = [] } = useContacts();
@@ -639,7 +638,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
       </div>
 
       {/* ── Onboarding ── */}
-      {!isVendor && onNavigate && (
+      {onNavigate && (
         <OnboardingWizard onNavigate={onNavigate} />
       )}
 
@@ -807,7 +806,7 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
       </div>
 
       {/* ── Registrar Venta ── */}
-      {canCreateSale && !isVendor && (
+      {canCreateSale && (
         <div className="bg-card border rounded-2xl p-5">
           <div className="flex items-center gap-2.5 mb-5">
             <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center">
@@ -1021,25 +1020,23 @@ const CrmOverview = ({ isSuperAdmin = false, isVendor = false, onNavigate }: {
       )}
 
       {/* ── Historial de Ventas ── */}
-      {!isVendor && (
-        <div className="bg-card border rounded-2xl overflow-hidden">
-          <div className="px-5 py-4 border-b flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
-              <DollarSign size={13} className="text-primary" />
-            </div>
-            <h2 className="text-sm font-semibold">Historial de Ventas</h2>
+      <div className="bg-card border rounded-2xl overflow-hidden">
+        <div className="px-5 py-4 border-b flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
+            <DollarSign size={13} className="text-primary" />
           </div>
-          <SalesTable
-            rows={salesRows}
-            isLoading={loadingSales}
-            canEdit={canEditSale}
-            canDelete={canDeleteSale}
-            emptyText="No hay ventas registradas."
-            onEdit={openEditSale}
-            onDelete={openDeleteSale}
-          />
+          <h2 className="text-sm font-semibold">Historial de Ventas</h2>
         </div>
-      )}
+        <SalesTable
+          rows={salesRows}
+          isLoading={loadingSales}
+          canEdit={canEditSale}
+          canDelete={canDeleteSale}
+          emptyText="No hay ventas registradas."
+          onEdit={openEditSale}
+          onDelete={openDeleteSale}
+        />
+      </div>
 
     </div>
     </>

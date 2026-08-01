@@ -9,7 +9,7 @@ import {
   Plus, Trash2, Mail, Clock, User, Building2, Bell, Pencil, ChevronDown,
   MessageSquare,
 } from "lucide-react";
-import { useStaff, useBusinessProfile, useVendorProfile, useWaTemplates } from "@/hooks/useCrmData";
+import { useStaff, useBusinessProfile, useWaTemplates } from "@/hooks/useCrmData";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import type { ReminderWaVarSource, ReminderWaVarMap } from "@/lib/supabase";
 
@@ -250,9 +250,7 @@ const RuleSummaryCard = ({
 
   const recipientLabel = rule.recipient === "contact"
     ? "Quien agendó"
-    : targets.includes("vendor")
-      ? "Vendedor"
-      : `${businessName || "El negocio"}${targets.length > 1 ? ` (${targets.length} dest.)` : ""}`;
+    : `${businessName || "El negocio"}${targets.length > 1 ? ` (${targets.length} dest.)` : ""}`;
 
   const timingLabel = rule.timing === "on_booking"
     ? "Al reservar"
@@ -333,9 +331,7 @@ const RuleForm = ({
 }) => {
   const { data: staffList = [] }   = useStaff();
   const { data: profile }          = useBusinessProfile();
-  const { data: vendorProfile }    = useVendorProfile();
   const { data: allTemplates = [] } = useWaTemplates();
-  const isVendor                   = !!vendorProfile;
 
   const channels = getChannels(rule);
 
@@ -411,7 +407,6 @@ const RuleForm = ({
   const recipientInfo = () => {
     if (rule.recipient === "contact") return ["Email del contacto"];
     return targets.flatMap((targetId) => {
-      if (targetId === "vendor") return ["Email del vendedor"];
       const name  = targetId === "admin" ? adminLabel : staffList.find(s => s.id === targetId)?.name ?? targetId;
       const email = targetId === "admin" ? adminEmail  : staffList.find(s => s.id === targetId)?.email;
       return email ? [`${name}: ${email}`] : [`${name}: sin email configurado`];
@@ -436,12 +431,12 @@ const RuleForm = ({
             type="button"
             onClick={() => onChange({
               recipient: "business",
-              businessTargets: isVendor ? ["vendor"] : ["admin"],
-              businessTarget:  isVendor ? "vendor" : "admin",
+              businessTargets: ["admin"],
+              businessTarget:  "admin",
             })}
             className={pill(rule.recipient === "business")}
           >
-            <Building2 size={11} /> {isVendor ? "Vendedor" : (businessName || "El negocio")}
+            <Building2 size={11} /> {businessName || "El negocio"}
           </button>
         </div>
       </div>
@@ -452,60 +447,49 @@ const RuleForm = ({
           <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-1.5">
             Destinatarios
           </p>
-          {isVendor ? (
-            <div className="border border-border/60 rounded-xl p-2.5">
-              <div className="flex items-center gap-2.5 px-2 py-1.5">
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold leading-none">Tú (Vendedor)</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">Recibirás esta notificación en tu email</p>
-                </div>
+          <div className="space-y-1 border border-border/60 rounded-xl p-2.5 max-h-44 overflow-y-auto">
+            <label className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors">
+              <input
+                type="checkbox"
+                checked={targets.includes("admin")}
+                onChange={() => toggleTarget("admin")}
+                className="h-3.5 w-3.5 rounded border-input text-primary accent-primary"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold leading-none">{adminLabel}</p>
+                {adminEmail && (
+                  <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{adminEmail}</p>
+                )}
               </div>
-            </div>
-          ) : (
-            <div className="space-y-1 border border-border/60 rounded-xl p-2.5 max-h-44 overflow-y-auto">
-              <label className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors">
+            </label>
+
+            {staffList.map((s) => (
+              <label
+                key={s.id}
+                className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors"
+              >
                 <input
                   type="checkbox"
-                  checked={targets.includes("admin")}
-                  onChange={() => toggleTarget("admin")}
+                  checked={targets.includes(s.id)}
+                  onChange={() => toggleTarget(s.id)}
                   className="h-3.5 w-3.5 rounded border-input text-primary accent-primary"
                 />
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs font-semibold leading-none">{adminLabel}</p>
-                  {adminEmail && (
-                    <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{adminEmail}</p>
+                  <p className="text-xs font-semibold leading-none">
+                    {s.name} <span className="font-normal text-muted-foreground">(Staff)</span>
+                  </p>
+                  {s.email && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{s.email}</p>
                   )}
                 </div>
               </label>
+            ))}
 
-              {staffList.map((s) => (
-                <label
-                  key={s.id}
-                  className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg hover:bg-secondary/50 cursor-pointer transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={targets.includes(s.id)}
-                    onChange={() => toggleTarget(s.id)}
-                    className="h-3.5 w-3.5 rounded border-input text-primary accent-primary"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold leading-none">
-                      {s.name} <span className="font-normal text-muted-foreground">(Staff)</span>
-                    </p>
-                    {s.email && (
-                      <p className="text-[10px] text-muted-foreground mt-0.5 truncate">{s.email}</p>
-                    )}
-                  </div>
-                </label>
-              ))}
-
-              {staffList.length === 0 && (
-                <p className="text-[11px] text-muted-foreground/50 italic px-2 py-1">Sin staff registrado</p>
-              )}
-            </div>
-          )}
-          {!isVendor && targets.length > 1 && (
+            {staffList.length === 0 && (
+              <p className="text-[11px] text-muted-foreground/50 italic px-2 py-1">Sin staff registrado</p>
+            )}
+          </div>
+          {targets.length > 1 && (
             <p className="text-[10px] text-muted-foreground mt-1.5">
               {targets.length} destinatarios — cada uno recibirá su propia notificación
             </p>

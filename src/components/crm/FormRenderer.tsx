@@ -942,7 +942,6 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
     let redirecting = false;
     try {
       const dbUrl = import.meta.env.VITE_SUPABASE_URL;
-      const vendorRef = new URLSearchParams(window.location.search).get("ref") ?? undefined;
       const res = await fetch(`${dbUrl}/functions/v1/crm-form-public`, {
         method: "POST",
         headers: {
@@ -953,7 +952,6 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
           form_id: formId,
           data: formValues,
           terms_accepted_at: new Date().toISOString(),
-          ...(vendorRef ? { vendor_ref: vendorRef } : {}),
         }),
       });
       if (!res.ok) throw new Error(T.errorServer);

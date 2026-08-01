@@ -58,7 +58,7 @@ Reescribe esa descripción como una instrucción directa para el agente IA. Requ
 - Empieza con "cuando" o "al" (minúscula)
 - Usa tiempo presente o gerundio
 - La instrucción debe dejar claro que la acción es ${type === "remove" ? "QUITAR/eliminar" : "AÑADIR/asignar"} la etiqueta
-- Di exactamente en qué momento aplica: puede ser un mensaje del chat, una etiqueta asignada en la conversación, o un evento del sistema (venta registrada, cita agendada, deal en pipeline)
+- Di exactamente en qué momento aplica: puede ser un mensaje del chat, una etiqueta asignada en la conversación, o un evento del sistema (venta registrada, cita agendada)
 - Si el evento ocurre en la respuesta actual del agente, incluye "en esta misma respuesta"
 - Máximo 2 oraciones cortas
 - Responde SOLO con la instrucción, sin comillas ni explicaciones`,

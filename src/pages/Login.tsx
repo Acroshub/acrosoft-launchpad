@@ -1,14 +1,14 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Eye, EyeOff, CheckCircle2, ArrowRight, Bot, CalendarDays, Users, Kanban } from "lucide-react";
+import { Eye, EyeOff, CheckCircle2, ArrowRight, Bot, CalendarDays, Users, ClipboardList } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { signIn } from "@/hooks/useAuth";
 
 const FEATURES = [
-  { icon: Bot,          label: "Agente IA en WhatsApp",       desc: "Atiende clientes 24/7 automáticamente" },
-  { icon: CalendarDays, label: "Calendario inteligente",       desc: "Agenda y recordatorios automáticos" },
-  { icon: Users,        label: "CRM completo",                 desc: "Contactos, pipeline y ventas unificados" },
-  { icon: Kanban,       label: "Pipeline visual",              desc: "Gestiona tu flujo de ventas en un vistazo" },
+  { icon: Bot,           label: "Agente IA en WhatsApp",       desc: "Atiende clientes 24/7 automáticamente" },
+  { icon: CalendarDays,  label: "Calendario inteligente",       desc: "Agenda y recordatorios automáticos" },
+  { icon: Users,         label: "CRM completo",                 desc: "Contactos y ventas unificados" },
+  { icon: ClipboardList, label: "Formularios inteligentes",     desc: "Captura leads y automatiza el seguimiento" },
 ];
 
 const Login = () => {

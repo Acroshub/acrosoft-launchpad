@@ -33,36 +33,12 @@ export type CrmContact = {
   email: string | null
   phone: string | null
   company: string | null
-  stage: string | null   // pipeline column name, or null if not in any pipeline
   tags: string[]
   notes: string | null
   custom_fields: Json
   master_doc_url?: string | null
-  pipeline_position?: Record<string, number> | null
   ai_collected_data?: Record<string, string> | null
   profile_pic_url?: string | null
-}
-
-export type CrmPipeline = {
-  id: string
-  created_at: string
-  user_id: string
-  name: string
-  type: 'contacts' | 'tasks'
-  column_names: string[]
-}
-
-export type CrmTask = {
-  id: string
-  created_at: string
-  user_id: string
-  pipeline_id: string
-  contact_id: string | null
-  title: string
-  description: string | null
-  priority: 'low' | 'medium' | 'high' | null
-  stage: string
-  position: number
 }
 
 export type CrmAppointment = {
@@ -99,19 +75,6 @@ export type CrmBlockedSlot = {
   reason: string | null
 }
 
-export type CrmPipelineDeal = {
-  id: string
-  created_at: string
-  user_id: string
-  contact_id: string | null
-  title: string
-  stage: string
-  value: number
-  currency: string
-  notes: string | null
-  custom_fields: Json
-}
-
 export type CrmForm = {
   id: string
   created_at: string
@@ -130,7 +93,6 @@ export type CrmForm = {
   slug: string | null
   auto_tags: string[]
   facebook_pixel_id?: string | null
-  pipeline_ids?: string[]
   reminder_rules?: Json[]
   is_basic_form?: boolean
   language: string
@@ -213,12 +175,9 @@ export type CrmSale = {
   currency: string
   type: 'initial' | 'recurring'
   notes: string | null
-  is_vip?: boolean
-  vendor_id: string | null
   is_paid: boolean
   paid_at: string | null
   payment_proof_url: string | null
-  commission_pct: number
   // Campos de ventas IA / productos
   product_id: string | null
   product_variant_id: string | null
@@ -290,7 +249,6 @@ export type CrmBusinessProfile = {
   theme: string
   metrics_order?: Json
   landing_calendar_id?: string | null
-  vip_calendar_id?: string | null
   timezone: string
   slug: string | null
   onboarding_flags?: Record<string, boolean>
@@ -424,15 +382,6 @@ export type CrmCourseMagicLink = {
   expires_at: string
 }
 
-export type CrmContactPipelineMembership = {
-  id: string
-  created_at: string
-  contact_id: string
-  pipeline_id: string
-  stage: string
-  position: number
-}
-
 export type CrmClientAccount = {
   id: string
   created_at: string
@@ -507,13 +456,11 @@ export type CrmStaff = {
   perm_calendarios: StaffPermission
   perm_formularios: StaffPermission
   perm_contactos:     StaffPermission
-  perm_pipeline:      StaffPermission
   perm_recordatorios: StaffPermission
   perm_agente_ia: StaffPermission
   // item-level overrides — null = no restriction (section perm applies to all)
   perm_calendarios_items: Record<string, StaffItemPermission> | null
   perm_formularios_items: Record<string, StaffItemPermission> | null
-  perm_pipeline_items:    Record<string, StaffItemPermission> | null
 }
 
 export type CrmLog = {
@@ -532,46 +479,6 @@ export type SupportNotificationRecipient = {
   email: string
   active: boolean
   created_at: string
-}
-
-export type CrmVendor = {
-  id: string
-  created_at: string
-  owner_user_id: string
-  vendor_user_id: string | null
-  name: string
-  email: string
-  whatsapp: string | null
-  commission_pct: number
-  slug: string
-  status: 'invited' | 'active' | 'inactive'
-  notes: string | null
-  landing_calendar_id: string | null
-}
-
-export type CrmVendorLinks = {
-  id: string
-  created_at: string
-  owner_user_id: string
-  payment_link_title: string
-  payment_link: string | null
-  onboarding_link_title: string
-  onboarding_link: string | null
-}
-
-export type CrmMaintenancePayment = {
-  id: string
-  created_at: string
-  owner_user_id: string
-  vendor_id: string
-  month: string
-  amount: number
-  commission_pct: number
-  commission_amount: number
-  is_paid: boolean
-  paid_at: string | null
-  proof_url: string | null
-  notes: string | null
 }
 
 export type CrmAIAgentConfig = {
@@ -869,7 +776,6 @@ export type ReminderWaVarMap = Record<string, ReminderWaVarSource>
 export type WaAudienceFilter =
   | { type: "tag";                    value: string }
   | { type: "wa_label";               labelId: string;    labelName: string }
-  | { type: "pipeline_stage";         pipelineId: string; pipelineName: string; stage: string }
   | { type: "has_sale_any" }
   | { type: "has_sale_product";       productId: string;  productName: string }
   | { type: "has_sale_service";       serviceId: string;  serviceName: string }

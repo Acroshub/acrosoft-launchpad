@@ -91,51 +91,6 @@ function isBlockedBySlots(
   });
 }
 
-async function addContactToPipelines(
-  userId: string,
-  contactId: string,
-  pipelineIds: string[],
-): Promise<void> {
-  try {
-    let pipelines: { id: string; column_names: string[] }[] = [];
-
-    if (pipelineIds.length > 0) {
-      const { data } = await supabase
-        .from("crm_pipelines")
-        .select("id, column_names")
-        .eq("user_id", userId)
-        .eq("type", "contacts")
-        .in("id", pipelineIds);
-      pipelines = data ?? [];
-    } else {
-      const { data } = await supabase
-        .from("crm_pipelines")
-        .select("id, column_names")
-        .eq("user_id", userId)
-        .eq("type", "contacts")
-        .order("created_at", { ascending: true })
-        .limit(1);
-      pipelines = data ?? [];
-    }
-
-    if (!pipelines.length) return;
-
-    for (const pipeline of pipelines) {
-      const firstStage = (pipeline.column_names as string[])?.[0];
-      if (!firstStage) continue;
-
-      await supabase
-        .from("crm_contact_pipeline_memberships")
-        .upsert(
-          { contact_id: contactId, pipeline_id: pipeline.id, stage: firstStage, position: 0 },
-          { onConflict: "contact_id,pipeline_id", ignoreDuplicates: true },
-        );
-    }
-  } catch (e) {
-    console.error("addContactToPipelines (non-fatal):", e);
-  }
-}
-
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: PUBLIC_CORS_HEADERS });
 
@@ -170,7 +125,7 @@ Deno.serve(async (req) => {
 
     const { data: calendar, error: calError } = await supabase
       .from("crm_calendar_config")
-      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability, reminder_rules, timezone, is_vip")
+      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability, reminder_rules, timezone")
       .eq("id", calendar_id)
       .single();
 
@@ -258,16 +213,14 @@ Deno.serve(async (req) => {
     if (hasConflict) return respond({ error: "Slot already booked" }, 409);
 
     let fields: any[] = [];
-    let formPipelineIds: string[] = [];
     if (calendar.linked_form_id) {
       const { data: form } = await supabase
         .from("crm_forms")
-        .select("fields, pipeline_ids")
+        .select("fields")
         .eq("id", calendar.linked_form_id)
         .single();
       if (form) {
         if (Array.isArray(form.fields)) fields = form.fields as any[];
-        if (Array.isArray((form as any).pipeline_ids)) formPipelineIds = (form as any).pipeline_ids;
       }
     }
 
@@ -281,7 +234,6 @@ Deno.serve(async (req) => {
       ? { [formKey]: form_data } : {};
 
     let contactId: string | null = null;
-    let isNewContact = false;
 
     if (email) {
       const { data: existingContact } = await supabase
@@ -300,40 +252,20 @@ Deno.serve(async (req) => {
           custom_fields: mergedFields,
         }).eq("id", contactId);
       } else {
-        isNewContact = true;
         const { data: nc } = await supabase.from("crm_contacts").insert({
           user_id: calendar.user_id, name: name || "Sin nombre", email,
-          phone: phone || null, tags: [], stage: null,
+          phone: phone || null, tags: [],
           company: null, notes: null, custom_fields: formDataToStore,
         }).select("id").single();
         contactId = nc?.id ?? null;
       }
     } else if (name) {
-      isNewContact = true;
       const { data: nc } = await supabase.from("crm_contacts").insert({
         user_id: calendar.user_id, name, email: null,
-        phone: phone || null, tags: [], stage: null,
+        phone: phone || null, tags: [],
         company: null, notes: null, custom_fields: formDataToStore,
       }).select("id").single();
       contactId = nc?.id ?? null;
-    }
-
-    if (isNewContact && contactId) {
-      await addContactToPipelines(calendar.user_id, contactId, formPipelineIds);
-    }
-
-    // Auto-tag VIP cuando el calendario es privado VIP
-    if ((calendar as any).is_vip && contactId) {
-      try {
-        const { data: ct } = await supabase
-          .from("crm_contacts").select("tags").eq("id", contactId).single();
-        const tags: string[] = Array.isArray(ct?.tags) ? ct.tags : [];
-        if (!tags.includes("VIP")) {
-          await supabase.from("crm_contacts").update({ tags: [...tags, "VIP"] }).eq("id", contactId);
-        }
-      } catch (e) {
-        console.error("VIP tag assignment (non-fatal):", e);
-      }
     }
 
     const termsAt: string | null = typeof terms_accepted_at === "string" ? terms_accepted_at : null;
@@ -357,7 +289,6 @@ Deno.serve(async (req) => {
         entity: "appointment",
         entity_id: appointment.id,
         description: `Cita agendada con ${name || email || "cliente"} el ${date} a las ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} hs vía ${calendar.name ?? "calendario"}`,
-        is_vip: !!(calendar as any).is_vip,
       });
     } catch (e) {
       console.error("Log insert (non-fatal):", e);
@@ -409,10 +340,7 @@ Deno.serve(async (req) => {
             for (const targetId of targets) {
               let emailVal = "";
               let phoneVal = "";
-              if (targetId === "vendor") {
-                const { data: { user: vendorUser } } = await supabase.auth.admin.getUserById(calendar.user_id);
-                emailVal = vendorUser?.email ?? "";
-              } else if (targetId === "admin") {
+              if (targetId === "admin") {
                 const { data: profile } = await supabase
                   .from("crm_business_profile").select("contact_email, contact_phone, whatsapp")
                   .eq("user_id", calendar.user_id).single();

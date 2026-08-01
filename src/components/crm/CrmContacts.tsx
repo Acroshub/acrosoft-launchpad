@@ -13,7 +13,7 @@ import {
   Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Upload, FileUp, CheckCircle2, Bot, BookOpen, GitMerge,
 } from "lucide-react";
 import Papa from "papaparse";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, usePipelines, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useAllContactStages, useSales, useServices, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess, useContactCourseMap, useContactCourseAccess } from "@/hooks/useCrmData";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useSales, useServices, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess, useContactCourseMap, useContactCourseAccess } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -415,11 +415,9 @@ const ONBOARDING_FORM_ID = "b733e0c5-60d4-414d-896a-5ce459b07eaf";
 const ClientDetail = ({
   contact,
   onBack,
-  stages = [],
 }: {
   contact: CrmContact;
   onBack: () => void;
-  stages?: { pipelineName: string; stage: string }[];
 }) => {
   const [downloading, setDownloading] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -491,18 +489,6 @@ const ClientDetail = ({
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-base font-semibold">{contact.name}</h1>
-            {stages.length > 0
-              ? stages.map((s, i) => (
-                  <Badge key={i} variant="outline" className="bg-primary/8 text-primary border-primary/20 text-[10px]" title={s.pipelineName}>
-                    {s.stage}
-                  </Badge>
-                ))
-              : contact.stage && (
-                  <Badge variant="outline" className="bg-primary/8 text-primary border-primary/20 text-[10px]">
-                    {contact.stage}
-                  </Badge>
-                )
-            }
           </div>
           <p className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
             <Calendar size={11} /> Recibido el{" "}
@@ -910,8 +896,7 @@ const exportContactsCsv = (contacts: CrmContact[]) => {
     new Set(flatCf.flatMap((cf) => Object.keys(cf)))
   );
 
-  // stage y creado_en se omiten: stage es gestionado por el pipeline,
-  // y creado_en no puede setearse al reimportar — incluirlos generaría campos basura.
+  // creado_en se omite: no puede setearse al reimportar — incluirlo generaría campos basura.
   const rows = contacts.map((c, i) => ({
     nombre: c.name,
     email: c.email ?? "",
@@ -964,14 +949,12 @@ function buildContactFromRow(
   mapping: Record<string, string>,
   customLabels: Record<string, string>,
   userId: string,
-  defaultStage: string | null
 ): Record<string, any> {
   const obj: Record<string, any> = {
     user_id: userId,
     name: "",
     tags: [],
     custom_fields: {},
-    stage: defaultStage ?? null,
   };
   headers.forEach((header, i) => {
     const mapped = mapping[header] ?? "__skip";
@@ -994,10 +977,9 @@ interface ImportWizardProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   existingContacts: CrmContact[];
-  defaultStage: string | null;
 }
 
-const ImportWizard = ({ open, onOpenChange, existingContacts, defaultStage }: ImportWizardProps) => {
+const ImportWizard = ({ open, onOpenChange, existingContacts }: ImportWizardProps) => {
   const qc = useQueryClient();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "mapping" | "preview" | "done">("upload");
@@ -1147,7 +1129,7 @@ const ImportWizard = ({ open, onOpenChange, existingContacts, defaultStage }: Im
       let created = 0, updated = 0, skipped = 0;
 
       if (newRows.length > 0) {
-        const toInsert = newRows.map((r) => buildContactFromRow(r, headers, mapping, customLabels, user.id, defaultStage));
+        const toInsert = newRows.map((r) => buildContactFromRow(r, headers, mapping, customLabels, user.id));
         const CHUNK = 500;
         for (let j = 0; j < toInsert.length; j += CHUNK) {
           const { error } = await supabase.from("crm_contacts").insert(toInsert.slice(j, j + CHUNK));
@@ -1158,7 +1140,7 @@ const ImportWizard = ({ open, onOpenChange, existingContacts, defaultStage }: Im
 
       for (let i = 0; i < duplicates.length; i++) {
         if ((dupChoices[i] ?? "skip") === "update") {
-          const built = buildContactFromRow(duplicates[i].row, headers, mapping, customLabels, user.id, defaultStage);
+          const built = buildContactFromRow(duplicates[i].row, headers, mapping, customLabels, user.id);
           const { name, email, phone, company, tags, notes, custom_fields } = built;
           const mergedCustomFields = {
             ...(duplicates[i].existing.custom_fields as Record<string, unknown> ?? {}),
@@ -1814,7 +1796,7 @@ const SaasActivationModal = ({
 );
 
 // ─── Contacts list ────────────────────────────────────────────────────────────
-const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId }: { isSuperAdmin?: boolean; isVendor?: boolean; initialContactId?: string }) => {
+const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?: boolean; initialContactId?: string }) => {
   const { can } = useStaffPermissions();
   const canCreate         = can("contactos", "create");
   const canEdit           = can("contactos", "edit");
@@ -1822,9 +1804,7 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
 
   const { data: contacts = [], isLoading } = useContacts();
   const { data: forms = [] } = useForms();
-  const { data: pipelines = [] } = usePipelines();
   const { data: clientAccounts = [] } = useClientAccounts();
-  const { data: contactStagesMap = {} } = useAllContactStages();
   const { data: courseMap = new Map<string, number>() } = useContactCourseMap();
   const { data: sales = [] } = useSales();
   const { data: services = [] } = useServices();
@@ -1858,10 +1838,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
       setAccessingCrm(null);
     }
   };
-
-  // First contacts pipeline — new contacts auto-enter its first column
-  const contactsPipeline = pipelines.find((p) => p.type === "contacts") ?? null;
-  const defaultStage = contactsPipeline?.column_names[0] ?? null;
 
   const [search, setSearch]         = useState("");
   const [onlyClients, setOnlyClients] = useState(false);
@@ -1924,7 +1900,7 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
   // Superadmin: show full ficha técnica
   const viewingContact = contacts.find((c) => c.id === viewing);
   if (viewing && viewingContact && isSuperAdmin) {
-    return <ClientDetail contact={viewingContact} stages={contactStagesMap[viewingContact.id] ?? []} onBack={() => setViewing(null)} />;
+    return <ClientDetail contact={viewingContact} onBack={() => setViewing(null)} />;
   }
 
   const q = search.toLowerCase();
@@ -1969,10 +1945,9 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
         email: newEmail.trim(),
         phone: null,
         company: null,
-        stage: defaultStage,
         tags: [],
       });
-      toast.success(defaultStage ? `Contacto creado y añadido a "${defaultStage}"` : "Contacto creado exitosamente");
+      toast.success("Contacto creado exitosamente");
       setShowNew(false);
       setNewName("");
       setNewEmail("");
@@ -2016,7 +1991,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
     try {
       await Promise.all([
         supabase.from("crm_wa_conversations").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
-        supabase.from("crm_pipeline_deals").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
         supabase.from("crm_sales").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
         supabase.from("crm_appointments").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
         supabase.from("crm_contact_notes").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
@@ -2026,7 +2000,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
         email: detail.email || secondary.email || null,
         phone: detail.phone || secondary.phone || null,
         company: detail.company || secondary.company || null,
-        stage: detail.stage || secondary.stage || null,
         profile_pic_url: detail.profile_pic_url || secondary.profile_pic_url || null,
         // Arrays/objects: union / deep merge, primary takes precedence on conflicts
         tags: [...new Set([...(detail.tags ?? []), ...(secondary.tags ?? [])])],
@@ -2100,7 +2073,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
       open={showImport}
       onOpenChange={setShowImport}
       existingContacts={contacts}
-      defaultStage={defaultStage}
     />
 
     {/* New contact dialog */}
@@ -2215,15 +2187,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                 />
               </div>
               <div className="p-5 space-y-5">
-                {((contactStagesMap[detail.id]?.length ?? 0) > 0 || detail.stage) && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium shrink-0">Etapa</span>
-                    {(contactStagesMap[detail.id]?.length ?? 0) > 0
-                      ? contactStagesMap[detail.id].map((s, i) => <Badge key={i} variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary" title={s.pipelineName}>{s.stage}</Badge>)
-                      : <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary">{detail.stage}</Badge>
-                    }
-                  </div>
-                )}
                 <div className="space-y-2">
                   <InlineEdit icon={Mail} value={detail.email} placeholder="Añadir email" type="email" readOnly={!canEdit} onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})} />
                   <InlineEdit icon={Phone} value={detail.phone} placeholder="Añadir teléfono" type="tel" readOnly={!canEdit} onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})} />
@@ -2324,12 +2287,10 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
               </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
-              {!isVendor && (
-                <Button variant="outline" onClick={() => exportContactsCsv(filtered)} className="rounded-xl gap-1.5 h-9 text-xs font-medium" title={filtered.length < contacts.length ? `Exportar ${filtered.length} contactos (filtrados)` : "Exportar todos"}>
-                  <Upload size={13} /><span className="hidden sm:inline">Exportar</span>
-                </Button>
-              )}
-              {canCreate && !isVendor && (
+              <Button variant="outline" onClick={() => exportContactsCsv(filtered)} className="rounded-xl gap-1.5 h-9 text-xs font-medium" title={filtered.length < contacts.length ? `Exportar ${filtered.length} contactos (filtrados)` : "Exportar todos"}>
+                <Upload size={13} /><span className="hidden sm:inline">Exportar</span>
+              </Button>
+              {canCreate && (
                 <Button variant="outline" onClick={() => setShowImport(true)} className="rounded-xl gap-1.5 h-9 text-xs font-medium">
                   <Download size={13} /><span className="hidden sm:inline">Importar</span>
                 </Button>
@@ -2423,12 +2384,8 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
                             {isSaasDisabled && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 shrink-0">Deshabilitado</span>}
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-0.5">{c.email ?? "Sin email"}</p>
-                          {((contactStagesMap[c.id]?.length ?? 0) > 0 || c.stage || (contactServices.get(c.id) ?? []).length > 0) && (
+                          {(contactServices.get(c.id) ?? []).length > 0 && (
                             <div className="flex items-center gap-1 flex-wrap mt-1">
-                              {(contactStagesMap[c.id]?.length ?? 0) > 0
-                                ? contactStagesMap[c.id].map((s, i) => <span key={i} className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary border border-primary/15 font-medium" title={s.pipelineName}>{s.stage}</span>)
-                                : c.stage && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-primary/8 text-primary border border-primary/15 font-medium">{c.stage}</span>
-                              }
                               {(contactServices.get(c.id) ?? []).map((svc, i) => (
                                 <span key={`svc-${i}`} className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-medium">{svc.serviceName}</span>
                               ))}
@@ -2533,24 +2490,6 @@ const CrmContacts = ({ isSuperAdmin = false, isVendor = false, initialContactId 
 
                   {/* Scrollable body */}
                   <div className="p-5 overflow-y-auto flex-1 space-y-5">
-
-                  {((contactStagesMap[detail.id]?.length ?? 0) > 0 || detail.stage) && (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium shrink-0">Etapa</span>
-                      {(contactStagesMap[detail.id]?.length ?? 0) > 0
-                        ? contactStagesMap[detail.id].map((s, i) => (
-                            <Badge key={i} variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary" title={s.pipelineName}>
-                              {s.stage}
-                            </Badge>
-                          ))
-                        : (
-                            <Badge variant="outline" className="text-[10px] px-2 py-0.5 border-primary/20 bg-primary/5 text-primary">
-                              {detail.stage}
-                            </Badge>
-                          )
-                      }
-                    </div>
-                  )}
 
                   <div className="space-y-2">
                     <InlineEdit

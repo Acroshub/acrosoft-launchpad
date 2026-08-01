@@ -30,7 +30,6 @@ interface TemplateVars {
   appointment_service?: string;
   calendar_name?:       string;
   business_name?:       string;
-  vendedor_name?:       string;
 }
 
 function resolveVariables(text: string, vars: TemplateVars): string {
@@ -42,8 +41,7 @@ function resolveVariables(text: string, vars: TemplateVars): string {
     .replace(/\{\{appointment\.time\}\}/g,       vars.appointment_time    ?? "")
     .replace(/\{\{appointment\.service\}\}/g,    vars.appointment_service ?? "")
     .replace(/\{\{calendar\.name\}\}/g,          vars.calendar_name       ?? "")
-    .replace(/\{\{business\.name\}\}/g,          vars.business_name       ?? "")
-    .replace(/\{\{vendedor\.name\}\}/g,          vars.vendedor_name       ?? "");
+    .replace(/\{\{business\.name\}\}/g,          vars.business_name       ?? "");
 }
 
 async function buildTemplateVars(reminder: Record<string, any>): Promise<TemplateVars> {
@@ -97,13 +95,6 @@ async function buildTemplateVars(reminder: Record<string, any>): Promise<Templat
         ?? [profile.first_name, profile.last_name].filter(Boolean).join(" ")
         ?? undefined;
     }
-
-    const { data: vendor } = await supabase
-      .from("crm_vendors")
-      .select("name")
-      .eq("vendor_user_id", reminder.user_id)
-      .maybeSingle();
-    if (vendor) vars.vendedor_name = vendor.name;
   }
 
   return vars;

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Bot, Crown, CheckCircle2, Loader2, Pencil, Trash2, DollarSign } from "lucide-react";
+import { Bot, Loader2, Pencil, Trash2, DollarSign } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { CrmSale } from "@/lib/supabase";
 
@@ -12,16 +12,12 @@ export type SalesTableRow = {
   contactName: string;
   serviceName: string;
   notes: string;
-  vendorId?: string;
-  vendorName?: string;
-  commission?: number;
 };
 
 type Props = {
   rows: SalesTableRow[];
   isLoading?: boolean;
   pageSize?: number;
-  isSuperAdmin?: boolean;
   canEdit?: boolean;
   canDelete?: boolean;
   emptyText?: string;
@@ -32,8 +28,6 @@ type Props = {
   // actions
   onEdit?: (sale: CrmSale) => void;
   onDelete?: (sale: CrmSale) => void;
-  onToggleVip?: (sale: CrmSale) => void;
-  onMarkPaid?: (sale: CrmSale) => void;
 };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -54,7 +48,6 @@ export default function SalesTable({
   rows,
   isLoading = false,
   pageSize = 15,
-  isSuperAdmin = false,
   canEdit = false,
   canDelete = false,
   emptyText = "No hay ventas registradas.",
@@ -63,8 +56,6 @@ export default function SalesTable({
   hasFilters = false,
   onEdit,
   onDelete,
-  onToggleVip,
-  onMarkPaid,
 }: Props) {
   const [page, setPage] = useState(1);
 
@@ -97,11 +88,8 @@ export default function SalesTable({
               <th className="px-6 py-3 font-medium">Contacto</th>
               <th className="px-6 py-3 font-medium">Servicio / Producto</th>
               <th className="px-6 py-3 font-medium text-right">Monto</th>
-              {isSuperAdmin && <th className="px-6 py-3 font-medium">Vendedor</th>}
-              {isSuperAdmin && <th className="px-6 py-3 font-medium text-right">Comisión</th>}
-              {isSuperAdmin && <th className="px-6 py-3 font-medium text-center">Pagado</th>}
               <th className="px-6 py-3 font-medium">Notas</th>
-              {(onEdit || onDelete || onToggleVip) && <th className="px-4 py-3" />}
+              {(onEdit || onDelete) && <th className="px-4 py-3" />}
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
@@ -111,9 +99,7 @@ export default function SalesTable({
                 ? "bg-amber-50/60 dark:bg-amber-900/10 hover:bg-amber-100/50 dark:hover:bg-amber-900/20 opacity-80"
                 : s.status === "rejected"
                   ? "bg-red-50/50 dark:bg-red-900/10 hover:bg-red-100/40 dark:hover:bg-red-900/15 opacity-60"
-                  : sale.vendorId && (sale.commission ?? 0) > 0 && !s.is_paid
-                    ? "bg-amber-50/70 dark:bg-amber-900/15 hover:bg-amber-100/60 dark:hover:bg-amber-900/25"
-                    : "hover:bg-secondary/30";
+                  : "hover:bg-secondary/30";
 
               return (
                 <tr key={sale.id} className={`transition-colors group ${rowClass}`}>
@@ -121,11 +107,6 @@ export default function SalesTable({
                   <td className="px-6 py-3 font-medium">
                     <span className="flex items-center gap-2 flex-wrap">
                       {sale.contactName}
-                      {s.is_vip && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-700 shrink-0">
-                          <Crown size={9} /> VIP
-                        </span>
-                      )}
                       {s.is_ai_sale && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-700 shrink-0" title="Venta detectada por el Agente IA">
                           <Bot size={9} /> IA
@@ -145,53 +126,10 @@ export default function SalesTable({
                   </td>
                   <td className="px-6 py-3">{sale.serviceName}</td>
                   <td className="px-6 py-3 font-semibold text-primary text-right">{fmtSaleAmt(sale.raw.amount, s.currency)}</td>
-                  {isSuperAdmin && (
-                    <td className="px-6 py-3">
-                      {sale.vendorName
-                        ? <span className="text-xs font-medium text-muted-foreground">{sale.vendorName}</span>
-                        : <span className="text-xs text-muted-foreground/50">Directo</span>}
-                    </td>
-                  )}
-                  {isSuperAdmin && (
-                    <td className="px-6 py-3 text-right">
-                      {(sale.commission ?? 0) > 0
-                        ? <span className="text-xs font-medium text-emerald-600">{fmtSaleAmt(sale.commission!, s.currency)}</span>
-                        : <span className="text-xs text-muted-foreground/50">—</span>}
-                    </td>
-                  )}
-                  {isSuperAdmin && (
-                    <td className="px-6 py-3 text-center">
-                      {sale.vendorId && (sale.commission ?? 0) > 0 ? (
-                        s.is_paid ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600">
-                            <CheckCircle2 size={11} /> Pagado
-                          </span>
-                        ) : (
-                          <button
-                            onClick={() => onMarkPaid?.(s)}
-                            className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline font-semibold"
-                          >
-                            Marcar pagado
-                          </button>
-                        )
-                      ) : (
-                        <span className="text-[11px] text-muted-foreground/40">—</span>
-                      )}
-                    </td>
-                  )}
                   <td className="px-6 py-3 text-muted-foreground text-xs truncate max-w-[160px]">{sale.notes || "—"}</td>
-                  {(onEdit || onDelete || onToggleVip) && (
+                  {(onEdit || onDelete) && (
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {onToggleVip && isSuperAdmin && (
-                          <button
-                            onClick={() => onToggleVip(s)}
-                            className={`p-1.5 rounded-lg transition-colors ${s.is_vip ? "text-amber-500 hover:bg-amber-100 dark:hover:bg-amber-900/30" : "text-muted-foreground hover:text-amber-500 hover:bg-secondary"}`}
-                            title={s.is_vip ? "Quitar VIP" : "Marcar como VIP"}
-                          >
-                            <Crown size={13} />
-                          </button>
-                        )}
                         {canEdit && onEdit && (
                           <button onClick={() => onEdit(s)} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors" title="Editar transacción">
                             <Pencil size={13} />
