@@ -1,9 +1,10 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  LayoutDashboard, CalendarDays, Users, LogOut, ClipboardList,
+  LayoutDashboard, CalendarDays, Users, LogOut, ClipboardList, User,
   Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle,
   PlayCircle, Bot, GraduationCap, Menu, X, ChevronRight, ShoppingBag, BookOpen, Briefcase, Video,
+  Megaphone, Wrench,
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
@@ -12,6 +13,7 @@ import CrmCalendar from "@/components/crm/CrmCalendar";
 import CrmForms from "@/components/crm/CrmForms";
 import CrmContacts from "@/components/crm/CrmContacts";
 import CrmBusiness from "@/components/crm/CrmBusiness";
+import CrmMyAccount from "@/components/crm/CrmMyAccount";
 import CrmSettings from "@/components/crm/CrmSettings";
 import CrmVentas from "@/components/crm/CrmVentas";
 import CrmSupport from "@/components/crm/CrmSupport";
@@ -25,10 +27,17 @@ import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdmin
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "business" | "servicios" | "productos" | "cursos" | "calendar" | "forms" | "contacts" | "ventas" | "settings" | "soporte" | "tutoriales" | "agente_ia";
+type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos" | "cursos" | "calendar" | "forms" | "contacts" | "ventas" | "settings" | "soporte" | "tutoriales" | "agente_ia";
 
 type NavChild = { id: View; label: string; icon: React.ElementType };
 type NavItem = { id: string; label: string; icon: React.ElementType; group: string; children?: NavChild[] };
+
+// Vistas accesibles solo desde el menú de cuenta (foto + correo), no desde el sidebar principal.
+const ACCOUNT_MENU_VIEW_META: Partial<Record<View, { label: string; icon: React.ElementType }>> = {
+  mi_cuenta: { label: "Mi Cuenta",     icon: User     },
+  business:  { label: "Mi Negocio",    icon: Store    },
+  settings:  { label: "Ajustes", icon: Settings },
+};
 
 const PRODUCTOS_CHILDREN: NavChild[] = [
   { id: "servicios", label: "Servicios", icon: Briefcase   },
@@ -36,19 +45,39 @@ const PRODUCTOS_CHILDREN: NavChild[] = [
   { id: "cursos",    label: "Cursos",    icon: BookOpen    },
 ];
 
-const navItems: NavItem[] = [
-  { id: "overview",       label: "Inicio",              icon: LayoutDashboard, group: "Principal"  },
-  { id: "productos_menu", label: "Productos",           icon: ShoppingBag,     group: "Principal", children: PRODUCTOS_CHILDREN },
-  { id: "business",       label: "Mi Negocio",          icon: Store,           group: "Principal"  },
-  { id: "ventas",       label: "Ventas",              icon: DollarSign,      group: "Principal"  },
-  { id: "contacts",     label: "Contactos",           icon: Users,           group: "CRM"        },
-  { id: "forms",        label: "Formularios",         icon: ClipboardList,   group: "CRM"        },
-  { id: "calendar",     label: "Calendarios",         icon: CalendarDays,    group: "CRM"        },
-  { id: "agente_ia",    label: "Agente IA",           icon: Bot,             group: "CRM"        },
-  { id: "tutoriales",   label: "Tutoriales",          icon: Video,           group: "Ajustes"    },
-  { id: "soporte",      label: "Soporte",             icon: MessageCircle,   group: "Ajustes"    },
-  { id: "settings",     label: "Configuración",       icon: Settings,        group: "Ajustes"    },
+const VENTAS_CHILDREN: NavChild[] = [
+  { id: "ventas", label: "Mis Ventas", icon: DollarSign },
 ];
+
+const MARKETING_CHILDREN: NavChild[] = [
+  { id: "contacts", label: "Contactos",   icon: Users         },
+  { id: "forms",    label: "Formularios", icon: ClipboardList },
+];
+
+const HERRAMIENTAS_CHILDREN: NavChild[] = [
+  { id: "calendar",  label: "Calendarios", icon: CalendarDays },
+  { id: "agente_ia", label: "WhatsApp IA", icon: Bot          },
+];
+
+const SOPORTE_CHILDREN: NavChild[] = [
+  { id: "tutoriales", label: "Tutoriales", icon: Video         },
+  { id: "soporte",    label: "Soporte",    icon: MessageCircle },
+];
+
+const navItems: NavItem[] = [
+  { id: "overview",         label: "Inicio",        icon: LayoutDashboard, group: "Principal", },
+  { id: "productos_menu",   label: "Productos",     icon: ShoppingBag,     group: "Principal", children: PRODUCTOS_CHILDREN },
+  { id: "ventas_menu",      label: "Ventas",        icon: DollarSign,      group: "Principal", children: VENTAS_CHILDREN },
+  { id: "marketing_menu",   label: "Marketing",     icon: Megaphone,       group: "Principal", children: MARKETING_CHILDREN },
+  { id: "herramientas_menu", label: "Herramientas", icon: Wrench,          group: "Principal", children: HERRAMIENTAS_CHILDREN },
+  { id: "soporte_menu",     label: "Soporte",       icon: MessageCircle,   group: "Principal", children: SOPORTE_CHILDREN },
+];
+
+// Condiciones extra de visibilidad para items hijos, más allá del permiso base del staff.
+const EXTRA_CHILD_VISIBILITY: Partial<Record<View, (ctx: { effectiveIsAdmin: boolean; isSaasClient: boolean }) => boolean>> = {
+  cursos:     ({ effectiveIsAdmin, isSaasClient }) => effectiveIsAdmin || isSaasClient,
+  tutoriales: ({ effectiveIsAdmin, isSaasClient }) => effectiveIsAdmin || isSaasClient,
+};
 
 const flatNavItems: NavChild[] = navItems.flatMap(n => (n.children ?? [n]) as NavChild[]);
 
@@ -72,18 +101,28 @@ const Crm = () => {
   const brandLogo    = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
 
-  const VALID_VIEWS: View[] = ["overview","business","servicios","productos","cursos","calendar","forms","contacts","ventas","settings","soporte","tutoriales","agente_ia"];
+  const VALID_VIEWS: View[] = ["overview","mi_cuenta","business","servicios","productos","cursos","calendar","forms","contacts","ventas","settings","soporte","tutoriales","agente_ia"];
   const [view, setViewRaw]                         = useState<View>(() => {
     const saved = localStorage.getItem("crm_view") as View | null;
     return saved && VALID_VIEWS.includes(saved) ? saved : "overview";
   });
-  const [pendingBusinessTab, setPendingBusinessTab] = useState<string | undefined>(undefined);
   const [pendingContactId, setPendingContactId]   = useState<string | undefined>(undefined);
   const [sidebarOpen, setSidebarOpen]             = useState(false);
-  const [productosOpen, setProductosOpen]         = useState(() => PRODUCTOS_CHILDREN.some(c => c.id === view));
+  const [openMenus, setOpenMenus]                 = useState<Set<string>>(() => {
+    const owner = navItems.find(n => n.children?.some(c => c.id === view));
+    return owner ? new Set([owner.id]) : new Set();
+  });
+  const [accountMenuOpen, setAccountMenuOpen]     = useState(false);
+
+  const toggleMenu = (id: string) => setOpenMenus(prev => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
   useEffect(() => {
-    if (PRODUCTOS_CHILDREN.some(c => c.id === view)) setProductosOpen(true);
+    const owner = navItems.find(n => n.children?.some(c => c.id === view));
+    if (owner) setOpenMenus(prev => prev.has(owner.id) ? prev : new Set(prev).add(owner.id));
   }, [view]);
 
   const setView = (v: View) => {
@@ -91,17 +130,14 @@ const Crm = () => {
     setViewRaw(v);
   };
 
-  const navigateTo = (v: View, tab?: string) => {
+  const navigateTo = (v: View) => {
     setView(v);
-    if (v === "business" && tab) setPendingBusinessTab(tab);
-    else setPendingBusinessTab(undefined);
     if (v !== "contacts") setPendingContactId(undefined);
   };
 
   const handleNavigateToContact = (contactId: string) => {
     setView("contacts");
     setPendingContactId(contactId);
-    setPendingBusinessTab(undefined);
   };
 
   const isSuperAdmin     = user?.email === SUPER_ADMIN_EMAIL;
@@ -157,12 +193,14 @@ const Crm = () => {
   const handleNavClick = (id: View) => {
     setView(id);
     setSidebarOpen(false);
+    setAccountMenuOpen(false);
   };
 
   const renderView = () => {
     switch (view) {
-      case "overview":  return <CrmOverview isSuperAdmin={effectiveIsAdmin} onNavigate={navigateTo} />;
-      case "business":  return (!isStaff || can("mi_negocio_personal","read") || can("mi_negocio_datos","read")) ? <CrmBusiness initialTab={pendingBusinessTab as any} /> : null;
+      case "overview":  return <CrmOverview onNavigate={navigateTo} />;
+      case "mi_cuenta": return <CrmMyAccount />;
+      case "business":  return (!isStaff || can("mi_negocio_datos","read")) ? <CrmBusiness /> : null;
       case "servicios": return (!isStaff || can("servicios","read")) ? (
         <CrmServices
           isSuperAdmin={effectiveIsAdmin}
@@ -222,12 +260,11 @@ const Crm = () => {
               if (n.children) {
                 const visibleChildren = n.children.filter(c =>
                   allowedNavItems.has(c.id) &&
-                  (c.id !== "cursos" || effectiveIsAdmin || isSaasClient)
+                  (EXTRA_CHILD_VISIBILITY[c.id]?.({ effectiveIsAdmin, isSaasClient }) ?? true)
                 );
                 return visibleChildren.length ? { ...n, children: visibleChildren } : null;
               }
               if (!allowedNavItems.has(n.id)) return null;
-              if (n.id === "tutoriales" && !(effectiveIsAdmin || isSaasClient)) return null;
               return n;
             })
             .filter((n): n is NavItem => n !== null);
@@ -242,20 +279,25 @@ const Crm = () => {
                   const Icon = item.icon;
 
                   if (item.children) {
+                    const isOpen = openMenus.has(item.id);
                     const hasActiveChild = item.children.some(c => c.id === view);
+                    const showCollapsedBadge = !isOpen && item.children.some(c => c.id === "soporte") && soporteBadge > 0;
                     return (
                       <div key={item.id}>
                         <button
-                          onClick={() => setProductosOpen(o => !o)}
+                          onClick={() => toggleMenu(item.id)}
                           className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all group relative ${
                             hasActiveChild ? "text-primary" : "text-muted-foreground hover:text-foreground hover:bg-secondary/80"
                           }`}
                         >
                           <Icon size={15} className="shrink-0" />
                           <span className="flex-1 text-left truncate">{item.label}</span>
-                          <ChevronRight size={13} className={`shrink-0 transition-transform ${productosOpen ? "rotate-90" : ""}`} />
+                          {showCollapsedBadge && (
+                            <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 animate-pulse" />
+                          )}
+                          <ChevronRight size={13} className={`shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
                         </button>
-                        {productosOpen && (
+                        {isOpen && (
                           <div className="mt-0.5 ml-4 pl-2 border-l border-border/60 space-y-0.5">
                             {item.children.map(child => {
                               const ChildIcon = child.icon;
@@ -273,6 +315,9 @@ const Crm = () => {
                                 >
                                   <ChildIcon size={14} className="shrink-0" />
                                   <span className="flex-1 text-left truncate">{child.label}</span>
+                                  {child.id === "soporte" && soporteBadge > 0 && (
+                                    <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 animate-pulse" />
+                                  )}
                                 </button>
                               );
                             })}
@@ -298,9 +343,6 @@ const Crm = () => {
                     >
                       <Icon size={15} className={`shrink-0 transition-transform ${active ? "" : "group-hover:scale-110"}`} />
                       <span className="flex-1 text-left truncate">{item.label}</span>
-                      {item.id === "soporte" && soporteBadge > 0 && (
-                        <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 animate-pulse" />
-                      )}
                     </button>
                   );
                 })}
@@ -310,33 +352,66 @@ const Crm = () => {
         })}
       </nav>
 
-      {/* User section */}
-      <div className="px-3 pb-4 pt-2 border-t shrink-0">
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl group">
-          {/* Avatar */}
+      {/* User section — botón que abre el menú de cuenta */}
+      <div className="relative px-3 pb-4 pt-2 border-t shrink-0">
+        {accountMenuOpen && (
+          <>
+            <div className="fixed inset-0 z-40" onClick={() => setAccountMenuOpen(false)} />
+            <div className="absolute left-3 right-3 bottom-full mb-2 z-50 bg-card border rounded-2xl shadow-lg overflow-hidden py-1">
+              <button
+                onClick={() => handleNavClick("mi_cuenta")}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-foreground hover:bg-secondary/80 transition-colors"
+              >
+                <User size={15} className="text-muted-foreground shrink-0" /> Mi cuenta
+              </button>
+              {(!isStaff || can("mi_negocio_datos", "read")) && (
+                <button
+                  onClick={() => handleNavClick("business")}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-foreground hover:bg-secondary/80 transition-colors"
+                >
+                  <Store size={15} className="text-muted-foreground shrink-0" /> Mi Negocio
+                </button>
+              )}
+              {!isStaff && (
+                <button
+                  onClick={() => handleNavClick("settings")}
+                  className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-foreground hover:bg-secondary/80 transition-colors"
+                >
+                  <Settings size={15} className="text-muted-foreground shrink-0" /> Ajustes
+                </button>
+              )}
+              <div className="h-px bg-border my-1" />
+              <button
+                onClick={handleSignOut}
+                className="w-full flex items-center gap-2.5 px-3.5 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/5 transition-colors"
+              >
+                <LogOut size={15} className="shrink-0" /> Cerrar sesión
+              </button>
+            </div>
+          </>
+        )}
+        <button
+          onClick={() => setAccountMenuOpen(o => !o)}
+          className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-secondary/80 transition-colors"
+        >
           <div
             className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
             style={{ backgroundColor: avatarColor }}
           >
             {userInitial}
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-0 text-left">
             <p className="text-xs font-semibold text-foreground truncate leading-tight">{displayEmail}</p>
-            <button
-              onClick={handleSignOut}
-              className="text-[11px] text-muted-foreground hover:text-destructive transition-colors flex items-center gap-1 mt-0.5"
-            >
-              <LogOut size={10} />
-              Cerrar sesión
-            </button>
+            <p className="text-[11px] text-muted-foreground mt-0.5">Ver opciones</p>
           </div>
-        </div>
+          <ChevronRight size={13} className={`text-muted-foreground shrink-0 transition-transform ${accountMenuOpen ? "-rotate-90" : ""}`} />
+        </button>
       </div>
     </div>
   );
 
-  const currentLabel = flatNavItems.find(n => n.id === view)?.label ?? "";
-  const CurrentIcon  = flatNavItems.find(n => n.id === view)?.icon ?? LayoutDashboard;
+  const currentLabel = flatNavItems.find(n => n.id === view)?.label ?? ACCOUNT_MENU_VIEW_META[view]?.label ?? "";
+  const CurrentIcon  = flatNavItems.find(n => n.id === view)?.icon ?? ACCOUNT_MENU_VIEW_META[view]?.icon ?? LayoutDashboard;
 
   return (
     <div className="flex h-screen bg-background overflow-hidden">

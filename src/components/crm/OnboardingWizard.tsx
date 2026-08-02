@@ -2,11 +2,11 @@ import { useState } from "react";
 import { CheckCircle2, Circle, ChevronDown, ChevronUp, ArrowRight, X } from "lucide-react";
 import { useOnboardingStatus, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 
-type View = "overview" | "business" | "servicios" | "productos" | "calendar" | "forms" | "contacts"
+type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos" | "calendar" | "forms" | "contacts"
   | "ventas" | "settings" | "soporte" | "videos" | "agente_ia";
 
 interface Props {
-  onNavigate: (view: View, tab?: string) => void;
+  onNavigate: (view: View) => void;
 }
 
 export default function OnboardingWizard({ onNavigate }: Props) {
@@ -28,7 +28,7 @@ export default function OnboardingWizard({ onNavigate }: Props) {
       description: "Nombre, email y teléfono de contacto",
       done: step1,
       required: true,
-      actions: [{ label: "Completar", view: "business" as const, tab: "personal" }],
+      actions: [{ label: "Completar", view: "mi_cuenta" as const }],
     },
     {
       id: 2,
@@ -36,7 +36,7 @@ export default function OnboardingWizard({ onNavigate }: Props) {
       description: "Nombre del negocio y descripción",
       done: step2,
       required: true,
-      actions: [{ label: "Completar", view: "business" as const, tab: "negocio" }],
+      actions: [{ label: "Completar", view: "business" as const }],
     },
     {
       id: 3,
@@ -44,7 +44,7 @@ export default function OnboardingWizard({ onNavigate }: Props) {
       description: "Identidad visual de tu negocio",
       done: step3,
       required: false,
-      actions: [{ label: "Agregar logo", view: "business" as const, tab: "logo" }],
+      actions: [{ label: "Agregar logo", view: "business" as const }],
       onSkip: flags.logo_skipped ? undefined : () => skipStep("logo_skipped"),
     },
     {
@@ -54,8 +54,8 @@ export default function OnboardingWizard({ onNavigate }: Props) {
       done: step4,
       required: false,
       actions: [
-        { label: "Añadir Servicio", view: "servicios" as const, tab: undefined as string | undefined },
-        { label: "Añadir Producto", view: "productos" as const, tab: undefined as string | undefined },
+        { label: "Añadir Servicio", view: "servicios" as const },
+        { label: "Añadir Producto", view: "productos" as const },
       ],
       onSkip: flags.catalog_skipped ? undefined : () => skipStep("catalog_skipped"),
     },
@@ -134,7 +134,7 @@ export default function OnboardingWizard({ onNavigate }: Props) {
                   {step.actions.map(action => (
                     <button
                       key={action.view}
-                      onClick={() => onNavigate(action.view, action.tab)}
+                      onClick={() => onNavigate(action.view)}
                       className="flex items-center gap-1 text-xs font-medium text-primary hover:underline whitespace-nowrap"
                     >
                       {action.label} <ArrowRight size={12} />
