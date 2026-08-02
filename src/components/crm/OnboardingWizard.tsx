@@ -2,7 +2,7 @@ import { useState } from "react";
 import { CheckCircle2, Circle, ChevronDown, ChevronUp, ArrowRight, X } from "lucide-react";
 import { useOnboardingStatus, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 
-type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos" | "calendar" | "forms" | "contacts"
+type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts"
   | "ventas" | "settings" | "soporte" | "videos" | "agente_ia";
 
 interface Props {
@@ -55,7 +55,7 @@ export default function OnboardingWizard({ onNavigate }: Props) {
       required: false,
       actions: [
         { label: "Añadir Servicio", view: "servicios" as const },
-        { label: "Añadir Producto", view: "productos" as const },
+        { label: "Añadir Producto", view: "productos_fisicos" as const },
       ],
       onSkip: flags.catalog_skipped ? undefined : () => skipStep("catalog_skipped"),
     },

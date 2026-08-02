@@ -15,7 +15,7 @@ const TYPE_OPTIONS = [
   { value: "qr_code",       label: "Código QR",              icon: QrCode },
 ] as const;
 
-const BLANK: Omit<CrmPaymentMethod, "id" | "created_at" | "user_id"> = {
+export const BLANK: Omit<CrmPaymentMethod, "id" | "created_at" | "user_id"> = {
   entity_type: "service",
   entity_id: "",
   type: "bank_transfer",
@@ -26,13 +26,13 @@ const BLANK: Omit<CrmPaymentMethod, "id" | "created_at" | "user_id"> = {
   currency: null,
 };
 
-function TypeIcon({ type }: { type: CrmPaymentMethod["type"] }) {
+export function TypeIcon({ type }: { type: CrmPaymentMethod["type"] }) {
   const opt = TYPE_OPTIONS.find(o => o.value === type);
   const Icon = opt?.icon ?? CreditCard;
   return <Icon size={13} className="text-muted-foreground shrink-0" />;
 }
 
-function MethodForm({
+export function MethodForm({
   value,
   entityType,
   entityId,
@@ -376,6 +376,111 @@ export default function PaymentMethodsEditor({
           onSave={handleSave}
           onCancel={() => setShowNew(false)}
           saving={upsert.isPending}
+        />
+      )}
+
+      {!showNew && (
+        <button
+          onClick={() => setShowNew(true)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <Plus size={12} /> Añadir método de pago
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ─── Versión "borrador" ──────────────────────────────────────────────────────
+// Igual que el componente principal pero 100% en memoria (sin entityId real todavía) —
+// para usar en wizards de creación donde nada se persiste hasta el paso final.
+// La asociación a una moneda secundaria específica (price_id) no está disponible aquí
+// porque esa fila de precio todavía no existe; solo se puede asociar a la moneda base
+// o dejar "todas las monedas". Se puede refinar después desde la edición completa.
+export function PaymentMethodsDraftEditor({
+  value,
+  onChange,
+  baseCurrency,
+}: {
+  value: Partial<CrmPaymentMethod>[];
+  onChange: (next: Partial<CrmPaymentMethod>[]) => void;
+  baseCurrency?: string;
+}) {
+  const [editingIdx, setEditingIdx] = useState<number | null>(null);
+  const [showNew, setShowNew]       = useState(false);
+
+  const handleSaveAt = (idx: number | null, v: Partial<CrmPaymentMethod>) => {
+    if (idx === null) onChange([...value, v]);
+    else onChange(value.map((pm, i) => i === idx ? v : pm));
+    setEditingIdx(null);
+    setShowNew(false);
+  };
+  const handleRemove = (idx: number) => onChange(value.filter((_, i) => i !== idx));
+
+  return (
+    <div className="space-y-3">
+      {value.length === 0 && !showNew && (
+        <p className="text-xs text-muted-foreground/60 italic">Sin métodos de pago configurados.</p>
+      )}
+
+      {value.map((pm, idx) => (
+        editingIdx === idx ? (
+          <MethodForm
+            key={idx}
+            value={pm}
+            entityType="service"
+            entityId=""
+            baseCurrency={baseCurrency}
+            onSave={v => handleSaveAt(idx, v)}
+            onCancel={() => setEditingIdx(null)}
+            saving={false}
+          />
+        ) : (
+          <div key={idx} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-border/60 bg-card">
+            <TypeIcon type={pm.type ?? "bank_transfer"} />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
+                {pm.label && <p className="text-xs font-medium">{pm.label}</p>}
+                {pm.currency && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">
+                    {getCurrencyFlag(pm.currency)} {pm.currency}
+                  </span>
+                )}
+              </div>
+              {pm.type === "qr_code" ? (
+                <img src={pm.content} alt="QR" className="w-14 h-14 object-contain rounded mt-1 border" />
+              ) : pm.type === "payment_link" ? (
+                <a href={pm.content} target="_blank" rel="noopener noreferrer"
+                  className="text-xs text-primary underline underline-offset-2 truncate block max-w-xs">
+                  {pm.content}
+                </a>
+              ) : (
+                <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-sans leading-relaxed">{pm.content}</pre>
+              )}
+            </div>
+            <div className="flex gap-1 shrink-0">
+              <button onClick={() => setEditingIdx(idx)}
+                className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+                <Pencil size={12} />
+              </button>
+              <button onClick={() => handleRemove(idx)}
+                className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                <Trash2 size={12} />
+              </button>
+            </div>
+          </div>
+        )
+      ))}
+
+      {showNew && (
+        <MethodForm
+          value={BLANK}
+          entityType="service"
+          entityId=""
+          baseCurrency={baseCurrency}
+          onSave={v => handleSaveAt(null, v)}
+          onCancel={() => setShowNew(false)}
+          saving={false}
         />
       )}
 

@@ -3,8 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, CalendarDays, Users, LogOut, ClipboardList, User,
   Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle,
-  PlayCircle, Bot, GraduationCap, Menu, X, ChevronRight, ShoppingBag, BookOpen, Briefcase, Video,
-  Megaphone, Wrench,
+  PlayCircle, Bot, Sparkles, GraduationCap, Menu, X, ChevronRight, ShoppingBag, BookOpen, Briefcase, Video,
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
@@ -22,12 +21,12 @@ import CrmVideos from "@/components/crm/CrmVideos";
 import CrmAgentIA from "@/components/crm/CrmAgentIA";
 import CrmServices from "@/components/crm/CrmServices";
 import CrmProductos from "@/components/crm/CrmProductos";
-import CrmCourses from "@/components/crm/CrmCourses";
+import CrmProductosDigitales from "@/components/crm/CrmProductosDigitales";
 import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount } from "@/hooks/useCrmData";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos" | "cursos" | "calendar" | "forms" | "contacts" | "ventas" | "settings" | "soporte" | "tutoriales" | "agente_ia";
+type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts" | "ventas" | "settings" | "soporte" | "tutoriales" | "agente_ia";
 
 type NavChild = { id: View; label: string; icon: React.ElementType };
 type NavItem = { id: string; label: string; icon: React.ElementType; group: string; children?: NavChild[] };
@@ -40,23 +39,23 @@ const ACCOUNT_MENU_VIEW_META: Partial<Record<View, { label: string; icon: React.
 };
 
 const PRODUCTOS_CHILDREN: NavChild[] = [
-  { id: "servicios", label: "Servicios", icon: Briefcase   },
-  { id: "productos", label: "Productos", icon: ShoppingBag },
-  { id: "cursos",    label: "Cursos",    icon: BookOpen    },
+  { id: "servicios",           label: "Servicios",           icon: Briefcase   },
+  { id: "productos_fisicos",   label: "Productos Físicos",   icon: ShoppingBag },
+  { id: "productos_digitales", label: "Productos Digitales", icon: BookOpen    },
 ];
 
 const VENTAS_CHILDREN: NavChild[] = [
   { id: "ventas", label: "Mis Ventas", icon: DollarSign },
 ];
 
-const MARKETING_CHILDREN: NavChild[] = [
+const CRM_CHILDREN: NavChild[] = [
   { id: "contacts", label: "Contactos",   icon: Users         },
+  { id: "calendar", label: "Calendarios", icon: CalendarDays  },
   { id: "forms",    label: "Formularios", icon: ClipboardList },
 ];
 
-const HERRAMIENTAS_CHILDREN: NavChild[] = [
-  { id: "calendar",  label: "Calendarios", icon: CalendarDays },
-  { id: "agente_ia", label: "WhatsApp IA", icon: Bot          },
+const IA_CHILDREN: NavChild[] = [
+  { id: "agente_ia", label: "WhatsApp IA", icon: Bot },
 ];
 
 const SOPORTE_CHILDREN: NavChild[] = [
@@ -68,14 +67,13 @@ const navItems: NavItem[] = [
   { id: "overview",         label: "Inicio",        icon: LayoutDashboard, group: "Principal", },
   { id: "productos_menu",   label: "Productos",     icon: ShoppingBag,     group: "Principal", children: PRODUCTOS_CHILDREN },
   { id: "ventas_menu",      label: "Ventas",        icon: DollarSign,      group: "Principal", children: VENTAS_CHILDREN },
-  { id: "marketing_menu",   label: "Marketing",     icon: Megaphone,       group: "Principal", children: MARKETING_CHILDREN },
-  { id: "herramientas_menu", label: "Herramientas", icon: Wrench,          group: "Principal", children: HERRAMIENTAS_CHILDREN },
+  { id: "crm_menu",         label: "CRM",           icon: Users,           group: "Principal", children: CRM_CHILDREN },
+  { id: "ia_menu",          label: "IA",            icon: Sparkles,        group: "Principal", children: IA_CHILDREN },
   { id: "soporte_menu",     label: "Soporte",       icon: MessageCircle,   group: "Principal", children: SOPORTE_CHILDREN },
 ];
 
 // Condiciones extra de visibilidad para items hijos, más allá del permiso base del staff.
 const EXTRA_CHILD_VISIBILITY: Partial<Record<View, (ctx: { effectiveIsAdmin: boolean; isSaasClient: boolean }) => boolean>> = {
-  cursos:     ({ effectiveIsAdmin, isSaasClient }) => effectiveIsAdmin || isSaasClient,
   tutoriales: ({ effectiveIsAdmin, isSaasClient }) => effectiveIsAdmin || isSaasClient,
 };
 
@@ -101,7 +99,7 @@ const Crm = () => {
   const brandLogo    = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
 
-  const VALID_VIEWS: View[] = ["overview","mi_cuenta","business","servicios","productos","cursos","calendar","forms","contacts","ventas","settings","soporte","tutoriales","agente_ia"];
+  const VALID_VIEWS: View[] = ["overview","mi_cuenta","business","servicios","productos_fisicos","productos_digitales","calendar","forms","contacts","ventas","settings","soporte","tutoriales","agente_ia"];
   const [view, setViewRaw]                         = useState<View>(() => {
     const saved = localStorage.getItem("crm_view") as View | null;
     return saved && VALID_VIEWS.includes(saved) ? saved : "overview";
@@ -207,17 +205,19 @@ const Crm = () => {
           canEdit={!isStaff || can("servicios","edit")}
           canCreate={!isStaff || can("servicios","create")}
           canDelete={!isStaff || can("servicios","delete")}
-          canReorder={!isStaff || can("servicios","edit")}
         />
       ) : null;
-      case "productos": return (!isStaff || can("productos","read")) ? (
+      case "productos_fisicos": return (!isStaff || can("productos_fisicos","read")) ? (
         <CrmProductos
-          canEdit={!isStaff || can("productos","edit")}
-          canCreate={!isStaff || can("productos","create")}
-          canDelete={!isStaff || can("productos","delete")}
+          kind="fisico"
+          canEdit={!isStaff || can("productos_fisicos","edit")}
+          canCreate={!isStaff || can("productos_fisicos","create")}
+          canDelete={!isStaff || can("productos_fisicos","delete")}
         />
       ) : null;
-      case "cursos":    return (!isStaff && (effectiveIsAdmin || isSaasClient)) ? <CrmCourses /> : null;
+      case "productos_digitales": return (!isStaff || can("productos_digitales","read")) ? (
+        <CrmProductosDigitales isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} />
+      ) : null;
       case "calendar":  return can("calendarios","read")    ? <CrmCalendar onNavigateToContact={handleNavigateToContact} />  : null;
       case "forms":     return can("formularios","read")    ? <CrmForms />     : null;
       case "contacts":  return can("contactos","read")      ? <CrmContacts isSuperAdmin={effectiveIsAdmin} initialContactId={pendingContactId} /> : null;
@@ -417,7 +417,7 @@ const Crm = () => {
     <div className="flex h-screen bg-background overflow-hidden">
 
       {/* ── Desktop sidebar ── */}
-      <aside className="hidden lg:flex w-56 xl:w-60 flex-col border-r bg-card shrink-0">
+      <aside className="hidden lg:flex w-52 xl:w-56 flex-col border-r bg-card shrink-0">
         <SidebarContent />
       </aside>
 
@@ -445,13 +445,6 @@ const Crm = () => {
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <CurrentIcon size={15} className="text-muted-foreground shrink-0" />
             <span className="text-sm font-semibold truncate">{currentLabel}</span>
-          </div>
-          {/* Avatar mobile */}
-          <div
-            className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0"
-            style={{ backgroundColor: avatarColor }}
-          >
-            {userInitial}
           </div>
         </div>
 

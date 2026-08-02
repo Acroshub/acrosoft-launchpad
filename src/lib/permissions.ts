@@ -15,7 +15,8 @@ export type Section =
   | "mi_negocio_datos"
   | "mi_negocio_personal"
   | "servicios"
-  | "productos"
+  | "productos_fisicos"
+  | "productos_digitales"
   | "dashboard"
   | "ventas"
   | "calendarios"
@@ -30,17 +31,18 @@ type PermKey = `perm_${Section}`;
 
 /** Map section name → crm_staff column */
 export const SECTION_TO_KEY: Record<Section, PermKey> = {
-  mi_negocio_datos:    "perm_mi_negocio_datos",
-  mi_negocio_personal: "perm_mi_negocio_personal",
-  servicios:           "perm_servicios",
-  productos:           "perm_productos",
-  dashboard:           "perm_dashboard",
-  ventas:              "perm_ventas",
-  calendarios:         "perm_calendarios",
-  formularios:         "perm_formularios",
-  contactos:           "perm_contactos",
-  recordatorios:       "perm_recordatorios",
-  agente_ia:           "perm_agente_ia",
+  mi_negocio_datos:     "perm_mi_negocio_datos",
+  mi_negocio_personal:  "perm_mi_negocio_personal",
+  servicios:            "perm_servicios",
+  productos_fisicos:    "perm_productos_fisicos",
+  productos_digitales:  "perm_productos_digitales",
+  dashboard:            "perm_dashboard",
+  ventas:               "perm_ventas",
+  calendarios:          "perm_calendarios",
+  formularios:          "perm_formularios",
+  contactos:            "perm_contactos",
+  recordatorios:        "perm_recordatorios",
+  agente_ia:            "perm_agente_ia",
 };
 
 /**
@@ -107,7 +109,7 @@ export function canAccessItem(
  */
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
-    return new Set(["overview", "servicios", "productos", "cursos", "business", "calendar", "forms", "contacts", "ventas", "settings", "soporte", "tutoriales", "agente_ia"]);
+    return new Set(["overview", "servicios", "productos_fisicos", "productos_digitales", "business", "calendar", "forms", "contacts", "ventas", "settings", "soporte", "tutoriales", "agente_ia"]);
   }
 
   const can = buildPermChecker(staffRecord);
@@ -117,8 +119,9 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (can("mi_negocio_datos", "read") || can("mi_negocio_personal", "read"))
     visible.add("business");
   if (can("servicios", "read")) visible.add("servicios");
-  if (can("productos", "read")) visible.add("productos");
-  // Cursos: solo el principal lo ve (filtrado adicional en Crm.tsx por isSaasClient) — staff no accede
+  if (can("productos_fisicos", "read")) visible.add("productos_fisicos");
+  if (can("productos_digitales", "read")) visible.add("productos_digitales");
+  // Cursos: solo el principal lo ve (filtrado adicional al entrar al hub de Productos Digitales) — staff no accede
   if (can("calendarios",  "read")) visible.add("calendar");
   if (can("formularios",  "read")) visible.add("forms");
   if (can("contactos",     "read")) visible.add("contacts");

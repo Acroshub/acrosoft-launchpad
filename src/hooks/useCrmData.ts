@@ -1199,7 +1199,7 @@ export const useCreateStaff = () => {
   const qc = useQueryClient();
   const { user } = useCurrentUser();
   return useMutation({
-    mutationFn: async (staff: Omit<CrmStaff, "id" | "created_at" | "owner_user_id" | "staff_user_id" | "status">) => {
+    mutationFn: async (staff: Omit<CrmStaff, "id" | "created_at" | "owner_user_id" | "staff_user_id" | "status" | "perm_productos">) => {
       const { data, error } = await supabase
         .from("crm_staff")
         .insert({ ...staff, owner_user_id: user!.id })
@@ -2126,18 +2126,18 @@ export const useUpsertCatalog = () => {
   const { user } = useCurrentUser();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (catalog: Partial<CrmCatalog> & { name: string; slug: string }) => {
+    mutationFn: async (catalog: Partial<CrmCatalog> & { name: string; slug: string; catalog_kind: CrmCatalog["catalog_kind"] }) => {
       if (catalog.id) {
         const { data, error } = await supabase
           .from("crm_catalogs")
-          .update({ name: catalog.name, description: catalog.description, slug: catalog.slug, cover_image: catalog.cover_image, is_active: catalog.is_active, whatsapp_number: catalog.whatsapp_number ?? null })
+          .update({ name: catalog.name, description: catalog.description, slug: catalog.slug, cover_image: catalog.cover_image, is_active: catalog.is_active, whatsapp_number: catalog.whatsapp_number ?? null, catalog_kind: catalog.catalog_kind })
           .eq("id", catalog.id).select().single();
         if (error) throw error;
         return data as CrmCatalog;
       } else {
         const { data, error } = await supabase
           .from("crm_catalogs")
-          .insert({ name: catalog.name, description: catalog.description ?? null, slug: catalog.slug, cover_image: catalog.cover_image ?? null, is_active: catalog.is_active ?? true, whatsapp_number: catalog.whatsapp_number ?? null, user_id: user!.id })
+          .insert({ name: catalog.name, description: catalog.description ?? null, slug: catalog.slug, cover_image: catalog.cover_image ?? null, is_active: catalog.is_active ?? true, whatsapp_number: catalog.whatsapp_number ?? null, catalog_kind: catalog.catalog_kind, user_id: user!.id })
           .select().single();
         if (error) throw error;
         return data as CrmCatalog;

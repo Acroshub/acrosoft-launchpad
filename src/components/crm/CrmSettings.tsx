@@ -362,7 +362,8 @@ type PermKey = keyof Pick<
   | "perm_mi_negocio_datos"
   | "perm_mi_negocio_personal"
   | "perm_servicios"
-  | "perm_productos"
+  | "perm_productos_fisicos"
+  | "perm_productos_digitales"
   | "perm_dashboard"
   | "perm_ventas"
   | "perm_calendarios"
@@ -375,7 +376,8 @@ type PermKey = keyof Pick<
 const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermission)[] }[] = [
   { key: "perm_mi_negocio_datos",    label: "Mi Negocio — Datos del negocio",  actions: ["read", "edit"] },
   { key: "perm_servicios",           label: "Servicios",                        actions: ["read", "edit", "create", "delete"] },
-  { key: "perm_productos",           label: "Productos",                        actions: ["read", "edit", "create", "delete"] },
+  { key: "perm_productos_fisicos",   label: "Productos Físicos",                actions: ["read", "edit", "create", "delete"] },
+  { key: "perm_productos_digitales", label: "Productos Digitales",              actions: ["read", "edit", "create", "delete"] },
   { key: "perm_dashboard",           label: "Dashboard",                        actions: ["read"] },
   { key: "perm_ventas",              label: "Registro de Ventas",               actions: ["read", "edit", "create", "delete"] },
   { key: "perm_calendarios",         label: "Calendarios",                      actions: ["read", "edit", "create", "delete"] },
@@ -386,14 +388,15 @@ const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermiss
 ];
 
 const DEFAULT_PERMS = (): Pick<CrmStaff,
-  "perm_mi_negocio_datos" | "perm_mi_negocio_personal" | "perm_servicios" | "perm_productos" |
+  "perm_mi_negocio_datos" | "perm_mi_negocio_personal" | "perm_servicios" | "perm_productos_fisicos" | "perm_productos_digitales" |
   "perm_dashboard" | "perm_ventas" | "perm_calendarios" | "perm_formularios" |
   "perm_contactos" | "perm_recordatorios" | "perm_agente_ia"
 > => ({
   perm_mi_negocio_datos:    { read: true,  edit: false },
   perm_mi_negocio_personal: { read: true,  edit: true  }, // always on — staff can always see/edit their own info
   perm_servicios:           { read: true,  edit: false, create: false, delete: false },
-  perm_productos:           { read: true,  edit: false, create: false, delete: false },
+  perm_productos_fisicos:   { read: true,  edit: false, create: false, delete: false },
+  perm_productos_digitales: { read: true,  edit: false, create: false, delete: false },
   perm_dashboard:           { read: false },
   perm_ventas:              { read: false, edit: false, create: false, delete: false },
   perm_calendarios:         { read: false, edit: false, create: false, delete: false },
@@ -607,7 +610,7 @@ const StaffDialog = ({
   open: boolean;
   onOpenChange: (v: boolean) => void;
   initial?: CrmStaff;
-  onSave: (data: Omit<CrmStaff, "id" | "created_at" | "owner_user_id" | "staff_user_id" | "status">) => void;
+  onSave: (data: Omit<CrmStaff, "id" | "created_at" | "owner_user_id" | "staff_user_id" | "status" | "perm_productos">) => void;
   isSaving: boolean;
 }) => {
   const { data: calendars = [] }  = useCalendars();
@@ -623,7 +626,8 @@ const StaffDialog = ({
           perm_mi_negocio_datos:    initial.perm_mi_negocio_datos,
           perm_mi_negocio_personal: initial.perm_mi_negocio_personal,
           perm_servicios:           initial.perm_servicios,
-          perm_productos:           initial.perm_productos,
+          perm_productos_fisicos:   initial.perm_productos_fisicos,
+          perm_productos_digitales: initial.perm_productos_digitales,
           perm_dashboard:           initial.perm_dashboard,
           perm_ventas:              initial.perm_ventas,
           perm_calendarios:         initial.perm_calendarios,

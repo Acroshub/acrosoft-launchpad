@@ -131,6 +131,15 @@ const VariantStockPanel = ({ productId }: { productId: string }) => {
 const generateSlug = (name: string) =>
   name.toLowerCase().replace(/\s+/g,"-").replace(/[^a-z0-9-]/g,"").replace(/-+/g,"-").slice(0,60);
 
+// Cada tipo (fisico/archivo) tiene su propia lista, así que la navegación persistida
+// (última vista/catálogo/producto) se guarda en claves separadas por tipo — evita que
+// entrar a un catálogo en "Productos Físicos" contamine la vista de "Ebooks y Archivos".
+// Los catálogos solo aplican a productos físicos — para "archivo" (ebooks/archivos
+// digitales) se muestra siempre una lista plana de productos, sin catálogos.
+type ProductKind = "fisico" | "archivo";
+const productosStorageKey = (kind: ProductKind, suffix: "view" | "catalog_id" | "product_id") =>
+  `crm_productos_${kind}_${suffix}`;
+
 // ─── Image Slot ───────────────────────────────────────────────────────────────
 function ImageSlot({ url, index, productId, userId, onUploaded, onRemove }: {
   url?: string; index: number; productId: string; userId: string;
@@ -390,17 +399,19 @@ function Toggle({ value, onChange }: { value: boolean; onChange: () => void }) {
 }
 
 // ─── Product Editor ───────────────────────────────────────────────────────────
-const WIZARD_STEPS = ["Información", "Imágenes", "Variantes", "Entregable", "Métodos de pago", "Catálogos"] as const;
+const WIZARD_STEPS_FISICO   = ["Información", "Imágenes", "Variantes", "Entregable", "Métodos de pago", "Catálogos"] as const;
+const WIZARD_STEPS_DIGITAL  = ["Información", "Imágenes", "Variantes", "Entregable", "Métodos de pago"] as const;
 const NEW_PRODUCT_DRAFT_KEY = "crm_new_product_draft";
 const readNewProductDraft = () => { try { return JSON.parse(sessionStorage.getItem(NEW_PRODUCT_DRAFT_KEY) ?? "null"); } catch { return null; } };
 const clearNewProductDraft = () => sessionStorage.removeItem(NEW_PRODUCT_DRAFT_KEY);
 
-function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, canDelete = true }: {
+function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, canDelete = true, kind }: {
   initialProduct: CrmProduct | null;
   fromCatalogId: string | null;
   allCatalogs: CrmCatalog[];
   onBack: () => void;
   canDelete?: boolean;
+  kind: ProductKind;
 }) {
   const { user } = useCurrentUser();
   const upsertProduct  = useUpsertProduct();
@@ -473,9 +484,9 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
   // parent can restore to this product on next remount, and clear the draft.
   useEffect(() => {
     if (!product?.id) return;
-    localStorage.setItem("crm_productos_product_id", product.id);
+    localStorage.setItem(productosStorageKey(kind, "product_id"), product.id);
     clearNewProductDraft();
-  }, [product?.id]);
+  }, [product?.id, kind]);
 
   const addedToFromCatalog = useRef(false);
   useEffect(() => {
@@ -496,6 +507,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
     sku: sku || null,
     is_active: isActive,
     images,
+    product_kind: kind,
     stock_enabled: stockEnabled,
     stock: stockEnabled && stockVal !== "" ? parseInt(stockVal) : null,
     has_variants: hasVariants,
@@ -754,6 +766,8 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
 
   if (!user) return null;
 
+  const WIZARD_STEPS = kind === "fisico" ? WIZARD_STEPS_FISICO : WIZARD_STEPS_DIGITAL;
+
   // ── Wizard mode (new product) ──────────────────────────────────────────────
   if (wizardStep >= 0) {
     const TOTAL = WIZARD_STEPS.length;
@@ -796,7 +810,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
           {wizardStep === 2 && VariantsSection()}
           {wizardStep === 3 && DelivSection()}
           {wizardStep === 4 && PaymentsSection()}
-          {wizardStep === 5 && CatalogsSection()}
+          {wizardStep === 5 && kind === "fisico" && CatalogsSection()}
         </div>
 
         {/* Navigation */}
@@ -894,10 +908,12 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
         {PaymentsSection()}
       </div>
 
-      <div className="bg-card border rounded-2xl p-6 space-y-3">
-        <h3 className="text-sm font-semibold">Catálogos</h3>
-        {CatalogsSection()}
-      </div>
+      {kind === "fisico" && (
+        <div className="bg-card border rounded-2xl p-6 space-y-3">
+          <h3 className="text-sm font-semibold">Catálogos</h3>
+          {CatalogsSection()}
+        </div>
+      )}
     </div>
     </>
   );
@@ -1134,10 +1150,11 @@ function CatalogCard({ catalog, onEnter, onEdit, onDelete, canEdit = true, canDe
 }
 
 // ─── Catalog Form ─────────────────────────────────────────────────────────────
-function CatalogForm({ initial, userId, agentPhone, onSave, onCancel, saving }: {
+function CatalogForm({ initial, userId, agentPhone, onSave, onCancel, saving, catalogKind }: {
   initial?: CrmCatalog; userId: string; agentPhone?: string | null;
-  onSave: (c: Partial<CrmCatalog> & { name: string; slug: string }) => void;
+  onSave: (c: Partial<CrmCatalog> & { name: string; slug: string; catalog_kind: CrmCatalog["catalog_kind"] }) => void;
   onCancel: () => void; saving: boolean;
+  catalogKind: CrmCatalog["catalog_kind"];
 }) {
   const [name, setName]             = useState(initial?.name ?? "");
   const [slug, setSlug]             = useState(initial?.slug ?? "");
@@ -1217,7 +1234,7 @@ function CatalogForm({ initial, userId, agentPhone, onSave, onCancel, saving }: 
         </div>
       </div>
       <div className="flex gap-2 pt-1">
-        <Button size="sm" onClick={() => onSave({ ...(initial ? { id: initial.id } : {}), name, slug, description: description || null, is_active: isActive, cover_image: coverImage || null, whatsapp_number: whatsappNumber.trim() || null })}
+        <Button size="sm" onClick={() => onSave({ ...(initial ? { id: initial.id } : {}), name, slug, description: description || null, is_active: isActive, cover_image: coverImage || null, whatsapp_number: whatsappNumber.trim() || null, catalog_kind: catalogKind })}
           disabled={saving || !name.trim() || !slug.trim()} className="h-8 text-xs gap-1">
           {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
           {initial ? "Actualizar" : "Crear catálogo"}
@@ -1228,19 +1245,82 @@ function CatalogForm({ initial, userId, agentPhone, onSave, onCancel, saving }: 
   );
 }
 
+// ─── Product Grid Card ─────────────────────────────────────────────────────────
+// Tarjeta compacta reusada tanto para "productos sin catálogo" (físico) como
+// para la lista plana de productos digitales (sin catálogos en absoluto).
+function ProductGridCard({ product: p, canEdit, variantStockMap, dashed, onEdit }: {
+  product: CrmProduct; canEdit: boolean; variantStockMap: Map<string, number>;
+  dashed?: boolean; onEdit: () => void;
+}) {
+  return (
+    <div
+      className={`bg-card border ${dashed ? "border-dashed" : ""} rounded-2xl overflow-hidden hover:shadow-sm transition-shadow group ${canEdit ? "cursor-pointer" : "cursor-default"}`}
+      onClick={() => canEdit && onEdit()}>
+      <div className="h-28 bg-secondary/30 overflow-hidden">
+        {p.images[0]
+          ? <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
+          : <div className="w-full h-full flex items-center justify-center"><Package size={24} className="text-muted-foreground/20" /></div>
+        }
+      </div>
+      <div className="p-3.5 space-y-1.5">
+        <div className="flex items-start justify-between gap-2">
+          <p className="text-sm font-semibold truncate flex-1">{p.name}</p>
+          {canEdit && (
+            <button
+              onClick={e => { e.stopPropagation(); onEdit(); }}
+              className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0 opacity-0 group-hover:opacity-100"
+              title="Editar producto">
+              <Pencil size={12} />
+            </button>
+          )}
+        </div>
+        <p className="text-sm font-medium text-primary">
+          {(p.discount_pct ?? 0) > 0
+            ? <>{fmtProd(p.price * (1 - (p.discount_pct ?? 0) / 100), p.currency)} <span className="text-xs line-through text-muted-foreground font-normal">{fmtProd(p.price, p.currency)}</span></>
+            : fmtProd(p.price, p.currency)}
+        </p>
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {!p.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Oculto</span>}
+          <StockBadge stock={p.stock} stockEnabled={p.stock_enabled} variantTotal={p.has_variants ? (variantStockMap.get(p.id) ?? null) : undefined} />
+          {p.has_variants && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Variantes</span>}
+        </div>
+        {p.stock_enabled && !p.has_variants && (
+          <div onClick={e => e.stopPropagation()}>
+            <StockAdjuster productId={p.id} currentStock={p.stock ?? 0} />
+          </div>
+        )}
+        {p.has_variants && (
+          <VariantStockPanel productId={p.id} />
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function CrmProductos({ canEdit = true, canCreate = true, canDelete = true }: {
+export default function CrmProductos({ kind, canEdit = true, canCreate = true, canDelete = true }: {
+  kind: ProductKind;
   canEdit?: boolean; canCreate?: boolean; canDelete?: boolean;
-} = {}) {
+}) {
   const { user } = useCurrentUser();
-  const { data: catalogs = [], isLoading: catalogsLoading } = useCatalogs();
-  const { data: allProducts = [], isLoading: productsLoading } = useProducts();
+  const catalogKind: CrmCatalog["catalog_kind"] = kind === "fisico" ? "fisico" : "digital";
+  // Los catálogos solo existen para productos físicos — para digitales siempre se
+  // muestra una lista plana de productos, sin ningún concepto de catálogo en la UI.
+  const catalogsEnabled = kind === "fisico";
+  const { data: allCatalogsRaw = [], isLoading: catalogsLoading } = useCatalogs();
+  const { data: allProductsRaw = [], isLoading: productsLoading } = useProducts();
   const isLoading = catalogsLoading || productsLoading;
-  const { data: orphanProducts = [] }      = useOrphanProducts();
+  const { data: orphanProductsRaw = [] }   = useOrphanProducts();
   const { data: agentConfig }              = useAIAgentConfig();
   const { data: allVariants = [] }         = useAllProductVariants();
   const upsertCatalog = useUpsertCatalog();
   const deleteCatalog = useDeleteCatalog();
+
+  // Cada instancia de CrmProductos está escopeada a un solo tipo (físico/archivo) —
+  // filtramos aquí en vez de en los hooks para mantenerlos genéricos y reusables.
+  const catalogs       = useMemo(() => allCatalogsRaw.filter(c => c.catalog_kind === catalogKind), [allCatalogsRaw, catalogKind]);
+  const allProducts    = useMemo(() => allProductsRaw.filter(p => p.product_kind === kind), [allProductsRaw, kind]);
+  const orphanProducts = useMemo(() => orphanProductsRaw.filter(p => p.product_kind === kind), [orphanProductsRaw, kind]);
 
   const agentPhone   = agentConfig?.verified_phone ?? null;
 
@@ -1260,8 +1340,8 @@ export default function CrmProductos({ canEdit = true, canCreate = true, canDele
   // ProductEditor handles null initialProduct as a new product wizard.
   // For existing product/catalog, we start at "catalogs" and restore once data loads.
   const [view, setViewRaw] = useState<"catalogs"|"catalog"|"product">(() => {
-    const savedView  = localStorage.getItem("crm_productos_view");
-    const savedProdId = localStorage.getItem("crm_productos_product_id");
+    const savedView  = localStorage.getItem(productosStorageKey(kind, "view"));
+    const savedProdId = localStorage.getItem(productosStorageKey(kind, "product_id"));
     return savedView === "product" && !savedProdId && canCreate ? "product" : "catalogs";
   });
   const [selectedCatalog, setSelectedCatalogRaw] = useState<CrmCatalog | null>(null);
@@ -1273,17 +1353,17 @@ export default function CrmProductos({ canEdit = true, canCreate = true, canDele
   const navRestored                              = useRef(false);
 
   const setView = (v: "catalogs"|"catalog"|"product") => {
-    localStorage.setItem("crm_productos_view", v);
+    localStorage.setItem(productosStorageKey(kind, "view"), v);
     setViewRaw(v);
   };
   const setSelectedCatalog = (c: CrmCatalog | null) => {
-    if (c) localStorage.setItem("crm_productos_catalog_id", c.id);
-    else localStorage.removeItem("crm_productos_catalog_id");
+    if (c) localStorage.setItem(productosStorageKey(kind, "catalog_id"), c.id);
+    else localStorage.removeItem(productosStorageKey(kind, "catalog_id"));
     setSelectedCatalogRaw(c);
   };
   const setSelectedProduct = (p: CrmProduct | null) => {
-    if (p?.id) localStorage.setItem("crm_productos_product_id", p.id);
-    else localStorage.removeItem("crm_productos_product_id");
+    if (p?.id) localStorage.setItem(productosStorageKey(kind, "product_id"), p.id);
+    else localStorage.removeItem(productosStorageKey(kind, "product_id"));
     setSelectedProductRaw(p);
   };
 
@@ -1292,18 +1372,18 @@ export default function CrmProductos({ canEdit = true, canCreate = true, canDele
   useEffect(() => {
     if (navRestored.current || isLoading) return;
     navRestored.current = true;
-    const savedView   = localStorage.getItem("crm_productos_view") as "catalogs"|"catalog"|"product" | null;
-    const savedProdId = localStorage.getItem("crm_productos_product_id");
-    const savedCatId  = localStorage.getItem("crm_productos_catalog_id");
+    const savedView   = localStorage.getItem(productosStorageKey(kind, "view")) as "catalogs"|"catalog"|"product" | null;
+    const savedProdId = localStorage.getItem(productosStorageKey(kind, "product_id"));
+    const savedCatId  = localStorage.getItem(productosStorageKey(kind, "catalog_id"));
     const savedCat    = catalogs.find(c => c.id === savedCatId) ?? null;
     const savedProd   = savedProdId ? allProducts.find(p => p.id === savedProdId) ?? null : null;
     if (savedView === "product") {
       if (savedProdId && !savedProd) {
         // Product ID was saved but no longer exists (deleted) → reset to list
-        localStorage.setItem("crm_productos_view", "catalogs");
+        localStorage.setItem(productosStorageKey(kind, "view"), "catalogs");
       } else if (savedProdId ? !canEdit : !canCreate) {
         // No permission to view this editor (permissions changed since last visit) → reset to list
-        localStorage.setItem("crm_productos_view", "catalogs");
+        localStorage.setItem(productosStorageKey(kind, "view"), "catalogs");
       } else {
         // Either editing an existing product (savedProd found) or creating a new one (no savedProdId)
         setSelectedCatalogRaw(savedCat);
@@ -1316,9 +1396,9 @@ export default function CrmProductos({ canEdit = true, canCreate = true, canDele
       setViewRaw("catalog");
     } else if (savedView === "catalog" && !savedCat) {
       // Catalog was deleted
-      localStorage.setItem("crm_productos_view", "catalogs");
+      localStorage.setItem(productosStorageKey(kind, "view"), "catalogs");
     }
-  }, [isLoading, catalogs, allProducts, canEdit, canCreate]);
+  }, [isLoading, catalogs, allProducts, canEdit, canCreate, kind]);
 
   if (!user) return null;
 
@@ -1337,6 +1417,7 @@ export default function CrmProductos({ canEdit = true, canCreate = true, canDele
       fromCatalogId={fromCatalogId}
       allCatalogs={catalogs}
       canDelete={canDelete}
+      kind={kind}
       onBack={() => {
         clearNewProductDraft();
         setView(selectedCatalog ? "catalog" : "catalogs");
@@ -1379,13 +1460,20 @@ export default function CrmProductos({ canEdit = true, canCreate = true, canDele
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
-          {catalogs.length > 0
-            ? `${catalogs.length} catálogo${catalogs.length !== 1 ? "s" : ""} · ${allProducts.length} producto${allProducts.length !== 1 ? "s" : ""}`
-            : "Organiza y comparte tus productos en catálogos públicos"}
+          {catalogsEnabled
+            ? (catalogs.length > 0
+                ? `${catalogs.length} catálogo${catalogs.length !== 1 ? "s" : ""} · ${allProducts.length} producto${allProducts.length !== 1 ? "s" : ""}`
+                : "Organiza y comparte tus productos en catálogos públicos")
+            : `${allProducts.length} producto${allProducts.length !== 1 ? "s" : ""}`}
         </p>
-        {!showCatalogForm && !editingCatalog && canCreate && (
+        {catalogsEnabled && !showCatalogForm && !editingCatalog && canCreate && (
           <Button size="sm" onClick={() => setShowCatalogForm(true)} className="h-9 text-sm font-semibold gap-1.5 rounded-2xl shrink-0">
             <Plus size={13} /> Nuevo catálogo
+          </Button>
+        )}
+        {!catalogsEnabled && canCreate && (
+          <Button size="sm" onClick={() => { setSelectedProduct(null); setFromCatalogId(null); setView("product"); }} className="h-9 text-sm font-semibold gap-1.5 rounded-2xl shrink-0">
+            <Plus size={13} /> Nuevo producto
           </Button>
         )}
       </div>
@@ -1417,18 +1505,19 @@ export default function CrmProductos({ canEdit = true, canCreate = true, canDele
         </div>
       )}
 
-      {(showCatalogForm || editingCatalog) && (
+      {catalogsEnabled && (showCatalogForm || editingCatalog) && (
         <CatalogForm
           initial={editingCatalog ?? undefined}
           userId={user!.id}
           agentPhone={agentPhone}
+          catalogKind={catalogKind}
           onSave={handleCatalogSave}
           onCancel={() => { setShowCatalogForm(false); setEditingCatalog(null); }}
           saving={upsertCatalog.isPending}
         />
       )}
 
-      {deleteTarget && (
+      {catalogsEnabled && deleteTarget && (
         <div className="bg-destructive/10 border border-destructive/20 rounded-2xl p-4 flex items-center justify-between gap-3">
           <p className="text-sm text-destructive">¿Eliminar este catálogo? Los productos no se eliminan, solo se desvinculan.</p>
           <div className="flex gap-2 shrink-0">
@@ -1438,96 +1527,87 @@ export default function CrmProductos({ canEdit = true, canCreate = true, canDele
         </div>
       )}
 
-      {!showCatalogForm && !editingCatalog && catalogs.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-16 gap-4 text-center bg-card border border-dashed rounded-2xl">
-          <div className="w-14 h-14 rounded-2xl bg-primary/8 flex items-center justify-center">
-            <Package size={24} className="text-primary/60" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold">Sin catálogos todavía</p>
-            <p className="text-xs text-muted-foreground mt-1">Crea tu primer catálogo para organizar y compartir tus productos</p>
-          </div>
-          {canCreate && (
-            <Button size="sm" onClick={() => setShowCatalogForm(true)} className="gap-1.5 rounded-2xl">
-              <Plus size={13} /> Crear catálogo
-            </Button>
+      {catalogsEnabled && (
+        <>
+          {!showCatalogForm && !editingCatalog && catalogs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-4 text-center bg-card border border-dashed rounded-2xl">
+              <div className="w-14 h-14 rounded-2xl bg-primary/8 flex items-center justify-center">
+                <Package size={24} className="text-primary/60" />
+              </div>
+              <div>
+                <p className="text-sm font-semibold">Sin catálogos todavía</p>
+                <p className="text-xs text-muted-foreground mt-1">Crea tu primer catálogo para organizar y compartir tus productos</p>
+              </div>
+              {canCreate && (
+                <Button size="sm" onClick={() => setShowCatalogForm(true)} className="gap-1.5 rounded-2xl">
+                  <Plus size={13} /> Crear catálogo
+                </Button>
+              )}
+            </div>
+          ) : !showCatalogForm && (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {catalogs.filter(cat => cat.id !== editingCatalog?.id).map(cat => (
+                <CatalogCard
+                  key={cat.id}
+                  catalog={cat}
+                  canEdit={canEdit}
+                  canDelete={canDelete}
+                  onEnter={() => { setSelectedCatalog(cat); setView("catalog"); }}
+                  onEdit={() => { setEditingCatalog(cat); setShowCatalogForm(false); }}
+                  onDelete={() => setDeleteTarget(cat.id)}
+                />
+              ))}
+            </div>
           )}
-        </div>
-      ) : !showCatalogForm && (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {catalogs.filter(cat => cat.id !== editingCatalog?.id).map(cat => (
-            <CatalogCard
-              key={cat.id}
-              catalog={cat}
-              canEdit={canEdit}
-              canDelete={canDelete}
-              onEnter={() => { setSelectedCatalog(cat); setView("catalog"); }}
-              onEdit={() => { setEditingCatalog(cat); setShowCatalogForm(false); }}
-              onDelete={() => setDeleteTarget(cat.id)}
-            />
-          ))}
-        </div>
+
+          {/* Productos sin catálogo */}
+          {orphanProducts.length > 0 && (
+            <div className="space-y-3 pt-2">
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-px bg-border" />
+                <p className="text-xs font-medium text-muted-foreground/60 uppercase tracking-wide px-2">
+                  Productos sin catálogo ({orphanProducts.length})
+                </p>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+              <p className="text-xs text-muted-foreground/60 text-center">
+                Estos productos existen pero no están en ningún catálogo. Puedes editarlos o añadirlos a un catálogo.
+              </p>
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {orphanProducts.map(p => (
+                  <ProductGridCard key={p.id} product={p} canEdit={canEdit} variantStockMap={variantStockMap} dashed
+                    onEdit={() => { setSelectedProduct(p); setFromCatalogId(null); setView("product"); }} />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {/* Productos sin catálogo */}
-      {orphanProducts.length > 0 && (
-        <div className="space-y-3 pt-2">
-          <div className="flex items-center gap-2">
-            <div className="flex-1 h-px bg-border" />
-            <p className="text-xs font-medium text-muted-foreground/60 uppercase tracking-wide px-2">
-              Productos sin catálogo ({orphanProducts.length})
-            </p>
-            <div className="flex-1 h-px bg-border" />
+      {!catalogsEnabled && (
+        allProducts.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-16 gap-4 text-center bg-card border border-dashed rounded-2xl">
+            <div className="w-14 h-14 rounded-2xl bg-primary/8 flex items-center justify-center">
+              <Package size={24} className="text-primary/60" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold">Sin productos todavía</p>
+              <p className="text-xs text-muted-foreground mt-1">Crea tu primer producto para empezar a vender</p>
+            </div>
+            {canCreate && (
+              <Button size="sm" onClick={() => { setSelectedProduct(null); setFromCatalogId(null); setView("product"); }} className="gap-1.5 rounded-2xl">
+                <Plus size={13} /> Crear producto
+              </Button>
+            )}
           </div>
-          <p className="text-xs text-muted-foreground/60 text-center">
-            Estos productos existen pero no están en ningún catálogo. Puedes editarlos o añadirlos a un catálogo.
-          </p>
+        ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {orphanProducts.map(p => (
-              <div key={p.id}
-                className={`bg-card border border-dashed rounded-2xl overflow-hidden hover:shadow-sm transition-shadow group ${canEdit ? "cursor-pointer" : "cursor-default"}`}
-                onClick={() => { if (canEdit) { setSelectedProduct(p); setFromCatalogId(null); setView("product"); } }}>
-                <div className="h-28 bg-secondary/30 overflow-hidden">
-                  {p.images[0]
-                    ? <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" />
-                    : <div className="w-full h-full flex items-center justify-center"><Package size={24} className="text-muted-foreground/20" /></div>
-                  }
-                </div>
-                <div className="p-3.5 space-y-1.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-semibold truncate flex-1">{p.name}</p>
-                    {canEdit && (
-                      <button
-                        onClick={e => { e.stopPropagation(); setSelectedProduct(p); setFromCatalogId(null); setView("product"); }}
-                        className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-                        title="Editar producto">
-                        <Pencil size={12} />
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-sm font-medium text-primary">
-                    {(p.discount_pct ?? 0) > 0
-                      ? <>{fmtProd(p.price * (1 - (p.discount_pct ?? 0) / 100), p.currency)} <span className="text-xs line-through text-muted-foreground font-normal">{fmtProd(p.price, p.currency)}</span></>
-                      : fmtProd(p.price, p.currency)}
-                  </p>
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {!p.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Oculto</span>}
-                    <StockBadge stock={p.stock} stockEnabled={p.stock_enabled} variantTotal={p.has_variants ? (variantStockMap.get(p.id) ?? null) : undefined} />
-                    {p.has_variants && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Variantes</span>}
-                  </div>
-                  {p.stock_enabled && !p.has_variants && (
-                    <div onClick={e => e.stopPropagation()}>
-                      <StockAdjuster productId={p.id} currentStock={p.stock ?? 0} />
-                    </div>
-                  )}
-                  {p.has_variants && (
-                    <VariantStockPanel productId={p.id} />
-                  )}
-                </div>
-              </div>
+            {allProducts.map(p => (
+              <ProductGridCard key={p.id} product={p} canEdit={canEdit} variantStockMap={variantStockMap}
+                onEdit={() => { setSelectedProduct(p); setFromCatalogId(null); setView("product"); }} />
             ))}
           </div>
-        </div>
+        )
       )}
     </div>
   );

@@ -149,7 +149,8 @@ export type CrmService = {
   currency: string
   is_recurring: boolean
   recurring_price: number | null
-  recurring_interval: string | null
+  recurring_currency: string | null
+  recurring_interval: 'semanal' | 'mensual' | 'trimestral' | 'semestral' | 'anual' | null
   recurring_label: string | null
   delivery_time: string | null
   benefits: string[] | null
@@ -451,6 +452,8 @@ export type CrmStaff = {
   perm_mi_negocio_personal: StaffPermission
   perm_servicios: StaffPermission
   perm_productos: StaffPermission
+  perm_productos_fisicos: StaffPermission
+  perm_productos_digitales: StaffPermission
   perm_dashboard: StaffPermission
   perm_ventas: StaffPermission
   perm_calendarios: StaffPermission
@@ -556,6 +559,7 @@ export type CrmProduct = {
   stock: number | null
   images: string[]
   has_variants: boolean
+  product_kind: 'fisico' | 'archivo'
   deliverable_type: 'file' | 'text' | null
   deliverable_url: string | null
   deliverable_text: string | null
@@ -605,6 +609,7 @@ export type CrmCatalog = {
   cover_image: string | null
   is_active: boolean
   whatsapp_number: string | null
+  catalog_kind: 'fisico' | 'digital'
 }
 
 export type CrmCatalogProduct = {

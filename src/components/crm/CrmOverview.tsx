@@ -80,7 +80,7 @@ const FilterSelect = ({ value, onChange, children }: {
 
 const toDateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos" | "calendar" | "forms" | "contacts"
+type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts"
   | "ventas" | "settings" | "soporte" | "videos" | "agente_ia";
 
 const CrmOverview = ({ onNavigate }: {
