@@ -2342,14 +2342,14 @@ export const useUpsertProductVariant = () => {
         }
         const { data, error } = await supabase
           .from("crm_product_variants")
-          .update({ name: variant.name, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0, images: variant.images ?? [], ...stockResetFields })
+          .update({ name: variant.name, description: variant.description ?? null, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0, images: variant.images ?? [], ...stockResetFields })
           .eq("id", variant.id).select().single();
         if (error) throw error;
         return data as CrmProductVariant;
       } else {
         const { data, error } = await supabase
           .from("crm_product_variants")
-          .insert({ product_id: variant.product_id, name: variant.name, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0, images: variant.images ?? [] })
+          .insert({ product_id: variant.product_id, name: variant.name, description: variant.description ?? null, price_override: variant.price_override ?? null, discount_pct: variant.discount_pct ?? 0, stock: variant.stock ?? null, sort_order: variant.sort_order ?? 0, images: variant.images ?? [] })
           .select().single();
         if (error) throw error;
         return data as CrmProductVariant;
@@ -2433,21 +2433,17 @@ export const useCatalogProductsMap = (userId?: string) => {
 // ─── Onboarding status ────────────────────────────────────────────────────────
 export const useOnboardingStatus = () => {
   const { data: profile } = useBusinessProfile();
-  const { data: services = [] } = useServices();
-  const { data: products = [] } = useProducts();
 
   const flags = (profile?.onboarding_flags ?? {}) as Record<string, boolean>;
 
   const step1 = !!(profile?.first_name && profile?.last_name && profile?.contact_email && profile?.contact_phone);
   const step2 = !!(profile?.business_name && profile?.description);
-  const step3 = !!profile?.logo_url || !!flags.logo_skipped;
-  const step4 = services.length > 0 || products.length > 0 || !!flags.catalog_skipped;
 
-  const allDone = step1 && step2 && step3 && step4;
-  const requiredDone = step1 && step2;
-  const completed = [step1, step2, step3, step4].filter(Boolean).length;
+  const allDone = step1 && step2;
+  const requiredDone = step1;
+  const completed = [step1, step2].filter(Boolean).length;
 
-  return { step1, step2, step3, step4, allDone, requiredDone, completed, flags, profile };
+  return { step1, step2, allDone, requiredDone, completed, flags, profile };
 };
 
 // ─── B18-1 · Acceso SaaS ─────────────────────────────────────────────────────

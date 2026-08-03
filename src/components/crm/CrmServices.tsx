@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, Tag, CreditCard, Check } from "lucide-react";
+import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, Tag, CreditCard, Check, Image as ImageIcon, Info, Wallet, SlidersHorizontal, ChevronRight, ChevronLeft } from "lucide-react";
 import { useServices, useCreateService, useUpdateService, useDeleteService, usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs, useUpsertPaymentMethod } from "@/hooks/useCrmData";
+import { supabase } from "@/lib/supabase";
+import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmService, CrmPaymentMethod } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
@@ -34,6 +36,7 @@ const clearNewServiceDraft = () => sessionStorage.removeItem(NEW_SERVICE_DRAFT_K
 const ServiceEditor = ({
   service,
   isSuperAdmin,
+  canDelete = true,
   onBack,
   onCreate,
   onCreated,
@@ -41,18 +44,28 @@ const ServiceEditor = ({
 }: {
   service: CrmService | null;
   isSuperAdmin: boolean;
+  canDelete?: boolean;
   onBack: () => void;
   onCreate: (payload: Partial<CrmService>) => Promise<CrmService>;
   onCreated: (id: string) => void;
   onUpdate: (s: Partial<CrmService>) => Promise<void>;
 }) => {
+  const { user } = useCurrentUser();
   const isNew = !service;
   const _d = useRef(isNew ? readNewServiceDraft() : null);
   const d = _d.current;
 
+  const [activeTab, setActiveTab]           = useState<"info" | "precios" | "ajustes">("info");
+  const [showMobileContent, setShowMobileContent] = useState(false);
+  const [confirmDelete, setConfirmDelete]   = useState(false);
+  const deleteService = useDeleteService();
+
   const [wizardStep, setWizardStep]         = useState(d?.wizardStep ?? (isNew ? 0 : -1));
   const [name, setName]                     = useState(d?.name ?? service?.name ?? "");
   const [description, setDescription]       = useState(d?.description ?? service?.description ?? "");
+  const [images, setImages]                 = useState<string[]>(d?.images ?? service?.images ?? []);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const [price, setPrice]                   = useState(d?.price ?? service?.price ?? 0);
   const [currency, setCurrency]             = useState(d?.currency ?? service?.currency ?? "USD");
   const [discountPct, setDiscountPct]       = useState(d?.discountPct ?? service?.discount_pct ?? 0);
@@ -145,6 +158,24 @@ const ServiceEditor = ({
     }
   };
 
+  const handleImageUpload = async (file: File) => {
+    if (!user) return;
+    setUploadingImage(true);
+    try {
+      const ext = file.name.split(".").pop() ?? "jpg";
+      const path = `${user.id}/services/${service?.id ?? "new"}/${Date.now()}.${ext}`;
+      const { error } = await supabase.storage.from("product-images").upload(path, file, { upsert: true });
+      if (error) throw error;
+      const { data } = supabase.storage.from("product-images").getPublicUrl(path);
+      setImages([data.publicUrl]);
+    } catch (e) {
+      const message = e instanceof Error ? e.message.slice(0, 80) : "Error al subir imagen";
+      toast.error(message);
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
   const discountedPrice          = discountPct > 0 ? price * (1 - discountPct / 100) : null;
   const discountedRecurringPrice = recurringPrice > 0 && recurringDiscountPct > 0
     ? recurringPrice * (1 - recurringDiscountPct / 100) : null;
@@ -153,11 +184,11 @@ const ServiceEditor = ({
   useEffect(() => {
     if (!isNew) return;
     sessionStorage.setItem(NEW_SERVICE_DRAFT_KEY, JSON.stringify({
-      wizardStep, name, description, price, currency, discountPct,
+      wizardStep, name, description, images, price, currency, discountPct,
       isRecurring, recurringCurrency, recurringPrice, recurringDiscountPct, recurringInterval,
       prices, faqs, paymentMethods: draftPaymentMethods,
     }));
-  }, [isNew, wizardStep, name, description, price, currency, discountPct,
+  }, [isNew, wizardStep, name, description, images, price, currency, discountPct,
       isRecurring, recurringCurrency, recurringPrice, recurringDiscountPct, recurringInterval,
       prices, faqs, draftPaymentMethods]);
 
@@ -177,6 +208,7 @@ const ServiceEditor = ({
         await onUpdateRef.current({
           name,
           description: description || null,
+          images,
           price,
           currency,
           discount_pct: discountPct,
@@ -195,7 +227,7 @@ const ServiceEditor = ({
       }
     }, 800);
     return () => clearTimeout(saveTimer.current);
-  }, [isNew, name, description, price, currency, discountPct, isRecurring, recurringCurrency, recurringPrice, recurringDiscountPct, recurringInterval, active, isSaas]);
+  }, [isNew, name, description, images, price, currency, discountPct, isRecurring, recurringCurrency, recurringPrice, recurringDiscountPct, recurringInterval, active, isSaas]);
 
   const handleCreate = async () => {
     if (!name.trim()) { toast.error("El nombre es obligatorio"); return; }
@@ -204,6 +236,7 @@ const ServiceEditor = ({
       const created = await onCreate({
         name: name.trim(),
         description: description || null,
+        images,
         price,
         currency,
         discount_pct: discountPct,
@@ -239,8 +272,54 @@ const ServiceEditor = ({
   };
 
   // ── Secciones reutilizables (wizard y edición completa) ──────────────────
+  const ImageSection = () => (
+    <div className="flex items-center gap-3">
+      <div className="relative w-20 h-20 rounded-xl overflow-hidden bg-secondary/40 border shrink-0 group/thumb">
+        {images[0] ? (
+          <img src={images[0]} alt="" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <ImageIcon size={18} className="text-muted-foreground/30" />
+          </div>
+        )}
+        <div className={`absolute inset-0 bg-black/50 flex items-center justify-center transition-opacity ${uploadingImage ? "opacity-100" : "opacity-0 group-hover/thumb:opacity-100"}`}>
+          {uploadingImage ? <Loader2 size={16} className="text-white animate-spin" /> : <ImageIcon size={16} className="text-white" />}
+        </div>
+      </div>
+      <div className="flex-1 space-y-1">
+        <p className="text-xs font-semibold text-muted-foreground">Imagen del servicio</p>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => !uploadingImage && imageInputRef.current?.click()}
+            className="text-[11px] text-primary hover:text-primary/80 font-medium transition-colors"
+          >
+            {images[0] ? "Cambiar imagen" : "Subir imagen"}
+          </button>
+          {images[0] && (
+            <button
+              type="button"
+              onClick={() => setImages([])}
+              className="text-[11px] text-muted-foreground hover:text-destructive transition-colors"
+            >
+              Quitar
+            </button>
+          )}
+        </div>
+      </div>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleImageUpload(f); e.target.value = ""; }}
+      />
+    </div>
+  );
+
   const InfoSection = () => (
     <div className="space-y-4">
+      {ImageSection()}
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Nombre del servicio</label>
         <Input
@@ -413,98 +492,230 @@ const ServiceEditor = ({
   );
 
   if (!isNew) {
-    // ── Edición completa (servicio existente) ─────────────────────────────
-    return (
-      <div className="space-y-8">
-        <div className="flex items-start justify-between gap-4 flex-wrap">
-          <div>
-            <button
-              onClick={onBack}
-              className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-3 transition-colors"
-            >
-              <ArrowLeft size={12} />
-              Volver a servicios
-            </button>
-            <Input
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              className="text-xl font-semibold border-none h-auto p-0 px-2 -ml-2 hover:bg-secondary/50 focus-visible:ring-0 w-full max-w-sm mb-1"
-              placeholder="Nombre del servicio"
-            />
-            <p className="text-sm text-muted-foreground px-2 -ml-2">
-              Configura los detalles de este servicio
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            {autoSaveStatus !== "idle" && (
-              <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-                {autoSaveStatus === "saving" ? (
-                  <><Loader2 size={11} className="animate-spin" />Guardando...</>
-                ) : (
-                  <><span className="text-green-500 font-semibold">✓</span> Guardado</>
-                )}
-              </span>
-            )}
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <div
-                onClick={() => setActive(!active)}
-                className={`relative w-10 h-5 rounded-full transition-colors ${active ? "bg-primary" : "bg-secondary"}`}
-              >
-                <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${active ? "translate-x-5" : ""}`} />
-              </div>
-              <span className="text-xs font-medium text-muted-foreground">{active ? "Activo" : "Inactivo"}</span>
-            </label>
-          </div>
-        </div>
+    // ── Edición completa (servicio existente) — mismo patrón de menú con tabs
+    // que Ajustes/CrmBusiness: pill tabs en desktop, drill-down estilo iOS en mobile.
+    const TABS = [
+      { id: "info" as const,    label: "Información General", description: "Nombre, descripción, imagen y FAQs", icon: Info },
+      { id: "precios" as const, label: "Precios",              description: "Precio base, recurrencia y pagos",   icon: Wallet },
+      { id: "ajustes" as const, label: "Ajustes",               description: "Estado y eliminar servicio",         icon: SlidersHorizontal },
+    ];
+    const activeTabDef = TABS.find(t => t.id === activeTab) ?? TABS[0];
 
-        <div className="grid md:grid-cols-2 gap-6">
-          <div className="bg-card border rounded-2xl p-6 space-y-5">
-            <div className="flex items-center gap-2 mb-1">
-              <Briefcase size={15} className="text-muted-foreground" />
-              <h2 className="text-sm font-semibold">Información general</h2>
+    const handleSelectTab = (id: typeof TABS[number]["id"]) => {
+      setActiveTab(id);
+      setShowMobileContent(true);
+    };
+
+    const renderTabContent = () => (
+      <>
+        {activeTab === "info" && (
+          <div className="space-y-6">
+            <div className="bg-card border rounded-2xl p-6 space-y-5">
+              <div className="flex items-center gap-2 mb-1">
+                <Briefcase size={15} className="text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Información general</h2>
+              </div>
+              {InfoSection()}
             </div>
-            {InfoSection()}
-            {PriceSection()}
+
+            <div className="bg-card border rounded-2xl p-6 space-y-4">
+              <h2 className="text-sm font-semibold">FAQs</h2>
+              {FaqSection()}
+            </div>
 
             {isSuperAdmin && (
-              <label className="flex items-center gap-2 cursor-pointer pt-1">
-                <input
-                  type="checkbox"
-                  checked={isSaas}
-                  onChange={(e) => setIsSaas(e.target.checked)}
-                  className="rounded border-input h-4 w-4 accent-primary"
-                />
-                <span className="text-sm font-medium">
-                  Servicio SaaS{" "}
-                  <span className="text-xs text-muted-foreground">(activa CRM para el cliente al venderlo)</span>
-                </span>
-              </label>
+              <div className="bg-card border rounded-2xl p-6">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={isSaas}
+                    onChange={(e) => setIsSaas(e.target.checked)}
+                    className="rounded border-input h-4 w-4 accent-primary"
+                  />
+                  <span className="text-sm font-medium">
+                    Servicio SaaS{" "}
+                    <span className="text-xs text-muted-foreground">(activa CRM para el cliente al venderlo)</span>
+                  </span>
+                </label>
+              </div>
             )}
           </div>
+        )}
 
-          <div className="bg-card border rounded-2xl p-6 space-y-5">
-            <div className="flex items-center gap-2 mb-1">
-              <Settings size={15} className="text-muted-foreground" />
-              <h2 className="text-sm font-semibold">Cobro recurrente</h2>
+        {activeTab === "precios" && (
+          <div className="space-y-6">
+            <div className="bg-card border rounded-2xl p-6 space-y-5">
+              <div className="flex items-center gap-2 mb-1">
+                <DollarSign size={15} className="text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Precio</h2>
+              </div>
+              {PriceSection()}
             </div>
-            {RecurringSection()}
-          </div>
-        </div>
 
-        <div className="bg-card border rounded-2xl p-6 space-y-4">
-          <h2 className="text-sm font-semibold">FAQs</h2>
-          {FaqSection()}
-        </div>
+            <div className="bg-card border rounded-2xl p-6 space-y-5">
+              <div className="flex items-center gap-2 mb-1">
+                <Settings size={15} className="text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Cobro recurrente</h2>
+              </div>
+              {RecurringSection()}
+            </div>
 
-        <div className="bg-card border rounded-2xl p-6 space-y-4">
-          <div className="flex items-center gap-2">
-            <CreditCard size={15} className="text-muted-foreground" />
-            <h2 className="text-sm font-semibold">Métodos de pago</h2>
-            <span className="text-xs text-muted-foreground/60 ml-1">— opcional</span>
+            <div className="bg-card border rounded-2xl p-6 space-y-4">
+              <div className="flex items-center gap-2">
+                <CreditCard size={15} className="text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Métodos de pago</h2>
+                <span className="text-xs text-muted-foreground/60 ml-1">— opcional</span>
+              </div>
+              {PaymentsSection()}
+            </div>
           </div>
-          {PaymentsSection()}
+        )}
+
+        {activeTab === "ajustes" && (
+          <div className="space-y-6">
+            <div className="bg-card border rounded-2xl p-6 space-y-3">
+              <h2 className="text-sm font-semibold">Estado</h2>
+              <label className="flex items-center gap-2.5 cursor-pointer select-none">
+                <div
+                  onClick={() => setActive(!active)}
+                  className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${active ? "bg-primary" : "bg-secondary border"}`}
+                >
+                  <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${active ? "translate-x-5" : ""}`} />
+                </div>
+                <span className="text-sm">{active ? "Activo" : "Inactivo"}</span>
+              </label>
+              <p className="text-xs text-muted-foreground/70">Los servicios inactivos no se muestran a tus clientes.</p>
+            </div>
+
+            {canDelete && (
+              <div className="bg-card border border-destructive/20 rounded-2xl p-6 space-y-3">
+                <h2 className="text-sm font-semibold text-destructive">Eliminar servicio</h2>
+                <p className="text-xs text-muted-foreground">Se eliminará permanentemente. Esta acción no se puede deshacer.</p>
+                <Button
+                  variant="outline"
+                  onClick={() => setConfirmDelete(true)}
+                  className="text-destructive hover:bg-destructive/10 border-destructive/30"
+                >
+                  <Trash2 size={13} className="mr-1.5" /> Eliminar servicio
+                </Button>
+              </div>
+            )}
+          </div>
+        )}
+      </>
+    );
+
+    const HeaderBlock = () => (
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <button
+            onClick={onBack}
+            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-3 transition-colors"
+          >
+            <ArrowLeft size={12} />
+            Volver a servicios
+          </button>
+          <Input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="text-xl font-semibold border-none h-auto p-0 px-2 -ml-2 hover:bg-secondary/50 focus-visible:ring-0 w-full max-w-sm mb-1"
+            placeholder="Nombre del servicio"
+          />
+          <p className="text-sm text-muted-foreground px-2 -ml-2">
+            Configura los detalles de este servicio
+          </p>
         </div>
+        {autoSaveStatus !== "idle" && (
+          <span className="text-xs text-muted-foreground flex items-center gap-1.5">
+            {autoSaveStatus === "saving" ? (
+              <><Loader2 size={11} className="animate-spin" />Guardando...</>
+            ) : (
+              <><span className="text-green-500 font-semibold">✓</span> Guardado</>
+            )}
+          </span>
+        )}
       </div>
+    );
+
+    return (
+      <>
+        <DeleteConfirmDialog
+          open={confirmDelete}
+          onOpenChange={setConfirmDelete}
+          onConfirm={async () => { await deleteService.mutateAsync({ id: service!.id, name: service!.name }); toast.success("Servicio eliminado"); onBack(); }}
+          isPending={deleteService.isPending}
+          description="Se eliminará el servicio permanentemente."
+        />
+
+        {/* ── Mobile ── */}
+        <div className="lg:hidden">
+          {!showMobileContent ? (
+            <div className="space-y-6">
+              <HeaderBlock />
+              <div className="bg-card border rounded-2xl overflow-hidden divide-y divide-border/50">
+                {TABS.map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => handleSelectTab(t.id)}
+                    className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-secondary/60 transition-colors"
+                  >
+                    <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center shrink-0">
+                      <t.icon size={15} className="text-muted-foreground" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium leading-tight">{t.label}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{t.description}</p>
+                    </div>
+                    <ChevronRight size={14} className="shrink-0 text-muted-foreground/30" />
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <button
+                onClick={() => setShowMobileContent(false)}
+                className="flex items-center gap-0.5 text-primary text-sm font-medium -ml-1 hover:opacity-75 transition-opacity"
+              >
+                <ChevronLeft size={20} />
+                {name || "Servicio"}
+              </button>
+              <div>
+                <h2 className="text-xl font-semibold leading-tight">{activeTabDef.label}</h2>
+                <p className="text-sm text-muted-foreground mt-0.5">{activeTabDef.description}</p>
+              </div>
+              {renderTabContent()}
+            </div>
+          )}
+        </div>
+
+        {/* ── Desktop ── */}
+        <div className="hidden lg:block space-y-6">
+          <HeaderBlock />
+
+          {/* Tab bar — same style as CrmSettings/CrmBusiness */}
+          <div className="overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+            <div className="inline-flex items-center gap-0.5 bg-secondary/60 rounded-xl p-1 min-w-max">
+              {TABS.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setActiveTab(t.id)}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                    activeTab === t.id
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  <t.icon size={13} className="shrink-0" />
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {renderTabContent()}
+        </div>
+      </>
     );
   }
 
@@ -577,15 +788,11 @@ const ServiceEditor = ({
 const ServiceGridCard = ({
   svc,
   handleEdit,
-  handleDelete,
   canEdit,
-  canDelete,
 }: {
   svc: CrmService;
   handleEdit: (id: string) => void;
-  handleDelete: (id: string) => void;
   canEdit: boolean;
-  canDelete: boolean;
 }) => {
   const finalPrice = svc.discount_pct > 0
     ? svc.price * (1 - svc.discount_pct / 100)
@@ -607,31 +814,7 @@ const ServiceGridCard = ({
 
       {/* Content */}
       <div className="p-4 flex flex-col flex-1 space-y-2">
-        <div className="flex items-start justify-between gap-2">
-          <p className="text-sm font-semibold leading-snug line-clamp-2 flex-1">{svc.name}</p>
-          {(canEdit || canDelete) && (
-            <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-              {canEdit && (
-                <button
-                  onClick={e => { e.stopPropagation(); handleEdit(svc.id); }}
-                  className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors"
-                  title="Editar servicio"
-                >
-                  <Settings size={13} />
-                </button>
-              )}
-              {canDelete && (
-                <button
-                  onClick={e => { e.stopPropagation(); handleDelete(svc.id); }}
-                  className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                  title="Eliminar servicio"
-                >
-                  <Trash2 size={13} />
-                </button>
-              )}
-            </div>
-          )}
-        </div>
+        <p className="text-sm font-semibold leading-snug line-clamp-2">{svc.name}</p>
 
         <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed flex-1">
           {svc.description || "Sin descripción"}
@@ -692,11 +875,9 @@ const CrmServices = ({
   const { data: services = [], isLoading } = useServices();
   const createService = useCreateService();
   const updateService = useUpdateService();
-  const deleteService = useDeleteService();
 
   const [view, setView] = useState<"list" | "editor" | "new">("list");
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
 
   const selected = services.find((s) => s.id === selectedId);
 
@@ -707,28 +888,12 @@ const CrmServices = ({
     setView("editor");
   };
 
-  const handleDelete = (id: string) => {
-    const svc = services.find((s) => s.id === id);
-    setDeleteTarget({ id, name: svc?.name ?? id });
-  };
-
-  const handleConfirmDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      await deleteService.mutateAsync({ id: deleteTarget.id, name: deleteTarget.name });
-      toast.success("Servicio eliminado");
-    } catch {
-      toast.error("Error al eliminar");
-    } finally {
-      setDeleteTarget(null);
-    }
-  };
-
   if (view === "new") {
     return (
       <ServiceEditor
         service={null}
         isSuperAdmin={isSuperAdmin}
+        canDelete={canDelete}
         onBack={() => setView("list")}
         onCreate={(payload) => createService.mutateAsync(payload)}
         onCreated={(id) => { setSelectedId(id); setView("editor"); }}
@@ -742,6 +907,7 @@ const CrmServices = ({
       <ServiceEditor
         service={selected}
         isSuperAdmin={isSuperAdmin}
+        canDelete={canDelete}
         onBack={() => setView("list")}
         onCreate={(payload) => createService.mutateAsync(payload)}
         onCreated={() => {}}
@@ -759,13 +925,6 @@ const CrmServices = ({
 
   return (
     <>
-      <DeleteConfirmDialog
-        open={!!deleteTarget}
-        onOpenChange={(open) => { if (!open) setDeleteTarget(null); }}
-        onConfirm={handleConfirmDelete}
-        isPending={deleteService.isPending}
-        description="Se eliminará el servicio permanentemente."
-      />
       <div className="space-y-4">
 
         {/* Header */}
@@ -815,9 +974,7 @@ const CrmServices = ({
                 key={svc.id}
                 svc={svc}
                 handleEdit={handleEdit}
-                handleDelete={handleDelete}
                 canEdit={canEdit}
-                canDelete={canDelete}
               />
             ))}
           </div>

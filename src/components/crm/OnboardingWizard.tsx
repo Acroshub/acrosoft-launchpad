@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { CheckCircle2, Circle, ChevronDown, ChevronUp, ArrowRight, X } from "lucide-react";
-import { useOnboardingStatus, useUpsertBusinessProfile } from "@/hooks/useCrmData";
+import { CheckCircle2, Circle, ChevronDown, ChevronUp, ArrowRight } from "lucide-react";
+import { useOnboardingStatus } from "@/hooks/useCrmData";
 
 type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts"
   | "ventas" | "settings" | "soporte" | "videos" | "agente_ia";
@@ -9,17 +9,13 @@ interface Props {
   onNavigate: (view: View) => void;
 }
 
+const TOTAL_STEPS = 2;
+
 export default function OnboardingWizard({ onNavigate }: Props) {
-  const { step1, step2, step3, step4, allDone, requiredDone, completed, flags, profile } = useOnboardingStatus();
-  const upsert = useUpsertBusinessProfile();
+  const { step1, step2, allDone, requiredDone, completed } = useOnboardingStatus();
   const [collapsed, setCollapsed] = useState(false);
 
   if (allDone) return null;
-
-  const skipStep = async (flag: "logo_skipped" | "catalog_skipped") => {
-    if (!profile) return;
-    await upsert.mutateAsync({ onboarding_flags: { ...flags, [flag]: true } } as any);
-  };
 
   const steps = [
     {
@@ -35,29 +31,8 @@ export default function OnboardingWizard({ onNavigate }: Props) {
       label: "Datos del negocio",
       description: "Nombre del negocio y descripción",
       done: step2,
-      required: true,
+      required: false,
       actions: [{ label: "Completar", view: "business" as const }],
-    },
-    {
-      id: 3,
-      label: "Logo y colores",
-      description: "Identidad visual de tu negocio",
-      done: step3,
-      required: false,
-      actions: [{ label: "Agregar logo", view: "business" as const }],
-      onSkip: flags.logo_skipped ? undefined : () => skipStep("logo_skipped"),
-    },
-    {
-      id: 4,
-      label: "Servicios o Productos",
-      description: "Agrega lo que ofreces a tus clientes",
-      done: step4,
-      required: false,
-      actions: [
-        { label: "Añadir Servicio", view: "servicios" as const },
-        { label: "Añadir Producto", view: "productos_fisicos" as const },
-      ],
-      onSkip: flags.catalog_skipped ? undefined : () => skipStep("catalog_skipped"),
     },
   ];
 
@@ -74,7 +49,7 @@ export default function OnboardingWizard({ onNavigate }: Props) {
             {!requiredDone ? "⚡ Configura tu negocio" : "Configuración inicial"}
           </p>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {completed} de 4 pasos completados
+            {completed} de {TOTAL_STEPS} pasos completados
           </p>
         </div>
         {canCollapse && (
@@ -92,7 +67,7 @@ export default function OnboardingWizard({ onNavigate }: Props) {
         <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
           <div
             className="h-full rounded-full bg-primary transition-all duration-500"
-            style={{ width: `${(completed / 4) * 100}%` }}
+            style={{ width: `${(completed / TOTAL_STEPS) * 100}%` }}
           />
         </div>
       </div>
@@ -123,14 +98,6 @@ export default function OnboardingWizard({ onNavigate }: Props) {
               {/* Acciones */}
               {!step.done && (
                 <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
-                  {step.onSkip && (
-                    <button
-                      onClick={step.onSkip}
-                      className="text-[11px] text-muted-foreground hover:text-foreground transition-colors flex items-center gap-0.5"
-                    >
-                      <X size={11} /> Omitir
-                    </button>
-                  )}
                   {step.actions.map(action => (
                     <button
                       key={action.view}

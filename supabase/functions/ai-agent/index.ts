@@ -1302,18 +1302,12 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
 
   const allProductIds = allProducts.map(p => p.id);
 
-  // Cargar variantes, métodos de pago, FAQs y precios multi-moneda en paralelo
-  const [variantsRes, paymentMethodsRes, faqsRes, pricesRes] = await Promise.all([
+  // Cargar variantes, FAQs y precios multi-moneda en paralelo
+  const [variantsRes, faqsRes, pricesRes] = await Promise.all([
     supabase
       .from("crm_product_variants")
       .select("id, product_id, name, price_override, discount_pct, sort_order, stock")
       .in("product_id", allProductIds)
-      .order("sort_order"),
-    supabase
-      .from("crm_payment_methods")
-      .select("id, entity_id, entity_type, type, label, content, sort_order, currency")
-      .in("entity_id", allProductIds)
-      .eq("entity_type", "product")
       .order("sort_order"),
     supabase
       .from("crm_entity_faqs")
@@ -1328,6 +1322,16 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
       .eq("entity_type", "product")
       .order("sort_order"),
   ]);
+
+  // Métodos de pago — a nivel de producto y, si las hay, a nivel de cada variante
+  // (una variante con métodos propios los usa en vez de los generales del producto).
+  const allVariantIdsForPm = (variantsRes.data ?? []).map(v => v.id);
+  const paymentMethodsRes = await supabase
+    .from("crm_payment_methods")
+    .select("id, entity_id, entity_type, type, label, content, sort_order, currency")
+    .in("entity_id", [...allProductIds, ...allVariantIdsForPm])
+    .in("entity_type", ["product", "product_variant"])
+    .order("sort_order");
 
   const variants = variantsRes.data ?? [];
   const paymentMethods = paymentMethodsRes.data ?? [];
@@ -1371,10 +1375,12 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
   if (!products.length) return "";
 
   const pmByProduct = new Map<string, PaymentMethodRow[]>();
+  const pmByVariant = new Map<string, PaymentMethodRow[]>();
   for (const pm of paymentMethods) {
     if (pm.currency && contactCurrency && pm.currency !== contactCurrency) continue;
-    if (!pmByProduct.has(pm.entity_id)) pmByProduct.set(pm.entity_id, []);
-    pmByProduct.get(pm.entity_id)!.push(pm as PaymentMethodRow);
+    const target = pm.entity_type === "product_variant" ? pmByVariant : pmByProduct;
+    if (!target.has(pm.entity_id)) target.set(pm.entity_id, []);
+    target.get(pm.entity_id)!.push(pm as PaymentMethodRow);
   }
 
   const lines: string[] = ["CATÁLOGO DE PRODUCTOS:"];
@@ -1441,15 +1447,35 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
       lines.push(`  Entrega: automática por WhatsApp al confirmar el pago`);
     }
 
-    // Métodos de pago
+    // Métodos de pago — generales del producto (aplican a toda variante que no tenga los suyos propios)
     const pms = pmByProduct.get(p.id) ?? [];
+    const variantsWithOwnPm = p.has_variants ? productVariants.filter((v: any) => (pmByVariant.get(v.id) ?? []).length > 0) : [];
+    const anyPaymentConfigured = pms.length > 0 || variantsWithOwnPm.length > 0;
+
     if (pms.length > 0) {
       lines.push(`  Métodos de pago:`);
       for (const pm of pms) {
         lines.push(`    · ${formatPaymentMethod(pm)}`);
       }
-    } else {
+    } else if (!anyPaymentConfigured) {
       lines.push(`  ⚠️ Sin métodos de pago`);
+    }
+
+    // Métodos de pago específicos por variante (sobrescriben los generales para esa variante)
+    if (variantsWithOwnPm.length > 0) {
+      lines.push(`  Métodos de pago específicos por variante:`);
+      for (const v of variantsWithOwnPm) {
+        lines.push(`    ${v.name} [variant_id:${v.id}]:`);
+        for (const pm of pmByVariant.get(v.id) ?? []) {
+          lines.push(`      · ${formatPaymentMethod(pm)}`);
+        }
+      }
+      const variantsWithoutOwnPm = productVariants.filter((v: any) => !(pmByVariant.get(v.id) ?? []).length);
+      if (variantsWithoutOwnPm.length > 0) {
+        lines.push(pms.length > 0
+          ? `  (El resto de variantes usa los métodos de pago generales de arriba)`
+          : `  ⚠️ Las demás variantes (${variantsWithoutOwnPm.map((v: any) => v.name).join(", ")}) no tienen métodos de pago`);
+      }
     }
 
     // FAQs del producto

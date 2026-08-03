@@ -3,7 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft, Plus, Trash2, Loader2, Package, ImageIcon,
   Check, Pencil, X, Link, FileText, ExternalLink,
-  AlertTriangle, Minus,
+  AlertTriangle, Minus, Layers, LayoutGrid, List,
+  ChevronRight, ChevronLeft, SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +24,7 @@ import {
 import type { CrmCatalog, CrmProduct, CrmProductVariant } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
+import CrmPhysicalProductEditor from "@/components/crm/CrmPhysicalProductEditor";
 
 import { CURRENCIES, formatAmount } from "@/lib/currencies";
 const fmtProd = (amount: number, cur: string) => formatAmount(amount, cur);
@@ -920,47 +922,105 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
 }
 
 // ─── Catalog View ─────────────────────────────────────────────────────────────
-function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProduct, onCreateProduct, canCreate = true, canEdit = true }: {
+function ProductListRow({ product: p, canEdit, variantStockMap, onEdit }: {
+  product: CrmProduct; canEdit: boolean; variantStockMap: Map<string, number>;
+  onEdit: () => void;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3 bg-card border rounded-2xl px-3 py-2.5 transition-shadow ${canEdit ? "cursor-pointer hover:shadow-sm" : "cursor-default"}`}
+      onClick={() => canEdit && onEdit()}
+    >
+      <div className="w-11 h-11 rounded-xl bg-secondary/30 overflow-hidden shrink-0 flex items-center justify-center">
+        {p.images[0]
+          ? <img src={p.images[0]} alt={p.name} className="w-full h-full object-cover" />
+          : <Package size={16} className="text-muted-foreground/20" />}
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-semibold truncate">{p.name}</p>
+        <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+          {!p.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Oculto</span>}
+          <StockBadge stock={p.stock} stockEnabled={p.stock_enabled} variantTotal={p.has_variants ? (variantStockMap.get(p.id) ?? null) : undefined} />
+          {p.deliverable_type && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900/30">Digital</span>}
+          {p.has_variants && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Variantes</span>}
+        </div>
+      </div>
+      <p className="text-sm font-medium text-primary shrink-0">
+        {(p.discount_pct ?? 0) > 0
+          ? <>{fmtProd(p.price * (1 - (p.discount_pct ?? 0) / 100), p.currency)} <span className="text-xs line-through text-muted-foreground font-normal">{fmtProd(p.price, p.currency)}</span></>
+          : fmtProd(p.price, p.currency)}
+      </p>
+      {canEdit && (
+        <div className="flex gap-1 shrink-0">
+          <button onClick={e => { e.stopPropagation(); onEdit(); }}
+            className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground transition-colors" title="Editar producto">
+            <Pencil size={13} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Catalog View — menú de tabs (mismo patrón que Ajustes/CrmBusiness) ────────
+function CatalogView({
+  catalog, allProducts, variantStockMap, catalogKind, onBack, onDeleted, onEditProduct, onCreateProduct,
+  activeTab, onActiveTabChange, showMobileContent, onShowMobileContentChange,
+  canCreate = true, canEdit = true, canDelete = true,
+}: {
   catalog: CrmCatalog; allProducts: CrmProduct[]; variantStockMap: Map<string, number>;
+  catalogKind: CrmCatalog["catalog_kind"];
   onBack: () => void;
+  onDeleted: () => void;
   onEditProduct: (p: CrmProduct) => void;
   onCreateProduct: (catalogId: string) => void;
-  canCreate?: boolean; canEdit?: boolean;
+  // Estado de navegación móvil "elevado" al componente padre — así sobrevive
+  // cuando se entra a editar un producto (lo que desmonta CatalogView) y se
+  // vuelve, en vez de resetear siempre a la vista de menú.
+  activeTab: "productos" | "ajustes";
+  onActiveTabChange: (tab: "productos" | "ajustes") => void;
+  showMobileContent: boolean;
+  onShowMobileContentChange: (show: boolean) => void;
+  canCreate?: boolean; canEdit?: boolean; canDelete?: boolean;
 }) {
+  const { user } = useCurrentUser();
+  const { data: agentConfig } = useAIAgentConfig();
+  const agentPhone = agentConfig?.verified_phone ?? null;
   const { data: catalogProducts = [], refetch } = useCatalogProducts(catalog.id);
   const toggleCatalog = useToggleCatalogProduct();
-  const [showAddExisting, setShowAddExisting] = useState(false);
-  const [addSearch, setAddSearch] = useState("");
-  const [removeTarget, setRemoveTarget] = useState<{ id: string; name: string } | null>(null);
+  const upsertCatalog = useUpsertCatalog();
+  const deleteCatalog = useDeleteCatalog();
+
+  const [viewMode, setViewMode]                   = useState<"grid" | "list">("grid");
+  const [showAddExisting, setShowAddExisting]     = useState(false);
+  const [addSearch, setAddSearch]                 = useState("");
+  const [confirmDeleteCatalog, setConfirmDeleteCatalog] = useState(false);
+
   const inCatalogIds = new Set(catalogProducts.map(p => p.id));
   const available = allProducts.filter(p =>
     !inCatalogIds.has(p.id) && (!addSearch || p.name.toLowerCase().includes(addSearch.toLowerCase()))
   );
 
-  const handleRemove = (productId: string) => {
-    toggleCatalog.mutate({ catalogId: catalog.id, productId, add: false },
-      { onSuccess: () => { refetch(); setRemoveTarget(null); toast.success("Producto quitado del catálogo"); } });
+  const handleCatalogSave = async (data: Parameters<typeof upsertCatalog.mutateAsync>[0]) => {
+    try {
+      await upsertCatalog.mutateAsync(data);
+      toast.success("Catálogo actualizado");
+    } catch (e) {
+      const message = e instanceof Error ? e.message.slice(0, 100) : "Error";
+      toast.error(message);
+    }
   };
 
-  return (
-    <>
-      <DeleteConfirmDialog
-        open={!!removeTarget}
-        onOpenChange={open => { if (!open) setRemoveTarget(null); }}
-        onConfirm={() => removeTarget && handleRemove(removeTarget.id)}
-        isPending={toggleCatalog.isPending}
-        description={`"${removeTarget?.name}" dejará de aparecer en este catálogo. El producto no se eliminará y podrás añadirlo de nuevo cuando quieras.`}
-      />
-    <div className="space-y-5">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <button onClick={onBack}
-            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-2 transition-colors">
-            <ArrowLeft size={12} /> Todos los catálogos
-          </button>
-          <h2 className="text-lg font-semibold">{catalog.name}</h2>
-          <p className="text-xs text-muted-foreground">{catalogProducts.length} producto{catalogProducts.length !== 1 ? "s" : ""}</p>
-        </div>
+  const TABS = [
+    { id: "productos" as const, label: "Productos", description: `${catalogProducts.length} producto${catalogProducts.length !== 1 ? "s" : ""} en este catálogo`, icon: Package },
+    { id: "ajustes" as const,   label: "Ajustes",    description: "Editar o eliminar catálogo", icon: SlidersHorizontal },
+  ];
+  const activeTabDef = TABS.find(t => t.id === activeTab) ?? TABS[0];
+  const handleSelectTab = (id: typeof TABS[number]["id"]) => { onActiveTabChange(id); onShowMobileContentChange(true); };
+
+  const ProductosTabContent = () => (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         {canCreate && (
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setShowAddExisting(v => !v)} className="h-8 text-xs gap-1">
@@ -969,6 +1029,20 @@ function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProd
             <Button size="sm" onClick={() => onCreateProduct(catalog.id)} className="h-8 text-xs gap-1">
               <Plus size={12} /> Nuevo producto
             </Button>
+          </div>
+        )}
+        {catalogProducts.length > 0 && (
+          <div className="flex items-center gap-0.5 bg-secondary/60 rounded-lg p-0.5 ml-auto">
+            <button onClick={() => setViewMode("grid")}
+              className={`p-1.5 rounded-md transition-colors ${viewMode === "grid" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              title="Vista en grid">
+              <LayoutGrid size={13} />
+            </button>
+            <button onClick={() => setViewMode("list")}
+              className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+              title="Vista en lista">
+              <List size={13} />
+            </button>
           </div>
         )}
       </div>
@@ -1013,7 +1087,7 @@ function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProd
             </Button>
           )}
         </div>
-      ) : (
+      ) : viewMode === "grid" ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {catalogProducts.map(p => (
             <div key={p.id}
@@ -1031,18 +1105,6 @@ function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProd
               <div className="p-3.5 space-y-1.5">
                 <div className="flex items-start justify-between gap-2">
                   <p className="text-sm font-semibold leading-tight flex-1">{p.name}</p>
-                  {canEdit && (
-                    <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <button onClick={e => { e.stopPropagation(); onEditProduct(p); }}
-                        className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors" title="Editar producto">
-                        <Pencil size={12} />
-                      </button>
-                      <button onClick={e => { e.stopPropagation(); setRemoveTarget({ id: p.id, name: p.name }); }}
-                        className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Quitar del catálogo">
-                        <X size={12} />
-                      </button>
-                    </div>
-                  )}
                 </div>
                 <p className="text-sm font-medium text-primary">
                   {(p.discount_pct ?? 0) > 0
@@ -1067,17 +1129,143 @@ function CatalogView({ catalog, allProducts, variantStockMap, onBack, onEditProd
             </div>
           ))}
         </div>
+      ) : (
+        <div className="space-y-2">
+          {catalogProducts.map(p => (
+            <ProductListRow key={p.id} product={p} canEdit={canEdit} variantStockMap={variantStockMap}
+              onEdit={() => onEditProduct(p)} />
+          ))}
+        </div>
       )}
     </div>
+  );
+
+  const AjustesTabContent = () => (
+    <div className="space-y-6">
+      {user && (
+        <CatalogForm
+          initial={catalog}
+          userId={user.id}
+          agentPhone={agentPhone}
+          catalogKind={catalogKind}
+          onSave={handleCatalogSave}
+          onCancel={onBack}
+          saving={upsertCatalog.isPending}
+        />
+      )}
+
+      {canDelete && (
+        <div className="bg-card border border-destructive/20 rounded-2xl p-6 space-y-3">
+          <h2 className="text-sm font-semibold text-destructive">Eliminar catálogo</h2>
+          <p className="text-xs text-muted-foreground">Los productos no se eliminan, solo se desvinculan de este catálogo. Esta acción no se puede deshacer.</p>
+          <Button
+            variant="outline"
+            onClick={() => setConfirmDeleteCatalog(true)}
+            className="text-destructive hover:bg-destructive/10 border-destructive/30"
+          >
+            <Trash2 size={13} className="mr-1.5" /> Eliminar catálogo
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+
+  const HeaderBlock = () => (
+    <div>
+      <button onClick={onBack}
+        className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-2 transition-colors">
+        <ArrowLeft size={12} /> Todos los catálogos
+      </button>
+      <h2 className="text-lg font-semibold">{catalog.name}</h2>
+      <p className="text-xs text-muted-foreground">{catalogProducts.length} producto{catalogProducts.length !== 1 ? "s" : ""}</p>
+    </div>
+  );
+
+  return (
+    <>
+      <DeleteConfirmDialog
+        open={confirmDeleteCatalog}
+        onOpenChange={setConfirmDeleteCatalog}
+        onConfirm={async () => { await deleteCatalog.mutateAsync(catalog.id); toast.success("Catálogo eliminado"); onDeleted(); }}
+        isPending={deleteCatalog.isPending}
+        description="Los productos no se eliminarán, solo se desvincularán de este catálogo."
+      />
+
+      {/* ── Mobile ── */}
+      <div className="lg:hidden">
+        {!showMobileContent ? (
+          <div className="space-y-6">
+            <HeaderBlock />
+            <div className="bg-card border rounded-2xl overflow-hidden divide-y divide-border/50">
+              {TABS.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => handleSelectTab(t.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-secondary/60 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center shrink-0">
+                    <t.icon size={15} className="text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium leading-tight">{t.label}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{t.description}</p>
+                  </div>
+                  <ChevronRight size={14} className="shrink-0 text-muted-foreground/30" />
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <button
+              onClick={() => onShowMobileContentChange(false)}
+              className="flex items-center gap-0.5 text-primary text-sm font-medium -ml-1 hover:opacity-75 transition-opacity"
+            >
+              <ChevronLeft size={20} />
+              {catalog.name}
+            </button>
+            <div>
+              <h2 className="text-xl font-semibold leading-tight">{activeTabDef.label}</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">{activeTabDef.description}</p>
+            </div>
+            {activeTab === "productos" ? <ProductosTabContent /> : <AjustesTabContent />}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop ── */}
+      <div className="hidden lg:block space-y-6">
+        <HeaderBlock />
+
+        <div className="overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <div className="inline-flex items-center gap-0.5 bg-secondary/60 rounded-xl p-1 min-w-max">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => onActiveTabChange(t.id)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                  activeTab === t.id
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <t.icon size={13} className="shrink-0" />
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {activeTab === "productos" ? <ProductosTabContent /> : <AjustesTabContent />}
+      </div>
     </>
   );
 }
 
 // ─── Catalog Card ─────────────────────────────────────────────────────────────
-function CatalogCard({ catalog, onEnter, onEdit, onDelete, canEdit = true, canDelete = true }: {
+function CatalogCard({ catalog, onEnter }: {
   catalog: CrmCatalog;
-  onEnter: () => void; onEdit: () => void; onDelete: () => void;
-  canEdit?: boolean; canDelete?: boolean;
+  onEnter: () => void;
 }) {
   const { data: products = [] } = useCatalogProducts(catalog.id);
 
@@ -1117,26 +1305,6 @@ function CatalogCard({ catalog, onEnter, onEdit, onDelete, canEdit = true, canDe
               : <p className="text-xs text-muted-foreground/40 mt-0.5">{products.length} producto{products.length !== 1 ? "s" : ""}</p>
             }
           </div>
-          {(canEdit || canDelete) && (
-            <div className="flex gap-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-              {canEdit && (
-                <button
-                  onClick={e => { e.stopPropagation(); onEdit(); }}
-                  className="p-1.5 rounded-xl hover:bg-secondary text-muted-foreground transition-colors"
-                >
-                  <Pencil size={12} />
-                </button>
-              )}
-              {canDelete && (
-                <button
-                  onClick={e => { e.stopPropagation(); onDelete(); }}
-                  className="p-1.5 rounded-xl hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors"
-                >
-                  <Trash2 size={12} />
-                </button>
-              )}
-            </div>
-          )}
         </div>
 
         <div className="flex items-center justify-between pt-0.5">
@@ -1145,6 +1313,105 @@ function CatalogCard({ catalog, onEnter, onEdit, onDelete, canEdit = true, canDe
           </span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Tarjeta "Productos Sin Catálogo" ──────────────────────────────────────────
+// Se muestra dentro del mismo grid de catálogos — representa los productos que no
+// pertenecen a ningún catálogo (no borra nada, no crea un catálogo real en la BD).
+function UncategorizedCard({ count, onEnter }: { count: number; onEnter: () => void }) {
+  return (
+    <div
+      className="bg-card border border-dashed rounded-2xl overflow-hidden hover:shadow-md transition-all group cursor-pointer active:scale-[0.99]"
+      onClick={onEnter}
+    >
+      <div className="h-32 bg-secondary/20 overflow-hidden flex items-center justify-center">
+        <Package size={28} className="text-muted-foreground/20" />
+      </div>
+      <div className="p-4 space-y-3">
+        <div>
+          <p className="text-sm font-semibold truncate">Productos Sin Catálogo</p>
+          <p className="text-xs text-muted-foreground/60 mt-0.5">Productos sin catálogo asignado</p>
+        </div>
+        <div className="flex items-center justify-between pt-0.5">
+          <span className="text-[10px] font-medium text-muted-foreground bg-secondary px-2 py-1 rounded-xl">
+            {count} producto{count !== 1 ? "s" : ""}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Vista "Productos Sin Catálogo" ────────────────────────────────────────────
+function OrphanProductsView({ products, variantStockMap, onBack, onEditProduct, onCreateProduct, canCreate = true, canEdit = true }: {
+  products: CrmProduct[]; variantStockMap: Map<string, number>;
+  onBack: () => void;
+  onEditProduct: (p: CrmProduct) => void;
+  onCreateProduct: () => void;
+  canCreate?: boolean; canEdit?: boolean;
+}) {
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <button onClick={onBack}
+            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-2 transition-colors">
+            <ArrowLeft size={12} /> Todos los catálogos
+          </button>
+          <h2 className="text-lg font-semibold">Productos Sin Catálogo</h2>
+          <p className="text-xs text-muted-foreground">{products.length} producto{products.length !== 1 ? "s" : ""}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          {canCreate && (
+            <Button size="sm" onClick={onCreateProduct} className="h-8 text-xs gap-1">
+              <Plus size={12} /> Nuevo producto
+            </Button>
+          )}
+          {products.length > 0 && (
+            <div className="flex items-center gap-0.5 bg-secondary/60 rounded-lg p-0.5">
+              <button onClick={() => setViewMode("grid")}
+                className={`p-1.5 rounded-md transition-colors ${viewMode === "grid" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                title="Vista en grid">
+                <LayoutGrid size={13} />
+              </button>
+              <button onClick={() => setViewMode("list")}
+                className={`p-1.5 rounded-md transition-colors ${viewMode === "list" ? "bg-background shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                title="Vista en lista">
+                <List size={13} />
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <p className="text-xs text-muted-foreground/70">
+        Estos productos no pertenecen a ningún catálogo. Puedes editarlos o añadirlos a uno desde su ficha.
+      </p>
+
+      {products.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 text-muted-foreground">
+          <Package size={32} className="opacity-20" />
+          <p className="text-sm">No hay productos sin categoría</p>
+        </div>
+      ) : viewMode === "grid" ? (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {products.map(p => (
+            <ProductGridCard key={p.id} product={p} canEdit={canEdit} variantStockMap={variantStockMap} dashed
+              onEdit={() => onEditProduct(p)} />
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {products.map(p => (
+            <ProductListRow key={p.id} product={p} canEdit={canEdit} variantStockMap={variantStockMap}
+              onEdit={() => onEditProduct(p)} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1265,14 +1532,6 @@ function ProductGridCard({ product: p, canEdit, variantStockMap, dashed, onEdit 
       <div className="p-3.5 space-y-1.5">
         <div className="flex items-start justify-between gap-2">
           <p className="text-sm font-semibold truncate flex-1">{p.name}</p>
-          {canEdit && (
-            <button
-              onClick={e => { e.stopPropagation(); onEdit(); }}
-              className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0 opacity-0 group-hover:opacity-100"
-              title="Editar producto">
-              <Pencil size={12} />
-            </button>
-          )}
         </div>
         <p className="text-sm font-medium text-primary">
           {(p.discount_pct ?? 0) > 0
@@ -1314,7 +1573,6 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
   const { data: agentConfig }              = useAIAgentConfig();
   const { data: allVariants = [] }         = useAllProductVariants();
   const upsertCatalog = useUpsertCatalog();
-  const deleteCatalog = useDeleteCatalog();
 
   // Cada instancia de CrmProductos está escopeada a un solo tipo (físico/archivo) —
   // filtramos aquí en vez de en los hooks para mantenerlos genéricos y reusables.
@@ -1339,20 +1597,25 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
   // For the new-product case (no savedProdId), we can safely start at "product" immediately —
   // ProductEditor handles null initialProduct as a new product wizard.
   // For existing product/catalog, we start at "catalogs" and restore once data loads.
-  const [view, setViewRaw] = useState<"catalogs"|"catalog"|"product">(() => {
+  const [view, setViewRaw] = useState<"catalogs"|"catalog"|"product"|"orphans">(() => {
     const savedView  = localStorage.getItem(productosStorageKey(kind, "view"));
     const savedProdId = localStorage.getItem(productosStorageKey(kind, "product_id"));
     return savedView === "product" && !savedProdId && canCreate ? "product" : "catalogs";
   });
   const [selectedCatalog, setSelectedCatalogRaw] = useState<CrmCatalog | null>(null);
+  const [viewingOrphans, setViewingOrphans]      = useState(false);
+  // Estado del menú de tabs de CatalogView, elevado aquí para que sobreviva
+  // cuando se entra a editar/crear un producto (eso desmonta CatalogView) y
+  // se vuelve — así el botón "Atrás" regresa a la lista de productos en vez
+  // de resetear siempre al menú de tabs (Productos/Ajustes).
+  const [catalogActiveTab, setCatalogActiveTab]         = useState<"productos" | "ajustes">("productos");
+  const [catalogShowMobileContent, setCatalogShowMobileContent] = useState(false);
   const [selectedProduct, setSelectedProductRaw] = useState<CrmProduct | null>(null);
   const [fromCatalogId, setFromCatalogId]        = useState<string | null>(null);
   const [showCatalogForm, setShowCatalogForm]    = useState(false);
-  const [editingCatalog, setEditingCatalog]      = useState<CrmCatalog | null>(null);
-  const [deleteTarget, setDeleteTarget]          = useState<string | null>(null);
   const navRestored                              = useRef(false);
 
-  const setView = (v: "catalogs"|"catalog"|"product") => {
+  const setView = (v: "catalogs"|"catalog"|"product"|"orphans") => {
     localStorage.setItem(productosStorageKey(kind, "view"), v);
     setViewRaw(v);
   };
@@ -1372,7 +1635,7 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
   useEffect(() => {
     if (navRestored.current || isLoading) return;
     navRestored.current = true;
-    const savedView   = localStorage.getItem(productosStorageKey(kind, "view")) as "catalogs"|"catalog"|"product" | null;
+    const savedView   = localStorage.getItem(productosStorageKey(kind, "view")) as "catalogs"|"catalog"|"product"|"orphans" | null;
     const savedProdId = localStorage.getItem(productosStorageKey(kind, "product_id"));
     const savedCatId  = localStorage.getItem(productosStorageKey(kind, "catalog_id"));
     const savedCat    = catalogs.find(c => c.id === savedCatId) ?? null;
@@ -1406,10 +1669,22 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
     try {
       await upsertCatalog.mutateAsync(data);
       setShowCatalogForm(false);
-      setEditingCatalog(null);
-      toast.success(data.id ? "Catálogo actualizado" : "Catálogo creado");
+      toast.success("Catálogo creado");
     } catch (e: any) { toast.error(e.message?.slice(0,100) ?? "Error"); }
   };
+
+  if (view === "product" && kind === "fisico") return (
+    <CrmPhysicalProductEditor
+      initialProduct={selectedProduct}
+      fromCatalogId={fromCatalogId}
+      canDelete={canDelete}
+      onBack={() => {
+        clearNewProductDraft();
+        setView(selectedCatalog ? "catalog" : viewingOrphans ? "orphans" : "catalogs");
+        setSelectedProduct(null);
+      }}
+    />
+  );
 
   if (view === "product") return (
     <ProductEditor
@@ -1420,7 +1695,7 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
       kind={kind}
       onBack={() => {
         clearNewProductDraft();
-        setView(selectedCatalog ? "catalog" : "catalogs");
+        setView(selectedCatalog ? "catalog" : viewingOrphans ? "orphans" : "catalogs");
         setSelectedProduct(null);
       }}
     />
@@ -1428,14 +1703,33 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
 
   if (view === "catalog" && selectedCatalog) return (
     <CatalogView
-      catalog={selectedCatalog}
+      catalog={catalogs.find(c => c.id === selectedCatalog.id) ?? selectedCatalog}
       allProducts={allProducts}
+      variantStockMap={variantStockMap}
+      catalogKind={catalogKind}
+      canCreate={canCreate}
+      canEdit={canEdit}
+      canDelete={canDelete}
+      onBack={() => setView("catalogs")}
+      onDeleted={() => { setSelectedCatalog(null); setView("catalogs"); }}
+      onEditProduct={p => { if (canEdit) { setSelectedProduct(p); setFromCatalogId(selectedCatalog.id); setView("product"); } }}
+      onCreateProduct={catalogId => { if (canCreate) { setSelectedProduct(null); setFromCatalogId(catalogId); setView("product"); } }}
+      activeTab={catalogActiveTab}
+      onActiveTabChange={setCatalogActiveTab}
+      showMobileContent={catalogShowMobileContent}
+      onShowMobileContentChange={setCatalogShowMobileContent}
+    />
+  );
+
+  if (view === "orphans") return (
+    <OrphanProductsView
+      products={orphanProducts}
       variantStockMap={variantStockMap}
       canCreate={canCreate}
       canEdit={canEdit}
       onBack={() => setView("catalogs")}
-      onEditProduct={p => { if (canEdit) { setSelectedProduct(p); setFromCatalogId(selectedCatalog.id); setView("product"); } }}
-      onCreateProduct={catalogId => { if (canCreate) { setSelectedProduct(null); setFromCatalogId(catalogId); setView("product"); } }}
+      onEditProduct={p => { if (canEdit) { setSelectedProduct(p); setFromCatalogId(null); setView("product"); } }}
+      onCreateProduct={() => { if (canCreate) { setSelectedProduct(null); setFromCatalogId(null); setView("product"); } }}
     />
   );
 
@@ -1466,7 +1760,7 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
                 : "Organiza y comparte tus productos en catálogos públicos")
             : `${allProducts.length} producto${allProducts.length !== 1 ? "s" : ""}`}
         </p>
-        {catalogsEnabled && !showCatalogForm && !editingCatalog && canCreate && (
+        {catalogsEnabled && !showCatalogForm && canCreate && (
           <Button size="sm" onClick={() => setShowCatalogForm(true)} className="h-9 text-sm font-semibold gap-1.5 rounded-2xl shrink-0">
             <Plus size={13} /> Nuevo catálogo
           </Button>
@@ -1505,39 +1799,46 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
         </div>
       )}
 
-      {catalogsEnabled && (showCatalogForm || editingCatalog) && (
+      {catalogsEnabled && showCatalogForm && (
         <CatalogForm
-          initial={editingCatalog ?? undefined}
           userId={user!.id}
           agentPhone={agentPhone}
           catalogKind={catalogKind}
           onSave={handleCatalogSave}
-          onCancel={() => { setShowCatalogForm(false); setEditingCatalog(null); }}
+          onCancel={() => setShowCatalogForm(false)}
           saving={upsertCatalog.isPending}
         />
       )}
 
-      {catalogsEnabled && deleteTarget && (
-        <div className="bg-destructive/10 border border-destructive/20 rounded-2xl p-4 flex items-center justify-between gap-3">
-          <p className="text-sm text-destructive">¿Eliminar este catálogo? Los productos no se eliminan, solo se desvinculan.</p>
-          <div className="flex gap-2 shrink-0">
-            <Button size="sm" variant="destructive" onClick={() => { deleteCatalog.mutateAsync(deleteTarget!).then(() => { setDeleteTarget(null); toast.success("Catálogo eliminado"); }); }} className="h-7 text-xs">Eliminar</Button>
-            <Button size="sm" variant="outline" onClick={() => setDeleteTarget(null)} className="h-7 text-xs">Cancelar</Button>
-          </div>
-        </div>
-      )}
-
       {catalogsEnabled && (
         <>
-          {!showCatalogForm && !editingCatalog && catalogs.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-4 text-center bg-card border border-dashed rounded-2xl">
-              <div className="w-14 h-14 rounded-2xl bg-primary/8 flex items-center justify-center">
-                <Package size={24} className="text-primary/60" />
+          {!showCatalogForm && catalogs.length === 0 && orphanProducts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-14 gap-6 text-center bg-card border border-dashed rounded-2xl px-6">
+              {/* Diagrama: un catálogo (categoría) contiene varios productos */}
+              <div className="relative w-full max-w-[260px]">
+                <div className="absolute -top-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-card border border-primary/30 rounded-full px-3 py-1 shadow-sm z-10">
+                  <Layers size={12} className="text-primary" />
+                  <span className="text-[11px] font-semibold text-primary">Catálogo (categoría)</span>
+                </div>
+                <div className="border-2 border-dashed border-primary/25 rounded-2xl bg-primary/5 p-4 pt-7">
+                  <div className="flex items-center justify-center gap-2.5">
+                    {[0, 1, 2].map(i => (
+                      <div key={i} className="w-11 h-11 rounded-xl bg-card border shadow-sm flex items-center justify-center">
+                        <Package size={16} className="text-muted-foreground/60" />
+                      </div>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/70 mt-2.5">productos dentro del catálogo</p>
+                </div>
               </div>
+
               <div>
-                <p className="text-sm font-semibold">Sin catálogos todavía</p>
-                <p className="text-xs text-muted-foreground mt-1">Crea tu primer catálogo para organizar y compartir tus productos</p>
+                <p className="text-sm font-semibold">Primero crea un catálogo</p>
+                <p className="text-xs text-muted-foreground mt-1 max-w-[280px] leading-relaxed">
+                  Cada catálogo funciona como una categoría (ej. "Playeras", "Accesorios") y puede contener varios productos. Crea tu primer catálogo para poder empezar a agregar productos físicos.
+                </p>
               </div>
+
               {canCreate && (
                 <Button size="sm" onClick={() => setShowCatalogForm(true)} className="gap-1.5 rounded-2xl">
                   <Plus size={13} /> Crear catálogo
@@ -1545,39 +1846,25 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
               )}
             </div>
           ) : !showCatalogForm && (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {catalogs.filter(cat => cat.id !== editingCatalog?.id).map(cat => (
-                <CatalogCard
-                  key={cat.id}
-                  catalog={cat}
-                  canEdit={canEdit}
-                  canDelete={canDelete}
-                  onEnter={() => { setSelectedCatalog(cat); setView("catalog"); }}
-                  onEdit={() => { setEditingCatalog(cat); setShowCatalogForm(false); }}
-                  onDelete={() => setDeleteTarget(cat.id)}
-                />
-              ))}
-            </div>
-          )}
-
-          {/* Productos sin catálogo */}
-          {orphanProducts.length > 0 && (
-            <div className="space-y-3 pt-2">
+            <div className="space-y-3">
               <div className="flex items-center gap-2">
-                <div className="flex-1 h-px bg-border" />
-                <p className="text-xs font-medium text-muted-foreground/60 uppercase tracking-wide px-2">
-                  Productos sin catálogo ({orphanProducts.length})
-                </p>
-                <div className="flex-1 h-px bg-border" />
+                <Layers size={14} className="text-muted-foreground" />
+                <h2 className="text-sm font-semibold">Catálogo / Categoría</h2>
               </div>
-              <p className="text-xs text-muted-foreground/60 text-center">
-                Estos productos existen pero no están en ningún catálogo. Puedes editarlos o añadirlos a un catálogo.
-              </p>
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {orphanProducts.map(p => (
-                  <ProductGridCard key={p.id} product={p} canEdit={canEdit} variantStockMap={variantStockMap} dashed
-                    onEdit={() => { setSelectedProduct(p); setFromCatalogId(null); setView("product"); }} />
+                {catalogs.map(cat => (
+                  <CatalogCard
+                    key={cat.id}
+                    catalog={cat}
+                    onEnter={() => { setSelectedCatalog(cat); setViewingOrphans(false); setCatalogActiveTab("productos"); setCatalogShowMobileContent(false); setView("catalog"); }}
+                  />
                 ))}
+                {orphanProducts.length > 0 && (
+                  <UncategorizedCard
+                    count={orphanProducts.length}
+                    onEnter={() => { setSelectedCatalog(null); setViewingOrphans(true); setView("orphans"); }}
+                  />
+                )}
               </div>
             </div>
           )}

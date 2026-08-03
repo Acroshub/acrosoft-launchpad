@@ -196,7 +196,7 @@ export type CrmSale = {
 export type CrmPrice = {
   id: string
   user_id: string
-  entity_type: 'product' | 'service' | 'course'
+  entity_type: 'product' | 'product_variant' | 'service' | 'course'
   entity_id: string
   currency: string
   price: number
@@ -208,7 +208,7 @@ export type CrmPrice = {
 export type CrmEntityFaq = {
   id: string
   user_id: string
-  entity_type: 'product' | 'service' | 'course'
+  entity_type: 'product' | 'product_variant' | 'service' | 'course'
   entity_id: string
   question: string
   answer: string
@@ -576,6 +576,7 @@ export type CrmProductVariant = {
   created_at: string
   product_id: string
   name: string
+  description: string | null
   price_override: number | null
   stock: number | null
   sort_order: number
