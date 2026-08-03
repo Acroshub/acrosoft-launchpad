@@ -3,7 +3,8 @@ import * as tus from "tus-js-client";
 import {
   BookOpen, Plus, Trash2, Loader2, ArrowLeft, Pencil, Users,
   Link2, Check, ExternalLink, GraduationCap, X, UserPlus, Calendar,
-  Video, AlertCircle, ImageIcon, Paperclip, ChevronDown, ChevronRight, FolderOpen, GripVertical, Send, CreditCard, Wifi, WifiOff,
+  Video, AlertCircle, ImageIcon, Paperclip, ChevronDown, ChevronRight, ChevronLeft, FolderOpen, GripVertical, Send, CreditCard,
+  Info, DollarSign, SlidersHorizontal,
 } from "lucide-react";
 import {
   DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent,
@@ -19,6 +20,7 @@ import { supabase } from "@/lib/supabase";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import {
   useCourses, useUpsertCourse, useDeleteCourse,
+  useCoursePlans, useUpsertCoursePlan, useDeleteCoursePlan,
   useCourseModules, useUpsertCourseModule, useDeleteCourseModule,
   useCourseLessons, useUpsertCourseLesson, useDeleteCourseLesson,
   useCourseAccess, useGrantCourseAccess, useRevokeCourseAccess,
@@ -26,10 +28,14 @@ import {
   usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs,
   useUpsertPaymentMethod,
 } from "@/hooks/useCrmData";
-import type { CrmCourse, CrmCourseModule, CrmCourseLesson, CrmCourseAccess, CrmPrice } from "@/lib/supabase";
+import type { CrmCourse, CrmCoursePlan, CrmCourseModule, CrmCourseLesson, CrmCourseAccess } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
 import PaymentMethodsEditor from "@/components/shared/PaymentMethodsEditor";
+import {
+  type RecurringInterval, type DraftPlan, emptyDraftPlan, PlanFields, DraftPlanCard,
+  planFinalPrice, planFinalRecurringPrice, INTERVAL_LABELS,
+} from "@/components/crm/PlanEditor";
 import { VideoUploadProvider, useVideoUpload } from "@/contexts/VideoUploadContext";
 
 import { CURRENCIES, formatAmount, getCurrencyFlag } from "@/lib/currencies";
@@ -45,187 +51,293 @@ function slugify(text: string): string {
 }
 
 // ─── Componente principal ─────────────────────────────────────────────────────
-export default function CrmCourses() {
-  return <VideoUploadProvider><CrmCoursesContent /></VideoUploadProvider>;
+export default function CrmCourses({ onExit }: { onExit: () => void }) {
+  return <VideoUploadProvider><CrmCoursesContent onExit={onExit} /></VideoUploadProvider>;
 }
 
-type FormPM = { type: "bank_transfer" | "payment_link" | "qr_code"; label: string; content: string; currency: string | null; sort_order: number };
+// ─── Portada (wizard de curso nuevo) ───────────────────────────────────────────
+function CoverUploader({ url, onChange, draftId }: { url: string | null; onChange: (url: string | null) => void; draftId: string }) {
+  const [loading, setLoading] = useState(false);
+  const ref = useRef<HTMLInputElement>(null);
 
-// ─── Editor inline de métodos de pago (para formulario de creación) ───────────
-const PM_TYPES = [
-  { value: "bank_transfer" as const, label: "Transferencia" },
-  { value: "payment_link"  as const, label: "Link de pago" },
-  { value: "qr_code"       as const, label: "Código QR" },
-];
-
-// En el formulario de creación no se puede subir QR (requiere course_id para storage)
-const PM_TYPES_INLINE = PM_TYPES.filter(t => t.value !== "qr_code");
-
-function InlinePaymentMethodsEditor({ value, onChange, prices = [], baseCurrency }: { value: FormPM[]; onChange: (v: FormPM[]) => void; prices?: PriceEntry[]; baseCurrency?: string }) {
-  const [showForm, setShowForm] = useState(false);
-  const [type, setType]         = useState<FormPM["type"]>("bank_transfer");
-  const [label, setLabel]       = useState("");
-  const [content, setContent]   = useState("");
-  const [currency, setCurrency] = useState<string>("");
-
-  const reset = () => { setType("bank_transfer"); setLabel(""); setContent(""); setCurrency(""); setShowForm(false); };
-
-  const canAdd = content.trim().length > 0;
-
-  const handleAdd = () => {
-    if (!canAdd) return;
-    onChange([...value, { type, label, content: content.trim(), currency: currency || null, sort_order: value.length }]);
-    reset();
+  const handleFile = async (file: File) => {
+    setLoading(true);
+    try {
+      const ext  = file.name.split(".").pop() ?? "jpg";
+      const path = `course-thumbnails/draft-${draftId}.${ext}`;
+      const { error } = await supabase.storage.from("form-uploads").upload(path, file, { upsert: true, contentType: file.type });
+      if (error) throw error;
+      const { data: { publicUrl } } = supabase.storage.from("form-uploads").getPublicUrl(path);
+      onChange(publicUrl);
+    } catch {
+      toast.error("Error al subir la portada");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleRemove = (idx: number) => onChange(value.filter((_, i) => i !== idx));
-
   return (
-    <div className="space-y-2">
-      {value.map((pm, idx) => (
-        <div key={idx} className="flex items-start gap-2 px-3 py-2 rounded-xl border border-border/60 bg-secondary/20">
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-1.5 flex-wrap">
-              {pm.label && <span className="text-xs font-medium">{pm.label}</span>}
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-                {PM_TYPES.find(t => t.value === pm.type)?.label}
-              </span>
-              {pm.currency && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary font-medium">{pm.currency}</span>
-              )}
+    <div className="space-y-1.5">
+      <label className="text-xs font-medium text-muted-foreground">Portada <span className="text-[10px] font-normal">(opcional)</span></label>
+      <div
+        className={`relative aspect-video w-full max-w-xs rounded-xl overflow-hidden border-2 border-dashed border-border bg-secondary/30 flex items-center justify-center group ${loading ? "cursor-wait" : "cursor-pointer"}`}
+        onClick={() => !loading && ref.current?.click()}
+      >
+        <input ref={ref} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
+          onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
+        {url ? (
+          <>
+            <img src={url} alt="Portada" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+              <button onClick={e => { e.stopPropagation(); ref.current?.click(); }}
+                className="p-1.5 rounded-lg bg-white/20 text-white hover:bg-white/30"><Pencil size={12} /></button>
+              <button onClick={e => { e.stopPropagation(); onChange(null); }}
+                className="p-1.5 rounded-lg bg-red-500/80 text-white hover:bg-red-600"><X size={12} /></button>
             </div>
-            {pm.type !== "qr_code" && (
-              <p className="text-[11px] text-muted-foreground truncate mt-0.5">{pm.content}</p>
-            )}
+          </>
+        ) : loading ? (
+          <Loader2 size={18} className="animate-spin text-muted-foreground" />
+        ) : (
+          <div className="flex flex-col items-center gap-1.5 text-muted-foreground/50">
+            <ImageIcon size={20} />
+            <span className="text-[11px]">Subir imagen</span>
           </div>
-          <button onClick={() => handleRemove(idx)} className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
-            <Trash2 size={11} />
-          </button>
-        </div>
-      ))}
-
-      {showForm ? (
-        <div className="bg-secondary/30 rounded-xl p-3 space-y-2.5 border border-border/60">
-          {/* Tipo (sin QR en creación) */}
-          <div className="flex gap-1.5 flex-wrap">
-            {PM_TYPES_INLINE.map(t => (
-              <button key={t.value} onClick={() => { setType(t.value); setContent(""); }}
-                className={`px-2.5 py-1 rounded-lg text-xs border transition-colors ${type === t.value ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary"}`}>
-                {t.label}
-              </button>
-            ))}
-          </div>
-          {/* Etiqueta */}
-          <Input value={label} onChange={e => setLabel(e.target.value)}
-            placeholder={type === "bank_transfer" ? "Banco XYZ — Cuenta corriente" : "PayPal, Stripe, Binance..."}
-            className="h-8 text-xs" />
-          {/* Contenido */}
-          {type === "bank_transfer" ? (
-            <textarea value={content} onChange={e => setContent(e.target.value)}
-              placeholder={"Banco: XYZ\nCuenta: 1234-5678\nTitular: Nombre"}
-              rows={3} className="w-full px-3 py-2 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none" />
-          ) : (
-            <Input value={content} onChange={e => setContent(e.target.value)} placeholder="https://paypal.me/usuario" className="h-8 text-xs font-mono" />
-          )}
-          {/* Moneda asociada */}
-          <div className="space-y-1">
-            <span className="text-[11px] text-muted-foreground">Moneda asociada <span className="font-normal">(opcional)</span></span>
-            {(baseCurrency || prices.length > 0) ? (
-              <div className="flex flex-wrap gap-1">
-                <button onClick={() => setCurrency("")}
-                  className={`px-2 py-0.5 rounded-lg text-[11px] border transition-colors ${!currency ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary text-muted-foreground"}`}>
-                  Todas las monedas
-                </button>
-                {baseCurrency && (
-                  <button onClick={() => setCurrency(baseCurrency)}
-                    className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-[11px] border transition-colors ${currency === baseCurrency ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary"}`}>
-                    {getCurrencyFlag(baseCurrency)} {baseCurrency}
-                  </button>
-                )}
-                {prices.map((p, i) => (
-                  <button key={i} onClick={() => setCurrency(p.currency)}
-                    className={`flex items-center gap-0.5 px-2 py-0.5 rounded-lg text-[11px] border transition-colors ${currency === p.currency ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary"}`}>
-                    {getCurrencyFlag(p.currency)} {p.currency}
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <p className="text-[11px] text-muted-foreground/60 italic">Registra el precio del curso para vincular este método a una moneda.</p>
-            )}
-            {currency && <p className="text-[10px] text-muted-foreground">Solo se mostrará a clientes con moneda <span className="font-semibold">{currency}</span>.</p>}
-          </div>
-          {/* Acciones */}
-          <div className="flex gap-1.5">
-            <Button size="sm" onClick={handleAdd} disabled={!content.trim() && type !== "qr_code"} className="h-7 text-xs gap-1">
-              <Check size={11} /> Añadir
-            </Button>
-            <Button size="sm" variant="outline" onClick={reset} className="h-7 text-xs gap-1">
-              <X size={11} /> Cancelar
-            </Button>
-          </div>
-        </div>
-      ) : (
-        <button onClick={() => setShowForm(true)} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-          <Plus size={12} /> Añadir método de pago
-        </button>
-      )}
+        )}
+      </div>
+      <p className="text-[10px] text-muted-foreground/40">1280×720 · JPG o PNG · máx 2 MB</p>
     </div>
   );
 }
 
-function CrmCoursesContent() {
-  const { data: courses = [], isLoading } = useCourses();
+// ─── Wizard: nuevo curso ────────────────────────────────────────────────────────
+const COURSE_WIZARD_STEPS = ["info", "planes"] as const;
+type CourseWizardStep = typeof COURSE_WIZARD_STEPS[number];
+const COURSE_WIZARD_LABELS: Record<CourseWizardStep, string> = { info: "Información Básica", planes: "Planes" };
+
+// ─── Planes de precio (recurrente o pago único) ────────────────────────────────
+function addInterval(date: Date, interval: RecurringInterval): Date {
+  const d = new Date(date);
+  switch (interval) {
+    case "semanal": d.setDate(d.getDate() + 7); break;
+    case "trimestral": d.setMonth(d.getMonth() + 3); break;
+    case "semestral": d.setMonth(d.getMonth() + 6); break;
+    case "anual": d.setFullYear(d.getFullYear() + 1); break;
+    default: d.setMonth(d.getMonth() + 1); break; // mensual (y fallback)
+  }
+  return d;
+}
+
+function NewCourseWizard({ onCancel, onCreated }: { onCancel: () => void; onCreated: (course: CrmCourse) => void }) {
   const upsertCourse        = useUpsertCourse();
-  const deleteCourse        = useDeleteCourse();
+  const upsertCoursePlan    = useUpsertCoursePlan();
   const upsertPrices        = useUpsertPrices();
   const upsertPaymentMethod = useUpsertPaymentMethod();
+  const draftId = useRef(crypto.randomUUID()).current;
 
-  const [selected, setSelected]             = useState<CrmCourse | null>(null);
-  const [activeTab, setActiveTab]           = useState<"contenido" | "alumnos">("contenido");
-  const [creating, setCreating]             = useState(false);
-  const [form, setForm]                     = useState({ title: "", description: "", slug: "", price: "", currency: "USD" });
-  const [formPrices, setFormPrices]         = useState<PriceEntry[]>([]);
-  const [formPaymentMethods, setFormPaymentMethods] = useState<FormPM[]>([]);
-  const [saving, setSaving]                 = useState(false);
-  const [copiedSlug, setCopiedSlug]         = useState(false);
+  const [step, setStep]                 = useState(0);
+  const [title, setTitle]               = useState("");
+  const [description, setDescription]   = useState("");
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(null);
+  const [slug, setSlug]                 = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const slugEdited = useRef(false);
+  const [draftPlans, setDraftPlans]     = useState<DraftPlan[]>([]);
+  const planKeyRef = useRef(0);
+  const [saving, setSaving]             = useState(false);
 
-  const openNew = () => {
-    setForm({ title: "", description: "", slug: "", price: "", currency: "USD" });
-    setFormPrices([]);
-    setFormPaymentMethods([]);
-    setCreating(true);
+  const handleTitleChange = (v: string) => {
+    setTitle(v);
+    if (!slugEdited.current) setSlug(slugify(v));
   };
 
+  const addDraftPlan = () => setDraftPlans(list => [...list, emptyDraftPlan(planKeyRef.current++)]);
+  const updateDraftPlan = (key: number, next: DraftPlan) => setDraftPlans(list => list.map(p => p._key === key ? next : p));
+  const removeDraftPlan = (key: number) => setDraftPlans(list => list.filter(p => p._key !== key));
+
+  const safeStep    = Math.min(step, COURSE_WIZARD_STEPS.length - 1);
+  const currentStep = COURSE_WIZARD_STEPS[safeStep];
+  const TOTAL       = COURSE_WIZARD_STEPS.length;
+  const isLast      = safeStep === TOTAL - 1;
+
   const handleCreate = async () => {
-    if (!form.title.trim() || !form.slug.trim()) return;
+    if (!title.trim()) return;
     setSaving(true);
     try {
-      const price = form.price ? parseFloat(form.price) : null;
-      const course = await upsertCourse.mutateAsync({ title: form.title.trim(), description: form.description || null, slug: form.slug.trim(), is_published: false, price, currency: form.currency });
-      if (formPrices.length > 0) {
-        await upsertPrices.mutateAsync({ entityType: "course", entityId: course.id, prices: formPrices });
+      const manualSlug = slugEdited.current;
+      const baseSlug = (slug.trim() ? slugify(slug.trim()) : slugify(title.trim())) || "curso";
+      const maxAttempts = manualSlug ? 1 : 6;
+      let course: CrmCourse | null = null;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        const trySlug = attempt === 0 ? baseSlug : `${baseSlug}-${attempt + 1}`;
+        try {
+          course = await upsertCourse.mutateAsync({
+            title: title.trim(), description: description || null, slug: trySlug,
+            is_published: false, thumbnail_url: thumbnailUrl,
+          });
+          break;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "";
+          if (!message.includes("unique") || attempt === maxAttempts - 1) throw err;
+        }
       }
-      for (const pm of formPaymentMethods) {
-        await upsertPaymentMethod.mutateAsync({
-          entity_type: "course",
-          entity_id: course.id,
-          type: pm.type,
-          label: pm.label || null,
-          content: pm.content,
-          sort_order: pm.sort_order,
-          price_id: null,
-          currency: pm.currency,
+      if (!course) throw new Error("No se pudo crear el curso");
+
+      for (let i = 0; i < draftPlans.length; i++) {
+        const dp = draftPlans[i];
+        if (!dp.name.trim()) continue;
+        const plan = await upsertCoursePlan.mutateAsync({
+          course_id: course.id,
+          name: dp.name.trim(),
+          price: dp.price ? parseFloat(dp.price) : 0,
+          currency: dp.currency,
+          discount_pct: dp.discountPct,
+          is_recurring: dp.isRecurring,
+          recurring_price: dp.isRecurring && dp.recurringPrice ? parseFloat(dp.recurringPrice) : null,
+          recurring_currency: dp.isRecurring ? dp.currency : null,
+          recurring_interval: dp.isRecurring ? dp.recurringInterval : null,
+          recurring_discount_pct: dp.isRecurring ? dp.recurringDiscountPct : 0,
+          sort_order: i,
         });
+        if (dp.prices.length > 0) {
+          await upsertPrices.mutateAsync({ entityType: "course_plan", entityId: plan.id, prices: dp.prices });
+        }
+        for (const pm of dp.paymentMethods) {
+          await upsertPaymentMethod.mutateAsync({
+            entity_type: "course_plan",
+            entity_id: plan.id,
+            type: pm.type!,
+            label: pm.label ?? null,
+            content: pm.content!,
+            sort_order: pm.sort_order ?? 0,
+            price_id: null,
+            currency: pm.currency ?? null,
+          });
+        }
       }
-      setCreating(false);
-      setSelected(course);
-      setActiveTab("contenido");
-    } catch (err: any) {
-      toast.error(err.message?.includes("unique") ? "Ya existe un curso con ese slug" : "Error al crear curso");
-    } finally {
+
+      onCreated(course);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "";
+      if (message.includes("unique")) {
+        setShowAdvanced(true);
+        toast.error("Ya existe un curso con esa URL — personalízala en Opciones avanzadas");
+      } else {
+        toast.error("Error al crear curso");
+      }
       setSaving(false);
     }
   };
+
+  return (
+    <div className="max-w-lg mx-auto space-y-6">
+      <div>
+        <button onClick={onCancel} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-3 transition-colors">
+          <ArrowLeft size={12} /> Cancelar
+        </button>
+        <h2 className="text-lg font-semibold">Nuevo curso</h2>
+        <p className="text-sm text-muted-foreground">{COURSE_WIZARD_LABELS[currentStep]} — Paso {safeStep + 1} de {TOTAL}</p>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {COURSE_WIZARD_STEPS.map((_, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-semibold transition-colors ${
+              i <= safeStep ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground"
+            }`}>
+              {i < safeStep ? <Check size={12} /> : i + 1}
+            </div>
+            {i < TOTAL - 1 && <div className={`flex-1 h-0.5 rounded w-6 ${i < safeStep ? "bg-primary" : "bg-border"}`} />}
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-card border rounded-2xl p-6">
+        <h3 className="text-sm font-semibold mb-4">{COURSE_WIZARD_LABELS[currentStep]}</h3>
+
+        {currentStep === "info" && (
+          <div className="space-y-4">
+            <CoverUploader url={thumbnailUrl} onChange={setThumbnailUrl} draftId={draftId} />
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Nombre del curso *</label>
+              <Input value={title} onChange={e => handleTitleChange(e.target.value)} placeholder="Ej: Marketing Digital desde Cero" className="h-9 text-sm" autoFocus />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Descripción <span className="text-[10px]">(opcional)</span></label>
+              <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Breve descripción del curso" className="h-9 text-sm" />
+            </div>
+
+            <div className="pt-1 border-t border-border/50">
+              <button onClick={() => setShowAdvanced(v => !v)}
+                className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors pt-2">
+                {showAdvanced ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                Opciones avanzadas
+              </button>
+              {showAdvanced && (
+                <div className="space-y-1.5 pt-2">
+                  <label className="text-xs font-medium text-muted-foreground">Slug (URL)</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground/60 shrink-0">/curso/</span>
+                    <Input
+                      value={slug}
+                      onChange={e => { slugEdited.current = true; setSlug(slugify(e.target.value)); }}
+                      placeholder={slugify(title) || "marketing-digital"}
+                      className="h-9 text-sm font-mono"
+                    />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/40">Se genera automáticamente a partir del nombre. Solo cámbialo si necesitas una URL específica.</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {currentStep === "planes" && (
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Crea uno o más planes de precio (pago único o recurrente). Si no creas ninguno, el curso queda sin precio — podrás dar acceso a alumnos igual, solo que no se registrará venta automática.
+            </p>
+            {draftPlans.map(p => (
+              <DraftPlanCard key={p._key} plan={p} onChange={next => updateDraftPlan(p._key, next)} onRemove={() => removeDraftPlan(p._key)} />
+            ))}
+            <button onClick={addDraftPlan} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+              <Plus size={12} /> Añadir plan
+            </button>
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-2 justify-between">
+        {safeStep > 0 && (
+          <Button variant="outline" size="sm" onClick={() => setStep(s => s - 1)} className="h-9 text-xs">
+            <ArrowLeft size={12} className="mr-1" /> Atrás
+          </Button>
+        )}
+        <div className="flex gap-2 ml-auto">
+          {isLast ? (
+            <Button onClick={handleCreate} disabled={saving || !title.trim()} className="h-9 px-5 gap-1.5">
+              {saving ? <Loader2 size={13} className="animate-spin" /> : null}
+              {saving ? "Creando..." : "Crear curso"}
+            </Button>
+          ) : (
+            <Button size="sm" onClick={() => setStep(s => s + 1)} disabled={!title.trim()} className="h-9 text-xs">
+              Continuar →
+            </Button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type CourseTab = "contenido" | "alumnos" | "informacion" | "planes" | "ajustes";
+
+function CrmCoursesContent({ onExit }: { onExit: () => void }) {
+  const { data: courses = [], isLoading } = useCourses();
+  const upsertCourse = useUpsertCourse();
+
+  const [selected, setSelected]   = useState<CrmCourse | null>(null);
+  const [activeTab, setActiveTab] = useState<CourseTab>("contenido");
+  const [creating, setCreating]   = useState(false);
 
   const handleTogglePublish = async (course: CrmCourse) => {
     try {
@@ -237,21 +349,15 @@ function CrmCoursesContent() {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    try {
-      await deleteCourse.mutateAsync(id);
-      if (selected?.id === id) setSelected(null);
-      toast.success("Curso eliminado");
-    } catch {
-      toast.error("Error al eliminar");
-    }
-  };
-
-  const copyLink = (course: CrmCourse) => {
-    navigator.clipboard.writeText(`${APP_URL}/curso/${course.user_id}/${course.slug}`);
-    setCopiedSlug(true);
-    setTimeout(() => setCopiedSlug(false), 2000);
-  };
+  // ── Wizard: nuevo curso ──
+  if (creating) {
+    return (
+      <NewCourseWizard
+        onCancel={() => setCreating(false)}
+        onCreated={course => { setCreating(false); setSelected(course); setActiveTab("contenido"); }}
+      />
+    );
+  }
 
   // ── Vista detalle ──
   if (selected) {
@@ -262,9 +368,6 @@ function CrmCoursesContent() {
         onTabChange={setActiveTab}
         onBack={() => setSelected(null)}
         onTogglePublish={() => handleTogglePublish(selected)}
-        onDelete={() => { handleDelete(selected.id); }}
-        onCopyLink={() => copyLink(selected)}
-        copiedSlug={copiedSlug}
       />
     );
   }
@@ -273,107 +376,20 @@ function CrmCoursesContent() {
   return (
     <div className="space-y-4">
 
+      <button onClick={onExit} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+        <ArrowLeft size={12} /> Volver
+      </button>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-base font-semibold">Cursos</h2>
           <p className="text-xs text-muted-foreground mt-0.5">Crea y gestiona cursos con acceso por email</p>
         </div>
-        <Button size="sm" onClick={openNew} className="h-9 gap-1.5">
+        <Button size="sm" onClick={() => setCreating(true)} className="h-9 gap-1.5">
           <Plus size={14} /> Nuevo curso
         </Button>
       </div>
-
-      {/* Modal crear curso */}
-      {creating && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4" onClick={() => setCreating(false)}>
-          <div className="bg-card border rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b shrink-0">
-              <h3 className="text-sm font-semibold">Nuevo curso</h3>
-              <button onClick={() => setCreating(false)} className="text-muted-foreground hover:text-foreground"><X size={16} /></button>
-            </div>
-            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Título *</label>
-                <Input
-                  value={form.title}
-                  onChange={e => setForm(f => ({ ...f, title: e.target.value, slug: f.slug || slugify(e.target.value) }))}
-                  placeholder="Ej: Marketing Digital desde Cero"
-                  className="h-9 text-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Slug (URL) *</label>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground/60 shrink-0">/curso/</span>
-                  <Input
-                    value={form.slug}
-                    onChange={e => setForm(f => ({ ...f, slug: slugify(e.target.value) }))}
-                    placeholder="marketing-digital"
-                    className="h-9 text-sm"
-                  />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Descripción <span className="text-[10px]">(opcional)</span></label>
-                <Input
-                  value={form.description}
-                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
-                  placeholder="Breve descripción del curso"
-                  className="h-9 text-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Precio <span className="text-[10px]">(opcional — vacío = gratuito)</span></label>
-                <div className="flex gap-2">
-                  <select
-                    value={form.currency}
-                    onChange={e => setForm(f => ({ ...f, currency: e.target.value }))}
-                    className="h-9 rounded-xl border border-border bg-background text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all shrink-0"
-                  >
-                    {CURRENCIES.map(c => (
-                      <option key={c.code} value={c.code}>{c.flag} {c.code}</option>
-                    ))}
-                  </select>
-                  <Input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.price}
-                    onChange={e => setForm(f => ({ ...f, price: e.target.value }))}
-                    placeholder="0.00"
-                    className="h-9 text-sm flex-1"
-                  />
-                </div>
-              </div>
-              <PriceListEditor
-                value={formPrices}
-                onChange={setFormPrices}
-                baseCurrency={form.currency}
-              />
-              {/* Métodos de pago en creación */}
-              <div className="pt-1 border-t border-border/50 space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <CreditCard size={12} className="text-muted-foreground" />
-                  <span className="text-xs font-medium text-muted-foreground">Métodos de pago <span className="text-[10px] font-normal">(opcional)</span></span>
-                </div>
-                <InlinePaymentMethodsEditor
-                  value={formPaymentMethods}
-                  onChange={setFormPaymentMethods}
-                  prices={formPrices}
-                  baseCurrency={form.currency}
-                />
-              </div>
-            </div>
-            <div className="flex gap-2 px-6 py-4 border-t shrink-0">
-              <Button variant="outline" size="sm" onClick={() => setCreating(false)} className="flex-1">Cancelar</Button>
-              <Button size="sm" onClick={handleCreate} disabled={saving || !form.title.trim() || !form.slug.trim()} className="flex-1 gap-1.5">
-                {saving && <Loader2 size={12} className="animate-spin" />} Crear
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Lista */}
       {isLoading ? (
@@ -389,81 +405,12 @@ function CrmCoursesContent() {
             <p className="text-sm font-semibold text-muted-foreground">Aún no tienes cursos</p>
             <p className="text-xs text-muted-foreground/50 mt-0.5">Crea tu primer curso y comparte el link con tus alumnos</p>
           </div>
-          <Button size="sm" onClick={openNew} className="gap-1.5 mx-auto"><Plus size={13} /> Nuevo curso</Button>
+          <Button size="sm" onClick={() => setCreating(true)} className="gap-1.5 mx-auto"><Plus size={13} /> Nuevo curso</Button>
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {courses.map(course => (
-            <div
-              key={course.id}
-              className="group bg-card border rounded-2xl overflow-hidden hover:border-primary/40 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col"
-              onClick={() => { setSelected(course); setActiveTab("contenido"); }}
-            >
-              {/* Thumbnail */}
-              <div className="relative aspect-video bg-muted overflow-hidden">
-                {course.thumbnail_url ? (
-                  <img src={course.thumbnail_url} alt={course.title} className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300" />
-                ) : (
-                  <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/5 to-primary/10">
-                    <BookOpen size={28} className="text-primary/30" />
-                  </div>
-                )}
-                {/* Status badge overlay */}
-                <div className="absolute top-2.5 left-2.5">
-                  <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-full backdrop-blur-sm ${
-                    course.is_published
-                      ? "bg-emerald-500/90 text-white"
-                      : "bg-black/50 text-white/70"
-                  }`}>
-                    <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                      course.is_published ? "bg-white animate-pulse" : "bg-white/40"
-                    }`} />
-                    {course.is_published ? "Online" : "Offline"}
-                  </span>
-                </div>
-                {course.price != null && (
-                  <div className="absolute top-2.5 right-2.5">
-                    <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-primary/90 text-white backdrop-blur-sm">
-                      {getCurrencyFlag(course.currency ?? "USD")} {formatAmount(course.price, course.currency)}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Content */}
-              <div className="p-4 flex flex-col flex-1 space-y-3">
-                <div className="flex-1 space-y-1">
-                  <p className="text-sm font-semibold leading-snug line-clamp-2">{course.title}</p>
-                  {course.description && (
-                    <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{course.description}</p>
-                  )}
-                </div>
-
-                {/* Footer */}
-                <div className="flex items-center justify-between pt-1 border-t border-border/60">
-                  <span className="text-[10px] text-muted-foreground/50 font-mono truncate max-w-[120px]">{course.slug}</span>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={e => { e.stopPropagation(); copyLink(course); }}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
-                      title="Copiar link"
-                    >
-                      {copiedSlug ? <Check size={12} className="text-emerald-500" /> : <Link2 size={12} />}
-                    </button>
-                    <a
-                      href={`/curso/${course.user_id}/${course.slug}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={e => e.stopPropagation()}
-                      className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer"
-                      title="Abrir curso"
-                    >
-                      <ExternalLink size={12} />
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </div>
+            <CourseGridCard key={course.id} course={course} onClick={() => { setSelected(course); setActiveTab("contenido"); }} />
           ))}
         </div>
       )}
@@ -471,87 +418,206 @@ function CrmCoursesContent() {
   );
 }
 
+// ─── Card del grid de cursos ────────────────────────────────────────────────────
+function CourseGridCard({ course, onClick }: { course: CrmCourse; onClick: () => void }) {
+  const { data: plans = [] } = useCoursePlans(course.id);
+  const cheapestPlan = plans
+    .filter(p => p.is_active)
+    .reduce<CrmCoursePlan | null>((min, p) => (min === null || planFinalPrice(p) < planFinalPrice(min) ? p : min), null);
+
+  return (
+    <div
+      className="group bg-card border rounded-2xl overflow-hidden hover:border-primary/40 hover:shadow-md transition-all duration-200 cursor-pointer flex flex-col"
+      onClick={onClick}
+    >
+      {/* Thumbnail */}
+      <div className="relative aspect-video bg-muted overflow-hidden">
+        {course.thumbnail_url ? (
+          <img src={course.thumbnail_url} alt={course.title} className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-300" />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center gap-2 bg-gradient-to-br from-primary/5 to-primary/10">
+            <BookOpen size={28} className="text-primary/30" />
+          </div>
+        )}
+        {/* Status badge overlay */}
+        <div className="absolute top-2.5 left-2.5">
+          <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-1 rounded-full backdrop-blur-sm ${
+            course.is_published
+              ? "bg-emerald-500/90 text-white"
+              : "bg-black/50 text-white/70"
+          }`}>
+            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+              course.is_published ? "bg-white animate-pulse" : "bg-white/40"
+            }`} />
+            {course.is_published ? "Online" : "Offline"}
+          </span>
+        </div>
+        {cheapestPlan && (
+          <div className="absolute top-2.5 right-2.5">
+            <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-primary/90 text-white backdrop-blur-sm">
+              Desde {getCurrencyFlag(cheapestPlan.currency)} {formatAmount(planFinalPrice(cheapestPlan), cheapestPlan.currency)}
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Content */}
+      <div className="p-4 flex flex-col flex-1">
+        <div className="flex-1 space-y-1">
+          <p className="text-sm font-semibold leading-snug line-clamp-2">{course.title}</p>
+          {course.description && (
+            <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{course.description}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Vista detalle del curso ──────────────────────────────────────────────────
 function CourseDetail({
-  course, tab, onTabChange, onBack, onTogglePublish, onDelete, onCopyLink, copiedSlug,
+  course, tab, onTabChange, onBack, onTogglePublish,
 }: {
   course: CrmCourse;
-  tab: "contenido" | "alumnos";
-  onTabChange: (t: "contenido" | "alumnos") => void;
+  tab: CourseTab;
+  onTabChange: (t: CourseTab) => void;
   onBack: () => void;
   onTogglePublish: () => void;
-  onDelete: () => void;
-  onCopyLink: () => void;
-  copiedSlug: boolean;
 }) {
-  const upsertCourse  = useUpsertCourse();
-  const deleteCourse  = useDeleteCourse();
-  const insertLog     = useInsertLog();
-  const upsertPrices  = useUpsertPrices();
-  const thumbInputRef = useRef<HTMLInputElement>(null);
+  const upsertCourse   = useUpsertCourse();
+  const deleteCourse   = useDeleteCourse();
+  const insertLog      = useInsertLog();
+  const upsertFaqs     = useUpsertFaqs();
+  const upsertPlan     = useUpsertCoursePlan();
+  const upsertPlanPrices        = useUpsertPrices();
+  const upsertPlanPaymentMethod = useUpsertPaymentMethod();
+  const { data: plans = [] } = useCoursePlans(course.id);
+  const thumbInputRef  = useRef<HTMLInputElement>(null);
 
-  // Local display state (se actualiza tras guardar sin esperar re-render del padre)
-  const [localTitle, setLocalTitle] = useState(course.title);
-  const [localSlug, setLocalSlug]   = useState(course.slug);
+  const [showMobileContent, setShowMobileContent] = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  // Nuevo plan — se muestra como borrador en memoria; solo se guarda al hacer clic en "Guardar plan"
+  const [newPlanDraft, setNewPlanDraft] = useState<DraftPlan | null>(null);
+  const [savingNewPlan, setSavingNewPlan] = useState(false);
+  const handleStartAddPlan = () => setNewPlanDraft(emptyDraftPlan(0));
+  const handleCancelAddPlan = () => setNewPlanDraft(null);
+  const handleSaveNewPlan = async () => {
+    if (!newPlanDraft || !newPlanDraft.name.trim()) return;
+    setSavingNewPlan(true);
+    try {
+      const created = await upsertPlan.mutateAsync({
+        course_id: course.id,
+        name: newPlanDraft.name.trim(),
+        price: newPlanDraft.price ? parseFloat(newPlanDraft.price) : 0,
+        currency: newPlanDraft.currency,
+        discount_pct: newPlanDraft.discountPct,
+        is_recurring: newPlanDraft.isRecurring,
+        recurring_price: newPlanDraft.isRecurring && newPlanDraft.recurringPrice ? parseFloat(newPlanDraft.recurringPrice) : null,
+        recurring_currency: newPlanDraft.isRecurring ? newPlanDraft.currency : null,
+        recurring_interval: newPlanDraft.isRecurring ? newPlanDraft.recurringInterval : null,
+        recurring_discount_pct: newPlanDraft.isRecurring ? newPlanDraft.recurringDiscountPct : 0,
+        sort_order: plans.length,
+      });
+      if (newPlanDraft.prices.length > 0) {
+        await upsertPlanPrices.mutateAsync({ entityType: "course_plan", entityId: created.id, prices: newPlanDraft.prices });
+      }
+      for (const pm of newPlanDraft.paymentMethods) {
+        await upsertPlanPaymentMethod.mutateAsync({
+          entity_type: "course_plan",
+          entity_id: created.id,
+          type: pm.type!,
+          label: pm.label ?? null,
+          content: pm.content!,
+          sort_order: pm.sort_order ?? 0,
+          price_id: null,
+          currency: pm.currency ?? null,
+        });
+      }
+      toast.success("Plan creado");
+      setNewPlanDraft(null);
+    } catch {
+      toast.error("Error al crear el plan");
+    } finally {
+      setSavingNewPlan(false);
+    }
+  };
 
   // Portada
   const [thumbLoading, setThumbLoading] = useState(false);
   const [thumbUrl, setThumbUrl]         = useState<string | null>(course.thumbnail_url);
 
-  // Edición de metadatos
-  const [editingMeta, setEditingMeta] = useState(false);
-  const [editForm, setEditForm]       = useState({ title: course.title, description: course.description ?? "", slug: course.slug, price: course.price?.toString() ?? "", currency: course.currency ?? "USD" });
-  const [savingMeta, setSavingMeta]   = useState(false);
+  // Información
+  const [name, setName]               = useState(course.title);
+  const [description, setDescription] = useState(course.description ?? "");
+  const [slug, setSlug]               = useState(course.slug);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
-  // Precios multi-moneda
-  const { data: existingPrices = [] } = usePricesByEntity("course", course.id);
-  const [editPrices, setEditPrices]   = useState<PriceEntry[]>([]);
-  useEffect(() => {
-    setEditPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price, discount_pct: p.discount_pct ?? null })));
-  }, [existingPrices]);
+  // Copiar link (usa el slug editado en vivo, no el de props que puede quedar desactualizado)
+  const [copied, setCopied] = useState(false);
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(`${APP_URL}/curso/${course.user_id}/${slug}`);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   // FAQs
   const { data: existingFaqs = [] } = useFaqsByEntity("course", course.id);
-  const [editFaqs, setEditFaqs]     = useState<FaqEntry[]>([]);
+  const [faqs, setFaqs] = useState<FaqEntry[]>([]);
+  const faqsRef       = useRef(faqs);
+  const faqsSaveTimer = useRef<ReturnType<typeof setTimeout>>();
   useEffect(() => {
-    setEditFaqs(existingFaqs.map(f => ({ question: f.question, answer: f.answer })));
+    setFaqs(existingFaqs.map(f => ({ question: f.question, answer: f.answer })));
   }, [existingFaqs]);
+  const handleFaqsChange = (next: FaqEntry[]) => {
+    setFaqs(next);
+    faqsRef.current = next;
+    clearTimeout(faqsSaveTimer.current);
+    faqsSaveTimer.current = setTimeout(() => {
+      upsertFaqs.mutate(
+        { entityType: "course", entityId: course.id, faqs: faqsRef.current },
+        { onError: () => toast.error("Error al guardar las FAQs") }
+      );
+    }, 800);
+  };
+  useEffect(() => () => clearTimeout(faqsSaveTimer.current), []);
+
+  // Autoguardado de nombre/descripción/slug
+  const isFirstRender = useRef(true);
+  const saveTimer      = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    clearTimeout(saveTimer.current);
+    setAutoSaveStatus("saving");
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await upsertCourse.mutateAsync({
+          id: course.id,
+          title: name.trim() || course.title,
+          description: description || null,
+          slug: slugify(slug.trim()) || course.slug,
+        });
+        setAutoSaveStatus("saved");
+        setTimeout(() => setAutoSaveStatus("idle"), 2000);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : "";
+        toast.error(message.includes("unique") ? "Ya existe un curso con esa URL — cámbiala en Opciones avanzadas" : "Error al guardar");
+        setAutoSaveStatus("idle");
+      }
+    }, 800);
+    return () => clearTimeout(saveTimer.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, description, slug]);
 
   // Eliminar curso
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleting, setDeleting]           = useState(false);
 
-  const openEdit = () => {
-    setEditForm({ title: localTitle, description: course.description ?? "", slug: localSlug, price: course.price?.toString() ?? "", currency: course.currency ?? "USD" });
-    setEditingMeta(true);
-  };
-
-  const handleSaveMeta = async () => {
-    if (!editForm.title.trim() || !editForm.slug.trim()) return;
-    setSavingMeta(true);
-    try {
-      const price = editForm.price ? parseFloat(editForm.price) : null;
-      await upsertCourse.mutateAsync({ id: course.id, title: editForm.title.trim(), description: editForm.description || null, slug: editForm.slug.trim(), price, currency: editForm.currency });
-      await Promise.all([
-        upsertPrices.mutateAsync({ entityType: "course", entityId: course.id, prices: editPrices }),
-        upsertFaqs.mutateAsync({ entityType: "course", entityId: course.id, faqs: editFaqs }),
-      ]);
-      setLocalTitle(editForm.title.trim());
-      setLocalSlug(editForm.slug.trim());
-      setEditingMeta(false);
-      toast.success("Curso actualizado");
-    } catch (err: any) {
-      toast.error(err.message?.includes("unique") ? "Ya existe un curso con ese slug" : "Error al guardar");
-    } finally {
-      setSavingMeta(false);
-    }
-  };
-
   const handleDelete = async () => {
     setDeleting(true);
     try {
       await deleteCourse.mutateAsync(course.id);
-      insertLog.mutateAsync({ action: "delete", entity: "curso", entity_id: course.id, description: `Curso eliminado: ${localTitle}` }).catch(() => {});
+      insertLog.mutateAsync({ action: "delete", entity: "curso", entity_id: course.id, description: `Curso eliminado: ${name}` }).catch(() => {});
       toast.success("Curso eliminado");
       onBack();
     } catch {
@@ -578,195 +644,461 @@ function CourseDetail({
     }
   };
 
-  return (
-    <div className="space-y-4">
+  const TABS = [
+    { id: "contenido"   as const, label: "Contenido",   description: "Módulos y lecciones",              icon: BookOpen },
+    { id: "alumnos"     as const, label: "Alumnos",      description: "Acceso de alumnos",                icon: Users },
+    { id: "informacion" as const, label: "Información",  description: "Portada, nombre, descripción y FAQs", icon: Info },
+    { id: "planes"      as const, label: "Planes",       description: "Planes de precio, pago único o recurrente", icon: DollarSign },
+    { id: "ajustes"     as const, label: "Ajustes",      description: "Publicación y eliminar curso",     icon: SlidersHorizontal },
+  ];
+  const activeTabDef = TABS.find(t => t.id === tab) ?? TABS[0];
 
-      {/* Modal: editar metadatos */}
-      {editingMeta && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center px-4" onClick={() => setEditingMeta(false)}>
-          <div className="bg-card border rounded-2xl w-full max-w-md max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b shrink-0">
-              <h3 className="text-sm font-semibold">Editar curso</h3>
-              <button onClick={() => setEditingMeta(false)} className="text-muted-foreground hover:text-foreground"><X size={16} /></button>
+  const StatusPill = () => (
+    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full shrink-0 ${
+      course.is_published
+        ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+        : "bg-muted text-muted-foreground"
+    }`}>
+      <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${course.is_published ? "bg-emerald-500 animate-pulse" : "bg-muted-foreground/40"}`} />
+      {course.is_published ? "Online" : "Offline"}
+    </span>
+  );
+
+  const handleSelectTab = (id: CourseTab) => {
+    onTabChange(id);
+    setShowMobileContent(true);
+  };
+
+  const PortadaSection = () => (
+    <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/20">
+      <div
+        className={`relative w-28 h-16 sm:w-36 sm:h-20 rounded-lg overflow-hidden border shrink-0 group/thumb ${thumbLoading ? "cursor-wait" : "cursor-pointer"}`}
+        onClick={() => !thumbLoading && thumbInputRef.current?.click()}
+      >
+        {thumbUrl ? (
+          <img src={thumbUrl} alt="Portada" className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full bg-gradient-to-br from-muted to-muted/60 flex items-center justify-center">
+            <ImageIcon size={14} className="text-muted-foreground/30" />
+          </div>
+        )}
+        <div className={`absolute inset-0 bg-black/60 transition-opacity flex items-center justify-center ${thumbLoading ? "opacity-100" : "opacity-0 group-hover/thumb:opacity-100"}`}>
+          {thumbLoading
+            ? <Loader2 size={14} className="text-white animate-spin" />
+            : <ImageIcon size={14} className="text-white" />}
+        </div>
+      </div>
+      <div className="flex-1 min-w-0 space-y-1">
+        <p className="text-xs font-semibold text-muted-foreground">Portada del curso</p>
+        <button
+          onClick={() => !thumbLoading && thumbInputRef.current?.click()}
+          className="text-[11px] text-primary hover:text-primary/80 font-medium transition-colors cursor-pointer"
+        >
+          {thumbUrl ? "Cambiar imagen" : "Subir imagen"}
+        </button>
+        <p className="text-[10px] text-muted-foreground/40 leading-tight">1280×720 · JPG o PNG · máx 2 MB</p>
+      </div>
+      <input ref={thumbInputRef} type="file" accept="image/*" className="hidden"
+        onChange={e => { const f = e.target.files?.[0]; if (f) handleThumbChange(f); e.target.value = ""; }} />
+    </div>
+  );
+
+  const renderTabContent = () => (
+    <>
+      {tab === "contenido" && <LessonsTab course={course} />}
+      {tab === "alumnos"   && <AlumnosTab course={course} />}
+
+      {tab === "informacion" && (
+        <div className="space-y-6">
+          <div className="bg-card border rounded-2xl p-6 space-y-4">
+            <PortadaSection />
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Nombre del curso</label>
+              <Input value={name} onChange={e => setName(e.target.value)} className="h-9 text-sm" placeholder="Ej: Marketing Digital desde Cero" />
             </div>
-            <div className="overflow-y-auto flex-1 px-6 py-4 space-y-3">
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Título *</label>
-                <Input value={editForm.title} onChange={e => setEditForm(f => ({ ...f, title: e.target.value }))} className="h-9 text-sm" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Slug (URL) *</label>
-                <div className="flex items-center gap-2">
-                  <span className="text-xs text-muted-foreground/60 shrink-0">/curso/</span>
-                  <Input value={editForm.slug} onChange={e => setEditForm(f => ({ ...f, slug: slugify(e.target.value) }))} className="h-9 text-sm" />
-                </div>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Descripción</label>
-                <Input value={editForm.description} onChange={e => setEditForm(f => ({ ...f, description: e.target.value }))} placeholder="Breve descripción del curso" className="h-9 text-sm" />
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Precio <span className="text-[10px]">(vacío = gratuito)</span></label>
-                <div className="flex gap-2">
-                  <select
-                    value={editForm.currency}
-                    onChange={e => setEditForm(f => ({ ...f, currency: e.target.value }))}
-                    className="h-9 rounded-xl border border-border bg-background text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all shrink-0"
-                  >
-                    {CURRENCIES.map(c => (
-                      <option key={c.code} value={c.code}>{c.flag} {c.code}</option>
-                    ))}
-                  </select>
-                  <Input type="number" min="0" step="0.01" value={editForm.price} onChange={e => setEditForm(f => ({ ...f, price: e.target.value }))} placeholder="0.00" className="h-9 text-sm flex-1" />
-                </div>
-              </div>
-              <PriceListEditor value={editPrices} onChange={setEditPrices} baseCurrency={editForm.currency} />
-              <FaqEditor value={editFaqs} onChange={setEditFaqs} />
-              {/* Métodos de pago */}
-              <div className="pt-1 border-t border-border/50 space-y-2">
-                <div className="flex items-center gap-1.5">
-                  <CreditCard size={12} className="text-muted-foreground" />
-                  <span className="text-xs font-medium text-muted-foreground">Métodos de pago <span className="text-[10px] font-normal">(opcional)</span></span>
-                </div>
-                <PaymentMethodsEditor entityType="course" entityId={course.id} prices={existingPrices} baseCurrency={editForm.currency} />
-              </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Descripción <span className="text-[10px]">(opcional)</span></label>
+              <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Breve descripción del curso" className="h-9 text-sm" />
             </div>
-            <div className="flex gap-2 px-6 py-4 border-t shrink-0">
-              <Button variant="outline" size="sm" onClick={() => setEditingMeta(false)} className="flex-1">Cancelar</Button>
-              <Button size="sm" onClick={handleSaveMeta} disabled={savingMeta || !editForm.title.trim() || !editForm.slug.trim()} className="flex-1 gap-1.5">
-                {savingMeta && <Loader2 size={12} className="animate-spin" />} Guardar
-              </Button>
+
+            <div className="pt-1 border-t border-border/50">
+              <button onClick={() => setShowAdvanced(v => !v)}
+                className="flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors pt-2">
+                {showAdvanced ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+                Opciones avanzadas
+              </button>
+              {showAdvanced && (
+                <div className="space-y-1.5 pt-2">
+                  <label className="text-xs font-medium text-muted-foreground">Slug (URL)</label>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-muted-foreground/60 shrink-0">/curso/</span>
+                    <Input value={slug} onChange={e => setSlug(slugify(e.target.value))} className="h-9 text-sm font-mono" />
+                  </div>
+                  <p className="text-[10px] text-muted-foreground/40">Cambiarlo invalida los links que ya compartiste con tus alumnos.</p>
+                </div>
+              )}
             </div>
+          </div>
+
+          <div className="bg-card border rounded-2xl p-6 space-y-4">
+            <h2 className="text-sm font-semibold">FAQs</h2>
+            <FaqEditor value={faqs} onChange={handleFaqsChange} />
           </div>
         </div>
       )}
 
+      {tab === "planes" && (
+        <div className="space-y-3">
+          <p className="text-xs text-muted-foreground">
+            Cada plan puede ser de pago único o recurrente, con sus propios precios en otras monedas y métodos de pago.
+            Si no hay ningún plan, el curso queda sin precio (acceso gratuito o venta manual).
+          </p>
+
+          {plans.map(p => <PlanRow key={p.id} plan={p} courseId={course.id} />)}
+
+          {newPlanDraft && (
+            <div className="space-y-2">
+              <DraftPlanCard plan={newPlanDraft} onChange={setNewPlanDraft} onRemove={handleCancelAddPlan} />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleSaveNewPlan} disabled={savingNewPlan || !newPlanDraft.name.trim()} className="gap-1.5">
+                  {savingNewPlan && <Loader2 size={12} className="animate-spin" />} Guardar plan
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleCancelAddPlan}>Cancelar</Button>
+              </div>
+            </div>
+          )}
+
+          {!newPlanDraft && (
+            plans.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border py-10 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center mx-auto">
+                  <DollarSign size={22} className="text-muted-foreground/30" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-muted-foreground">Aún no tienes planes</p>
+                  <p className="text-xs text-muted-foreground/50 mt-0.5">Crea tu primer plan de precio para este curso</p>
+                </div>
+                <Button size="sm" onClick={handleStartAddPlan} className="gap-1.5 mx-auto">
+                  <Plus size={13} /> Añadir plan
+                </Button>
+              </div>
+            ) : (
+              <button onClick={handleStartAddPlan} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                <Plus size={12} /> Añadir plan
+              </button>
+            )
+          )}
+        </div>
+      )}
+
+      {tab === "ajustes" && (
+        <div className="space-y-6">
+          <div className="bg-card border rounded-2xl p-6 space-y-3">
+            <h2 className="text-sm font-semibold">Estado</h2>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <div
+                onClick={onTogglePublish}
+                className={`relative w-10 h-5 rounded-full transition-colors shrink-0 ${course.is_published ? "bg-primary" : "bg-secondary border"}`}
+              >
+                <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${course.is_published ? "translate-x-5" : ""}`} />
+              </div>
+              <span className="text-sm">{course.is_published ? "Online" : "Offline"}</span>
+            </label>
+            <p className="text-xs text-muted-foreground/70">Los cursos offline no son visibles ni accesibles para tus alumnos.</p>
+          </div>
+
+          <div className="bg-card border rounded-2xl p-6 space-y-3">
+            <h2 className="text-sm font-semibold">Link público</h2>
+            <div className="flex items-center gap-2 flex-wrap">
+              <code className="flex-1 min-w-0 text-xs font-mono px-3 py-2 rounded-lg bg-muted/50 border truncate">
+                {`${APP_URL}/curso/${course.user_id}/${slug}`}
+              </code>
+              <div className="flex items-center gap-1.5 shrink-0">
+                <Button variant="outline" size="sm" onClick={handleCopyLink} className="h-8 text-xs gap-1.5">
+                  {copied ? <Check size={12} className="text-emerald-500" /> : <Link2 size={12} />} Copiar
+                </Button>
+                <a href={`/curso/${course.user_id}/${slug}`} target="_blank" rel="noopener noreferrer">
+                  <Button variant="outline" size="sm" className="h-8 text-xs gap-1.5">
+                    <ExternalLink size={12} /> Ir
+                  </Button>
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-card border border-destructive/20 rounded-2xl p-6 space-y-3">
+            <h2 className="text-sm font-semibold text-destructive">Eliminar curso</h2>
+            <p className="text-xs text-muted-foreground">Se eliminarán todos los módulos, lecciones y accesos de alumnos. Esta acción no se puede deshacer.</p>
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDelete(true)}
+              className="text-destructive hover:bg-destructive/10 border-destructive/30"
+            >
+              <Trash2 size={13} className="mr-1.5" /> Eliminar curso
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  const HeaderBlock = () => (
+    <div className="flex items-start justify-between gap-3 flex-wrap">
+      <div className="min-w-0">
+        <button onClick={onBack} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-3 transition-colors">
+          <ArrowLeft size={12} /> Volver a cursos
+        </button>
+        <h2 className="text-lg font-semibold truncate">{name || "Curso"}</h2>
+      </div>
+      {autoSaveStatus !== "idle" && (
+        <span className="text-xs text-muted-foreground flex items-center gap-1.5 shrink-0">
+          {autoSaveStatus === "saving" ? (
+            <><Loader2 size={11} className="animate-spin" />Guardando...</>
+          ) : (
+            <><span className="text-green-500 font-semibold">✓</span> Guardado</>
+          )}
+        </span>
+      )}
+    </div>
+  );
+
+  return (
+    <>
       <DeleteConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         onConfirm={handleDelete}
         isPending={deleting}
-        description={`Se eliminarán todos los módulos, lecciones y accesos de alumnos de "${localTitle}". Esta acción no se puede deshacer.`}
+        description={`Se eliminarán todos los módulos, lecciones y accesos de alumnos de "${name}". Esta acción no se puede deshacer.`}
       />
 
-      {/* Barra superior */}
-      <div className="flex items-center gap-2 pb-1">
-        <button
-          onClick={onBack}
-          className="w-8 h-8 rounded-xl border flex items-center justify-center text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors cursor-pointer shrink-0"
-        >
-          <ArrowLeft size={14} />
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <h2 className="text-sm font-bold truncate max-w-[160px] sm:max-w-none">{localTitle}</h2>
-            <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full shrink-0 ${
-              course.is_published
-                ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-                : "bg-muted text-muted-foreground"
-            }`}>
-              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                course.is_published
-                  ? "bg-emerald-500 animate-pulse"
-                  : "bg-muted-foreground/40"
-              }`} />
-              {course.is_published ? "Online" : "Offline"}
-            </span>
-            {course.price != null && (
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/10 text-primary shrink-0">
-                {getCurrencyFlag(course.currency ?? "USD")} {formatAmount(course.price, course.currency)}
-              </span>
-            )}
-          </div>
-          <p className="text-[10px] text-muted-foreground/40 font-mono mt-0.5 truncate">/…/{localSlug}</p>
-        </div>
-        {/* Acciones — compactas en mobile */}
-        <div className="flex items-center gap-0.5 shrink-0">
-          <button onClick={openEdit} title="Editar"
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-muted transition-colors cursor-pointer">
-            <Pencil size={13} />
-          </button>
-          <button onClick={onCopyLink} title="Copiar link"
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer">
-            {copiedSlug ? <Check size={13} className="text-emerald-500" /> : <Link2 size={13} />}
-          </button>
-          <a href={`/curso/${course.user_id}/${localSlug}`} target="_blank" rel="noopener noreferrer"
-            className="hidden sm:flex w-8 h-8 rounded-xl items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors cursor-pointer">
-            <ExternalLink size={13} />
-          </a>
-          <div className="w-px h-5 bg-border mx-1" />
-          <Button
-            size="sm"
-            variant="outline"
-            className={`h-8 text-xs font-semibold px-2.5 sm:px-3 gap-1.5 transition-colors ${
-              course.is_published
-                ? "border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 dark:border-red-900/60 dark:text-red-400 dark:hover:bg-red-950/30 dark:hover:border-red-800"
-                : "border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 hover:border-emerald-400 dark:border-emerald-800 dark:text-emerald-400 dark:bg-emerald-950/20 dark:hover:bg-emerald-950/40"
-            }`}
-            onClick={onTogglePublish}
-          >
-            {course.is_published ? <WifiOff size={12} /> : <Wifi size={12} />}
-            <span className="hidden sm:inline">
-              {course.is_published ? "Poner offline" : "Publicar"}
-            </span>
-          </Button>
-          <button onClick={() => setConfirmDelete(true)} title="Eliminar"
-            className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/20 transition-colors cursor-pointer">
-            <Trash2 size={13} />
-          </button>
-        </div>
-      </div>
-
-      {/* Portada — compacto */}
-      <div className="flex items-center gap-3 p-3 rounded-xl border bg-muted/20">
-        <div
-          className={`relative w-28 h-16 sm:w-36 sm:h-20 rounded-lg overflow-hidden border shrink-0 group/thumb ${thumbLoading ? "cursor-wait" : "cursor-pointer"}`}
-          onClick={() => !thumbLoading && thumbInputRef.current?.click()}
-        >
-          {thumbUrl ? (
-            <img src={thumbUrl} alt="Portada" className="w-full h-full object-cover" />
-          ) : (
-            <div className="w-full h-full bg-gradient-to-br from-muted to-muted/60 flex items-center justify-center">
-              <ImageIcon size={14} className="text-muted-foreground/30" />
+      {/* ── Mobile ── */}
+      <div className="lg:hidden">
+        {!showMobileContent ? (
+          <div className="space-y-6">
+            <HeaderBlock />
+            <div className="bg-card border rounded-2xl overflow-hidden divide-y divide-border/50">
+              {TABS.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => handleSelectTab(t.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-secondary/60 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center shrink-0">
+                    <t.icon size={15} className="text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium leading-tight flex items-center gap-1.5">
+                      {t.label}
+                      {t.id === "ajustes" && <StatusPill />}
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{t.description}</p>
+                  </div>
+                  <ChevronRight size={14} className="shrink-0 text-muted-foreground/30" />
+                </button>
+              ))}
             </div>
-          )}
-          <div className={`absolute inset-0 bg-black/60 transition-opacity flex items-center justify-center ${thumbLoading ? "opacity-100" : "opacity-0 group-hover/thumb:opacity-100"}`}>
-            {thumbLoading
-              ? <Loader2 size={14} className="text-white animate-spin" />
-              : <ImageIcon size={14} className="text-white" />}
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <button
+              onClick={() => setShowMobileContent(false)}
+              className="flex items-center gap-0.5 text-primary text-sm font-medium -ml-1 hover:opacity-75 transition-opacity"
+            >
+              <ChevronLeft size={20} />
+              {name || "Curso"}
+            </button>
+            <div>
+              <h2 className="text-xl font-semibold leading-tight flex items-center gap-2">
+                {activeTabDef.label}
+                {tab === "ajustes" && <StatusPill />}
+              </h2>
+              <p className="text-sm text-muted-foreground mt-0.5">{activeTabDef.description}</p>
+            </div>
+            {renderTabContent()}
+          </div>
+        )}
+      </div>
+
+      {/* ── Desktop ── */}
+      <div className="hidden lg:block space-y-6">
+        <HeaderBlock />
+
+        <div className="overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <div className="inline-flex items-center gap-0.5 bg-secondary/60 rounded-xl p-1 min-w-max">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => onTabChange(t.id)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                  tab === t.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}>
+                <t.icon size={13} className="shrink-0" /> {t.label}
+                {t.id === "ajustes" && <StatusPill />}
+              </button>
+            ))}
           </div>
         </div>
-        <div className="flex-1 min-w-0 space-y-1">
-          <p className="text-xs font-semibold text-muted-foreground">Portada del curso</p>
-          <button
-            onClick={() => !thumbLoading && thumbInputRef.current?.click()}
-            className="text-[11px] text-primary hover:text-primary/80 font-medium transition-colors cursor-pointer"
-          >
-            {thumbUrl ? "Cambiar imagen" : "Subir imagen"}
-          </button>
-          <p className="text-[10px] text-muted-foreground/40 leading-tight">1280×720 · JPG o PNG · máx 2 MB</p>
+        {renderTabContent()}
+      </div>
+    </>
+  );
+}
+
+// ─── Fila de plan (edición en vivo, autoguardado) ──────────────────────────────
+function PlanRow({ plan, courseId }: { plan: CrmCoursePlan; courseId: string }) {
+  const upsertPlan   = useUpsertCoursePlan();
+  const deletePlan   = useDeleteCoursePlan();
+  const upsertPrices = useUpsertPrices();
+
+  const [expanded, setExpanded] = useState(false);
+  const [name, setName]                             = useState(plan.name);
+  const [price, setPrice]                           = useState(plan.price != null ? String(plan.price) : "");
+  const [currency, setCurrency]                     = useState(plan.currency);
+  const [discountPct, setDiscountPct]               = useState(plan.discount_pct ?? 0);
+  const [isRecurring, setIsRecurring]               = useState(plan.is_recurring);
+  const [recurringPrice, setRecurringPrice]         = useState(plan.recurring_price != null ? String(plan.recurring_price) : "");
+  const [recurringInterval, setRecurringInterval]   = useState<CrmCoursePlan["recurring_interval"]>(plan.recurring_interval ?? "mensual");
+  const [recurringDiscountPct, setRecurringDiscountPct] = useState(plan.recurring_discount_pct ?? 0);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting]           = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  const { data: existingPrices = [] } = usePricesByEntity("course_plan", plan.id);
+  const [prices, setPrices] = useState<PriceEntry[]>([]);
+  useEffect(() => {
+    setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price, discount_pct: p.discount_pct ?? null })));
+  }, [existingPrices]);
+  const pricesSaveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const handlePricesChange = (next: PriceEntry[]) => {
+    setPrices(next);
+    clearTimeout(pricesSaveTimer.current);
+    pricesSaveTimer.current = setTimeout(() => {
+      upsertPrices.mutate(
+        { entityType: "course_plan", entityId: plan.id, prices: next },
+        { onError: () => toast.error("Error al guardar los precios adicionales del plan") }
+      );
+    }, 800);
+  };
+  useEffect(() => () => clearTimeout(pricesSaveTimer.current), []);
+
+  const isFirstRender = useRef(true);
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    clearTimeout(saveTimer.current);
+    setAutoSaveStatus("saving");
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await upsertPlan.mutateAsync({
+          id: plan.id,
+          course_id: courseId,
+          name: name.trim() || plan.name,
+          price: price ? parseFloat(price) : 0,
+          currency,
+          discount_pct: discountPct,
+          is_recurring: isRecurring,
+          recurring_price: isRecurring && recurringPrice ? parseFloat(recurringPrice) : null,
+          recurring_currency: isRecurring ? currency : null,
+          recurring_interval: isRecurring ? recurringInterval : null,
+          recurring_discount_pct: isRecurring ? recurringDiscountPct : 0,
+        });
+        setAutoSaveStatus("saved");
+        setTimeout(() => setAutoSaveStatus("idle"), 1500);
+      } catch {
+        toast.error("Error al guardar el plan");
+        setAutoSaveStatus("idle");
+      }
+    }, 800);
+    return () => clearTimeout(saveTimer.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, price, currency, discountPct, isRecurring, recurringPrice, recurringInterval, recurringDiscountPct]);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await deletePlan.mutateAsync({ id: plan.id, courseId });
+      toast.success("Plan eliminado");
+    } catch {
+      toast.error("Error al eliminar el plan");
+      setDeleting(false);
+    }
+  };
+
+  const recurringFinal = planFinalRecurringPrice(plan);
+  const priceSummary = `${formatAmount(planFinalPrice(plan), plan.currency)}${
+    plan.is_recurring && recurringFinal != null
+      ? ` + ${formatAmount(recurringFinal, plan.recurring_currency ?? plan.currency)}/${INTERVAL_LABELS[plan.recurring_interval ?? "mensual"]}`
+      : ""
+  }`;
+
+  const deleteDialog = (
+    <DeleteConfirmDialog
+      open={confirmDelete}
+      onOpenChange={setConfirmDelete}
+      onConfirm={handleDelete}
+      isPending={deleting}
+      description={`Se eliminará el plan "${plan.name}" permanentemente.`}
+    />
+  );
+
+  if (!expanded) {
+    return (
+      <>
+        {deleteDialog}
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full flex items-center gap-3 bg-secondary/20 border rounded-xl px-4 py-3 hover:border-primary/40 transition-colors text-left"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{plan.name}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">{priceSummary}</p>
+          </div>
+          <ChevronRight size={14} className="shrink-0 text-muted-foreground/40" />
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <div className="bg-secondary/20 border rounded-xl p-4 space-y-3">
+      {deleteDialog}
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => setExpanded(false)} className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
+          <ChevronDown size={13} />
+          {plan.name}
+          {autoSaveStatus === "saving" && <Loader2 size={11} className="animate-spin" />}
+          {autoSaveStatus === "saved" && <Check size={11} className="text-emerald-500" />}
+        </button>
+        <button onClick={() => setConfirmDelete(true)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+          <Trash2 size={13} />
+        </button>
+      </div>
+      <PlanFields
+        name={name} price={price} currency={currency} discountPct={discountPct}
+        isRecurring={isRecurring} recurringPrice={recurringPrice} recurringInterval={recurringInterval} recurringDiscountPct={recurringDiscountPct}
+        onChange={patch => {
+          if (patch.name !== undefined) setName(patch.name);
+          if (patch.price !== undefined) setPrice(patch.price);
+          if (patch.currency !== undefined) setCurrency(patch.currency);
+          if (patch.discountPct !== undefined) setDiscountPct(patch.discountPct);
+          if (patch.isRecurring !== undefined) setIsRecurring(patch.isRecurring);
+          if (patch.recurringPrice !== undefined) setRecurringPrice(patch.recurringPrice);
+          if (patch.recurringInterval !== undefined) setRecurringInterval(patch.recurringInterval);
+          if (patch.recurringDiscountPct !== undefined) setRecurringDiscountPct(patch.recurringDiscountPct);
+        }}
+      />
+      <div className="pt-2 border-t border-border/50 space-y-1.5">
+        <label className="text-[11px] text-muted-foreground">Precio en otra moneda (opcional)</label>
+        <PriceListEditor value={prices} onChange={handlePricesChange} baseCurrency={currency} />
+      </div>
+      <div className="pt-2 border-t border-border/50 space-y-2">
+        <div className="flex items-center gap-1.5">
+          <CreditCard size={12} className="text-muted-foreground" />
+          <span className="text-xs font-medium text-muted-foreground">Métodos de pago</span>
         </div>
-        <input ref={thumbInputRef} type="file" accept="image/*" className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) handleThumbChange(f); e.target.value = ""; }} />
+        <PaymentMethodsEditor entityType="course_plan" entityId={plan.id} prices={existingPrices} baseCurrency={currency} />
       </div>
-
-      {/* Tabs — pill style */}
-      <div className="flex gap-1 p-1 bg-muted/50 rounded-xl border border-border/50">
-        {(["contenido", "alumnos"] as const).map(t => (
-          <button key={t} onClick={() => onTabChange(t)}
-            className={`flex flex-1 items-center justify-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-lg transition-all cursor-pointer ${
-              tab === t
-                ? "bg-card text-foreground shadow-sm border border-border/40"
-                : "text-muted-foreground hover:text-foreground"
-            }`}>
-            {t === "contenido" ? <BookOpen size={12} /> : <Users size={12} />}
-            {t === "contenido" ? "Contenido" : "Alumnos"}
-          </button>
-        ))}
-      </div>
-
-      {tab === "contenido" && <LessonsTab course={course} />}
-      {tab === "alumnos"   && <AlumnosTab course={course} />}
     </div>
   );
 }
@@ -1398,10 +1730,15 @@ function LessonsTab({ course }: { course: CrmCourse }) {
       )}
 
       {orderedModules.length === 0 && !addingModule && (
-        <div className="rounded-2xl border border-dashed py-12 text-center space-y-2">
+        <div className="rounded-2xl border border-dashed py-12 text-center space-y-3">
           <FolderOpen size={28} className="mx-auto text-muted-foreground/20" />
-          <p className="text-sm font-medium text-muted-foreground/60">Aún no hay módulos</p>
-          <p className="text-xs text-muted-foreground/40">Crea módulos para organizar las lecciones del curso</p>
+          <div>
+            <p className="text-sm font-medium text-muted-foreground/60">Aún no hay módulos</p>
+            <p className="text-xs text-muted-foreground/40">Crea módulos para organizar las lecciones del curso</p>
+          </div>
+          <Button size="sm" onClick={() => setAddingModule(true)} className="gap-1.5 mx-auto">
+            <Plus size={13} /> Añadir módulo
+          </Button>
         </div>
       )}
 
@@ -1431,6 +1768,7 @@ function LessonsTab({ course }: { course: CrmCourse }) {
 function AlumnosTab({ course }: { course: CrmCourse }) {
   const { data: accesses = [], isLoading } = useCourseAccess(course.id);
   const { data: contacts = [] }            = useContacts();
+  const { data: plans = [] }               = useCoursePlans(course.id);
   const grantAccess   = useGrantCourseAccess();
   const revokeAccess  = useRevokeCourseAccess();
   const createContact = useCreateContact();
@@ -1458,10 +1796,17 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
     } catch { toast.error("Error al reenviar"); }
     finally { setResendingId(null); }
   };
-  // Registrar venta
-  const [registerSale, setRegisterSale]   = useState(false);
-  const [saleAmount, setSaleAmount]       = useState(course.price != null ? String(course.price) : "");
-  const [saleNotes, setSaleNotes]         = useState(`Acceso al curso: ${course.title}`);
+  // Plan seleccionado — determina el monto/moneda de la venta automática
+  const [selectedPlanId, setSelectedPlanId] = useState("");
+  const selectedPlan = plans.find(p => p.id === selectedPlanId) ?? null;
+
+  const handlePlanSelect = (planId: string) => {
+    setSelectedPlanId(planId);
+    const plan = plans.find(p => p.id === planId);
+    if (plan?.is_recurring) {
+      setNewExpiry(addInterval(new Date(), plan.recurring_interval).toISOString().split("T")[0]);
+    }
+  };
 
   const accessedEmails = new Set(accesses.map(a => a.email.toLowerCase()));
   const filteredContacts = contactSearch.trim().length >= 1
@@ -1475,9 +1820,7 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
 
   const resetForm = () => {
     setNewEmail(""); setContactSearch(""); setNewExpiry("");
-    setRegisterSale(false);
-    setSaleAmount(course.price != null ? String(course.price) : "");
-    setSaleNotes(`Acceso al curso: ${course.title}`);
+    setSelectedPlanId("");
     setShowForm(false);
   };
 
@@ -1501,15 +1844,18 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
         }).catch(() => {});
       }
 
-      // Registrar venta si se solicitó
-      if (registerSale && saleAmount && parseFloat(saleAmount) > 0) {
+      // Registrar venta automáticamente si se seleccionó un plan
+      if (selectedPlan) {
         const contact = existingContact ?? contacts.find(c => c.email?.toLowerCase() === email);
         createSale.mutateAsync({
-          service_name: course.title,
-          amount: parseFloat(saleAmount),
+          course_id: course.id,
+          course_name: course.title,
+          course_plan_id: selectedPlan.id,
+          amount: planFinalPrice(selectedPlan),
+          currency: selectedPlan.currency,
           contact_id: contact?.id ?? undefined,
           contact_name: contact?.name ?? email.split("@")[0],
-          notes: saleNotes || undefined,
+          notes: `Acceso al curso: ${course.title} — Plan: ${selectedPlan.name}`,
           type: "initial",
           status: "confirmed",
         }).catch(() => {});
@@ -1589,36 +1935,35 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
             )}
           </div>
 
+          {plans.length > 0 && (
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                <DollarSign size={11} /> Plan <span className="text-[10px] text-muted-foreground/60">(opcional)</span>
+              </label>
+              <select value={selectedPlanId} onChange={e => handlePlanSelect(e.target.value)}
+                className="h-9 w-full rounded-xl border border-border bg-background text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
+                <option value="">Sin plan — no registrar venta</option>
+                {plans.map(p => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} — {formatAmount(planFinalPrice(p), p.currency)}
+                    {p.is_recurring && planFinalRecurringPrice(p) != null ? ` (+ ${formatAmount(planFinalRecurringPrice(p)!, p.recurring_currency ?? p.currency)}/${INTERVAL_LABELS[p.recurring_interval ?? "mensual"]})` : ""}
+                  </option>
+                ))}
+              </select>
+              {selectedPlan && (
+                <p className="text-[10px] text-muted-foreground/60">
+                  Se registrará una venta de {formatAmount(planFinalPrice(selectedPlan), selectedPlan.currency)} al conceder el acceso.
+                </p>
+              )}
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
-              <Calendar size={11} /> Vencimiento <span className="text-[10px] text-muted-foreground/60">(opcional)</span>
+              <Calendar size={11} /> Vencimiento <span className="text-[10px] text-muted-foreground/60">{selectedPlan?.is_recurring ? "(sugerido según el plan)" : "(opcional)"}</span>
             </label>
             <Input type="date" value={newExpiry} onChange={e => setNewExpiry(e.target.value)}
               className="h-9 text-sm" min={new Date().toISOString().split("T")[0]} />
-          </div>
-
-          {/* Registrar venta */}
-          <div className="border rounded-xl p-3 space-y-2.5 bg-muted/20">
-            <label className="flex items-center gap-2.5 cursor-pointer">
-              <input type="checkbox" checked={registerSale} onChange={e => setRegisterSale(e.target.checked)}
-                className="w-4 h-4 rounded accent-primary" />
-              <span className="text-xs font-medium">Registrar venta</span>
-            </label>
-            {registerSale && (
-              <div className="space-y-2 pl-6">
-                <div className="space-y-1">
-                  <label className="text-[11px] text-muted-foreground">Monto</label>
-                  <Input type="number" min="0" step="0.01" value={saleAmount}
-                    onChange={e => setSaleAmount(e.target.value)}
-                    placeholder="0.00" className="h-8 text-sm" />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] text-muted-foreground">Notas</label>
-                  <Input value={saleNotes} onChange={e => setSaleNotes(e.target.value)}
-                    className="h-8 text-sm" />
-                </div>
-              </div>
-            )}
           </div>
 
           <div className="flex gap-2">
@@ -1637,8 +1982,11 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
           </div>
           <div>
             <p className="text-xs font-semibold text-muted-foreground/70">Sin alumnos todavía</p>
-            <p className="text-[11px] text-muted-foreground/40 mt-0.5">Da acceso al primer alumno con el botón de arriba</p>
+            <p className="text-[11px] text-muted-foreground/40 mt-0.5">Da acceso a tu primer alumno</p>
           </div>
+          <Button size="sm" onClick={() => setShowForm(true)} className="gap-1.5 mx-auto">
+            <UserPlus size={13} /> Dar acceso
+          </Button>
         </div>
       ) : (
         <div className="space-y-1.5">

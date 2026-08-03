@@ -10,6 +10,7 @@ import type {
   CrmService,
   CrmProduct,
   CrmProductVariant,
+  CrmProductPlan,
   CrmCatalog,
   CrmCatalogProduct,
   CrmSale,
@@ -37,6 +38,7 @@ import type {
   CrmGoogleEvent,
   CrmSaasAccess,
   CrmCourse,
+  CrmCoursePlan,
   CrmCourseModule,
   CrmCourseLesson,
   CrmCourseAccess,
@@ -2236,7 +2238,7 @@ export const useUpsertProduct = () => {
   const { user } = useCurrentUser();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (product: Partial<CrmProduct> & { name: string; price: number }) => {
+    mutationFn: async (product: Partial<CrmProduct> & { name: string; price?: number }) => {
       if (product.id) {
         const { id, user_id, created_at, updated_at, ...updates } = product as any;
         // Resetear flags de notificación según umbral correcto:
@@ -2282,6 +2284,52 @@ export const useDeleteProduct = () => {
       qc.invalidateQueries({ queryKey: ["crm_catalog_products"] });
       qc.invalidateQueries({ queryKey: ["crm_orphan_products"] });
     },
+  });
+};
+
+export const useProductPlans = (productId: string | null) =>
+  useQuery({
+    queryKey: ["crm_product_plans", productId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_product_plans")
+        .select("*")
+        .eq("product_id", productId!)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmProductPlan[];
+    },
+    enabled: !!productId,
+  });
+
+export const useUpsertProductPlan = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (plan: Partial<Omit<CrmProductPlan, "user_id" | "created_at" | "updated_at">> & { product_id: string; name: string }) => {
+      const payload = { ...plan, user_id: user!.id, updated_at: new Date().toISOString() };
+      if (plan.id) {
+        const { data, error } = await supabase.from("crm_product_plans").update(payload).eq("id", plan.id).select().single();
+        if (error) throw error;
+        return data as CrmProductPlan;
+      }
+      const { data, error } = await supabase.from("crm_product_plans").insert(payload).select().single();
+      if (error) throw error;
+      return data as CrmProductPlan;
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ["crm_product_plans", vars.product_id] }),
+  });
+};
+
+export const useDeleteProductPlan = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, productId }: { id: string; productId: string }) => {
+      const { error } = await supabase.from("crm_product_plans").delete().eq("id", id);
+      if (error) throw error;
+      return productId;
+    },
+    onSuccess: (productId) => qc.invalidateQueries({ queryKey: ["crm_product_plans", productId] }),
   });
 };
 
@@ -2737,6 +2785,52 @@ export const useDeleteCourse = () => {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_courses"] }),
+  });
+};
+
+export const useCoursePlans = (courseId: string | null) =>
+  useQuery({
+    queryKey: ["crm_course_plans", courseId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_course_plans")
+        .select("*")
+        .eq("course_id", courseId!)
+        .order("sort_order", { ascending: true });
+      if (error) throw error;
+      return (data ?? []) as CrmCoursePlan[];
+    },
+    enabled: !!courseId,
+  });
+
+export const useUpsertCoursePlan = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (plan: Partial<Omit<CrmCoursePlan, "user_id" | "created_at" | "updated_at">> & { course_id: string; name: string }) => {
+      const payload = { ...plan, user_id: user!.id, updated_at: new Date().toISOString() };
+      if (plan.id) {
+        const { data, error } = await supabase.from("crm_course_plans").update(payload).eq("id", plan.id).select().single();
+        if (error) throw error;
+        return data as CrmCoursePlan;
+      }
+      const { data, error } = await supabase.from("crm_course_plans").insert(payload).select().single();
+      if (error) throw error;
+      return data as CrmCoursePlan;
+    },
+    onSuccess: (_, vars) => qc.invalidateQueries({ queryKey: ["crm_course_plans", vars.course_id] }),
+  });
+};
+
+export const useDeleteCoursePlan = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, courseId }: { id: string; courseId: string }) => {
+      const { error } = await supabase.from("crm_course_plans").delete().eq("id", id);
+      if (error) throw error;
+      return courseId;
+    },
+    onSuccess: (courseId) => qc.invalidateQueries({ queryKey: ["crm_course_plans", courseId] }),
   });
 };
 

@@ -4,7 +4,7 @@ import {
   ArrowLeft, Plus, Trash2, Loader2, Package, ImageIcon,
   Check, Pencil, X, Link, FileText, ExternalLink,
   AlertTriangle, Minus, Layers, LayoutGrid, List,
-  ChevronRight, ChevronLeft, SlidersHorizontal,
+  ChevronRight, ChevronLeft, SlidersHorizontal, DollarSign, CreditCard, Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,16 +17,21 @@ import {
   useCatalogs, useUpsertCatalog, useDeleteCatalog,
   useProducts, useCatalogProducts, useProductCatalogIds,
   useUpsertProduct, useDeleteProduct, useToggleCatalogProduct,
-  useProductVariants, useUpsertProductVariant, useDeleteProductVariant,
+  useProductVariants,
+  useProductPlans, useUpsertProductPlan, useDeleteProductPlan,
   useOrphanProducts, useAIAgentConfig,
-  useAllProductVariants, usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs,
+  useAllProductVariants, usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs, useUpsertPaymentMethod,
 } from "@/hooks/useCrmData";
-import type { CrmCatalog, CrmProduct, CrmProductVariant } from "@/lib/supabase";
+import type { CrmCatalog, CrmProduct, CrmProductPlan } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
 import CrmPhysicalProductEditor from "@/components/crm/CrmPhysicalProductEditor";
+import {
+  type RecurringInterval, type DraftPlan, emptyDraftPlan, PlanFields, DraftPlanCard,
+  planFinalPrice, planFinalRecurringPrice, INTERVAL_LABELS,
+} from "@/components/crm/PlanEditor";
 
-import { CURRENCIES, formatAmount } from "@/lib/currencies";
+import { formatAmount } from "@/lib/currencies";
 const fmtProd = (amount: number, cur: string) => formatAmount(amount, cur);
 
 // ─── Stock badge con tres niveles de color ────────────────────────────────────
@@ -143,10 +148,11 @@ const productosStorageKey = (kind: ProductKind, suffix: "view" | "catalog_id" | 
   `crm_productos_${kind}_${suffix}`;
 
 // ─── Image Slot ───────────────────────────────────────────────────────────────
-function ImageSlot({ url, index, productId, userId, onUploaded, onRemove }: {
-  url?: string; index: number; productId: string; userId: string;
+function ImageSlot({ url, index, pathId, userId, onUploaded, onRemove, mainLabel = "Principal" }: {
+  url?: string; index: number; pathId: string; userId: string;
   onUploaded: (url: string, index: number) => void;
   onRemove: (index: number) => void;
+  mainLabel?: string;
 }) {
   const [uploading, setUploading] = useState(false);
   const ref = useRef<HTMLInputElement>(null);
@@ -155,7 +161,7 @@ function ImageSlot({ url, index, productId, userId, onUploaded, onRemove }: {
     setUploading(true);
     try {
       const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `${userId}/${productId}/${Date.now()}-${index}.${ext}`;
+      const path = `${userId}/${pathId}/${Date.now()}-${index}.${ext}`;
       const { error } = await supabase.storage.from("product-images").upload(path, file, { upsert: true });
       if (error) throw error;
       const { data } = supabase.storage.from("product-images").getPublicUrl(path);
@@ -189,238 +195,33 @@ function ImageSlot({ url, index, productId, userId, onUploaded, onRemove }: {
       ) : (
         <div className="flex flex-col items-center gap-1 text-muted-foreground/50">
           <Plus size={isMain ? 20 : 14} />
-          {isMain && <span className="text-[10px]">Principal</span>}
+          {isMain && <span className="text-[10px]">{mainLabel}</span>}
         </div>
       )}
     </div>
   );
 }
 
-// ─── Variant Row ──────────────────────────────────────────────────────────────
-function VariantRow({ variant, basePrice, baseCurrency, productId, onSaved, onDelete }: {
-  variant: Partial<CrmProductVariant> & { _new?: boolean };
-  basePrice: number; baseCurrency: string; productId: string;
-  onSaved: (v: CrmProductVariant) => void;
-  onDelete: (id: string) => void;
-}) {
-  const { user } = useCurrentUser();
-  const upsert = useUpsertProductVariant();
-  const remove = useDeleteProductVariant();
-  const [isEditing, setIsEditing]         = useState(!!variant._new || !variant.id);
-  const [name, setName]                   = useState(variant.name ?? "");
-  const [priceOverride, setPriceOverride] = useState(variant.price_override != null ? String(variant.price_override) : "");
-  const [discountPct, setDiscountPct]     = useState(variant.discount_pct ?? 0);
-  const [stock, setStock]                 = useState(variant.stock != null ? String(variant.stock) : "");
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [showPayments, setShowPayments]   = useState(false);
-  const [variantImages, setVariantImages] = useState<string[]>(variant.images ?? []);
-  const [imgUploading, setImgUploading]   = useState(false);
-  const variantImgRef = useRef<HTMLInputElement>(null);
+// ─── Product Editor (productos digitales / archivo) ────────────────────────────
+const WIZARD_STEPS_DIGITAL  = ["Información", "Imágenes Complementarias del producto", "Precio", "Entregable"] as const;
 
-  const effectiveBase = priceOverride !== "" ? parseFloat(priceOverride) : basePrice;
-  const finalPrice = discountPct > 0 ? effectiveBase * (1 - discountPct / 100) : effectiveBase;
-
-  const handleSave = async () => {
-    if (!name.trim()) return;
-    const saved = await upsert.mutateAsync({
-      ...(variant.id ? { id: variant.id } : {}),
-      product_id: productId,
-      name: name.trim(),
-      price_override: priceOverride !== "" ? parseFloat(priceOverride) : null,
-      discount_pct: discountPct,
-      stock: stock !== "" ? parseInt(stock) : null,
-      sort_order: variant.sort_order ?? 0,
-      images: variantImages,
-    });
-    onSaved(saved);
-    setIsEditing(false);
-    toast.success("Variante guardada");
-  };
-
-  const handleVariantImgUpload = async (file: File) => {
-    if (!variant.id) { toast.error("Guarda la variante primero para agregar imágenes"); return; }
-    setImgUploading(true);
-    try {
-      const ext = file.name.split(".").pop() ?? "jpg";
-      const path = `${user!.id}/${productId}/var-${variant.id}-${Date.now()}.${ext}`;
-      const { error } = await supabase.storage.from("product-images").upload(path, file, { upsert: true });
-      if (error) throw error;
-      const { data } = supabase.storage.from("product-images").getPublicUrl(path);
-      const updated = [...variantImages, data.publicUrl];
-      setVariantImages(updated);
-      await upsert.mutateAsync({ id: variant.id, product_id: productId, name: name.trim(), price_override: priceOverride !== "" ? parseFloat(priceOverride) : null, discount_pct: discountPct, stock: stock !== "" ? parseInt(stock) : null, sort_order: variant.sort_order ?? 0, images: updated });
-    } catch (e: any) { toast.error(e.message?.slice(0, 80) ?? "Error al subir imagen"); }
-    finally { setImgUploading(false); }
-  };
-
-  const handleVariantImgRemove = async (idx: number) => {
-    const updated = variantImages.filter((_, i) => i !== idx);
-    setVariantImages(updated);
-    if (variant.id) await upsert.mutateAsync({ id: variant.id, product_id: productId, name: name.trim() || variant.name || "", price_override: priceOverride !== "" ? parseFloat(priceOverride) : null, discount_pct: discountPct, stock: stock !== "" ? parseInt(stock) : null, sort_order: variant.sort_order ?? 0, images: updated });
-  };
-
-  const handleDelete = async () => {
-    if (!variant.id) { onDelete("_new"); return; }
-    await remove.mutateAsync({ id: variant.id, productId });
-    onDelete(variant.id);
-    toast.success("Variante eliminada");
-  };
-
-  // ── Vista compacta (modo lectura) ──────────────────────────────────────────
-  if (!isEditing && variant.id) {
-    return (
-      <div className="space-y-1.5">
-        <div className="flex items-center gap-2 bg-secondary/30 rounded-xl px-3 py-2.5">
-          <span className="flex-1 text-sm font-medium truncate">{name}</span>
-          <span className="text-sm text-primary font-semibold shrink-0">{fmtProd(finalPrice, baseCurrency)}</span>
-          {discountPct > 0 && (
-            <span className="text-xs text-emerald-600 font-medium shrink-0">-{discountPct}%</span>
-          )}
-          <StockBadge stock={stock !== "" ? parseInt(stock) : null} stockEnabled={stock !== ""} />
-          <button onClick={() => setIsEditing(true)}
-            className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors shrink-0">
-            <Pencil size={13} />
-          </button>
-          <button onClick={() => setShowDeleteConfirm(true)}
-            className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
-            <Trash2 size={13} />
-          </button>
-        </div>
-        {variant.id && (
-          <div className="pl-3">
-            <button onClick={() => setShowPayments(v => !v)}
-              className="text-[11px] text-primary hover:text-primary/70 flex items-center gap-1 transition-colors underline-offset-2 hover:underline">
-              <Link size={10} /> {showPayments ? `Ocultar métodos de pago de "${name}"` : `Métodos de pago para "${name}"`}
-            </button>
-            {showPayments && (
-              <div className="mt-2 pl-2 border-l border-border/60">
-                <PaymentMethodsEditor entityType="product_variant" entityId={variant.id} />
-              </div>
-            )}
-          </div>
-        )}
-        <DeleteConfirmDialog
-          open={showDeleteConfirm}
-          onOpenChange={setShowDeleteConfirm}
-          title="Eliminar variante"
-          description={`¿Eliminar la variante "${name}"? Esta acción no se puede deshacer.`}
-          onConfirm={handleDelete}
-        />
-      </div>
-    );
-  }
-
-  // ── Modo edición ────────────────────────────────────────────────────────────
-  return (
-    <div className="space-y-2 bg-secondary/20 border rounded-xl p-3">
-      <div className="grid grid-cols-2 gap-3">
-        <div className="space-y-1">
-          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Nombre de variante *</label>
-          <Input value={name} onChange={e => setName(e.target.value)}
-            placeholder="Ej: Talla L, Color Rojo" className="h-8 text-sm" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Precio ({baseCurrency})</label>
-          <Input value={priceOverride} onChange={e => setPriceOverride(e.target.value)}
-            type="number" placeholder={`${basePrice} (usa precio base)`} className="h-8 text-sm" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Descuento %</label>
-          <Input value={discountPct || ""} onChange={e => setDiscountPct(Math.min(99, Math.max(0, parseFloat(e.target.value) || 0)))}
-            type="number" placeholder="0" min={0} max={99} className="h-8 text-sm" />
-        </div>
-        <div className="space-y-1">
-          <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Stock (unidades)</label>
-          <Input value={stock} onChange={e => setStock(e.target.value)}
-            type="number" placeholder="Sin límite" className="h-8 text-sm" />
-        </div>
-      </div>
-      {discountPct > 0 && (
-        <p className="text-xs text-emerald-600 font-medium">
-          Precio final: {fmtProd(finalPrice, baseCurrency)} ({discountPct}% descuento)
-        </p>
-      )}
-      {/* Imágenes de variante */}
-      <div className="space-y-1.5">
-        <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Imágenes de variante</label>
-        <input ref={variantImgRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden"
-          onChange={e => { const f = e.target.files?.[0]; if (f) handleVariantImgUpload(f); e.target.value = ""; }} />
-        <div className="flex flex-wrap gap-2">
-          {variantImages.map((url, idx) => (
-            <div key={idx} className="relative group w-16 h-16 rounded-lg overflow-hidden border border-border">
-              <img src={url} alt="" className="w-full h-full object-cover" />
-              <button type="button" onClick={() => handleVariantImgRemove(idx)}
-                className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                <X size={14} className="text-white" />
-              </button>
-            </div>
-          ))}
-          <button type="button" onClick={() => variantImgRef.current?.click()} disabled={imgUploading || !variant.id}
-            title={!variant.id ? "Guarda la variante primero" : "Agregar imagen"}
-            className="w-16 h-16 rounded-lg border-2 border-dashed border-border flex items-center justify-center text-muted-foreground/50 hover:text-muted-foreground hover:border-muted-foreground/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
-            {imgUploading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={16} />}
-          </button>
-        </div>
-        {!variant.id && <p className="text-[10px] text-muted-foreground/60">Guarda la variante para agregar imágenes</p>}
-      </div>
-      <div className="flex items-center gap-2">
-        <Button size="sm" onClick={handleSave} disabled={!name.trim() || upsert.isPending} className="h-8 px-3 text-xs">
-          {upsert.isPending ? <Loader2 size={11} className="animate-spin mr-1" /> : <Check size={11} className="mr-1" />}
-          Guardar variante
-        </Button>
-        {!variant._new && (
-          <button onClick={() => setIsEditing(false)} className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-            Cancelar
-          </button>
-        )}
-        {variant.id && (
-          <button onClick={() => setShowDeleteConfirm(true)}
-            className="ml-auto p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
-            <Trash2 size={13} />
-          </button>
-        )}
-      </div>
-      <DeleteConfirmDialog
-        open={showDeleteConfirm}
-        onOpenChange={setShowDeleteConfirm}
-        title="Eliminar variante"
-        description={`¿Eliminar la variante "${name}"? Esta acción no se puede deshacer.`}
-        onConfirm={handleDelete}
-      />
-    </div>
-  );
-}
-
-// ─── Toggle ───────────────────────────────────────────────────────────────────
-function Toggle({ value, onChange }: { value: boolean; onChange: () => void }) {
-  return (
-    <div onClick={onChange} className={`relative w-9 h-5 rounded-full transition-colors shrink-0 cursor-pointer ${value ? "bg-primary" : "bg-secondary border"}`}>
-      <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${value ? "translate-x-4" : ""}`} />
-    </div>
-  );
-}
-
-// ─── Product Editor ───────────────────────────────────────────────────────────
-const WIZARD_STEPS_FISICO   = ["Información", "Imágenes", "Variantes", "Entregable", "Métodos de pago", "Catálogos"] as const;
-const WIZARD_STEPS_DIGITAL  = ["Información", "Imágenes", "Variantes", "Entregable", "Métodos de pago"] as const;
+type ProductTabId = "info" | "imagenes" | "precio" | "entregable" | "ajustes";
 const NEW_PRODUCT_DRAFT_KEY = "crm_new_product_draft";
 const readNewProductDraft = () => { try { return JSON.parse(sessionStorage.getItem(NEW_PRODUCT_DRAFT_KEY) ?? "null"); } catch { return null; } };
 const clearNewProductDraft = () => sessionStorage.removeItem(NEW_PRODUCT_DRAFT_KEY);
 
-function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, canDelete = true, kind }: {
+function ProductEditor({ initialProduct, onBack, canDelete = true, kind }: {
   initialProduct: CrmProduct | null;
-  fromCatalogId: string | null;
-  allCatalogs: CrmCatalog[];
   onBack: () => void;
   canDelete?: boolean;
   kind: ProductKind;
 }) {
   const { user } = useCurrentUser();
   const upsertProduct  = useUpsertProduct();
-  const toggleCatalog  = useToggleCatalogProduct();
   const deleteProduct  = useDeleteProduct();
-  const upsertPrices   = useUpsertPrices();
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [activeTab, setActiveTab]         = useState<ProductTabId>("info");
+  const [showMobileContent, setShowMobileContent] = useState(false);
 
   const isNew = !initialProduct;
   // Read draft synchronously on mount — sessionStorage is sync so safe in useState initializers.
@@ -433,34 +234,63 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
   const [saving, setSaving]               = useState(false);
   const [name, setName]                   = useState(d?.name ?? initialProduct?.name ?? "");
   const [description, setDescription]     = useState(d?.description ?? initialProduct?.description ?? "");
-  const [price, setPrice]                 = useState(d?.price ?? initialProduct?.price ?? 0);
-  const [discountPct, setDiscountPct]     = useState(d?.discountPct ?? initialProduct?.discount_pct ?? 0);
-  const [currency, setCurrency]           = useState(d?.currency ?? initialProduct?.currency ?? "USD");
-  const [sku, setSku]                     = useState(d?.sku ?? initialProduct?.sku ?? "");
-  const [isActive, setIsActive]           = useState(d?.isActive ?? initialProduct?.is_active ?? true);
   const [images, setImages]               = useState<string[]>(d?.images ?? initialProduct?.images ?? []);
-  const [stockEnabled, setStockEnabled]   = useState(d?.stockEnabled ?? initialProduct?.stock_enabled ?? false);
-  const [stockVal, setStockVal]           = useState(d?.stockVal ?? (initialProduct?.stock != null ? String(initialProduct.stock) : ""));
-  const [hasVariants, setHasVariants]     = useState(d?.hasVariants ?? initialProduct?.has_variants ?? false);
-  const [newVariantRows, setNewVariantRows] = useState<Array<{ _key: number; sort_order: number }>>([]);
-  const [delivType, setDelivType]         = useState<"file"|"text"|null>(d?.delivType ?? initialProduct?.deliverable_type ?? null);
+  const [delivType, setDelivType]         = useState<"file"|"text">(d?.delivType ?? initialProduct?.deliverable_type ?? "file");
   const [delivText, setDelivText]         = useState(d?.delivText ?? initialProduct?.deliverable_text ?? "");
   const [delivUrl, setDelivUrl]           = useState(d?.delivUrl ?? initialProduct?.deliverable_url ?? "");
   const [uploadingDeliv, setUploadingDeliv] = useState(false);
   const delivRef = useRef<HTMLInputElement>(null);
-  const nkey = useRef(0);
 
-  const { data: savedVariants = [], refetch: refetchVariants } = useProductVariants(product?.id ?? null);
-  const { data: memberCatalogIds = [], refetch: refetchCatalogIds } = useProductCatalogIds(product?.id ?? null);
-  const { data: existingPrices = [] } = usePricesByEntity("product", product?.id ?? null);
-  const [prices, setPrices] = useState<PriceEntry[]>(d?.prices ?? []);
-  useEffect(() => {
-    // Only sync from DB once the product has been saved (has an ID).
-    // Before first save, prices live in sessionStorage draft.
-    if (!product?.id) return;
-    setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price, discount_pct: p.discount_pct ?? null })));
-  }, [existingPrices, product?.id]);
+  // Planes de precio (pago único o recurrente) — requieren que el producto ya exista
+  const { data: plans = [] } = useProductPlans(product?.id ?? null);
+  const upsertPlan = useUpsertProductPlan();
+  const [newPlanDraft, setNewPlanDraft] = useState<DraftPlan | null>(null);
+  const [savingNewPlan, setSavingNewPlan] = useState(false);
+  const handleStartAddPlan = () => setNewPlanDraft(emptyDraftPlan(0));
+  const handleCancelAddPlan = () => setNewPlanDraft(null);
+  const handleSaveNewPlan = async () => {
+    if (!newPlanDraft || !newPlanDraft.name.trim() || !product) return;
+    setSavingNewPlan(true);
+    try {
+      const created = await upsertPlan.mutateAsync({
+        product_id: product.id,
+        name: newPlanDraft.name.trim(),
+        price: newPlanDraft.price ? parseFloat(newPlanDraft.price) : 0,
+        currency: newPlanDraft.currency,
+        discount_pct: newPlanDraft.discountPct,
+        is_recurring: newPlanDraft.isRecurring,
+        recurring_price: newPlanDraft.isRecurring && newPlanDraft.recurringPrice ? parseFloat(newPlanDraft.recurringPrice) : null,
+        recurring_currency: newPlanDraft.isRecurring ? newPlanDraft.currency : null,
+        recurring_interval: newPlanDraft.isRecurring ? newPlanDraft.recurringInterval : null,
+        recurring_discount_pct: newPlanDraft.isRecurring ? newPlanDraft.recurringDiscountPct : 0,
+        sort_order: plans.length,
+      });
+      if (newPlanDraft.prices.length > 0) {
+        await upsertPrices.mutateAsync({ entityType: "product_plan", entityId: created.id, prices: newPlanDraft.prices });
+      }
+      for (const pm of newPlanDraft.paymentMethods) {
+        await upsertPaymentMethod.mutateAsync({
+          entity_type: "product_plan",
+          entity_id: created.id,
+          type: pm.type!,
+          label: pm.label ?? null,
+          content: pm.content!,
+          sort_order: pm.sort_order ?? 0,
+          price_id: null,
+          currency: pm.currency ?? null,
+        });
+      }
+      toast.success("Plan creado");
+      setNewPlanDraft(null);
+    } catch {
+      toast.error("Error al crear el plan");
+    } finally {
+      setSavingNewPlan(false);
+    }
+  };
 
+  const upsertPrices = useUpsertPrices();
+  const upsertPaymentMethod = useUpsertPaymentMethod();
   const upsertFaqs = useUpsertFaqs();
   const { data: existingFaqs = [] } = useFaqsByEntity("product", product?.id ?? null);
   const [faqs, setFaqs] = useState<FaqEntry[]>(d?.faqs ?? []);
@@ -474,13 +304,9 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
   useEffect(() => {
     if (!isNew || product?.id) return;
     sessionStorage.setItem(NEW_PRODUCT_DRAFT_KEY, JSON.stringify({
-      wizardStep, name, description, price, discountPct, currency, sku,
-      isActive, images, stockEnabled, stockVal, hasVariants,
-      delivType, delivText, delivUrl, prices, faqs,
+      wizardStep, name, description, images, delivType, delivText, delivUrl, faqs,
     }));
-  }, [wizardStep, name, description, price, discountPct, currency, sku,
-      isActive, images, stockEnabled, stockVal, hasVariants,
-      delivType, delivText, delivUrl, prices, faqs]);
+  }, [wizardStep, name, description, images, delivType, delivText, delivUrl, faqs]);
 
   // Once the product gets saved and has an ID: update localStorage so the
   // parent can restore to this product on next remount, and clear the draft.
@@ -490,29 +316,13 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
     clearNewProductDraft();
   }, [product?.id, kind]);
 
-  const addedToFromCatalog = useRef(false);
-  useEffect(() => {
-    if (product?.id && fromCatalogId && !addedToFromCatalog.current) {
-      addedToFromCatalog.current = true;
-      toggleCatalog.mutate({ catalogId: fromCatalogId, productId: product.id, add: true },
-        { onSuccess: () => refetchCatalogIds() });
-    }
-  }, [product?.id]);
-
   const buildPayload = () => ({
     ...(product?.id ? { id: product.id } : {}),
     name: name.trim(),
     description: description || null,
-    price,
-    discount_pct: discountPct,
-    currency,
-    sku: sku || null,
-    is_active: isActive,
+    is_active: true,
     images,
     product_kind: kind,
-    stock_enabled: stockEnabled,
-    stock: stockEnabled && stockVal !== "" ? parseInt(stockVal) : null,
-    has_variants: hasVariants,
     deliverable_type: delivType,
     deliverable_url: delivType === "file" ? (delivUrl || null) : null,
     deliverable_text: delivType === "text" ? (delivText || null) : null,
@@ -524,10 +334,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
     try {
       const saved = await upsertProduct.mutateAsync(buildPayload());
       setProduct(saved);
-      await Promise.all([
-        upsertPrices.mutateAsync({ entityType: "product", entityId: saved.id, prices }),
-        upsertFaqs.mutateAsync({ entityType: "product", entityId: saved.id, faqs }),
-      ]);
+      await upsertFaqs.mutateAsync({ entityType: "product", entityId: saved.id, faqs });
       toast.success(product ? "Producto actualizado" : "Producto creado");
       if (andNext) setWizardStep(1);
     } catch (e: any) { toast.error(e.message?.slice(0,100) ?? "Error al guardar"); }
@@ -539,13 +346,13 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
     if (index >= updated.length) updated.push(url);
     else updated[index] = url;
     setImages(updated);
-    if (product) await upsertProduct.mutateAsync({ id: product.id, name, price, images: updated });
+    if (product) await upsertProduct.mutateAsync({ id: product.id, name, images: updated });
   };
 
   const handleImageRemove = async (index: number) => {
     const updated = images.filter((_, i) => i !== index);
     setImages(updated);
-    if (product) await upsertProduct.mutateAsync({ id: product.id, name, price, images: updated });
+    if (product) await upsertProduct.mutateAsync({ id: product.id, name, images: updated });
   };
 
   const handleDelivUpload = async (file: File) => {
@@ -563,7 +370,7 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
       // la signed URL se genera en el edge function al momento del envío
       const { data } = supabase.storage.from("product-deliverables").getPublicUrl(path);
       setDelivUrl(data.publicUrl);
-      await upsertProduct.mutateAsync({ id: product.id, name, price, deliverable_type: "file", deliverable_url: data.publicUrl });
+      await upsertProduct.mutateAsync({ id: product.id, name, deliverable_type: "file", deliverable_url: data.publicUrl });
       toast.success("Archivo subido");
     } catch (e: any) { toast.error(e.message?.slice(0,80) ?? "Error"); }
     finally { setUploadingDeliv(false); }
@@ -571,13 +378,20 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
 
   const handleDelivSave = async () => {
     if (!product) return;
-    await upsertProduct.mutateAsync({ id: product.id, name, price, deliverable_type: delivType, deliverable_url: delivType === "file" ? (delivUrl || null) : null, deliverable_text: delivType === "text" ? (delivText || null) : null });
+    await upsertProduct.mutateAsync({ id: product.id, name, deliverable_type: delivType, deliverable_url: delivType === "file" ? (delivUrl || null) : null, deliverable_text: delivType === "text" ? (delivText || null) : null });
     toast.success("Entregable guardado");
   };
 
   // ── Secciones reutilizables (llamadas como funciones, no como componentes JSX)
   const InfoSection = () => (
     <div className="space-y-4">
+      <div className="space-y-1.5">
+        <label className="text-xs font-medium text-muted-foreground">Imagen principal</label>
+        <div className="max-w-[200px]">
+          <ImageSlot url={images[0]} index={0} pathId={product?.id ?? "new"} userId={user!.id}
+            onUploaded={handleImageUploaded} onRemove={handleImageRemove} />
+        </div>
+      </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Nombre <span className="text-destructive">*</span></label>
         <Input value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Ebook de Marketing Digital" className="h-9 text-sm" />
@@ -587,188 +401,137 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
         <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} placeholder="Describe tu producto..."
           className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
       </div>
-      <div className="grid grid-cols-3 gap-3">
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Precio</label>
-          <Input type="number" value={price} onChange={e => setPrice(parseFloat(e.target.value) || 0)} className="h-9 text-sm" />
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Moneda</label>
-          <select value={currency} onChange={e => setCurrency(e.target.value)}
-            className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code} — {c.name.split(" (")[0]}</option>)}
-          </select>
-        </div>
-        <div className="space-y-1.5">
-          <label className="text-xs font-medium text-muted-foreground">Descuento (%)</label>
-          <Input type="number" value={discountPct} onChange={e => setDiscountPct(Math.min(99, Math.max(0, parseFloat(e.target.value) || 0)))}
-            min={0} max={99} className="h-9 text-sm" placeholder="0" />
-        </div>
-      </div>
-      {discountPct > 0 && (
-        <p className="text-xs text-emerald-600 font-medium -mt-1">
-          Precio final: {fmtProd(price * (1 - discountPct / 100), currency)} ({discountPct}% descuento)
-        </p>
-      )}
-      <PriceListEditor value={prices} onChange={setPrices} baseCurrency={currency} />
       <FaqEditor value={faqs} onChange={setFaqs} />
-      <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">SKU <span className="text-muted-foreground/50">(opcional)</span></label>
-        <Input value={sku} onChange={e => setSku(e.target.value)} placeholder="SKU-001" className="h-9 text-sm font-mono" />
-      </div>
-      <div className="space-y-3 pt-1 border-t">
-        <label className="flex items-center gap-2.5 cursor-pointer pt-3">
-          <Toggle value={isActive} onChange={() => setIsActive(!isActive)} />
-          <span className="text-sm">Visible en el Catálogo</span>
-        </label>
-        <label className="flex items-center gap-2.5 cursor-pointer">
-          <Toggle value={stockEnabled} onChange={() => setStockEnabled(!stockEnabled)} />
-          <span className="text-sm">Gestionar stock</span>
-        </label>
-        {stockEnabled && (
-          <div className="space-y-1.5 pl-11">
-            <label className="text-xs font-medium text-muted-foreground">Unidades disponibles</label>
-            <Input type="number" value={stockVal} onChange={e => setStockVal(e.target.value)} placeholder="0" className="h-9 text-sm w-32" />
-          </div>
-        )}
-      </div>
     </div>
   );
 
   const ImagesSection = () => (
-    product ? (
-      <div className="space-y-3">
-        <div className="grid grid-cols-4 gap-2">
-          {[...images.map((url, i) => ({ url, i })), { url: undefined as string | undefined, i: images.length }].map(({ url, i }) => (
-            <ImageSlot key={i} url={url} index={i} productId={product.id} userId={user!.id}
-              onUploaded={handleImageUploaded} onRemove={handleImageRemove} />
-          ))}
-        </div>
-        <p className="text-[10px] text-muted-foreground/60">La primera imagen es la principal del catálogo · Sin límite de imágenes</p>
+    <div className="space-y-3">
+      <div className="grid grid-cols-4 gap-2">
+        {[...images.map((url, i) => ({ url, i })), { url: undefined as string | undefined, i: images.length }].map(({ url, i }) => (
+          <ImageSlot key={i} url={url} index={i} pathId={product?.id ?? "new"} userId={user!.id}
+            onUploaded={handleImageUploaded} onRemove={handleImageRemove} mainLabel="Agregar Imágenes" />
+        ))}
       </div>
-    ) : <p className="text-xs text-muted-foreground/60">—</p>
+      <p className="text-[10px] text-muted-foreground/60">Sin límite de imágenes</p>
+    </div>
   );
 
-  const VariantsSection = () => (
-    <div className="space-y-4">
-      <label className="flex items-center gap-2.5 cursor-pointer">
-        <Toggle value={hasVariants} onChange={() => setHasVariants(!hasVariants)} />
-        <span className="text-sm">Este producto tiene variantes</span>
-      </label>
-      {hasVariants && product && (
-        <div className="space-y-3">
-          <p className="text-xs text-muted-foreground/80">Si no pones precio, la variante usa el precio base ({fmtProd(price, currency)}). Cada variante puede tener sus propios métodos de pago.</p>
-          {savedVariants.map(v => (
-            <VariantRow key={v.id} variant={v} basePrice={price} baseCurrency={currency} productId={product.id}
-              onSaved={() => refetchVariants()} onDelete={() => refetchVariants()} />
-          ))}
-          {newVariantRows.map(row => (
-            <VariantRow key={row._key} variant={{ sort_order: row.sort_order, _new: true }} basePrice={price} baseCurrency={currency} productId={product.id}
-              onSaved={() => { setNewVariantRows(prev => prev.filter(r => r._key !== row._key)); refetchVariants(); }}
-              onDelete={() => setNewVariantRows(prev => prev.filter(r => r._key !== row._key))} />
-          ))}
-          <button onClick={() => { nkey.current++; setNewVariantRows(prev => [...prev, { _key: nkey.current, sort_order: savedVariants.length + newVariantRows.length }]); }}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
-            <Plus size={12} /> Añadir variante
-          </button>
-        </div>
+  const PriceSection = () => (
+    <div className="space-y-3">
+      {!product ? (
+        <p className="text-xs text-muted-foreground/60 italic">Guarda la información básica primero para poder crear planes.</p>
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">
+            Cada plan puede ser de pago único o recurrente, con sus propios precios en otras monedas y métodos de pago.
+            Si no hay ningún plan, el producto queda sin precio.
+          </p>
+          {plans.map(p => <ProductPlanRow key={p.id} plan={p} productId={product.id} />)}
+          {newPlanDraft && (
+            <div className="space-y-2">
+              <DraftPlanCard plan={newPlanDraft} onChange={setNewPlanDraft} onRemove={handleCancelAddPlan} />
+              <div className="flex gap-2">
+                <Button size="sm" onClick={handleSaveNewPlan} disabled={savingNewPlan || !newPlanDraft.name.trim()} className="gap-1.5">
+                  {savingNewPlan && <Loader2 size={12} className="animate-spin" />} Guardar plan
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleCancelAddPlan}>Cancelar</Button>
+              </div>
+            </div>
+          )}
+          {!newPlanDraft && (
+            plans.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border py-10 text-center space-y-3">
+                <div className="w-12 h-12 rounded-2xl bg-muted/60 flex items-center justify-center mx-auto">
+                  <DollarSign size={22} className="text-muted-foreground/30" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-muted-foreground">Aún no tienes planes</p>
+                  <p className="text-xs text-muted-foreground/50 mt-0.5">Crea tu primer plan de precio para este producto</p>
+                </div>
+                <Button size="sm" onClick={handleStartAddPlan} className="gap-1.5 mx-auto">
+                  <Plus size={13} /> Añadir plan
+                </Button>
+              </div>
+            ) : (
+              <button onClick={handleStartAddPlan} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors">
+                <Plus size={12} /> Añadir plan
+              </button>
+            )
+          )}
+        </>
       )}
-      {!hasVariants && <p className="text-xs text-muted-foreground/60">Sin variantes — el producto se vende tal cual.</p>}
     </div>
   );
 
   const DelivSection = () => (
     <div className="space-y-4">
-      <label className="flex items-center gap-2.5 cursor-pointer">
-        <Toggle value={!!delivType} onChange={() => setDelivType(delivType ? null : "file")} />
-        <span className="text-sm">Este producto tiene entregable digital</span>
-      </label>
-      {delivType && (
-        <>
-          <div className="flex gap-2 flex-wrap">
-            {(["file","text"] as const).map(t => (
-              <button key={t} onClick={() => setDelivType(t)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${delivType === t ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary"}`}>
-                {t === "file" ? <><FileText size={12} /> Archivo (PDF/ZIP)</> : <><Link size={12} /> Texto / Link</>}
+      <div className="flex gap-2 flex-wrap">
+        {(["file","text"] as const).map(t => (
+          <button key={t} onClick={() => setDelivType(t)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${delivType === t ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border hover:bg-secondary"}`}>
+            {t === "file" ? <><FileText size={12} /> Archivo (PDF/ZIP)</> : <><Link size={12} /> Texto / Link</>}
+          </button>
+        ))}
+      </div>
+      {delivType === "file" && (
+        <div className="space-y-2">
+          <input ref={delivRef} type="file" accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed" className="hidden"
+            onChange={e => { const f = e.target.files?.[0]; if (f) handleDelivUpload(f); e.target.value = ""; }} />
+          {delivUrl ? (
+            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-secondary/40 border">
+              <FileText size={14} className="text-muted-foreground shrink-0" />
+              <span className="text-xs flex-1 text-muted-foreground">Archivo subido</span>
+              <button
+                onClick={async () => {
+                  try {
+                    const url = new URL(delivUrl);
+                    const path = url.pathname.split("/product-deliverables/")[1];
+                    const { data } = await supabase.storage.from("product-deliverables").createSignedUrl(path, 300);
+                    if (data?.signedUrl) window.open(data.signedUrl, "_blank");
+                  } catch { toast.error("No se pudo abrir el archivo"); }
+                }}
+                className="text-primary"
+              >
+                <ExternalLink size={13} />
               </button>
-            ))}
-          </div>
-          {delivType === "file" && (
-            <div className="space-y-2">
-              <input ref={delivRef} type="file" accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed" className="hidden"
-                onChange={e => { const f = e.target.files?.[0]; if (f) handleDelivUpload(f); e.target.value = ""; }} />
-              {delivUrl ? (
-                <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-secondary/40 border">
-                  <FileText size={14} className="text-muted-foreground shrink-0" />
-                  <span className="text-xs flex-1 text-muted-foreground">Archivo subido</span>
-                  <button
-                    onClick={async () => {
-                      try {
-                        const url = new URL(delivUrl);
-                        const path = url.pathname.split("/product-deliverables/")[1];
-                        const { data } = await supabase.storage.from("product-deliverables").createSignedUrl(path, 300);
-                        if (data?.signedUrl) window.open(data.signedUrl, "_blank");
-                      } catch { toast.error("No se pudo abrir el archivo"); }
-                    }}
-                    className="text-primary"
-                  >
-                    <ExternalLink size={13} />
-                  </button>
-                  <button onClick={() => delivRef.current?.click()} className="text-xs text-muted-foreground hover:text-foreground">Reemplazar</button>
-                </div>
-              ) : (
-                <Button variant="outline" size="sm" onClick={() => delivRef.current?.click()} disabled={uploadingDeliv} className="h-8 text-xs gap-1.5">
-                  {uploadingDeliv ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
-                  {uploadingDeliv ? "Subiendo..." : "Subir PDF o ZIP"}
-                </Button>
-              )}
+              <button onClick={() => delivRef.current?.click()} className="text-xs text-muted-foreground hover:text-foreground">Reemplazar</button>
             </div>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => delivRef.current?.click()} disabled={uploadingDeliv || !product} className="h-8 text-xs gap-1.5">
+              {uploadingDeliv ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+              {uploadingDeliv ? "Subiendo..." : "Subir PDF o ZIP"}
+            </Button>
           )}
-          {delivType === "text" && (
-            <textarea value={delivText} onChange={e => setDelivText(e.target.value)} rows={3}
-              placeholder="Ej: https://drive.google.com/... o instrucciones de acceso"
-              className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
-          )}
-          <p className="text-xs text-emerald-600 flex items-center gap-1.5"><Check size={11} /> Se enviará automáticamente por WhatsApp al confirmar la venta</p>
-        </>
+        </div>
       )}
-      {!delivType && <p className="text-xs text-muted-foreground/60">Producto físico sin entregable digital.</p>}
+      {delivType === "text" && (
+        <textarea value={delivText} onChange={e => setDelivText(e.target.value)} rows={3}
+          placeholder="Ej: https://drive.google.com/... o instrucciones de acceso"
+          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+      )}
+      <p className="text-xs text-emerald-600 flex items-center gap-1.5"><Check size={11} /> Si usas Agente IA, podrá enviar automáticamente el producto digital al confirmar la venta</p>
     </div>
   );
 
-  const PaymentsSection = () => (
+  const AjustesSection = () => (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground/70">El Agente IA usará estos métodos al cerrar ventas. Sin métodos → transfiere a modo Manual.</p>
-      <PaymentMethodsEditor entityType="product" entityId={product?.id ?? null} prices={existingPrices} baseCurrency={currency} />
-    </div>
-  );
-
-  const CatalogsSection = () => (
-    <div className="space-y-3">
-      <p className="text-xs text-muted-foreground/70">Selecciona en qué catálogos aparece este producto:</p>
-      {allCatalogs.length === 0
-        ? <p className="text-xs text-muted-foreground/60 italic">No tienes catálogos creados aún.</p>
-        : <div className="space-y-2">
-            {allCatalogs.map(cat => {
-              const isMember = memberCatalogIds.includes(cat.id);
-              return (
-                <label key={cat.id} className="flex items-center gap-2.5 cursor-pointer group">
-                  <input type="checkbox" checked={isMember}
-                    onChange={() => product && toggleCatalog.mutate({ catalogId: cat.id, productId: product.id, add: !isMember }, { onSuccess: () => refetchCatalogIds() })}
-                    className="rounded border-input" />
-                  <span className="text-sm">{cat.name}</span>
-                  {!cat.is_active && <span className="text-[10px] text-muted-foreground/50">(privado)</span>}
-                </label>
-              );
-            })}
-          </div>
-      }
+      <p className="text-xs text-muted-foreground">Elimina este producto permanentemente, junto con sus planes y métodos de pago.</p>
+      {canDelete && (
+        <Button
+          variant="outline"
+          onClick={() => setConfirmDelete(true)}
+          className="text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30"
+        >
+          <Trash2 size={13} className="mr-1.5" /> Eliminar producto
+        </Button>
+      )}
     </div>
   );
 
   if (!user) return null;
 
-  const WIZARD_STEPS = kind === "fisico" ? WIZARD_STEPS_FISICO : WIZARD_STEPS_DIGITAL;
+  const WIZARD_STEPS = WIZARD_STEPS_DIGITAL;
 
   // ── Wizard mode (new product) ──────────────────────────────────────────────
   if (wizardStep >= 0) {
@@ -809,10 +572,8 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
           <h3 className="text-sm font-semibold mb-4">{WIZARD_STEPS[wizardStep]}</h3>
           {wizardStep === 0 && InfoSection()}
           {wizardStep === 1 && ImagesSection()}
-          {wizardStep === 2 && VariantsSection()}
+          {wizardStep === 2 && PriceSection()}
           {wizardStep === 3 && DelivSection()}
-          {wizardStep === 4 && PaymentsSection()}
-          {wizardStep === 5 && kind === "fisico" && CatalogsSection()}
         </div>
 
         {/* Navigation */}
@@ -828,22 +589,14 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
                 {saving ? <Loader2 size={13} className="animate-spin" /> : null}
                 {saving ? "Guardando..." : "Crear y continuar →"}
               </Button>
+            ) : wizardStep === 3 ? (
+              <Button size="sm" onClick={async () => { await handleDelivSave(); next(); }} disabled={saving} className="h-9 text-xs gap-1.5">
+                {saving && <Loader2 size={12} className="animate-spin" />} Guardar y finalizar
+              </Button>
             ) : (
-              <>
-                <Button variant="outline" size="sm" onClick={next} className="h-9 text-xs">
-                  {isLast ? "Finalizar" : "Omitir"}
-                </Button>
-                {wizardStep === 3 && delivType && (
-                  <Button size="sm" onClick={async () => { await handleDelivSave(); next(); }} disabled={saving} className="h-9 text-xs">
-                    Guardar y continuar →
-                  </Button>
-                )}
-                {wizardStep !== 3 && (
-                  <Button size="sm" onClick={next} className="h-9 text-xs">
-                    {isLast ? "Finalizar" : "Continuar →"}
-                  </Button>
-                )}
-              </>
+              <Button size="sm" onClick={next} className="h-9 text-xs">
+                {isLast ? "Finalizar" : "Continuar →"}
+              </Button>
             )}
           </div>
         </div>
@@ -851,7 +604,43 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
     );
   }
 
-  // ── Full edit mode (existing product) ─────────────────────────────────────
+  // ── Full edit mode (existing product) — menú de tabs (mismo patrón que Ajustes/CrmServices) ──
+  const TABS: { id: ProductTabId; label: string; description: string; icon: typeof Info }[] = [
+    { id: "info",       label: "Información", description: "Imagen principal, nombre, descripción y FAQ", icon: Info },
+    { id: "imagenes",   label: "Imágenes",    description: "Imágenes complementarias del producto",       icon: ImageIcon },
+    { id: "precio",     label: "Precio",      description: "Planes de precio, pago único o recurrente",   icon: DollarSign },
+    { id: "entregable", label: "Entregable",  description: "Archivo o texto que recibe el cliente",        icon: FileText },
+    { id: "ajustes",    label: "Ajustes",     description: "Eliminar producto",                            icon: SlidersHorizontal },
+  ];
+  const activeTabDef = TABS.find(t => t.id === activeTab) ?? TABS[0];
+  const handleSelectTab = (id: ProductTabId) => { setActiveTab(id); setShowMobileContent(true); };
+
+  const renderTabContent = () => (
+    <>
+      {activeTab === "info" && InfoSection()}
+      {activeTab === "imagenes" && ImagesSection()}
+      {activeTab === "precio" && PriceSection()}
+      {activeTab === "entregable" && DelivSection()}
+      {activeTab === "ajustes" && AjustesSection()}
+    </>
+  );
+
+  const HeaderBlock = () => (
+    <div className="flex items-start justify-between gap-3 flex-wrap">
+      <div>
+        <button onClick={onBack}
+          className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-2 transition-colors">
+          <ArrowLeft size={12} /> Volver
+        </button>
+        <h2 className="text-lg font-semibold">{name}</h2>
+      </div>
+      <Button onClick={() => handleSave()} disabled={saving} className="h-9 px-5">
+        {saving && <Loader2 size={13} className="animate-spin mr-1.5" />}
+        {saving ? "Guardando..." : "Guardar cambios"}
+      </Button>
+    </div>
+  );
+
   return (
     <>
       <DeleteConfirmDialog
@@ -859,65 +648,232 @@ function ProductEditor({ initialProduct, fromCatalogId, allCatalogs, onBack, can
         onOpenChange={setConfirmDelete}
         onConfirm={async () => { await deleteProduct.mutateAsync(product!.id); toast.success("Producto eliminado"); onBack(); }}
         isPending={deleteProduct.isPending}
-        description="Se eliminará el producto permanentemente junto con sus variantes y métodos de pago. Esta acción no se puede deshacer."
+        description="Se eliminará el producto permanentemente junto con sus planes y métodos de pago. Esta acción no se puede deshacer."
       />
-    <div className="space-y-6">
-      <div className="flex items-start justify-between flex-wrap gap-3">
-        <div>
-          <button onClick={onBack}
-            className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground mb-2 transition-colors">
-            <ArrowLeft size={12} /> Volver
-          </button>
-          <h2 className="text-lg font-semibold">{name}</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          {canDelete && (
-            <Button variant="outline" onClick={() => setConfirmDelete(true)}
-              className="h-9 px-4 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/30">
-              <Trash2 size={13} className="mr-1.5" /> Eliminar
-            </Button>
-          )}
-          <Button onClick={() => handleSave()} disabled={saving} className="h-9 px-5">
-            {saving && <Loader2 size={13} className="animate-spin mr-1.5" />}
-            {saving ? "Guardando..." : "Guardar cambios"}
-          </Button>
-        </div>
+
+      {/* ── Mobile ── */}
+      <div className="lg:hidden">
+        {!showMobileContent ? (
+          <div className="space-y-6">
+            <HeaderBlock />
+            <div className="bg-card border rounded-2xl overflow-hidden divide-y divide-border/50">
+              {TABS.map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => handleSelectTab(t.id)}
+                  className="w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-secondary/60 transition-colors"
+                >
+                  <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center shrink-0">
+                    <t.icon size={15} className="text-muted-foreground" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium leading-tight">{t.label}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{t.description}</p>
+                  </div>
+                  <ChevronRight size={14} className="shrink-0 text-muted-foreground/30" />
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            <button
+              onClick={() => setShowMobileContent(false)}
+              className="flex items-center gap-0.5 text-primary text-sm font-medium -ml-1 hover:opacity-75 transition-opacity"
+            >
+              <ChevronLeft size={20} />
+              {name || "Producto"}
+            </button>
+            <div>
+              <h2 className="text-xl font-semibold leading-tight">{activeTabDef.label}</h2>
+              <p className="text-sm text-muted-foreground mt-0.5">{activeTabDef.description}</p>
+            </div>
+            {renderTabContent()}
+          </div>
+        )}
       </div>
 
-      <div className="grid md:grid-cols-2 gap-6">
-        <div className="bg-card border rounded-2xl p-6 space-y-4">
-          <h3 className="text-sm font-semibold">Información básica</h3>
-          {InfoSection()}
+      {/* ── Desktop ── */}
+      <div className="hidden lg:block space-y-6">
+        <HeaderBlock />
+
+        <div className="overflow-x-auto" style={{ scrollbarWidth: "none", msOverflowStyle: "none" }}>
+          <div className="inline-flex items-center gap-0.5 bg-secondary/60 rounded-xl p-1 min-w-max">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-all ${
+                  activeTab === t.id ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                }`}>
+                <t.icon size={13} className="shrink-0" /> {t.label}
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="bg-card border rounded-2xl p-6 space-y-3">
-          <h3 className="text-sm font-semibold">Imágenes</h3>
-          {ImagesSection()}
+        <div className="bg-card border rounded-2xl p-6">
+          {renderTabContent()}
         </div>
       </div>
-
-      <div className="bg-card border rounded-2xl p-6 space-y-4">
-        <h3 className="text-sm font-semibold">Variantes</h3>
-        {VariantsSection()}
-      </div>
-
-      <div className="bg-card border rounded-2xl p-6 space-y-4">
-        <h3 className="text-sm font-semibold">Entregable digital</h3>
-        {DelivSection()}
-      </div>
-
-      <div className="bg-card border rounded-2xl p-6 space-y-3">
-        <h3 className="text-sm font-semibold">Métodos de pago</h3>
-        {PaymentsSection()}
-      </div>
-
-      {kind === "fisico" && (
-        <div className="bg-card border rounded-2xl p-6 space-y-3">
-          <h3 className="text-sm font-semibold">Catálogos</h3>
-          {CatalogsSection()}
-        </div>
-      )}
-    </div>
     </>
+  );
+}
+
+// ─── Fila de plan de producto (edición en vivo, autoguardado) ─────────────────
+function ProductPlanRow({ plan, productId }: { plan: CrmProductPlan; productId: string }) {
+  const upsertPlan   = useUpsertProductPlan();
+  const deletePlan   = useDeleteProductPlan();
+  const upsertPrices = useUpsertPrices();
+
+  const [expanded, setExpanded] = useState(false);
+  const [name, setName]                             = useState(plan.name);
+  const [price, setPrice]                           = useState(plan.price != null ? String(plan.price) : "");
+  const [currency, setCurrency]                     = useState(plan.currency);
+  const [discountPct, setDiscountPct]               = useState(plan.discount_pct ?? 0);
+  const [isRecurring, setIsRecurring]               = useState(plan.is_recurring);
+  const [recurringPrice, setRecurringPrice]         = useState(plan.recurring_price != null ? String(plan.recurring_price) : "");
+  const [recurringInterval, setRecurringInterval]   = useState<RecurringInterval>(plan.recurring_interval ?? "mensual");
+  const [recurringDiscountPct, setRecurringDiscountPct] = useState(plan.recurring_discount_pct ?? 0);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleting, setDeleting]           = useState(false);
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  const { data: existingPrices = [] } = usePricesByEntity("product_plan", plan.id);
+  const [prices, setPrices] = useState<PriceEntry[]>([]);
+  useEffect(() => {
+    setPrices(existingPrices.map(p => ({ currency: p.currency, price: p.price, discount_pct: p.discount_pct ?? null })));
+  }, [existingPrices]);
+  const pricesSaveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const handlePricesChange = (next: PriceEntry[]) => {
+    setPrices(next);
+    clearTimeout(pricesSaveTimer.current);
+    pricesSaveTimer.current = setTimeout(() => {
+      upsertPrices.mutate(
+        { entityType: "product_plan", entityId: plan.id, prices: next },
+        { onError: () => toast.error("Error al guardar los precios adicionales del plan") }
+      );
+    }, 800);
+  };
+  useEffect(() => () => clearTimeout(pricesSaveTimer.current), []);
+
+  const isFirstRender = useRef(true);
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    clearTimeout(saveTimer.current);
+    setAutoSaveStatus("saving");
+    saveTimer.current = setTimeout(async () => {
+      try {
+        await upsertPlan.mutateAsync({
+          id: plan.id,
+          product_id: productId,
+          name: name.trim() || plan.name,
+          price: price ? parseFloat(price) : 0,
+          currency,
+          discount_pct: discountPct,
+          is_recurring: isRecurring,
+          recurring_price: isRecurring && recurringPrice ? parseFloat(recurringPrice) : null,
+          recurring_currency: isRecurring ? currency : null,
+          recurring_interval: isRecurring ? recurringInterval : null,
+          recurring_discount_pct: isRecurring ? recurringDiscountPct : 0,
+        });
+        setAutoSaveStatus("saved");
+        setTimeout(() => setAutoSaveStatus("idle"), 1500);
+      } catch {
+        toast.error("Error al guardar el plan");
+        setAutoSaveStatus("idle");
+      }
+    }, 800);
+    return () => clearTimeout(saveTimer.current);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [name, price, currency, discountPct, isRecurring, recurringPrice, recurringInterval, recurringDiscountPct]);
+
+  const handleDelete = async () => {
+    setDeleting(true);
+    try {
+      await deletePlan.mutateAsync({ id: plan.id, productId });
+      toast.success("Plan eliminado");
+    } catch {
+      toast.error("Error al eliminar el plan");
+      setDeleting(false);
+    }
+  };
+
+  const recurringFinal = planFinalRecurringPrice(plan);
+  const priceSummary = `${formatAmount(planFinalPrice(plan), plan.currency)}${
+    plan.is_recurring && recurringFinal != null
+      ? ` + ${formatAmount(recurringFinal, plan.recurring_currency ?? plan.currency)}/${INTERVAL_LABELS[plan.recurring_interval ?? "mensual"]}`
+      : ""
+  }`;
+
+  const deleteDialog = (
+    <DeleteConfirmDialog
+      open={confirmDelete}
+      onOpenChange={setConfirmDelete}
+      onConfirm={handleDelete}
+      isPending={deleting}
+      description={`Se eliminará el plan "${plan.name}" permanentemente.`}
+    />
+  );
+
+  if (!expanded) {
+    return (
+      <>
+        {deleteDialog}
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full flex items-center gap-3 bg-secondary/20 border rounded-xl px-4 py-3 hover:border-primary/40 transition-colors text-left"
+        >
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{plan.name}</p>
+            <p className="text-xs text-muted-foreground mt-0.5 truncate">{priceSummary}</p>
+          </div>
+          <ChevronRight size={14} className="shrink-0 text-muted-foreground/40" />
+        </button>
+      </>
+    );
+  }
+
+  return (
+    <div className="bg-secondary/20 border rounded-xl p-4 space-y-3">
+      {deleteDialog}
+      <div className="flex items-center justify-between gap-2">
+        <button onClick={() => setExpanded(false)} className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors">
+          <ChevronLeft size={13} />
+          {plan.name}
+          {autoSaveStatus === "saving" && <Loader2 size={11} className="animate-spin" />}
+          {autoSaveStatus === "saved" && <Check size={11} className="text-emerald-500" />}
+        </button>
+        <button onClick={() => setConfirmDelete(true)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+          <Trash2 size={13} />
+        </button>
+      </div>
+      <PlanFields
+        name={name} price={price} currency={currency} discountPct={discountPct}
+        isRecurring={isRecurring} recurringPrice={recurringPrice} recurringInterval={recurringInterval} recurringDiscountPct={recurringDiscountPct}
+        onChange={patch => {
+          if (patch.name !== undefined) setName(patch.name);
+          if (patch.price !== undefined) setPrice(patch.price);
+          if (patch.currency !== undefined) setCurrency(patch.currency);
+          if (patch.discountPct !== undefined) setDiscountPct(patch.discountPct);
+          if (patch.isRecurring !== undefined) setIsRecurring(patch.isRecurring);
+          if (patch.recurringPrice !== undefined) setRecurringPrice(patch.recurringPrice);
+          if (patch.recurringInterval !== undefined) setRecurringInterval(patch.recurringInterval);
+          if (patch.recurringDiscountPct !== undefined) setRecurringDiscountPct(patch.recurringDiscountPct);
+        }}
+      />
+      <div className="pt-2 border-t border-border/50 space-y-1.5">
+        <label className="text-[11px] text-muted-foreground">Precio en otra moneda (opcional)</label>
+        <PriceListEditor value={prices} onChange={handlePricesChange} baseCurrency={currency} />
+      </div>
+      <div className="pt-2 border-t border-border/50 space-y-2">
+        <div className="flex items-center gap-1.5">
+          <CreditCard size={12} className="text-muted-foreground" />
+          <span className="text-xs font-medium text-muted-foreground">Métodos de pago</span>
+        </div>
+        <PaymentMethodsEditor entityType="product_plan" entityId={plan.id} prices={existingPrices} baseCurrency={currency} />
+      </div>
+    </div>
   );
 }
 
@@ -1519,6 +1475,12 @@ function ProductGridCard({ product: p, canEdit, variantStockMap, dashed, onEdit 
   product: CrmProduct; canEdit: boolean; variantStockMap: Map<string, number>;
   dashed?: boolean; onEdit: () => void;
 }) {
+  // Los productos archivo usan Planes de precio — el "price" propio del producto queda legado/sin usar.
+  const { data: plans = [] } = useProductPlans(p.product_kind === "archivo" ? p.id : null);
+  const cheapestPlan = plans
+    .filter(pl => pl.is_active)
+    .reduce<CrmProductPlan | null>((min, pl) => (min === null || planFinalPrice(pl) < planFinalPrice(min) ? pl : min), null);
+
   return (
     <div
       className={`bg-card border ${dashed ? "border-dashed" : ""} rounded-2xl overflow-hidden hover:shadow-sm transition-shadow group ${canEdit ? "cursor-pointer" : "cursor-default"}`}
@@ -1534,9 +1496,11 @@ function ProductGridCard({ product: p, canEdit, variantStockMap, dashed, onEdit 
           <p className="text-sm font-semibold truncate flex-1">{p.name}</p>
         </div>
         <p className="text-sm font-medium text-primary">
-          {(p.discount_pct ?? 0) > 0
-            ? <>{fmtProd(p.price * (1 - (p.discount_pct ?? 0) / 100), p.currency)} <span className="text-xs line-through text-muted-foreground font-normal">{fmtProd(p.price, p.currency)}</span></>
-            : fmtProd(p.price, p.currency)}
+          {p.product_kind === "archivo" ? (
+            cheapestPlan ? `Desde ${fmtProd(planFinalPrice(cheapestPlan), cheapestPlan.currency)}` : <span className="text-xs text-muted-foreground font-normal">Sin precio</span>
+          ) : (p.discount_pct ?? 0) > 0 ? (
+            <>{fmtProd(p.price * (1 - (p.discount_pct ?? 0) / 100), p.currency)} <span className="text-xs line-through text-muted-foreground font-normal">{fmtProd(p.price, p.currency)}</span></>
+          ) : fmtProd(p.price, p.currency)}
         </p>
         <div className="flex items-center gap-1.5 flex-wrap">
           {!p.is_active && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground">Oculto</span>}
@@ -1557,9 +1521,10 @@ function ProductGridCard({ product: p, canEdit, variantStockMap, dashed, onEdit 
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
-export default function CrmProductos({ kind, canEdit = true, canCreate = true, canDelete = true }: {
+export default function CrmProductos({ kind, canEdit = true, canCreate = true, canDelete = true, onExit }: {
   kind: ProductKind;
   canEdit?: boolean; canCreate?: boolean; canDelete?: boolean;
+  onExit?: () => void;
 }) {
   const { user } = useCurrentUser();
   const catalogKind: CrmCatalog["catalog_kind"] = kind === "fisico" ? "fisico" : "digital";
@@ -1689,8 +1654,6 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
   if (view === "product") return (
     <ProductEditor
       initialProduct={selectedProduct}
-      fromCatalogId={fromCatalogId}
-      allCatalogs={catalogs}
       canDelete={canDelete}
       kind={kind}
       onBack={() => {
@@ -1752,6 +1715,11 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
 
   return (
     <div className="space-y-4">
+      {onExit && (
+        <button onClick={onExit} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
+          <ArrowLeft size={12} /> Volver
+        </button>
+      )}
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">
           {catalogsEnabled

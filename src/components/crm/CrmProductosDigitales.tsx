@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { ArrowLeft, BookOpen, FileText, ChevronRight } from "lucide-react";
+import { BookOpen, FileText, ChevronRight } from "lucide-react";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import CrmCourses from "./CrmCourses";
 import CrmProductos from "./CrmProductos";
@@ -19,27 +19,16 @@ const CrmProductosDigitales = ({
 
   const [panel, setPanel] = useState<Panel>("menu");
 
-  if (panel === "cursos" && showCursos) return (
-    <div className="space-y-5">
-      <button onClick={() => setPanel("menu")} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
-        <ArrowLeft size={12} /> Volver
-      </button>
-      <CrmCourses />
-    </div>
-  );
+  if (panel === "cursos" && showCursos) return <CrmCourses onExit={() => setPanel("menu")} />;
 
   if (panel === "archivos" && canRead) return (
-    <div className="space-y-5">
-      <button onClick={() => setPanel("menu")} className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors">
-        <ArrowLeft size={12} /> Volver
-      </button>
-      <CrmProductos
-        kind="archivo"
-        canEdit={!isStaff || can("productos_digitales", "edit")}
-        canCreate={!isStaff || can("productos_digitales", "create")}
-        canDelete={!isStaff || can("productos_digitales", "delete")}
-      />
-    </div>
+    <CrmProductos
+      kind="archivo"
+      canEdit={!isStaff || can("productos_digitales", "edit")}
+      canCreate={!isStaff || can("productos_digitales", "create")}
+      canDelete={!isStaff || can("productos_digitales", "delete")}
+      onExit={() => setPanel("menu")}
+    />
   );
 
   return (

@@ -1,14 +1,13 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import {
-  DollarSign, Plus, Loader2, RefreshCcw, X, Filter,
-  CheckCircle2, ExternalLink, TrendingUp,
-  Calendar, Upload, Bot, Check, XCircle, Pencil, Trash2,
+  Plus, Loader2, X, Filter, CheckCircle2, DollarSign,
+  Upload, Bot, Check, XCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
-  useContacts, useServices, useProducts, useProductVariants, useCourses, useSales, useCreateSale, useUpdateSale, useDeleteSale,
+  useContacts, useServices, useProducts, useProductVariants, useCourses, useCoursePlans, useSales, useCreateSale, useUpdateSale, useDeleteSale,
   useClientAccounts,
 } from "@/hooks/useCrmData";
 import { useStaffPermissions, useCurrentUser } from "@/hooks/useAuth";
@@ -16,12 +15,11 @@ import type { CrmSale } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import SalesTable from "@/components/crm/SalesTable";
+import SalesTrendCard from "@/components/crm/SalesTrendCard";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 import { CURRENCIES, formatAmount, getCurrencyFlag, getCurrencyFromPhone } from "@/lib/currencies";
 import { usePricesByEntity } from "@/hooks/useCrmData";
-
-const MONTHS_ES = ["Enero","Febrero","Marzo","Abril","Mayo","Junio","Julio","Agosto","Septiembre","Octubre","Noviembre","Diciembre"];
 
 const fmtSaleAmt = (amount: number, currency?: string | null, decimals = 2) =>
   formatAmount(amount, currency, decimals);
@@ -31,6 +29,28 @@ function getAvatarColor(str: string) {
   let h = 0;
   for (let i = 0; i < str.length; i++) h = str.charCodeAt(i) + ((h << 5) - h);
   return colors[Math.abs(h) % colors.length];
+}
+
+type HistorySaleRow = {
+  id: string; raw: CrmSale;
+  date: Date; dateStr: string; dateKey: string;
+  contactName: string; contactId: string;
+  serviceName: string; amount: number; notes: string;
+};
+
+// Filtra el historial de ventas; `skip` omite una dimensión (para calcular las opciones de esa misma dimensión en cascada).
+function applyHistoryFilters(
+  rows: HistorySaleRow[],
+  dateFrom: string, dateTo: string, product: string, contact: string, currency: string,
+  skip?: "product" | "contact" | "currency"
+) {
+  let r = rows;
+  if (dateFrom) r = r.filter(s => s.dateKey >= dateFrom);
+  if (dateTo)   r = r.filter(s => s.dateKey <= dateTo);
+  if (skip !== "product"  && product)  r = r.filter(s => s.serviceName === product);
+  if (skip !== "contact"  && contact)  r = r.filter(s => s.contactId === contact);
+  if (skip !== "currency" && currency) r = r.filter(s => (s.raw.currency ?? "USD") === currency);
+  return r;
 }
 
 const SELECT_CLS = "w-full h-12 px-3.5 rounded-xl border border-border bg-card text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer";
@@ -45,10 +65,6 @@ const Chevron = () => (
     </svg>
   </div>
 );
-
-const INTERVAL_LABELS: Record<string, string> = {
-  monthly: "Mensual", annual: "Anual", quarterly: "Trimestral", semiannual: "Semestral",
-};
 
 // ─── Proof Upload ─────────────────────────────────────────────────────────────
 
@@ -101,11 +117,7 @@ const ProofUpload = ({ onUploaded }: { onUploaded: (url: string) => void }) => {
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
-const CrmVentas = ({
-  isSuperAdmin = false,
-}: {
-  isSuperAdmin?: boolean;
-}) => {
+const CrmVentas = () => {
   const { user }      = useCurrentUser();
   const { can }       = useStaffPermissions();
   const canCreateSale = can("ventas", "create");
@@ -168,6 +180,7 @@ const CrmVentas = ({
   const [selectedProduct, setSelectedProduct] = useState("");
   const [selectedVariant, setSelectedVariant] = useState("");
   const [selectedCourse, setSelectedCourse]   = useState("");
+  const [selectedCoursePlan, setSelectedCoursePlan] = useState("");
   const [saleNotes, setSaleNotes]             = useState("");
   const [saleAmount, setSaleAmount]           = useState<number | "">("");
   const [saleCurrency, setSaleCurrency]       = useState<string>("USD");
@@ -181,7 +194,7 @@ const CrmVentas = ({
   // Multi-currency auto-select
   const { data: servicePrices = [] } = usePricesByEntity("service", selectedService || null);
   const { data: productPrices = [] } = usePricesByEntity("product", selectedProduct || null);
-  const { data: coursePrices = [] }  = usePricesByEntity("course",  selectedCourse  || null);
+  const { data: coursePlans = [] }   = useCoursePlans(selectedCourse || null);
 
   // Solo mostrar tipos que el usuario tiene registrados
   const availableTypes = useMemo(() => [
@@ -212,13 +225,6 @@ const CrmVentas = ({
     const match = productPrices.find(p => p.currency.toUpperCase() === cur.toUpperCase());
     if (match) { setSaleAmount(match.price); setSaleCurrency(match.currency); }
   }, [productPrices]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => {
-    if (saleItemType !== "course" || !selectedCourse || !coursePrices.length) return;
-    const cur = getContactCurrency(selectedContact);
-    if (!cur) return;
-    const match = coursePrices.find(p => p.currency.toUpperCase() === cur.toUpperCase());
-    if (match) { setSaleAmount(match.price); setSaleCurrency(match.currency); }
-  }, [coursePrices]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const getContactCurrency = (contactId: string) => {
     const contact = contacts.find(c => c.id === contactId);
@@ -245,6 +251,24 @@ const CrmVentas = ({
     }
     const disc = prod.discount_pct ?? 0;
     return disc > 0 ? +(prod.price * (1 - disc / 100)).toFixed(2) : prod.price;
+  };
+
+  const calcCoursePlanPrice = (plan: typeof coursePlans[0], useRecurring: boolean) => {
+    if (useRecurring && plan.recurring_price != null) {
+      const disc = plan.recurring_discount_pct ?? 0;
+      return disc > 0 ? +(plan.recurring_price * (1 - disc / 100)).toFixed(2) : plan.recurring_price;
+    }
+    const disc = plan.discount_pct ?? 0;
+    return disc > 0 ? +(plan.price * (1 - disc / 100)).toFixed(2) : plan.price;
+  };
+
+  const calcServicePrice = (svc: typeof services[0] & { discount_pct?: number }, useRecurring: boolean) => {
+    if (useRecurring && svc.recurring_price != null) {
+      const disc = svc.recurring_discount_pct ?? 0;
+      return disc > 0 ? +(svc.recurring_price * (1 - disc / 100)).toFixed(2) : svc.recurring_price;
+    }
+    const disc = svc.discount_pct ?? 0;
+    return disc > 0 ? +(svc.price * (1 - disc / 100)).toFixed(2) : svc.price;
   };
 
   const handleServiceChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
@@ -284,13 +308,12 @@ const CrmVentas = ({
       const match = cur ? productPrices.find(p => p.currency.toUpperCase() === cur.toUpperCase()) : null;
       if (match) { setSaleAmount(match.price); setSaleCurrency(match.currency); }
       else { setSaleAmount(getPriceForCurrency(productPrices, calcProductPrice(selectedProductObj), selectedProductObj.currency, cur)); setSaleCurrency(selectedProductObj.currency ?? "USD"); }
-    } else if (saleItemType === "course" && selectedCourse) {
-      const c = courses.find(x => x.id === selectedCourse);
-      if (c && c.price != null) {
-        const cur = contactId ? getContactCurrency(contactId) : null;
-        const match = cur ? coursePrices.find(p => p.currency.toUpperCase() === cur.toUpperCase()) : null;
-        if (match) { setSaleAmount(match.price); setSaleCurrency(match.currency); }
-        else { setSaleAmount(getPriceForCurrency(coursePrices, c.price, c.currency ?? "USD", cur)); setSaleCurrency(c.currency ?? "USD"); }
+    } else if (saleItemType === "course" && selectedCoursePlan) {
+      const p = coursePlans.find(x => x.id === selectedCoursePlan);
+      if (p) {
+        const useRecurring = saleType === "recurring" && p.is_recurring;
+        setSaleAmount(calcCoursePlanPrice(p, useRecurring));
+        setSaleCurrency((useRecurring ? p.recurring_currency : p.currency) ?? p.currency ?? "USD");
       }
     }
   };
@@ -303,16 +326,20 @@ const CrmVentas = ({
   };
 
   const handleCourseChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const cId = e.target.value; setSelectedCourse(cId); setSaleAmount("");
-    const c = courses.find(x => x.id === cId);
-    if (!c || c.price == null) return;
-    setSaleAmount(c.price);
-    setSaleCurrency(c.currency ?? "USD"); // moneda base inmediata; useEffect aplica override cuando precios cargan
+    const cId = e.target.value; setSelectedCourse(cId); setSelectedCoursePlan(""); setSaleAmount(""); setSaleType("initial");
+  };
+
+  const handleCoursePlanChange = (planId: string) => {
+    setSelectedCoursePlan(planId); setSaleType("initial");
+    const p = coursePlans.find(x => x.id === planId);
+    if (!p) { setSaleAmount(""); return; }
+    setSaleAmount(calcCoursePlanPrice(p, false));
+    setSaleCurrency(p.currency ?? "USD");
   };
 
   const resetSaleForm = () => {
     setSelectedContact(""); setSelectedService(""); setSelectedProduct("");
-    setSelectedVariant(""); setSelectedCourse("");
+    setSelectedVariant(""); setSelectedCourse(""); setSelectedCoursePlan("");
     setSaleNotes(""); setSaleAmount(""); setSaleCurrency("USD"); setSaleType("initial");
   };
 
@@ -370,12 +397,19 @@ const CrmVentas = ({
       if (!selectedCourse || saleAmount === "" || isNaN(Number(saleAmount))) return;
       const course = courses.find(c => c.id === selectedCourse);
       if (!course) return;
+      const plan = coursePlans.find(p => p.id === selectedCoursePlan);
+      let finalNotes = saleNotes;
+      if (plan?.is_recurring) {
+        const typeLabel = saleType === "initial" ? "Pago Inicial" : "Pago Recurrente";
+        finalNotes = finalNotes ? `[${typeLabel}] ${finalNotes}` : `[${typeLabel}]`;
+      }
       try {
         await createSale.mutateAsync({
           contact_id: contact.id, contact_name: contact.name,
           course_id: course.id, course_name: course.title,
+          course_plan_id: plan?.id ?? null,
           amount: Number(saleAmount), currency: saleCurrency,
-          type: "initial", notes: saleNotes || null,
+          type: plan?.is_recurring ? saleType : "initial", notes: finalNotes || null,
         } as any);
         toast.success("Venta registrada");
         resetSaleForm();
@@ -386,14 +420,14 @@ const CrmVentas = ({
   // ─── Filters ──────────────────────────────────────────────────────────────
   const [filterDateFrom, setFilterDateFrom] = useState("");
   const [filterDateTo,   setFilterDateTo]   = useState("");
-  const [filterService,  setFilterService]  = useState("");
+  const [filterProduct,  setFilterProduct]  = useState("");
   const [filterContact,  setFilterContact]  = useState("");
   const [filterCurrency, setFilterCurrency] = useState("");
 
-  const hasFilters = !!(filterDateFrom || filterDateTo || filterService || filterContact || filterCurrency);
+  const hasFilters = !!(filterDateFrom || filterDateTo || filterProduct || filterContact || filterCurrency);
 
   const clearFilters = () => {
-    setFilterDateFrom(""); setFilterDateTo(""); setFilterService("");
+    setFilterDateFrom(""); setFilterDateTo(""); setFilterProduct("");
     setFilterContact(""); setFilterCurrency("");
   };
 
@@ -424,63 +458,8 @@ const CrmVentas = ({
     [salesData]
   );
 
-  // ─── KPIs ─────────────────────────────────────────────────────────────────
-  const confirmedSales = useMemo(
-    () => salesData.filter(s => s.status !== "pending_review" && s.status !== "rejected"),
-    [salesData]
-  );
-
-  const totalPorMoneda = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const s of confirmedSales) { const c = s.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount); }
-    return [...map.entries()];
-  }, [confirmedSales]);
-
-  const ingresoMesPorMoneda = useMemo(() => {
-    const now = new Date();
-    const map = new Map<string, number>();
-    for (const s of confirmedSales) {
-      const d = new Date(s.created_at);
-      if (d.getFullYear() !== now.getFullYear() || d.getMonth() !== now.getMonth()) continue;
-      const c = s.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount);
-    }
-    return [...map.entries()];
-  }, [confirmedSales]);
-
-  const salesThisMonth = useMemo(() => {
-    const now = new Date();
-    return confirmedSales.filter(s => { const d = new Date(s.created_at); return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth(); }).length;
-  }, [confirmedSales]);
-
-  const availableCurrencies = useMemo(() => {
-    const s = new Set(salesData.map(x => x.currency ?? "USD"));
-    return [...s].sort();
-  }, [salesData]);
-
-  const recurringByInterval = useMemo(() => {
-    const serviceInfo: Record<string, { interval: string; recPrice: number; currency: string }> = {};
-    for (const s of services) {
-      if (s.is_recurring && s.recurring_interval) {
-        serviceInfo[s.id] = { interval: s.recurring_interval, recPrice: s.recurring_price ?? s.price, currency: s.currency ?? "USD" };
-      }
-    }
-    const seen = new Set<string>();
-    const totals: Record<string, Record<string, number>> = {};
-    for (const sale of salesData) {
-      if (!sale.service_id || !sale.contact_id) continue;
-      const info = serviceInfo[sale.service_id]; if (!info) continue;
-      const key = `${sale.contact_id}|${sale.service_id}`; if (seen.has(key)) continue;
-      seen.add(key);
-      if (!totals[info.interval]) totals[info.interval] = {};
-      totals[info.interval][info.currency] = (totals[info.interval][info.currency] ?? 0) + info.recPrice;
-    }
-    return Object.entries(totals).map(([interval, byCurrency]) => ({
-      interval, byCurrency: Object.entries(byCurrency) as [string, number][],
-    }));
-  }, [services, salesData]);
-
   // ─── Filtered history ─────────────────────────────────────────────────────
-  const allSales = useMemo(() => salesData.map(s => ({
+  const allSales: HistorySaleRow[] = useMemo(() => salesData.map(s => ({
     id: s.id, raw: s,
     date:        new Date(s.created_at),
     dateStr:     new Date(s.created_at).toLocaleDateString("es-ES"),
@@ -488,28 +467,50 @@ const CrmVentas = ({
     contactName: s.contact_name ?? contacts.find(c => c.id === s.contact_id)?.name ?? "Contacto eliminado",
     serviceName: s.course_name ?? s.product_name ?? s.service_name ?? "—",
     amount:      s.amount, notes: s.notes ?? "",
-    serviceId:   s.service_id ?? "", contactId: s.contact_id ?? "",
+    contactId:   s.contact_id ?? "",
   })), [salesData, contacts]);
 
-  const filteredSales = useMemo(() => {
-    let r = allSales;
-    if (filterDateFrom) r = r.filter(s => s.dateKey >= filterDateFrom);
-    if (filterDateTo)   r = r.filter(s => s.dateKey <= filterDateTo);
-    if (filterService)  r = r.filter(s => s.serviceId === filterService);
-    if (filterContact)  r = r.filter(s => s.contactId === filterContact);
-    if (filterCurrency) r = r.filter(s => (s.raw.currency ?? "USD") === filterCurrency);
-    return r;
-  }, [allSales, filterDateFrom, filterDateTo, filterService, filterContact, filterCurrency]);
+  const filteredSales = useMemo(
+    () => applyHistoryFilters(allSales, filterDateFrom, filterDateTo, filterProduct, filterContact, filterCurrency),
+    [allSales, filterDateFrom, filterDateTo, filterProduct, filterContact, filterCurrency]
+  );
 
-  const filteredTotal = useMemo(
-    () => filteredSales.filter(s => s.raw.status !== "pending_review" && s.raw.status !== "rejected").reduce((s, x) => s + x.amount, 0),
+  const filteredConfirmedSales = useMemo(
+    () => filteredSales.filter(s => s.raw.status !== "pending_review" && s.raw.status !== "rejected"),
     [filteredSales]
   );
 
-  const salesContactIds  = useMemo(() => new Set(salesData.map(s => s.contact_id).filter(Boolean)), [salesData]);
-  const salesServiceIds  = useMemo(() => new Set(salesData.map(s => s.service_id).filter(Boolean)), [salesData]);
-  const contactsWithSale = useMemo(() => contacts.filter(c => salesContactIds.has(c.id)), [contacts, salesContactIds]);
-  const servicesWithSale = useMemo(() => services.filter(s => salesServiceIds.has(s.id)), [services, salesServiceIds]);
+  const filteredTotal = useMemo(
+    () => filteredConfirmedSales.reduce((s, x) => s + x.amount, 0),
+    [filteredConfirmedSales]
+  );
+
+  const filteredTotalsPorMoneda = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of filteredConfirmedSales) { const c = s.raw.currency ?? "USD"; map.set(c, (map.get(c) ?? 0) + s.amount); }
+    return [...map.entries()];
+  }, [filteredConfirmedSales]);
+
+  // Opciones de cada filtro, en cascada según los demás filtros activos.
+  const productOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of applyHistoryFilters(allSales, filterDateFrom, filterDateTo, filterProduct, filterContact, filterCurrency, "product")) set.add(s.serviceName);
+    return [...set].sort((a, b) => a.localeCompare(b));
+  }, [allSales, filterDateFrom, filterDateTo, filterProduct, filterContact, filterCurrency]);
+
+  const contactOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of applyHistoryFilters(allSales, filterDateFrom, filterDateTo, filterProduct, filterContact, filterCurrency, "contact")) {
+      if (s.contactId) map.set(s.contactId, s.contactName);
+    }
+    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [allSales, filterDateFrom, filterDateTo, filterProduct, filterContact, filterCurrency]);
+
+  const historyCurrencyOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const s of applyHistoryFilters(allSales, filterDateFrom, filterDateTo, filterProduct, filterContact, filterCurrency, "currency")) set.add(s.raw.currency ?? "USD");
+    return [...set].sort();
+  }, [allSales, filterDateFrom, filterDateTo, filterProduct, filterContact, filterCurrency]);
 
   const isFormValid = selectedContact && (
     saleItemType === "service" ? !!selectedService :
@@ -572,61 +573,8 @@ const CrmVentas = ({
           <p className="text-sm text-muted-foreground mt-0.5">Historial completo de transacciones y métricas de ingresos</p>
         </div>
 
-        {/* ── KPI Cards ── */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Total vendido — un card por moneda */}
-          {(totalPorMoneda.length === 0 ? [["USD", 0]] as [string, number][] : totalPorMoneda).map(([cur, total]) => (
-            <div key={`total-${cur}`} className="bg-card border rounded-2xl p-4">
-              <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center mb-3">
-                <DollarSign size={15} className="text-primary" />
-              </div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
-                <p className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">Total {cur}</p>
-            </div>
-          ))}
-
-          {/* Ingresos del mes — un card por moneda */}
-          {(ingresoMesPorMoneda.length === 0 ? [["USD", 0]] as [string, number][] : ingresoMesPorMoneda).map(([cur, total]) => (
-            <div key={`mes-${cur}`} className="bg-card border rounded-2xl p-4">
-              <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
-                <Calendar size={15} className="text-muted-foreground" />
-              </div>
-              <div className="flex items-baseline gap-1.5">
-                <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
-                <p className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">{MONTHS_ES[new Date().getMonth()]} {cur}</p>
-            </div>
-          ))}
-
-          {/* Ventas este mes */}
-          <div className="bg-card border rounded-2xl p-4">
-            <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
-              <CheckCircle2 size={15} className="text-muted-foreground" />
-            </div>
-            <p className="text-2xl font-bold">{salesThisMonth}</p>
-            <p className="text-xs text-muted-foreground mt-1">Ventas este mes</p>
-          </div>
-
-          {/* IRE — un card por intervalo */}
-          {isSuperAdmin && recurringByInterval.map(({ interval, byCurrency }) =>
-            (byCurrency.length === 0 ? [["USD", 0]] as [string, number][] : byCurrency).map(([cur, total]) => (
-              <div key={`ire-${interval}-${cur}`} className="bg-card border rounded-2xl p-4">
-                <div className="w-8 h-8 rounded-xl bg-secondary flex items-center justify-center mb-3">
-                  <RefreshCcw size={15} className="text-muted-foreground" />
-                </div>
-                <div className="flex items-baseline gap-1.5">
-                  <span className="text-base leading-none">{getCurrencyFlag(cur)}</span>
-                  <p className="text-2xl font-bold leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
-                </div>
-                <p className="text-xs text-muted-foreground mt-1">IRE {INTERVAL_LABELS[interval] ?? interval} {cur}</p>
-              </div>
-            ))
-          )}
-        </div>
+        {/* ── Tendencia de ventas ── */}
+        <SalesTrendCard sales={salesData} />
 
         {/* ── Ventas IA pendientes ── */}
         {pendingAiSales.length > 0 && (
@@ -753,17 +701,29 @@ const CrmVentas = ({
                     <div className="relative">
                       <select className={SELECT_CLS} value={selectedCourse} onChange={handleCourseChange}>
                         <option value="">Seleccionar...</option>
-                        {courses.map(c => (
-                          <option key={c.id} value={c.id}>
-                            {c.title}{c.price != null ? ` — ${fmtSaleAmt(c.price, c.currency)}` : ""}
-                          </option>
-                        ))}
+                        {courses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
                       </select>
                       <Chevron />
                     </div>
                   </div>
                 )}
               </div>
+
+              {/* Plan del curso */}
+              {saleItemType === "course" && selectedCourse && coursePlans.length > 0 && (
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Plan</label>
+                  <div className="relative">
+                    <select className={SELECT_CLS} value={selectedCoursePlan} onChange={e => handleCoursePlanChange(e.target.value)}>
+                      <option value="">Seleccionar...</option>
+                      {coursePlans.map(p => (
+                        <option key={p.id} value={p.id}>{p.name} — {fmtSaleAmt(calcCoursePlanPrice(p, false), p.currency)}</option>
+                      ))}
+                    </select>
+                    <Chevron />
+                  </div>
+                </div>
+              )}
 
               {/* Variante */}
               {saleItemType === "product" && selectedProductObj?.has_variants && productVariants.length > 0 && (
@@ -793,17 +753,45 @@ const CrmVentas = ({
                     <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tipo de cobro</p>
                     <div className="flex flex-col sm:flex-row gap-3">
                       <label className="flex items-center gap-2.5 text-sm cursor-pointer flex-1 p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors">
-                        <input type="radio" name="saleType" checked={saleType === "initial"} onChange={() => { setSaleType("initial"); setSaleAmount(s.price); }} className="h-4 w-4 accent-primary" />
+                        <input type="radio" name="saleType" checked={saleType === "initial"} onChange={() => { setSaleType("initial"); setSaleAmount(calcServicePrice(s, false)); }} className="h-4 w-4 accent-primary" />
                         <div>
                           <p className="font-semibold leading-tight">Pago Inicial</p>
-                          <p className="text-xs text-muted-foreground mt-0.5">{fmtSaleAmt(s.price, s.currency)}</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{fmtSaleAmt(calcServicePrice(s, false), s.currency)}</p>
                         </div>
                       </label>
                       <label className="flex items-center gap-2.5 text-sm cursor-pointer flex-1 p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors">
-                        <input type="radio" name="saleType" checked={saleType === "recurring"} onChange={() => { setSaleType("recurring"); setSaleAmount(s.recurring_price ?? s.price); }} className="h-4 w-4 accent-primary" />
+                        <input type="radio" name="saleType" checked={saleType === "recurring"} onChange={() => { setSaleType("recurring"); setSaleAmount(calcServicePrice(s, true)); }} className="h-4 w-4 accent-primary" />
                         <div>
                           <p className="font-semibold leading-tight">Pago Recurrente</p>
-                          {s.recurring_price && <p className="text-xs text-muted-foreground mt-0.5">{fmtSaleAmt(s.recurring_price, s.currency)} / {recLabel}</p>}
+                          {s.recurring_price && <p className="text-xs text-muted-foreground mt-0.5">{fmtSaleAmt(calcServicePrice(s, true), s.currency)} / {recLabel}</p>}
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Tipo de cobro (plan de curso recurrente) */}
+              {saleItemType === "course" && (() => {
+                const p = coursePlans.find(x => x.id === selectedCoursePlan);
+                if (!p?.is_recurring) return null;
+                const recLabel = p.recurring_label ? p.recurring_label.replace(/^[/\s]+/, "") : (p.recurring_interval ?? "mes");
+                return (
+                  <div className="p-4 bg-secondary/40 rounded-xl border border-secondary space-y-3">
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Tipo de cobro</p>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <label className="flex items-center gap-2.5 text-sm cursor-pointer flex-1 p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors">
+                        <input type="radio" name="courseSaleType" checked={saleType === "initial"} onChange={() => { setSaleType("initial"); setSaleAmount(calcCoursePlanPrice(p, false)); setSaleCurrency(p.currency ?? "USD"); }} className="h-4 w-4 accent-primary" />
+                        <div>
+                          <p className="font-semibold leading-tight">Pago Inicial</p>
+                          <p className="text-xs text-muted-foreground mt-0.5">{fmtSaleAmt(calcCoursePlanPrice(p, false), p.currency)}</p>
+                        </div>
+                      </label>
+                      <label className="flex items-center gap-2.5 text-sm cursor-pointer flex-1 p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors">
+                        <input type="radio" name="courseSaleType" checked={saleType === "recurring"} onChange={() => { setSaleType("recurring"); setSaleAmount(calcCoursePlanPrice(p, true)); setSaleCurrency(p.recurring_currency ?? p.currency ?? "USD"); }} className="h-4 w-4 accent-primary" />
+                        <div>
+                          <p className="font-semibold leading-tight">Pago Recurrente</p>
+                          {p.recurring_price && <p className="text-xs text-muted-foreground mt-0.5">{fmtSaleAmt(calcCoursePlanPrice(p, true), p.recurring_currency ?? p.currency)} / {recLabel}</p>}
                         </div>
                       </label>
                     </div>
@@ -869,11 +857,11 @@ const CrmVentas = ({
                 <input type="date" className={F_INPUT} value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)} />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Servicio</label>
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Producto</label>
                 <div className="relative">
-                  <select className={F_SELECT} value={filterService} onChange={(e) => setFilterService(e.target.value)}>
+                  <select className={F_SELECT} value={filterProduct} onChange={(e) => setFilterProduct(e.target.value)}>
                     <option value="">Todos</option>
-                    {servicesWithSale.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    {productOptions.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                   <Chevron />
                 </div>
@@ -883,23 +871,44 @@ const CrmVentas = ({
                 <div className="relative">
                   <select className={F_SELECT} value={filterContact} onChange={(e) => setFilterContact(e.target.value)}>
                     <option value="">Todos</option>
-                    {contactsWithSale.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {contactOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
                   </select>
                   <Chevron />
                 </div>
               </div>
-              {availableCurrencies.length > 1 && (
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Moneda</label>
-                  <div className="relative">
-                    <select className={F_SELECT} value={filterCurrency} onChange={(e) => setFilterCurrency(e.target.value)}>
-                      <option value="">Todas</option>
-                      {availableCurrencies.map(c => <option key={c} value={c}>{getCurrencyFlag(c)} {c} — {formatAmount(1, c, 0).replace("1", "").trim()}</option>)}
-                    </select>
-                    <Chevron />
-                  </div>
+              <div className="space-y-1">
+                <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Moneda</label>
+                <div className="relative">
+                  <select className={F_SELECT} value={filterCurrency} onChange={(e) => setFilterCurrency(e.target.value)}>
+                    <option value="">Todas</option>
+                    {historyCurrencyOptions.map(c => <option key={c} value={c}>{getCurrencyFlag(c)} {c} — {formatAmount(1, c, 0).replace("1", "").trim()}</option>)}
+                  </select>
+                  <Chevron />
                 </div>
-              )}
+              </div>
+            </div>
+
+            {/* Cantidad y monto de ventas según los filtros activos */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="bg-secondary/30 border rounded-xl p-3">
+                <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center mb-2">
+                  <CheckCircle2 size={13} className="text-primary" />
+                </div>
+                <p className="text-lg font-bold text-foreground leading-tight">{filteredConfirmedSales.length}</p>
+                <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">Ventas</p>
+              </div>
+              {(filteredTotalsPorMoneda.length > 0 ? filteredTotalsPorMoneda : ([["USD", 0]] as [string, number][])).map(([cur, total]) => (
+                <div key={`hist-total-${cur}`} className="bg-secondary/30 border rounded-xl p-3">
+                  <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center mb-2">
+                    <DollarSign size={13} className="text-primary" />
+                  </div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-sm leading-none">{getCurrencyFlag(cur)}</span>
+                    <p className="text-lg font-bold text-foreground leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
+                  </div>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">Total {cur}</p>
+                </div>
+              ))}
             </div>
           </div>
 

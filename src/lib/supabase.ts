@@ -191,12 +191,54 @@ export type CrmSale = {
   product_name: string | null
   course_id: string | null
   course_name: string | null
+  course_plan_id: string | null
+  product_plan_id: string | null
+}
+
+export type CrmCoursePlan = {
+  id: string
+  user_id: string
+  course_id: string
+  name: string
+  price: number
+  currency: string
+  discount_pct: number
+  is_recurring: boolean
+  recurring_price: number | null
+  recurring_currency: string | null
+  recurring_interval: 'semanal' | 'mensual' | 'trimestral' | 'semestral' | 'anual' | null
+  recurring_label: string | null
+  recurring_discount_pct: number
+  is_active: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export type CrmProductPlan = {
+  id: string
+  user_id: string
+  product_id: string
+  name: string
+  price: number
+  currency: string
+  discount_pct: number
+  is_recurring: boolean
+  recurring_price: number | null
+  recurring_currency: string | null
+  recurring_interval: 'semanal' | 'mensual' | 'trimestral' | 'semestral' | 'anual' | null
+  recurring_label: string | null
+  recurring_discount_pct: number
+  is_active: boolean
+  sort_order: number
+  created_at: string
+  updated_at: string
 }
 
 export type CrmPrice = {
   id: string
   user_id: string
-  entity_type: 'product' | 'product_variant' | 'service' | 'course'
+  entity_type: 'product' | 'product_variant' | 'service' | 'course' | 'course_plan' | 'product_plan'
   entity_id: string
   currency: string
   price: number
@@ -334,6 +376,7 @@ export type CrmCourse = {
   is_published: boolean
   price: number | null
   currency: string
+  discount_pct: number
   created_at: string
   updated_at: string
 }
@@ -590,7 +633,7 @@ export type CrmPaymentMethod = {
   id: string
   created_at: string
   user_id: string
-  entity_type: 'product' | 'product_variant' | 'service' | 'course'
+  entity_type: 'product' | 'product_variant' | 'service' | 'course' | 'course_plan' | 'product_plan'
   entity_id: string
   type: 'bank_transfer' | 'payment_link' | 'qr_code'
   label: string | null

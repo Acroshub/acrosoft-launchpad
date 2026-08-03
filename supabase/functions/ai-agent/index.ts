@@ -1289,7 +1289,7 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
 
   let productsQuery = supabase
     .from("crm_products")
-    .select("id, name, price, discount_pct, currency, description, has_variants, deliverable_type, stock_enabled, stock")
+    .select("id, name, price, discount_pct, currency, description, has_variants, product_kind, deliverable_type, stock_enabled, stock")
     .eq("user_id", config.user_id)
     .order("name");
 
@@ -1302,8 +1302,8 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
 
   const allProductIds = allProducts.map(p => p.id);
 
-  // Cargar variantes, FAQs y precios multi-moneda en paralelo
-  const [variantsRes, faqsRes, pricesRes] = await Promise.all([
+  // Cargar variantes, FAQs, precios multi-moneda y planes (productos archivo) en paralelo
+  const [variantsRes, faqsRes, pricesRes, plansRes] = await Promise.all([
     supabase
       .from("crm_product_variants")
       .select("id, product_id, name, price_override, discount_pct, sort_order, stock")
@@ -1321,7 +1321,58 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
       .in("entity_id", allProductIds)
       .eq("entity_type", "product")
       .order("sort_order"),
+    supabase
+      .from("crm_product_plans")
+      .select("id, product_id, name, price, currency, discount_pct, is_recurring, recurring_price, recurring_currency, recurring_interval, recurring_label, recurring_discount_pct")
+      .in("product_id", allProductIds)
+      .eq("is_active", true)
+      .order("sort_order"),
   ]);
+
+  type ProductPlanRow = {
+    id: string; product_id: string; name: string;
+    price: number; currency: string; discount_pct: number | null;
+    is_recurring: boolean; recurring_price: number | null; recurring_currency: string | null;
+    recurring_interval: string | null; recurring_label: string | null; recurring_discount_pct: number | null;
+  };
+  const plansByProduct = new Map<string, ProductPlanRow[]>();
+  for (const pl of (plansRes.data ?? []) as ProductPlanRow[]) {
+    if (!plansByProduct.has(pl.product_id)) plansByProduct.set(pl.product_id, []);
+    plansByProduct.get(pl.product_id)!.push(pl);
+  }
+  const planIds = (plansRes.data ?? []).map(pl => pl.id);
+
+  const [planPaymentMethodsRes, planPricesRes] = planIds.length > 0
+    ? await Promise.all([
+        supabase
+          .from("crm_payment_methods")
+          .select("id, entity_id, type, label, content, sort_order, currency")
+          .in("entity_id", planIds)
+          .eq("entity_type", "product_plan")
+          .order("sort_order"),
+        supabase
+          .from("crm_prices")
+          .select("entity_id, currency, price, discount_pct")
+          .in("entity_id", planIds)
+          .eq("entity_type", "product_plan")
+          .order("sort_order"),
+      ])
+    : [{ data: [] }, { data: [] }];
+
+  const pmByPlan = new Map<string, PaymentMethodRow[]>();
+  for (const pm of planPaymentMethodsRes.data ?? []) {
+    if (pm.currency && contactCurrency && pm.currency !== contactCurrency) continue;
+    if (!pmByPlan.has(pm.entity_id)) pmByPlan.set(pm.entity_id, []);
+    pmByPlan.get(pm.entity_id)!.push(pm as PaymentMethodRow);
+  }
+  const priceOverrideByPlan = new Map<string, { currency: string; price: number; discount_pct: number | null }>();
+  if (contactCurrency) {
+    for (const pr of planPricesRes.data ?? []) {
+      if (pr.currency === contactCurrency && !priceOverrideByPlan.has(pr.entity_id)) {
+        priceOverrideByPlan.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price), discount_pct: pr.discount_pct ?? null });
+      }
+    }
+  }
 
   // Métodos de pago — a nivel de producto y, si las hay, a nivel de cada variante
   // (una variante con métodos propios los usa en vez de los generales del producto).
@@ -1386,6 +1437,51 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
   const lines: string[] = ["CATÁLOGO DE PRODUCTOS:"];
 
   for (const p of products) {
+    // ── Productos digitales (archivo): usan Planes de precio, igual que los cursos ──
+    if (p.product_kind === "archivo") {
+      lines.push(`- ${p.name} [product_id:${p.id}]`);
+      if (p.description) lines.push(`  Descripción: ${p.description}`);
+
+      const plans = plansByProduct.get(p.id) ?? [];
+      if (plans.length > 0) {
+        lines.push(`  Planes:`);
+        for (const pl of plans) {
+          const priceOverride = priceOverrideByPlan.get(pl.id) ?? null;
+          lines.push(`    · ${pl.name} [plan_id:${pl.id}]`);
+          for (const priceLine of formatServicePriceLines(
+            { price: pl.price, currency: pl.currency, discount_pct: pl.discount_pct,
+              is_recurring: pl.is_recurring, recurring_price: pl.recurring_price, recurring_interval: pl.recurring_interval,
+              recurring_label: pl.recurring_label, recurring_discount_pct: pl.recurring_discount_pct },
+            priceOverride, config.apply_discounts !== false,
+          )) lines.push(`  ${priceLine}`);
+
+          const planPms = pmByPlan.get(pl.id) ?? [];
+          if (planPms.length > 0) {
+            lines.push(`      Métodos de pago:`);
+            for (const pm of planPms) lines.push(`        · ${formatPaymentMethod(pm)}`);
+          } else {
+            lines.push(`      ⚠️ Sin métodos de pago`);
+          }
+        }
+      } else {
+        lines.push(`  ⚠️ Sin planes de precio registrados — consultar con el equipo`);
+      }
+
+      if (p.deliverable_type) {
+        lines.push(`  Entrega: automática por WhatsApp al confirmar el pago`);
+      }
+
+      const faqs = faqsByProduct.get(p.id) ?? [];
+      if (faqs.length > 0) {
+        lines.push(`  Preguntas frecuentes:`);
+        for (const f of faqs) {
+          lines.push(`    · P: ${f.question}`);
+          lines.push(`      R: ${f.answer}`);
+        }
+      }
+      continue;
+    }
+
     const priceOverride = pricesByProduct.get(p.id) ?? null;
     const basePrice = priceOverride?.price ?? p.price;
     const baseCurrency = priceOverride?.currency ?? p.currency;
@@ -1626,13 +1722,13 @@ async function buildServicesCatalog(config: AgentConfig, contactCurrency: string
   return lines.join("\n");
 }
 
-// ─── Cargar catálogo de cursos ────────────────────────────────────────────────
+// ─── Cargar catálogo de cursos (con sus planes de precio) ─────────────────────
 async function buildCoursesCatalog(config: AgentConfig, contactCurrency: string | null = null): Promise<string> {
   if (config.courses_mode === "none") return "";
 
   let query = supabase
     .from("crm_courses")
-    .select("id, title, description, price, currency, is_published")
+    .select("id, title, description, is_published")
     .eq("user_id", config.user_id)
     .eq("is_published", true)
     .order("created_at", { ascending: false });
@@ -1646,7 +1742,7 @@ async function buildCoursesCatalog(config: AgentConfig, contactCurrency: string 
 
   const courseIds = courses.map(c => c.id);
 
-  const [faqsRes, paymentMethodsRes, pricesRes] = await Promise.all([
+  const [faqsRes, plansRes] = await Promise.all([
     supabase
       .from("crm_entity_faqs")
       .select("entity_id, question, answer, sort_order")
@@ -1654,16 +1750,10 @@ async function buildCoursesCatalog(config: AgentConfig, contactCurrency: string 
       .eq("entity_type", "course")
       .order("sort_order"),
     supabase
-      .from("crm_payment_methods")
-      .select("id, entity_id, type, label, content, sort_order, currency")
-      .in("entity_id", courseIds)
-      .eq("entity_type", "course")
-      .order("sort_order"),
-    supabase
-      .from("crm_prices")
-      .select("entity_id, currency, price, discount_pct")
-      .in("entity_id", courseIds)
-      .eq("entity_type", "course")
+      .from("crm_course_plans")
+      .select("id, course_id, name, price, currency, discount_pct, is_recurring, recurring_price, recurring_currency, recurring_interval, recurring_label, recurring_discount_pct")
+      .in("course_id", courseIds)
+      .eq("is_active", true)
       .order("sort_order"),
   ]);
 
@@ -1673,46 +1763,82 @@ async function buildCoursesCatalog(config: AgentConfig, contactCurrency: string 
     faqsByCourse.get(f.entity_id)!.push({ question: f.question, answer: f.answer });
   }
 
-  const pmByCourse = new Map<string, PaymentMethodRow[]>();
+  type CoursePlanRow = {
+    id: string; course_id: string; name: string;
+    price: number; currency: string; discount_pct: number | null;
+    is_recurring: boolean; recurring_price: number | null; recurring_currency: string | null;
+    recurring_interval: string | null; recurring_label: string | null; recurring_discount_pct: number | null;
+  };
+  const plansByCourse = new Map<string, CoursePlanRow[]>();
+  for (const p of (plansRes.data ?? []) as CoursePlanRow[]) {
+    if (!plansByCourse.has(p.course_id)) plansByCourse.set(p.course_id, []);
+    plansByCourse.get(p.course_id)!.push(p);
+  }
+  const planIds = (plansRes.data ?? []).map(p => p.id);
+
+  const [paymentMethodsRes, pricesRes] = planIds.length > 0
+    ? await Promise.all([
+        supabase
+          .from("crm_payment_methods")
+          .select("id, entity_id, type, label, content, sort_order, currency")
+          .in("entity_id", planIds)
+          .eq("entity_type", "course_plan")
+          .order("sort_order"),
+        supabase
+          .from("crm_prices")
+          .select("entity_id, currency, price, discount_pct")
+          .in("entity_id", planIds)
+          .eq("entity_type", "course_plan")
+          .order("sort_order"),
+      ])
+    : [{ data: [] }, { data: [] }];
+
+  const pmByPlan = new Map<string, PaymentMethodRow[]>();
   for (const pm of paymentMethodsRes.data ?? []) {
     if (pm.currency && contactCurrency && pm.currency !== contactCurrency) continue;
-    if (!pmByCourse.has(pm.entity_id)) pmByCourse.set(pm.entity_id, []);
-    pmByCourse.get(pm.entity_id)!.push(pm as PaymentMethodRow);
+    if (!pmByPlan.has(pm.entity_id)) pmByPlan.set(pm.entity_id, []);
+    pmByPlan.get(pm.entity_id)!.push(pm as PaymentMethodRow);
   }
 
-  // Precio por moneda del contacto
-  const pricesByCourse = new Map<string, { currency: string; price: number; discount_pct: number | null }>();
+  // Precio por moneda del contacto (override del plan)
+  const priceOverrideByPlan = new Map<string, { currency: string; price: number; discount_pct: number | null }>();
   if (contactCurrency) {
     for (const pr of pricesRes.data ?? []) {
-      if (pr.currency === contactCurrency && !pricesByCourse.has(pr.entity_id)) {
-        pricesByCourse.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price), discount_pct: pr.discount_pct ?? null });
+      if (pr.currency === contactCurrency && !priceOverrideByPlan.has(pr.entity_id)) {
+        priceOverrideByPlan.set(pr.entity_id, { currency: pr.currency, price: Number(pr.price), discount_pct: pr.discount_pct ?? null });
       }
     }
   }
 
+  const applyDisc = config.apply_discounts !== false;
   const lines: string[] = ["CATÁLOGO DE CURSOS:"];
   for (const c of courses) {
-    const priceOverride = pricesByCourse.get(c.id);
-    const applyDisc = config.apply_discounts !== false;
-    const basePrice = priceOverride?.price ?? c.price;
-    const baseCurrency = priceOverride?.currency ?? c.currency;
-    const disc = applyDisc
-      ? (priceOverride?.discount_pct != null ? priceOverride.discount_pct : 0)
-      : 0;
-    const displayPrice = basePrice != null
-      ? (disc > 0
-          ? `${formatPrice(basePrice * (1 - disc / 100), baseCurrency)} (antes ${formatPrice(basePrice, baseCurrency)}, ${disc}% de descuento)`
-          : formatPrice(basePrice, baseCurrency))
-      : "Consultar precio";
-    lines.push(`- ${c.title}: ${displayPrice} [course_id:${c.id}]`);
+    lines.push(`- ${c.title} [course_id:${c.id}]`);
     if (c.description) lines.push(`  Descripción: ${c.description}`);
 
-    const pms = pmByCourse.get(c.id) ?? [];
-    if (pms.length > 0) {
-      lines.push(`  Métodos de pago:`);
-      for (const pm of pms) lines.push(`    · ${formatPaymentMethod(pm)}`);
+    const plans = plansByCourse.get(c.id) ?? [];
+    if (plans.length > 0) {
+      lines.push(`  Planes:`);
+      for (const p of plans) {
+        const priceOverride = priceOverrideByPlan.get(p.id) ?? null;
+        lines.push(`    · ${p.name} [plan_id:${p.id}]`);
+        for (const priceLine of formatServicePriceLines(
+          { price: p.price, currency: p.currency, discount_pct: p.discount_pct,
+            is_recurring: p.is_recurring, recurring_price: p.recurring_price, recurring_interval: p.recurring_interval,
+            recurring_label: p.recurring_label, recurring_discount_pct: p.recurring_discount_pct },
+          priceOverride, applyDisc,
+        )) lines.push(`  ${priceLine}`);
+
+        const pms = pmByPlan.get(p.id) ?? [];
+        if (pms.length > 0) {
+          lines.push(`      Métodos de pago:`);
+          for (const pm of pms) lines.push(`        · ${formatPaymentMethod(pm)}`);
+        } else {
+          lines.push(`      ⚠️ Sin métodos de pago`);
+        }
+      }
     } else {
-      lines.push(`  ⚠️ Sin métodos de pago`);
+      lines.push(`  ⚠️ Sin planes de precio registrados — consultar con el equipo`);
     }
 
     const faqs = faqsByCourse.get(c.id) ?? [];

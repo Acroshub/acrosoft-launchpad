@@ -189,6 +189,11 @@ function DraftVariantPricesCard({ variant, onChange, baseCurrency }: {
             placeholder="0" className="h-8 text-sm" />
         </div>
       </div>
+      {variant.discountPct > 0 && variant.price !== "" && (
+        <p className="text-xs text-primary font-medium">
+          Precio final: {fmtProd(parseFloat(variant.price) * (1 - variant.discountPct / 100), baseCurrency)}
+        </p>
+      )}
       <PriceListEditor value={variant.prices} onChange={prices => onChange({ ...variant, prices })} baseCurrency={baseCurrency} />
     </div>
   );
@@ -364,6 +369,11 @@ function VariantPricesRow({ variant, productId, baseCurrency }: { variant: CrmPr
             onChange={e => setDiscountPct(Math.min(99, Math.max(0, parseFloat(e.target.value) || 0)))} placeholder="0" className="h-8 text-sm" />
         </div>
       </div>
+      {discountPct > 0 && price !== "" && (
+        <p className="text-xs text-primary font-medium">
+          Precio final: {fmtProd(parseFloat(price) * (1 - discountPct / 100), baseCurrency)}
+        </p>
+      )}
       <PriceListEditor value={prices} onChange={handlePricesChange} baseCurrency={baseCurrency} />
     </div>
   );
@@ -712,6 +722,11 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
               <Input type="number" value={discountPct} onChange={e => setDiscountPct(Math.max(0, Math.min(100, Number(e.target.value))))} className="h-10 text-sm" min={0} max={100} placeholder="0" />
             </div>
           </div>
+          {discountPct > 0 && (
+            <p className="text-xs text-primary font-medium -mt-3">
+              Precio final: {fmtProd(price * (1 - discountPct / 100), currency)}
+            </p>
+          )}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-muted-foreground">Precio en otra moneda (opcional)</label>
             <PriceListEditor value={prices} onChange={handlePricesChange} baseCurrency={currency} />
