@@ -30,6 +30,19 @@ export function planFinalRecurringPrice(plan: { recurring_price: number | null; 
   return plan.recurring_discount_pct > 0 ? plan.recurring_price * (1 - plan.recurring_discount_pct / 100) : plan.recurring_price;
 }
 
+// Suma un intervalo de recurrencia a una fecha — usado para vencimientos de acceso y próximas renovaciones.
+export function addInterval(date: Date, interval: RecurringInterval): Date {
+  const d = new Date(date);
+  switch (interval) {
+    case "semanal": d.setDate(d.getDate() + 7); break;
+    case "trimestral": d.setMonth(d.getMonth() + 3); break;
+    case "semestral": d.setMonth(d.getMonth() + 6); break;
+    case "anual": d.setFullYear(d.getFullYear() + 1); break;
+    default: d.setMonth(d.getMonth() + 1); break; // mensual (y fallback)
+  }
+  return d;
+}
+
 export type DraftPlan = {
   _key: number;
   name: string;

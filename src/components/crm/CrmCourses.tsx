@@ -24,7 +24,7 @@ import {
   useCourseModules, useUpsertCourseModule, useDeleteCourseModule,
   useCourseLessons, useUpsertCourseLesson, useDeleteCourseLesson,
   useCourseAccess, useGrantCourseAccess, useRevokeCourseAccess,
-  useContacts, useCreateContact, useInsertLog, useCreateSale,
+  useContacts, useInsertLog, useCreateSale,
   usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs,
   useUpsertPaymentMethod,
 } from "@/hooks/useCrmData";
@@ -32,9 +32,10 @@ import type { CrmCourse, CrmCoursePlan, CrmCourseModule, CrmCourseLesson, CrmCou
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
 import PaymentMethodsEditor from "@/components/shared/PaymentMethodsEditor";
+import ContactPicker from "@/components/crm/ContactPicker";
 import {
-  type RecurringInterval, type DraftPlan, emptyDraftPlan, PlanFields, DraftPlanCard,
-  planFinalPrice, planFinalRecurringPrice, INTERVAL_LABELS,
+  type DraftPlan, emptyDraftPlan, PlanFields, DraftPlanCard,
+  planFinalPrice, planFinalRecurringPrice, INTERVAL_LABELS, addInterval,
 } from "@/components/crm/PlanEditor";
 import { VideoUploadProvider, useVideoUpload } from "@/contexts/VideoUploadContext";
 
@@ -113,19 +114,6 @@ function CoverUploader({ url, onChange, draftId }: { url: string | null; onChang
 const COURSE_WIZARD_STEPS = ["info", "planes"] as const;
 type CourseWizardStep = typeof COURSE_WIZARD_STEPS[number];
 const COURSE_WIZARD_LABELS: Record<CourseWizardStep, string> = { info: "Información Básica", planes: "Planes" };
-
-// ─── Planes de precio (recurrente o pago único) ────────────────────────────────
-function addInterval(date: Date, interval: RecurringInterval): Date {
-  const d = new Date(date);
-  switch (interval) {
-    case "semanal": d.setDate(d.getDate() + 7); break;
-    case "trimestral": d.setMonth(d.getMonth() + 3); break;
-    case "semestral": d.setMonth(d.getMonth() + 6); break;
-    case "anual": d.setFullYear(d.getFullYear() + 1); break;
-    default: d.setMonth(d.getMonth() + 1); break; // mensual (y fallback)
-  }
-  return d;
-}
 
 function NewCourseWizard({ onCancel, onCreated }: { onCancel: () => void; onCreated: (course: CrmCourse) => void }) {
   const upsertCourse        = useUpsertCourse();
@@ -1771,15 +1759,13 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
   const { data: plans = [] }               = useCoursePlans(course.id);
   const grantAccess   = useGrantCourseAccess();
   const revokeAccess  = useRevokeCourseAccess();
-  const createContact = useCreateContact();
   const createSale    = useCreateSale();
 
-  const [showForm, setShowForm]           = useState(false);
-  const [newEmail, setNewEmail]           = useState("");
-  const [newExpiry, setNewExpiry]         = useState("");
-  const [contactSearch, setContactSearch] = useState("");
-  const [saving, setSaving]               = useState(false);
-  const [resendingId, setResendingId]     = useState<string | null>(null);
+  const [showForm, setShowForm]                 = useState(false);
+  const [selectedContactId, setSelectedContactId] = useState("");
+  const [newExpiry, setNewExpiry]               = useState("");
+  const [saving, setSaving]                     = useState(false);
+  const [resendingId, setResendingId]           = useState<string | null>(null);
 
   const handleResend = async (access: CrmCourseAccess) => {
     setResendingId(access.id);
@@ -1809,33 +1795,21 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
   };
 
   const accessedEmails = new Set(accesses.map(a => a.email.toLowerCase()));
-  const filteredContacts = contactSearch.trim().length >= 1
-    ? contacts.filter(c =>
-        c.email &&
-        !accessedEmails.has(c.email.toLowerCase()) &&
-        (c.name.toLowerCase().includes(contactSearch.toLowerCase()) ||
-         c.email.toLowerCase().includes(contactSearch.toLowerCase()))
-      ).slice(0, 6)
-    : [];
+  const candidateContacts = contacts.filter(c => c.email && !accessedEmails.has(c.email.toLowerCase()));
+  const selectedContact = contacts.find(c => c.id === selectedContactId) ?? null;
 
   const resetForm = () => {
-    setNewEmail(""); setContactSearch(""); setNewExpiry("");
+    setSelectedContactId(""); setNewExpiry("");
     setSelectedPlanId("");
     setShowForm(false);
   };
 
   const handleGrant = async () => {
-    const email = newEmail.trim().toLowerCase();
-    if (!email) return;
+    if (!selectedContact?.email) return;
+    const email = selectedContact.email.trim().toLowerCase();
     setSaving(true);
     try {
       await grantAccess.mutateAsync({ course_id: course.id, email, expires_at: newExpiry || null });
-
-      // Crear contacto si no existe
-      const existingContact = contacts.find(c => c.email?.toLowerCase() === email);
-      if (!existingContact) {
-        await createContact.mutateAsync({ name: email.split("@")[0], email });
-      }
 
       // Enviar email de invitación (solo si el curso está publicado)
       if (course.is_published) {
@@ -1846,15 +1820,14 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
 
       // Registrar venta automáticamente si se seleccionó un plan
       if (selectedPlan) {
-        const contact = existingContact ?? contacts.find(c => c.email?.toLowerCase() === email);
         createSale.mutateAsync({
           course_id: course.id,
           course_name: course.title,
           course_plan_id: selectedPlan.id,
           amount: planFinalPrice(selectedPlan),
           currency: selectedPlan.currency,
-          contact_id: contact?.id ?? undefined,
-          contact_name: contact?.name ?? email.split("@")[0],
+          contact_id: selectedContact.id,
+          contact_name: selectedContact.name,
           notes: `Acceso al curso: ${course.title} — Plan: ${selectedPlan.name}`,
           type: "initial",
           status: "confirmed",
@@ -1904,35 +1877,15 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
           <p className="text-xs font-semibold text-muted-foreground">Dar acceso a alumno</p>
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><Users size={11} /> Buscar contacto</label>
-            <Input value={contactSearch} onChange={e => { setContactSearch(e.target.value); setNewEmail(e.target.value); }}
-              placeholder="Nombre o email del contacto..." className="h-9 text-sm" />
-            {filteredContacts.length > 0 && (
-              <div className="border rounded-xl overflow-hidden divide-y bg-background shadow-sm">
-                {filteredContacts.map(c => (
-                  <button key={c.id} type="button"
-                    onClick={() => { setNewEmail(c.email!); setContactSearch(c.email!); }}
-                    className="w-full flex items-center gap-2.5 px-3 py-2 text-left hover:bg-muted/50 transition-colors">
-                    <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center text-primary text-[10px] font-bold shrink-0">
-                      {c.name.substring(0, 2).toUpperCase()}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xs font-medium truncate">{c.name}</p>
-                      <p className="text-[11px] text-muted-foreground truncate">{c.email}</p>
-                    </div>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">Email *</label>
-            <Input type="email" value={newEmail} onChange={e => { setNewEmail(e.target.value); setContactSearch(e.target.value); }}
-              placeholder="alumno@email.com" className="h-9 text-sm" />
-            {newEmail && !contacts.some(c => c.email?.toLowerCase() === newEmail.trim().toLowerCase()) && (
-              <p className="text-[11px] text-muted-foreground/60">Se creará un nuevo contacto con este email.</p>
-            )}
+            <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><Users size={11} /> Contacto</label>
+            <ContactPicker
+              contacts={candidateContacts}
+              value={selectedContactId}
+              onChange={setSelectedContactId}
+              placeholder="Nombre, correo o teléfono del alumno..."
+              requireEmail
+              size="sm"
+            />
           </div>
 
           {plans.length > 0 && (
@@ -1968,7 +1921,7 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
 
           <div className="flex gap-2">
             <Button variant="outline" size="sm" className="flex-1" onClick={resetForm}>Cancelar</Button>
-            <Button size="sm" className="flex-1 gap-1.5" onClick={handleGrant} disabled={saving || !newEmail.trim()}>
+            <Button size="sm" className="flex-1 gap-1.5" onClick={handleGrant} disabled={saving || !selectedContact?.email}>
               {saving && <Loader2 size={12} className="animate-spin" />} Conceder acceso
             </Button>
           </div>

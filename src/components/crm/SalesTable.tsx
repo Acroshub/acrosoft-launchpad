@@ -42,6 +42,11 @@ export function fmtSaleAmtWithFlag(amount: number, currency?: string | null) {
   return `${flag} ${formatAmount(amount, currency)}`;
 }
 
+function fmtRecurrenceDate(dateStr: string | null | undefined) {
+  if (!dateStr) return "—";
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" });
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export default function SalesTable({
@@ -87,6 +92,8 @@ export default function SalesTable({
               <th className="px-6 py-3 font-medium">Fecha</th>
               <th className="px-6 py-3 font-medium">Contacto</th>
               <th className="px-6 py-3 font-medium">Servicio / Producto</th>
+              <th className="px-6 py-3 font-medium">Inicio</th>
+              <th className="px-6 py-3 font-medium">Vence</th>
               <th className="px-6 py-3 font-medium text-right">Monto</th>
               <th className="px-6 py-3 font-medium">Notas</th>
               {(onEdit || onDelete) && <th className="px-4 py-3" />}
@@ -125,6 +132,8 @@ export default function SalesTable({
                     </span>
                   </td>
                   <td className="px-6 py-3">{sale.serviceName}</td>
+                  <td className="px-6 py-3 whitespace-nowrap text-muted-foreground text-xs">{fmtRecurrenceDate(s.recurrence_start_date)}</td>
+                  <td className="px-6 py-3 whitespace-nowrap text-muted-foreground text-xs">{fmtRecurrenceDate(s.next_renewal_date)}</td>
                   <td className="px-6 py-3 font-semibold text-primary text-right">{fmtSaleAmt(sale.raw.amount, s.currency)}</td>
                   <td className="px-6 py-3 text-muted-foreground text-xs truncate max-w-[160px]">{sale.notes || "—"}</td>
                   {(onEdit || onDelete) && (

@@ -193,6 +193,11 @@ export type CrmSale = {
   course_name: string | null
   course_plan_id: string | null
   product_plan_id: string | null
+  next_renewal_date: string | null
+  next_renewal_amount: number | null
+  next_renewal_currency: string | null
+  renewal_reminder_sent_at: string | null
+  recurrence_start_date: string | null
 }
 
 export type CrmCoursePlan = {

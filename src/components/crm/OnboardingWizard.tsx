@@ -3,7 +3,7 @@ import { CheckCircle2, Circle, ChevronDown, ChevronUp, ArrowRight } from "lucide
 import { useOnboardingStatus } from "@/hooks/useCrmData";
 
 type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts"
-  | "ventas" | "settings" | "soporte" | "videos" | "agente_ia";
+  | "ventas_reporte" | "ventas_registrar" | "ventas_historial" | "settings" | "soporte" | "videos" | "agente_ia";
 
 interface Props {
   onNavigate: (view: View) => void;

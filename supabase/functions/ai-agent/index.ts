@@ -3429,8 +3429,28 @@ Deno.serve(async (req: Request) => {
             .select("contact_id, contact_name")
             .eq("id", conversation_id)
             .single();
-          const resolvedContactId = freshConv?.contact_id ?? convData?.contact_id ?? null;
+          let resolvedContactId = freshConv?.contact_id ?? convData?.contact_id ?? null;
           const resolvedContactName = freshConv?.contact_name ?? convData?.contact_name ?? null;
+
+          // Si la conversación todavía no tiene contacto vinculado (el paso 10c solo lo crea
+          // cuando Claude extrae datos del prospecto en el mismo turno), crear uno mínimo aquí
+          // con nombre + teléfono para no dejar la venta sin contact_id.
+          if (!resolvedContactId) {
+            try {
+              const { data: newContact } = await supabase
+                .from("crm_contacts")
+                .insert({ user_id: config.user_id, name: resolvedContactName ?? phone, phone })
+                .select("id")
+                .single();
+              if (newContact) {
+                resolvedContactId = newContact.id;
+                await supabase.from("crm_wa_conversations").update({ contact_id: newContact.id }).eq("id", conversation_id);
+                console.log(`[ai-agent] contacto creado automáticamente al detectar venta: ${newContact.id}`);
+              }
+            } catch (e: any) {
+              console.error("[ai-agent] error creando contacto para venta:", e.message);
+            }
+          }
 
           const salePayload: Record<string, unknown> = {
             user_id: config.user_id,

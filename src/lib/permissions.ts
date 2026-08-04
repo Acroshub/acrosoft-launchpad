@@ -109,7 +109,7 @@ export function canAccessItem(
  */
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
-    return new Set(["overview", "servicios", "productos_fisicos", "productos_digitales", "business", "calendar", "forms", "contacts", "ventas", "settings", "soporte", "tutoriales", "agente_ia"]);
+    return new Set(["overview", "servicios", "productos_fisicos", "productos_digitales", "business", "calendar", "forms", "contacts", "ventas_reporte", "ventas_registrar", "ventas_historial", "ventas_renovaciones", "settings", "soporte", "tutoriales", "agente_ia"]);
   }
 
   const can = buildPermChecker(staffRecord);
@@ -125,7 +125,7 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (can("calendarios",  "read")) visible.add("calendar");
   if (can("formularios",  "read")) visible.add("forms");
   if (can("contactos",     "read")) visible.add("contacts");
-  if (can("ventas",       "read")) visible.add("ventas");
+  if (can("ventas", "read")) { visible.add("ventas_reporte"); visible.add("ventas_registrar"); visible.add("ventas_historial"); visible.add("ventas_renovaciones"); }
   if (can("agente_ia",    "read")) visible.add("agente_ia");
   // Soporte es visible para todo el staff (sin permiso específico requerido)
   visible.add("soporte");

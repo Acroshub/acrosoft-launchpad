@@ -4,9 +4,11 @@ import {
   LayoutDashboard, CalendarDays, Users, LogOut, ClipboardList, User,
   Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle,
   PlayCircle, Bot, Sparkles, GraduationCap, Menu, X, ChevronRight, ShoppingBag, BookOpen, Briefcase, Video,
+  TrendingUp, Plus, History, RefreshCcw,
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
+import { getOverdueRenewals, getUpcomingRenewals } from "@/components/crm/RenewalsPanel";
 import CrmOverview from "@/components/crm/CrmOverview";
 import CrmCalendar from "@/components/crm/CrmCalendar";
 import CrmForms from "@/components/crm/CrmForms";
@@ -22,11 +24,11 @@ import CrmAgentIA from "@/components/crm/CrmAgentIA";
 import CrmServices from "@/components/crm/CrmServices";
 import CrmProductos from "@/components/crm/CrmProductos";
 import CrmProductosDigitales from "@/components/crm/CrmProductosDigitales";
-import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount } from "@/hooks/useCrmData";
+import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount, useSales } from "@/hooks/useCrmData";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts" | "ventas" | "settings" | "soporte" | "tutoriales" | "agente_ia";
+type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts" | "ventas_reporte" | "ventas_registrar" | "ventas_historial" | "ventas_renovaciones" | "settings" | "soporte" | "tutoriales" | "agente_ia";
 
 type NavChild = { id: View; label: string; icon: React.ElementType };
 type NavItem = { id: string; label: string; icon: React.ElementType; group: string; children?: NavChild[] };
@@ -45,7 +47,10 @@ const PRODUCTOS_CHILDREN: NavChild[] = [
 ];
 
 const VENTAS_CHILDREN: NavChild[] = [
-  { id: "ventas", label: "Mis Ventas", icon: DollarSign },
+  { id: "ventas_reporte",      label: "Reporte General",  icon: TrendingUp },
+  { id: "ventas_historial",    label: "Historial",        icon: History    },
+  { id: "ventas_registrar",    label: "Registrar Manual", icon: Plus       },
+  { id: "ventas_renovaciones", label: "Renovaciones",     icon: RefreshCcw },
 ];
 
 const CRM_CHILDREN: NavChild[] = [
@@ -99,7 +104,7 @@ const Crm = () => {
   const brandLogo    = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
 
-  const VALID_VIEWS: View[] = ["overview","mi_cuenta","business","servicios","productos_fisicos","productos_digitales","calendar","forms","contacts","ventas","settings","soporte","tutoriales","agente_ia"];
+  const VALID_VIEWS: View[] = ["overview","mi_cuenta","business","servicios","productos_fisicos","productos_digitales","calendar","forms","contacts","ventas_reporte","ventas_registrar","ventas_historial","ventas_renovaciones","settings","soporte","tutoriales","agente_ia"];
   const [view, setViewRaw]                         = useState<View>(() => {
     const saved = localStorage.getItem("crm_view") as View | null;
     return saved && VALID_VIEWS.includes(saved) ? saved : "overview";
@@ -145,6 +150,9 @@ const Crm = () => {
   const { data: supportUnread = 0 } = useSupportUnreadCount();
   const { data: adminUnread   = 0 } = useAdminUnreadCount();
   const soporteBadge = effectiveIsAdmin ? adminUnread : supportUnread;
+
+  const { data: salesForRenewals = [] } = useSales();
+  const renewalsBadge = getOverdueRenewals(salesForRenewals).length + getUpcomingRenewals(salesForRenewals).length;
 
   const userEmail     = user?.email ?? "";
   const userInitial   = userEmail[0]?.toUpperCase() ?? "U";
@@ -221,7 +229,10 @@ const Crm = () => {
       case "calendar":  return can("calendarios","read")    ? <CrmCalendar onNavigateToContact={handleNavigateToContact} />  : null;
       case "forms":     return can("formularios","read")    ? <CrmForms />     : null;
       case "contacts":  return can("contactos","read")      ? <CrmContacts isSuperAdmin={effectiveIsAdmin} initialContactId={pendingContactId} /> : null;
-      case "ventas":    return can("ventas","read")         ? <CrmVentas /> : null;
+      case "ventas_reporte":      return can("ventas","read") ? <CrmVentas section="reporte" onNavigate={navigateTo} />      : null;
+      case "ventas_registrar":    return can("ventas","read") ? <CrmVentas section="registrar" onNavigate={navigateTo} />    : null;
+      case "ventas_historial":    return can("ventas","read") ? <CrmVentas section="historial" onNavigate={navigateTo} />    : null;
+      case "ventas_renovaciones": return can("ventas","read") ? <CrmVentas section="renovaciones" onNavigate={navigateTo} /> : null;
       case "settings":  return !isStaff                     ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} /> : null;
       case "soporte":   return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;
       case "tutoriales": return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
@@ -281,7 +292,10 @@ const Crm = () => {
                   if (item.children) {
                     const isOpen = openMenus.has(item.id);
                     const hasActiveChild = item.children.some(c => c.id === view);
-                    const showCollapsedBadge = !isOpen && item.children.some(c => c.id === "soporte") && soporteBadge > 0;
+                    const showCollapsedBadge = !isOpen && (
+                      (item.children.some(c => c.id === "soporte") && soporteBadge > 0) ||
+                      (item.children.some(c => c.id === "ventas_renovaciones") && renewalsBadge > 0)
+                    );
                     return (
                       <div key={item.id}>
                         <button
@@ -315,7 +329,7 @@ const Crm = () => {
                                 >
                                   <ChildIcon size={14} className="shrink-0" />
                                   <span className="flex-1 text-left truncate">{child.label}</span>
-                                  {child.id === "soporte" && soporteBadge > 0 && (
+                                  {((child.id === "soporte" && soporteBadge > 0) || (child.id === "ventas_renovaciones" && renewalsBadge > 0)) && (
                                     <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 animate-pulse" />
                                   )}
                                 </button>

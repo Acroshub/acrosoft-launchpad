@@ -1,13 +1,14 @@
-import { CalendarDays, Check, Settings2 } from "lucide-react";
+import { CalendarDays, Check, Settings2, RefreshCcw, ChevronRight } from "lucide-react";
 import OnboardingWizard from "@/components/crm/OnboardingWizard";
 import SalesTrendCard from "@/components/crm/SalesTrendCard";
+import { getOverdueRenewals, getUpcomingRenewals } from "@/components/crm/RenewalsPanel";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useContacts, useAppointments, useSales, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
 
 const toDateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
 type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts"
-  | "ventas" | "settings" | "soporte" | "videos" | "agente_ia";
+  | "ventas_reporte" | "ventas_registrar" | "ventas_historial" | "ventas_renovaciones" | "settings" | "soporte" | "videos" | "agente_ia";
 
 const CrmOverview = ({ onNavigate }: {
   onNavigate?: (view: View) => void;
@@ -63,6 +64,11 @@ const CrmOverview = ({ onNavigate }: {
   const greeting = hour < 12 ? "Buenos días" : hour < 19 ? "Buenas tardes" : "Buenas noches";
   const dateLabel = new Date().toLocaleDateString("es-ES", { weekday: "long", day: "numeric", month: "long" });
 
+  const renewalsCount = useMemo(
+    () => getOverdueRenewals(salesData).length + getUpcomingRenewals(salesData).length,
+    [salesData]
+  );
+
   return (
     <div className="space-y-6">
 
@@ -108,6 +114,25 @@ const CrmOverview = ({ onNavigate }: {
           )}
         </div>
       </div>
+
+      {/* ── Banner de renovaciones ── */}
+      {renewalsCount > 0 && (
+        <button
+          onClick={() => onNavigate?.("ventas_renovaciones")}
+          className="w-full flex items-center gap-3 px-5 py-3.5 rounded-2xl border border-amber-200 bg-amber-50 hover:bg-amber-100 transition-colors text-left"
+        >
+          <div className="w-9 h-9 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
+            <RefreshCcw size={16} className="text-amber-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-800">
+              Tienes {renewalsCount} renovación{renewalsCount !== 1 ? "es" : ""} para atender
+            </p>
+            <p className="text-xs text-amber-600">Pagos recurrentes próximos o vencidos</p>
+          </div>
+          <ChevronRight size={16} className="text-amber-600 shrink-0" />
+        </button>
+      )}
 
       {/* ── Onboarding ── */}
       {onNavigate && (
