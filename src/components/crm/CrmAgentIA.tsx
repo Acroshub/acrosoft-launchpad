@@ -116,14 +116,14 @@ const RESPONSE_LENGTHS = [
   { val: "short", label: "Cortas" },
   { val: "normal", label: "Normales" },
   { val: "detailed", label: "Detalladas" },
-];
+] as const;
 
 const EMOJI_LEVELS = [
   { val: "none", label: "Ninguno" },
   { val: "poco", label: "Poco" },
   { val: "medio", label: "Medio" },
   { val: "mucho", label: "Mucho" },
-];
+] as const;
 
 const DATA_COLLECT_OPTIONS = [
   "Nombre", "Teléfono", "Email", "Presupuesto",
@@ -6842,7 +6842,9 @@ const CrmAgentIA = ({
                           {(convLabelsMap[conv.id] ?? []).length > 0 && (
                             <div className="flex items-center gap-1 mt-1">
                               {(convLabelsMap[conv.id] ?? []).slice(0, 5).map(l => (
-                                <Tag key={l.id} size={10} className="shrink-0" style={{ color: l.color }} title={l.name} />
+                                <span key={l.id} title={l.name} className="shrink-0 inline-flex">
+                                  <Tag size={10} style={{ color: l.color }} />
+                                </span>
                               ))}
                               {(convLabelsMap[conv.id] ?? []).length > 5 && (
                                 <span className="text-[9px] text-muted-foreground">+{(convLabelsMap[conv.id] ?? []).length - 5}</span>

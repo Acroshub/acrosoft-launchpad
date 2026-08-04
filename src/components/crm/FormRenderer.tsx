@@ -107,7 +107,7 @@ const usePublicServices = (userId?: string | null, allowedIds?: string[]) =>
 
 declare global {
   interface Window {
-    fbq?: (...args: any[]) => void;
+    fbq?: (...args: unknown[]) => void;
   }
 }
 
@@ -137,7 +137,7 @@ const fbTrack = (event: string) => {
 
 // ─── Field Validation ─────────────────────────────────────────────────────────
 
-type FormT = typeof widgetTranslations["es"]["form"];
+type FormT = (typeof widgetTranslations)[WidgetLang]["form"];
 
 function validateFieldValue(field: PublicField, value: any, T: FormT): string | null {
   const isEmpty =
@@ -261,7 +261,7 @@ const ServicesField = ({
                         <span className="text-2xl font-bold text-foreground">${svc.price}</span>
                       )}
                       <span className="text-xs text-muted-foreground uppercase tracking-tight">
-                        {svc.is_recurring && svc.recurring_price ? TF.paymentSetup : svc.is_recurring ? `/ ${svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}` : TF.paymentOneTime}
+                        {svc.is_recurring && svc.recurring_price ? "setup" : svc.is_recurring ? `/ ${svc.recurring_label ? svc.recurring_label.replace(/^[/\s]+/, "") : (svc.recurring_interval ?? "mes")}` : "pago único"}
                       </span>
                     </div>
                     {svc.recurring_price && (

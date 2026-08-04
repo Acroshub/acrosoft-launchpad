@@ -986,6 +986,24 @@ const CrmVentas = ({ section, onNavigate }: { section: VentasSection; onNavigate
               );
             })()}
 
+            {/* Aviso: servicio SaaS con correo — confirma qué pasará al registrar la venta */}
+            {saleItemType === "service" && (() => {
+              const s = services.find(x => x.id === selectedService);
+              const contact = contacts.find(c => c.id === selectedContact);
+              if (!s?.is_saas || !selectedContact || !contact?.email) return null;
+              const hasAccount = !!accountByContact[contact.id];
+              return (
+                <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-start gap-2">
+                  <CheckCircle2 size={14} className="text-emerald-600 shrink-0 mt-0.5" />
+                  <p className="text-xs text-emerald-800">
+                    {hasAccount
+                      ? "Este cliente ya tiene acceso SaaS — esta venta solo extenderá su vencimiento, sin reenviar invitación."
+                      : `Esta venta activará el acceso SaaS de este cliente y enviará una invitación por email a ${contact.email}.`}
+                  </p>
+                </div>
+              );
+            })()}
+
             {/* Aviso de recurrencia — plan de curso */}
             {saleItemType === "course" && (() => {
               const p = coursePlans.find(x => x.id === selectedCoursePlan);

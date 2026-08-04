@@ -15,6 +15,10 @@ import type { ReminderWaVarSource, ReminderWaVarMap } from "@/lib/supabase";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+// Omit no distribuye sobre uniones discriminadas (colapsa a las keys comunes a
+// todos los miembros); esta variante sí distribuye, preservando "field" en cada rama.
+type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
+
 export type ReminderRecipient = "contact" | "business";
 export type ReminderChannel   = "email" | "whatsapp";
 export type ReminderTiming    = "before" | "after" | "on_booking";
@@ -70,7 +74,7 @@ const VARIABLES = [
 
 // ─── WA variable options (reminder context) ───────────────────────────────────
 
-const WA_VAR_OPTIONS: { label: string; value: Omit<ReminderWaVarSource, "value"> }[] = [
+const WA_VAR_OPTIONS: { label: string; value: DistributiveOmit<ReminderWaVarSource, "value"> }[] = [
   { label: "Nombre del contacto",   value: { source: "contact_field",     field: "name"    } },
   { label: "Email del contacto",    value: { source: "contact_field",     field: "email"   } },
   { label: "Teléfono del contacto", value: { source: "contact_field",     field: "phone"   } },

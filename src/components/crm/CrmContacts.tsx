@@ -2,19 +2,18 @@ import { useState, useEffect, useMemo, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
-  Search, Users, User, Mail, Phone, Calendar, X, Eye,
-  ArrowLeft, FolderOpen, Star, FileText, MessageSquare,
-  TrendingUp, Briefcase, Target, ImagePlus, Plus,
-  Download, Archive, Pencil, Image as ImageIcon, Link as LinkIconLucide, Loader2,
-  Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Upload, FileUp, CheckCircle2, Bot, BookOpen, GitMerge,
+  Search, Users, User, Mail, Phone, Calendar, X,
+  ArrowLeft, MessageSquare,
+  TrendingUp, Plus,
+  Download, Archive, Pencil, Loader2,
+  Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Upload, FileUp, CheckCircle2, Bot, BookOpen, GitMerge, Settings, Check,
 } from "lucide-react";
 import Papa from "papaparse";
-import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, useContactNotes, useCreateContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useSales, useServices, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess, useContactCourseMap, useContactCourseAccess } from "@/hooks/useCrmData";
-import type { CrmContact, CrmForm } from "@/lib/supabase";
+import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, useContactNotes, useCreateContactNote, useUpdateContactNote, useDeleteContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useSales, useServices, useCourses, useProducts, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess } from "@/hooks/useCrmData";
+import type { CrmContact, CrmForm, CrmSale, CrmProduct, CrmCourse, Json } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
@@ -22,41 +21,42 @@ import { useStaffPermissions } from "@/hooks/useAuth";
 import PhoneInput from "@/components/shared/PhoneInput";
 import { validateEmail, validatePhone } from "@/lib/validators";
 
-// ─── Inline editable field ────────────────────────────────────────────────────
-const InlineEdit = ({
+// ─── Identifier field (email / teléfono) ───────────────────────────────────────
+// Email y teléfono funcionan como identificadores del contacto — a diferencia de
+// InlineEdit (click directo para editar), aquí la edición requiere un botón de
+// lápiz explícito, y quitar un valor ya guardado pide confirmación aparte.
+const IdentifierField = ({
   icon: Icon,
+  label,
   value,
   placeholder,
-  type = "text",
+  type,
+  canEdit,
   onSave,
-  readOnly = false,
 }: {
   icon: React.ElementType;
+  label: string;
   value: string | null;
   placeholder: string;
-  type?: string;
+  type: "email" | "tel";
+  canEdit: boolean;
   onSave: (val: string) => Promise<void>;
-  readOnly?: boolean;
 }) => {
-  const [editing, setEditing]     = useState(false);
-  const [val, setVal]             = useState(value ?? "");
-  const [saving, setSaving]       = useState(false);
-  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [editing, setEditing]         = useState(false);
+  const [val, setVal]                 = useState(value ?? "");
+  const [saving, setSaving]           = useState(false);
+  const [fieldError, setFieldError]   = useState<string | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
 
   useEffect(() => { setVal(value ?? ""); }, [value]);
 
-  const commit = async () => {
-    const trimmed = val.trim();
-    if (trimmed === (value ?? "")) { setEditing(false); return; }
-    // Format validation
-    let err: string | null = null;
-    if (trimmed && type === "email") err = validateEmail(trimmed);
-    if (trimmed && type === "tel")   err = validatePhone(trimmed);
-    if (err) { setFieldError(err); return; }
-    setFieldError(null);
+  const startEdit = () => { setVal(value ?? ""); setFieldError(null); setEditing(true); };
+  const cancelEdit = () => { setVal(value ?? ""); setFieldError(null); setEditing(false); };
+
+  const doSave = async (next: string) => {
     setSaving(true);
     try {
-      await onSave(trimmed);
+      await onSave(next);
       setEditing(false);
     } catch {
       toast.error("Error al guardar");
@@ -66,75 +66,78 @@ const InlineEdit = ({
     }
   };
 
-  if (editing) {
-    if (type === "tel") {
-      return (
-        <div className="space-y-0.5">
-          <div
-            className="flex items-center gap-2"
-            onBlur={(e) => {
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) commit();
-            }}
-          >
-            <Icon size={13} className="shrink-0 text-muted-foreground" />
-            <PhoneInput
-              value={val}
-              onChange={(v) => { setVal(v); setFieldError(null); }}
-              compact
-              autoFocus
-              disabled={saving}
-            />
-            {saving && <Loader2 size={13} className="animate-spin text-muted-foreground shrink-0" />}
-          </div>
-          {fieldError && <p className="text-[10px] text-destructive ml-5">{fieldError}</p>}
-        </div>
-      );
-    }
-
-    return (
-      <div className="space-y-0.5">
-        <div className="flex items-center gap-2">
-          <Icon size={13} className="shrink-0 text-muted-foreground" />
-          <Input
-            autoFocus
-            type={type}
-            value={val}
-            onChange={(e) => { setVal(e.target.value); setFieldError(null); }}
-            onBlur={commit}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") commit();
-              if (e.key === "Escape") { setVal(value ?? ""); setEditing(false); setFieldError(null); }
-            }}
-            disabled={saving}
-            placeholder={placeholder}
-            className="h-7 text-xs flex-1"
-          />
-          {saving && <Loader2 size={13} className="animate-spin text-muted-foreground shrink-0" />}
-        </div>
-        {fieldError && <p className="text-[10px] text-destructive ml-5">{fieldError}</p>}
-      </div>
-    );
-  }
-
-  if (readOnly) {
-    return (
-      <div className={`flex items-center gap-2.5 text-xs w-full rounded-lg px-0 py-0.5 ${value ? "text-muted-foreground" : "text-muted-foreground/40"}`}>
-        <Icon size={13} className="shrink-0" />
-        <span className="truncate flex-1">{value || placeholder}</span>
-      </div>
-    );
-  }
+  const commit = async () => {
+    const trimmed = val.trim();
+    if (trimmed === (value ?? "")) { setEditing(false); return; }
+    let err: string | null = null;
+    if (trimmed && type === "email") err = validateEmail(trimmed);
+    if (trimmed && type === "tel")   err = validatePhone(trimmed);
+    if (err) { setFieldError(err); return; }
+    setFieldError(null);
+    // Quitar un identificador ya guardado es sensible — confirmar antes de borrarlo
+    if (!trimmed && value) { setConfirmClear(true); return; }
+    await doSave(trimmed);
+  };
 
   return (
-    <button
-      onClick={() => setEditing(true)}
-      className={`flex items-center gap-2.5 text-xs w-full group rounded-lg px-0 py-0.5 hover:text-foreground transition-colors text-left ${value ? "text-muted-foreground" : "text-muted-foreground/40"}`}
-      title={`Editar ${placeholder.toLowerCase()}`}
-    >
-      <Icon size={13} className="shrink-0" />
-      <span className="truncate flex-1">{value || placeholder}</span>
-      <Pencil size={10} className="shrink-0 opacity-0 group-hover:opacity-50 transition-opacity" />
-    </button>
+    <div className="rounded-xl border border-border/60 bg-secondary/40 px-3 py-2">
+      <DeleteConfirmDialog
+        open={confirmClear}
+        onOpenChange={(o) => { if (!o) setConfirmClear(false); }}
+        onConfirm={async () => { setConfirmClear(false); await doSave(""); }}
+        isPending={saving}
+        description={`Se quitará el ${label.toLowerCase()} de este contacto.`}
+      />
+      {editing ? (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2">
+            <Icon size={13} className="shrink-0 text-muted-foreground" />
+            {type === "tel" ? (
+              <PhoneInput value={val} onChange={(v) => { setVal(v); setFieldError(null); }} compact autoFocus disabled={saving} />
+            ) : (
+              <Input
+                autoFocus
+                type={type}
+                value={val}
+                onChange={(e) => { setVal(e.target.value); setFieldError(null); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commit();
+                  if (e.key === "Escape") cancelEdit();
+                }}
+                disabled={saving}
+                placeholder={placeholder}
+                className="h-7 text-xs flex-1 bg-background"
+              />
+            )}
+          </div>
+          {fieldError && <p className="text-[10px] text-destructive ml-5">{fieldError}</p>}
+          <div className="flex items-center gap-1.5 ml-5">
+            <Button size="sm" className="h-6 text-[11px] px-2" onClick={commit} disabled={saving}>
+              {saving ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+            </Button>
+            <Button size="sm" variant="ghost" className="h-6 text-[11px] px-2" onClick={cancelEdit} disabled={saving}>
+              <X size={11} />
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <Icon size={13} className="shrink-0 text-muted-foreground" />
+          <span className={`text-xs flex-1 truncate ${value ? "font-semibold text-foreground" : "text-muted-foreground/40"}`}>
+            {value || placeholder}
+          </span>
+          {canEdit && (
+            <button
+              onClick={startEdit}
+              className="shrink-0 p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors"
+              title={`Editar ${label.toLowerCase()}`}
+            >
+              <Pencil size={11} />
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -142,7 +145,12 @@ const InlineEdit = ({
 const ContactNotesThread = ({ contactId, canEdit }: { contactId: string; canEdit: boolean }) => {
   const { data: notes = [], isLoading } = useContactNotes(contactId);
   const createNote = useCreateContactNote();
+  const updateNote = useUpdateContactNote();
+  const deleteNote = useDeleteContactNote();
   const [body, setBody] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState("");
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const handleSubmit = async () => {
     const text = body.trim();
@@ -155,9 +163,44 @@ const ContactNotesThread = ({ contactId, canEdit }: { contactId: string; canEdit
     }
   };
 
+  const startEdit = (id: string, currentBody: string) => {
+    setEditingId(id);
+    setEditBody(currentBody);
+  };
+
+  const commitEdit = async () => {
+    if (!editingId) return;
+    const text = editBody.trim();
+    if (!text) return;
+    try {
+      await updateNote.mutateAsync({ id: editingId, body: text });
+      setEditingId(null);
+    } catch {
+      toast.error("Error al editar la nota");
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    try {
+      await deleteNote.mutateAsync({ id: deleteId, contactId });
+    } catch {
+      toast.error("Error al eliminar la nota");
+    } finally {
+      setDeleteId(null);
+    }
+  };
+
   return (
     <div className="space-y-3">
-      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Historial de notas</p>
+      <DeleteConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => { if (!open) setDeleteId(null); }}
+        onConfirm={confirmDelete}
+        isPending={deleteNote.isPending}
+        description="Se eliminará esta nota permanentemente."
+      />
+      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium">Notas</p>
 
       {isLoading ? (
         <div className="flex justify-center py-4">
@@ -168,14 +211,52 @@ const ContactNotesThread = ({ contactId, canEdit }: { contactId: string; canEdit
       ) : (
         <div className="space-y-2">
           {notes.map((note) => (
-            <div key={note.id} className="bg-secondary/30 rounded-xl px-3 py-2 space-y-1">
-              <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap">{note.body}</p>
-              <p className="text-[9px] text-muted-foreground/50 tabular-nums">
-                {new Date(note.created_at).toLocaleString("es-ES", {
-                  day: "2-digit", month: "short", year: "numeric",
-                  hour: "2-digit", minute: "2-digit",
-                })}
-              </p>
+            <div key={note.id} className="bg-secondary/30 rounded-xl px-3 py-2 space-y-1 group">
+              {editingId === note.id ? (
+                <div className="space-y-1.5">
+                  <Textarea
+                    autoFocus
+                    value={editBody}
+                    onChange={(e) => setEditBody(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) commitEdit();
+                      if (e.key === "Escape") setEditingId(null);
+                    }}
+                    rows={2}
+                    className="text-xs resize-none bg-background"
+                  />
+                  <div className="flex items-center gap-1.5">
+                    <Button size="sm" className="h-6 text-[11px] px-2" onClick={commitEdit} disabled={!editBody.trim() || updateNote.isPending}>
+                      {updateNote.isPending ? <Loader2 size={11} className="animate-spin" /> : <Check size={11} />}
+                    </Button>
+                    <Button size="sm" variant="ghost" className="h-6 text-[11px] px-2" onClick={() => setEditingId(null)}>
+                      <X size={11} />
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-xs text-foreground leading-relaxed whitespace-pre-wrap flex-1">{note.body}</p>
+                    {canEdit && (
+                      <div className="flex items-center gap-0.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button onClick={() => startEdit(note.id, note.body)} className="p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-colors" title="Editar nota">
+                          <Pencil size={11} />
+                        </button>
+                        <button onClick={() => setDeleteId(note.id)} className="p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors" title="Eliminar nota">
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[9px] text-muted-foreground/50 tabular-nums">
+                    {new Date(note.created_at).toLocaleString("es-ES", {
+                      day: "2-digit", month: "short", year: "numeric",
+                      hour: "2-digit", minute: "2-digit",
+                    })}
+                  </p>
+                </>
+              )}
             </div>
           ))}
         </div>
@@ -208,49 +289,150 @@ const ContactNotesThread = ({ contactId, canEdit }: { contactId: string; canEdit
   );
 };
 
-// ─── Contact Courses Panel ────────────────────────────────────────────────────
 const APP_URL_CONTACTS = import.meta.env.VITE_APP_URL ?? "https://acrosoftlabs.com";
 
-const ContactCoursesPanel = ({ email }: { email: string | null | undefined }) => {
-  const { data: accesses = [], isLoading } = useContactCourseAccess(email);
-  if (isLoading || accesses.length === 0) return null;
+// ─── Contact Products Panel (productos físicos/digitales + cursos comprados) ──
+// Reemplaza al antiguo panel de "Cursos con acceso" (basado en crm_course_access):
+// ahora todo lo comprado — productos y cursos — se refleja aquí a partir de crm_sales.
+const fmtShortDate = (d: string | null) =>
+  d ? new Date(d).toLocaleDateString("es-ES", { day: "numeric", month: "short", year: "numeric" }) : "—";
+
+type PurchaseItem = {
+  id: string;
+  kind: "product" | "course";
+  name: string;
+  active: boolean;
+  isRecurring: boolean;
+  lastPurchaseAt: string;
+  nextRenewalDate: string | null;
+  href: string | null;
+};
+
+const buildPurchaseItems = (
+  contactId: string,
+  sales: CrmSale[],
+  products: CrmProduct[],
+  courses: CrmCourse[],
+): PurchaseItem[] => {
+  const prodMap = new Map(products.map((p) => [p.id, p]));
+  const courseMap = new Map(courses.map((c) => [c.id, c]));
+  const latest = new Map<string, CrmSale & { kind: "product" | "course" }>();
+  for (const s of sales) {
+    if (s.contact_id !== contactId) continue;
+    const key = s.product_id ? `product:${s.product_id}` : s.course_id ? `course:${s.course_id}` : null;
+    if (!key) continue;
+    const existing = latest.get(key);
+    if (!existing || new Date(s.created_at) > new Date(existing.created_at)) {
+      latest.set(key, { ...s, kind: s.product_id ? "product" : "course" });
+    }
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  return Array.from(latest.values()).map((s) => {
+    const isRecurring = !!s.next_renewal_date;
+    const active = !isRecurring || s.next_renewal_date! >= today;
+    if (s.kind === "course") {
+      const course = courseMap.get(s.course_id!);
+      return {
+        id: s.course_id!,
+        kind: "course" as const,
+        name: s.course_name ?? course?.title ?? "Curso",
+        active,
+        isRecurring,
+        lastPurchaseAt: s.created_at,
+        nextRenewalDate: s.next_renewal_date,
+        href: course ? `${APP_URL_CONTACTS}/curso/${course.user_id}/${course.slug}` : null,
+      };
+    }
+    const product = prodMap.get(s.product_id!);
+    return {
+      id: s.product_id!,
+      kind: "product" as const,
+      name: s.product_name ?? product?.name ?? "Producto",
+      active,
+      isRecurring,
+      lastPurchaseAt: s.created_at,
+      nextRenewalDate: s.next_renewal_date,
+      href: null,
+    };
+  });
+};
+
+const ContactProductsPanel = ({
+  contactId,
+  sales,
+  products,
+  courses,
+}: {
+  contactId: string;
+  sales: CrmSale[];
+  products: CrmProduct[];
+  courses: CrmCourse[];
+}) => {
+  const items = useMemo(
+    () => buildPurchaseItems(contactId, sales, products, courses),
+    [sales, products, courses, contactId]
+  );
+
+  if (items.length === 0) return null;
+
+  const activeItems = items.filter((i) => i.active);
+  const inactiveItems = items.filter((i) => !i.active);
+
+  const Row = ({ item }: { item: PurchaseItem }) => {
+    const content = (
+      <>
+        <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
+          {item.kind === "course" ? <BookOpen size={11} className="text-primary" /> : <Archive size={11} className="text-primary" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-foreground truncate">{item.name}</p>
+          <p className="text-[10px] text-muted-foreground">
+            {item.isRecurring
+              ? item.active
+                ? `Próx. renovación: ${fmtShortDate(item.nextRenewalDate)}`
+                : `Venció: ${fmtShortDate(item.nextRenewalDate)}`
+              : `Comprado: ${fmtShortDate(item.lastPurchaseAt)}`}
+          </p>
+        </div>
+        <span
+          className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${
+            item.active
+              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
+              : "bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400"
+          }`}
+        >
+          {item.active ? "Activo" : "Inactivo"}
+        </span>
+      </>
+    );
+    const cls = "flex items-center gap-2.5 px-3 py-2 rounded-xl border bg-card";
+    return item.href ? (
+      <a href={item.href} target="_blank" rel="noopener noreferrer" className={`${cls} hover:border-primary/30 hover:bg-primary/5 transition-colors no-underline`}>
+        {content}
+      </a>
+    ) : (
+      <div className={cls}>{content}</div>
+    );
+  };
 
   return (
     <div>
       <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">
-        Cursos con acceso
+        Productos comprados
       </p>
       <div className="space-y-1.5">
-        {accesses.map(access => {
-          const course = access.crm_courses;
-          if (!course) return null;
-          const expired = !!access.expires_at && new Date(access.expires_at) < new Date();
-          const statusColor = expired
-            ? "bg-red-100 text-red-600 dark:bg-red-950/40 dark:text-red-400"
-            : access.status === "active"
-              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400"
-              : "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400";
-          const statusLabel = expired ? "Vencido" : access.status === "active" ? "Activo" : "Invitado";
-
-          return (
-            <a
-              key={access.id}
-              href={`${APP_URL_CONTACTS}/curso/${course.user_id}/${course.slug}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2.5 px-3 py-2 rounded-xl border bg-card hover:border-primary/30 hover:bg-primary/5 transition-colors cursor-pointer no-underline group"
-            >
-              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center shrink-0">
-                <BookOpen size={11} className="text-primary" />
-              </div>
-              <p className="text-xs font-medium text-foreground flex-1 min-w-0 truncate">{course.title}</p>
-              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full shrink-0 ${statusColor}`}>
-                {statusLabel}
-              </span>
-            </a>
-          );
-        })}
+        {activeItems.map((i) => <Row key={`${i.kind}-${i.id}`} item={i} />)}
       </div>
+      {inactiveItems.length > 0 && (
+        <>
+          <p className="text-[9px] uppercase tracking-widest text-muted-foreground/40 font-medium mt-3 mb-1.5">
+            Inactivos
+          </p>
+          <div className="space-y-1.5">
+            {inactiveItems.map((i) => <Row key={`${i.kind}-${i.id}`} item={i} />)}
+          </div>
+        </>
+      )}
     </div>
   );
 };
@@ -273,12 +455,16 @@ const FormDataPanel = ({
   const [editingFormId, setEditingFormId] = useState<string | null>(null);
   const [editValues, setEditValues] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  const [showAddPicker, setShowAddPicker] = useState(false);
 
   const getAll = (): Record<string, Record<string, string>> =>
     ((contact.custom_fields as any) ?? {});
 
   const getFormValues = (formId: string): Record<string, string> =>
     getAll()[formId] ?? {};
+
+  const hasData = (form: CrmForm) =>
+    Object.values(getFormValues(form.id)).some((v) => v !== undefined && v !== null && String(v).trim() !== "");
 
   const editableFields = (form: CrmForm) =>
     (form.fields as any[]).filter((f) => SIMPLE_TYPES.includes(f.type));
@@ -290,6 +476,7 @@ const FormDataPanel = ({
     setEditValues(initial);
     setEditingFormId(form.id);
     setExpandedId(form.id);
+    setShowAddPicker(false);
   };
 
   const saveEdit = async (formId: string) => {
@@ -304,13 +491,24 @@ const FormDataPanel = ({
 
   if (forms.length === 0) return null;
 
+  const formsWithData = forms.filter(hasData);
+  // Mientras se está agregando datos a un formulario nuevo, mantenerlo visible en la lista aunque aún no tenga datos guardados
+  const editingExtra = editingFormId && !formsWithData.some((f) => f.id === editingFormId)
+    ? forms.find((f) => f.id === editingFormId)
+    : null;
+  const displayForms = editingExtra ? [...formsWithData, editingExtra] : formsWithData;
+  const addableForms = forms.filter((f) => !hasData(f) && f.id !== editingFormId);
+
   return (
     <div>
       <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">
         Formularios
       </p>
+      {displayForms.length === 0 && (
+        <p className="text-[11px] text-muted-foreground/50 italic mb-2">Sin datos de formularios aún.</p>
+      )}
       <div className="space-y-1">
-        {forms.map((form) => {
+        {displayForms.map((form) => {
           const isExpanded = expandedId === form.id;
           const isEditing = editingFormId === form.id;
           const values = getFormValues(form.id);
@@ -405,327 +603,37 @@ const FormDataPanel = ({
           );
         })}
       </div>
-    </div>
-  );
-};
 
-// ─── Ficha técnica (solo admin) ───────────────────────────────────────────────
-const ONBOARDING_FORM_ID = "b733e0c5-60d4-414d-896a-5ce459b07eaf";
-
-const ClientDetail = ({
-  contact,
-  onBack,
-}: {
-  contact: CrmContact;
-  onBack: () => void;
-}) => {
-  const [downloading, setDownloading] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const qc = useQueryClient();
-  const cf = (contact.custom_fields as Record<string, any>) ?? {};
-
-  // Form data is stored nested: custom_fields[form_id][field_id]
-  const ob = (cf[ONBOARDING_FORM_ID] as Record<string, any>) ?? {};
-
-  const val = (fieldId: string) => {
-    const v = ob[fieldId];
-    if (v === undefined || v === null || v === "") return "—";
-    if (typeof v === "object") return JSON.stringify(v);
-    return String(v).trim() || "—";
-  };
-
-  const handleDownloadDoc = async () => {
-    if (!contact.master_doc_url) {
-      toast.error("El documento maestro aún no ha sido generado");
-      return;
-    }
-    setDownloading(true);
-    try {
-      const { data, error } = await supabase.storage
-        .from("master-docs")
-        .createSignedUrl(contact.master_doc_url, 60);
-      if (error || !data?.signedUrl) throw error ?? new Error("No URL");
-      const downloadUrl = `${data.signedUrl}&download=true`;
-      const a = document.createElement("a");
-      a.href = downloadUrl;
-      a.download = `documento-maestro-${contact.name.toLowerCase().replace(/\s+/g, "-")}.md`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch (e) {
-      toast.error("Error al descargar el documento");
-    } finally {
-      setDownloading(false);
-    }
-  };
-
-  const handleGenerateDoc = async () => {
-    setGenerating(true);
-    try {
-      const { error } = await supabase.functions.invoke("generate-master-doc", {
-        body: {
-          contact_id: contact.id,
-          form_id: ONBOARDING_FORM_ID,
-          data: ob,
-          user_id: contact.user_id,
-        },
-      });
-      if (error) throw error;
-      await qc.invalidateQueries({ queryKey: ["crm_contacts"] });
-      toast.success("Documento maestro generado correctamente");
-    } catch (e) {
-      toast.error("Error al generar el documento maestro");
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-4">
-        <Button variant="ghost" size="sm" onClick={onBack} className="rounded-lg hover:bg-secondary gap-2">
-          <ArrowLeft size={15} /> Volver
-        </Button>
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-base font-semibold">{contact.name}</h1>
-          </div>
-          <p className="text-xs text-muted-foreground flex items-center gap-2 mt-0.5">
-            <Calendar size={11} /> Recibido el{" "}
-            {new Date(contact.created_at).toLocaleDateString("es-ES", {
-              day: "numeric", month: "short", year: "numeric",
-            })}
-          </p>
-        </div>
-      </div>
-
-      {(
-        <div className="grid md:grid-cols-3 gap-4 animate-in fade-in duration-300">
-          {[
-            {
-              title: "Información del Negocio",
-              icon: FolderOpen,
-              fields: [
-                ["Negocio", val("ob-1-1")],
-                ["Rubro", val("ob-1-2")],
-                ["Ciudad", val("ob-1-3")],
-                ["Años operando", val("ob-1-4")],
-              ],
-            },
-            {
-              title: "Datos de Contacto",
-              icon: Phone,
-              fields: [
-                ["WhatsApp", val("ob-0-phone") !== "—" ? val("ob-0-phone") : (contact.phone || "—")],
-                ["Email", contact.email || "—"],
-                ["Instagram", val("ob-7-5")],
-                ["Facebook", val("ob-7-6")],
-              ],
-            },
-            {
-              title: "Identidad & Marca",
-              icon: Star,
-              fields: [
-                ["Estilo visual", val("ob-3-6")],
-                ["Color Primario", val("ob-3-2")],
-                ["Color Secundario", val("ob-3-3")],
-                ["Tipografía", val("ob-3-5")],
-              ],
-            },
-          ].map((section) => (
-            <div key={section.title} className="bg-background border rounded-2xl p-5 border-border/50 shadow-sm">
-              <div className="flex items-center justify-between mb-5">
-                <div className="flex items-center gap-2">
-                  <section.icon size={14} className="text-muted-foreground" />
-                  <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {section.title}
-                  </h3>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {section.fields.map(([label, value]) => (
-                  <div key={label}>
-                    <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest mb-0.5 block">
-                      {label}
-                    </span>
-                    <span className="text-sm font-medium">{value}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-
-          <div className="md:col-span-2 bg-background border rounded-2xl p-5 border-border/50 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <FileText size={14} className="text-muted-foreground" />
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Descripción del Negocio
-              </h3>
-            </div>
-            <p className="text-sm leading-relaxed text-muted-foreground bg-secondary/30 p-5 rounded-xl border border-dashed border-border/60 min-h-[120px]">
-              {val("ob-1-5") === "—" ? (
-                <span className="italic opacity-50">Sin descripción registrada</span>
-              ) : (
-                val("ob-1-5")
-              )}
-            </p>
-          </div>
-
-          <div className="md:col-span-1 bg-secondary/20 border border-border/40 rounded-2xl p-6 flex flex-col items-center justify-center text-center gap-4">
-            <div className="w-14 h-14 rounded-2xl bg-background border flex items-center justify-center shadow-sm">
-              <Archive size={28} className="text-primary" />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold">Documento Maestro</h3>
-              <Badge
-                variant="outline"
-                className={`mt-2 bg-background/50 border-primary/20 text-[10px] ${contact.master_doc_url ? "text-green-600 border-green-500/30" : "text-primary"}`}
+      {canEdit && addableForms.length > 0 && (
+        showAddPicker ? (
+          <div className="mt-2 border rounded-xl overflow-hidden divide-y">
+            {addableForms.map((form) => (
+              <button
+                key={form.id}
+                onClick={() => startEdit(form)}
+                className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium hover:bg-secondary/30 transition-colors text-left"
               >
-                {contact.master_doc_url ? "Listo para descargar" : "Pendiente de generar"}
-              </Badge>
-              <p className="text-[10px] text-muted-foreground mt-3 leading-relaxed">
-                Generado automáticamente con IA al completar el formulario de onboarding.
-              </p>
-            </div>
-            {contact.master_doc_url ? (
-              <Button
-                variant="default"
-                className="w-full h-10 rounded-xl font-bold text-[10px] uppercase tracking-wider"
-                disabled={downloading}
-                onClick={handleDownloadDoc}
-              >
-                {downloading ? (
-                  <Loader2 size={13} className="mr-2 animate-spin" />
-                ) : (
-                  <Download size={13} className="mr-2" />
-                )}
-                DESCARGAR (.MD)
-              </Button>
-            ) : (
-              <Button
-                variant="default"
-                className="w-full h-10 rounded-xl font-bold text-[10px] uppercase tracking-wider"
-                disabled={generating}
-                onClick={handleGenerateDoc}
-              >
-                {generating ? (
-                  <Loader2 size={13} className="mr-2 animate-spin" />
-                ) : (
-                  <Archive size={13} className="mr-2" />
-                )}
-                GENERAR DOCUMENTO
-              </Button>
-            )}
+                <span>{form.name}</span>
+                <Plus size={12} className="text-muted-foreground" />
+              </button>
+            ))}
+            <button
+              onClick={() => setShowAddPicker(false)}
+              className="w-full px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-secondary/20 transition-colors text-center"
+            >
+              Cancelar
+            </button>
           </div>
-
-          <div className="md:col-span-2 bg-background border rounded-2xl p-5 border-border/50 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Briefcase size={14} className="text-muted-foreground" />
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Servicios & Oferta
-              </h3>
-            </div>
-            {Array.isArray(ob["ob-4-1"]) && ob["ob-4-1"].length > 0 ? (
-              <div className="space-y-2">
-                {(ob["ob-4-1"] as any[]).map((s: any, i: number) => {
-                  const sName  = s?.["ob-4-1-1"] || `Servicio ${i + 1}`;
-                  const sDesc  = s?.["ob-4-1-2"] || "";
-                  const sPrice = s?.["ob-4-1-3"] ? `$${s["ob-4-1-3"]}` : "";
-                  const isStar = s?.["ob-4-1-4"];
-                  return (
-                    <div key={i} className="flex items-start gap-3 bg-secondary/20 border border-border/50 rounded-xl p-3">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold">{sName}</span>
-                          {isStar && <Badge variant="outline" className="text-[10px] text-yellow-600 border-yellow-500/40 bg-yellow-50/50">⭐ Estrella</Badge>}
-                          {sPrice && <span className="text-xs text-muted-foreground ml-auto">Desde {sPrice}</span>}
-                        </div>
-                        {sDesc && <p className="text-xs text-muted-foreground mt-0.5">{sDesc}</p>}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground/50 italic">Sin servicios registrados</p>
-            )}
-          </div>
-
-          <div className="md:col-span-1 bg-background border rounded-2xl p-5 border-border/50 shadow-sm flex flex-col">
-            <div className="flex items-center gap-2 mb-4">
-              <ImageIcon size={14} className="text-muted-foreground" />
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Logotipo</h3>
-            </div>
-            <div className="flex-1 bg-secondary/30 border border-dashed border-border/60 rounded-xl flex items-center justify-center p-6 min-h-[140px]">
-              <div className="flex flex-col items-center text-muted-foreground/50">
-                <ImageIcon size={32} className="mb-2 opacity-50" />
-                <span className="text-[10px] uppercase tracking-widest font-medium">Sin logo</span>
-              </div>
-            </div>
-          </div>
-
-          <div className="md:col-span-2 bg-background border rounded-2xl p-5 border-border/50 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <Target size={14} className="text-muted-foreground" />
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Público Objetivo</h3>
-            </div>
-            <div className="grid sm:grid-cols-2 gap-4">
-              {[
-                ["Cliente ideal", val("ob-5-1")],
-                ["Problema que resuelven", val("ob-5-2")],
-                ["Diferenciador", val("ob-5-3")],
-              ].map(([l, v]) => (
-                <div key={l} className="bg-secondary/20 border border-border/50 rounded-xl p-4">
-                  <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest mb-1 block">
-                    {l}
-                  </span>
-                  <p className="text-sm font-medium">{v}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="md:col-span-1 bg-background border rounded-2xl p-5 border-border/50 shadow-sm">
-            <div className="flex items-center gap-2 mb-4">
-              <LinkIconLucide size={14} className="text-muted-foreground" />
-              <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Inspiración</h3>
-            </div>
-            <div className="space-y-2">
-              <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest block">
-                Sitios de Referencia
-              </span>
-              {[val("ob-3-7"), val("ob-3-8"), val("ob-3-9")].every((v) => v === "—") ? (
-                <p className="text-xs text-muted-foreground/50 italic">Sin referencias</p>
-              ) : (
-                [val("ob-3-7"), val("ob-3-8"), val("ob-3-9")]
-                  .filter((u) => u !== "—")
-                  .map((url) => (
-                    <div
-                      key={url}
-                      className="text-xs text-primary bg-primary/5 flex items-center gap-2 p-2 rounded-lg border border-primary/10 truncate"
-                    >
-                      <LinkIconLucide size={10} className="shrink-0" /> {url}
-                    </div>
-                  ))
-              )}
-            </div>
-            <div className="mt-4 space-y-2">
-              <span className="text-[10px] uppercase font-medium text-muted-foreground/60 tracking-widest block">
-                Imágenes Subidas
-              </span>
-              <div className="grid grid-cols-3 gap-2">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="aspect-square bg-secondary/40 rounded-lg flex items-center justify-center border border-border/50 text-muted-foreground/30"
-                  >
-                    <ImagePlus size={16} />
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
+        ) : (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowAddPicker(true)}
+            className="h-8 text-xs w-full mt-2 gap-1.5 border border-dashed border-border text-muted-foreground hover:text-foreground"
+          >
+            <Plus size={12} /> Agregar datos de formulario existente
+          </Button>
+        )
       )}
     </div>
   );
@@ -854,6 +762,48 @@ const MergeContactDialog = ({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+};
+
+// ─── Contact Settings Section (Fusionar / Eliminar) ────────────────────────────
+const ContactSettingsSection = ({
+  canEdit,
+  canDelete,
+  onMerge,
+  onDelete,
+}: {
+  canEdit: boolean;
+  canDelete: boolean;
+  onMerge: () => void;
+  onDelete: () => void;
+}) => {
+  const [open, setOpen] = useState(false);
+  if (!canEdit && !canDelete) return null;
+
+  return (
+    <div className="pt-2 border-t">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-1 py-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <span className="flex items-center gap-1.5"><Settings size={13} /> Ajustes</span>
+        <ChevronDown size={13} className={`transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+      </button>
+      {open && (
+        <div className="space-y-2 pt-1.5">
+          {canEdit && (
+            <button onClick={onMerge} className="w-full h-10 rounded-xl text-xs font-medium text-muted-foreground border border-border hover:bg-secondary/50 transition-colors flex items-center justify-center gap-2">
+              <GitMerge size={13} /> Fusionar contacto
+            </button>
+          )}
+          {canDelete && (
+            <button onClick={onDelete} className="w-full h-10 rounded-xl text-xs font-medium text-destructive border border-destructive/20 hover:bg-destructive/5 transition-colors flex items-center justify-center gap-2">
+              <Trash2 size={13} /> Eliminar contacto
+            </button>
+          )}
+        </div>
+      )}
+    </div>
   );
 };
 
@@ -1493,7 +1443,6 @@ const ImportWizard = ({ open, onOpenChange, existingContacts }: ImportWizardProp
 const SaasAccessPanel = ({
   contactId,
   contactName,
-  contactEmail,
   saasServices,
   isSuperAdmin,
   onAccessCrm,
@@ -1502,7 +1451,6 @@ const SaasAccessPanel = ({
 }: {
   contactId: string;
   contactName: string;
-  contactEmail: string | null;
   saasServices: import("@/lib/supabase").CrmService[];
   isSuperAdmin: boolean;
   onAccessCrm: (contactId: string) => void;
@@ -1585,33 +1533,10 @@ const SaasAccessPanel = ({
     expired:   "bg-secondary text-muted-foreground border-border",
   };
 
-  if (!saasAccess) {
-    if (!contactEmail) return null;
-    return (
-      <>
-        <button
-          onClick={openModal}
-          className={`w-full flex items-center justify-center gap-2 rounded-xl text-xs font-semibold border-2 border-amber-300 text-amber-700 bg-amber-50 hover:bg-amber-100 transition-colors ${compact ? "h-8" : "h-9"}`}
-        >
-          <span>🔐</span>
-          Activar acceso SaaS
-        </button>
-        <SaasActivationModal
-          open={modalOpen}
-          onOpenChange={setModalOpen}
-          contactName={contactName}
-          saasServices={saasServices}
-          planId={planId} setPlanId={setPlanId}
-          startsAt={startsAt} setStartsAt={setStartsAt}
-          noExpiry={noExpiry} setNoExpiry={setNoExpiry}
-          expiresAt={expiresAt} setExpiresAt={setExpiresAt}
-          notes={notes} setNotes={setNotes}
-          onConfirm={handleActivate}
-          isPending={activateSaas.isPending}
-        />
-      </>
-    );
-  }
+  // El acceso SaaS ya no se activa manualmente desde aquí — se activa automáticamente
+  // al registrar una venta de un servicio marcado como SaaS (ver CrmVentas.tsx). Mientras
+  // no exista ese registro, no hay nada que mostrar ni botón que ofrecer.
+  if (!saasAccess) return null;
 
   return (
     <>
@@ -1805,9 +1730,10 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
   const { data: contacts = [], isLoading } = useContacts();
   const { data: forms = [] } = useForms();
   const { data: clientAccounts = [] } = useClientAccounts();
-  const { data: courseMap = new Map<string, number>() } = useContactCourseMap();
   const { data: sales = [] } = useSales();
   const { data: services = [] } = useServices();
+  const { data: courses = [] } = useCourses();
+  const { data: products = [] } = useProducts();
   const createContact = useCreateContact();
   const updateContact = useUpdateContact();
   const deleteContact = useDeleteContact();
@@ -1841,9 +1767,8 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
 
   const [search, setSearch]         = useState("");
   const [onlyClients, setOnlyClients] = useState(false);
-  const [serviceFilter, setServiceFilter] = useState("");
+  const [itemFilter, setItemFilter] = useState("");
   const [selected, setSelected]     = useState<string | null>(initialContactId ?? null);
-  const [viewing, setViewing]       = useState<string | null>(null);
   const [tagInputId, setTagInputId] = useState<string | null>(null);
   const [tagValue, setTagValue]     = useState("");
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
@@ -1865,7 +1790,9 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
   const [showNew, setShowNew]       = useState(false);
   const [newName, setNewName]       = useState("");
   const [newEmail, setNewEmail]     = useState("");
+  const [newPhone, setNewPhone]     = useState("");
   const [newEmailError, setNewEmailError] = useState<string | null>(null);
+  const [newPhoneError, setNewPhoneError] = useState<string | null>(null);
 
   // Import wizard
   const [showImport, setShowImport] = useState(false);
@@ -1874,15 +1801,27 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
     () => new Set(sales.map((s) => s.contact_id).filter(Boolean) as string[]),
     [sales]
   );
-  const contactIdsByService = useMemo(() => {
+  // Incluye servicios, cursos y productos — cualquier venta registrada, no solo servicios
+  const contactIdsByItem = useMemo(() => {
     const map = new Map<string, Set<string>>();
+    const add = (itemId: string | null, contactId: string | null) => {
+      if (!itemId || !contactId) return;
+      if (!map.has(itemId)) map.set(itemId, new Set());
+      map.get(itemId)!.add(contactId);
+    };
     for (const s of sales) {
-      if (!s.service_id || !s.contact_id) continue;
-      if (!map.has(s.service_id)) map.set(s.service_id, new Set());
-      map.get(s.service_id)!.add(s.contact_id);
+      add(s.service_id, s.contact_id);
+      add(s.course_id, s.contact_id);
+      add(s.product_id, s.contact_id);
     }
     return map;
   }, [sales]);
+
+  const itemFilterGroups = useMemo(() => [
+    { label: "Servicios", options: services.filter((s) => s.active).map((s) => ({ id: s.id, name: s.name })) },
+    { label: "Cursos",    options: courses.filter((c) => c.is_published).map((c) => ({ id: c.id, name: c.title })) },
+    { label: "Productos", options: products.filter((p) => p.is_active).map((p) => ({ id: p.id, name: p.name })) },
+  ].filter((g) => g.options.length > 0), [services, courses, products]);
   const contactServices = useMemo(() => {
     const svcMap = new Map(services.map((s) => [s.id, s]));
     const map = new Map<string, { serviceName: string; isSaas: boolean }[]>();
@@ -1897,16 +1836,41 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
     return map;
   }, [sales, services]);
 
-  // Superadmin: show full ficha técnica
-  const viewingContact = contacts.find((c) => c.id === viewing);
-  if (viewing && viewingContact && isSuperAdmin) {
-    return <ClientDetail contact={viewingContact} onBack={() => setViewing(null)} />;
-  }
+  // Productos y cursos comprados por contacto — última venta por ítem define si sigue
+  // "Activo" (compra única, o recurrencia al día) o "Inactivo" (recurrencia vencida).
+  // Reemplaza al antiguo indicador de "cursos con acceso" (basado en crm_course_access).
+  const contactProductPurchases = useMemo(() => {
+    const prodMap = new Map(products.map((p) => [p.id, p]));
+    const crsMap = new Map(courses.map((c) => [c.id, c]));
+    const latestByContactItem = new Map<string, CrmSale & { kind: "product" | "course" }>();
+    for (const s of sales) {
+      if (!s.contact_id) continue;
+      const itemKey = s.product_id ? `product:${s.product_id}` : s.course_id ? `course:${s.course_id}` : null;
+      if (!itemKey) continue;
+      const key = `${s.contact_id}|${itemKey}`;
+      const existing = latestByContactItem.get(key);
+      if (!existing || new Date(s.created_at) > new Date(existing.created_at)) {
+        latestByContactItem.set(key, { ...s, kind: s.product_id ? "product" : "course" });
+      }
+    }
+    const today = new Date().toISOString().slice(0, 10);
+    const map = new Map<string, { id: string; kind: "product" | "course"; name: string; active: boolean }[]>();
+    for (const s of latestByContactItem.values()) {
+      const isRecurring = !!s.next_renewal_date;
+      const active = !isRecurring || s.next_renewal_date! >= today;
+      const entry = s.kind === "course"
+        ? { id: s.course_id!, kind: "course" as const, name: s.course_name ?? crsMap.get(s.course_id!)?.title ?? "Curso", active }
+        : { id: s.product_id!, kind: "product" as const, name: s.product_name ?? prodMap.get(s.product_id!)?.name ?? "Producto", active };
+      if (!map.has(s.contact_id!)) map.set(s.contact_id!, []);
+      map.get(s.contact_id!)!.push(entry);
+    }
+    return map;
+  }, [sales, products, courses]);
 
   const q = search.toLowerCase();
   const filtered = contacts.filter((c) => {
     if (onlyClients && !clientContactIds.has(c.id)) return false;
-    if (serviceFilter && !contactIdsByService.get(serviceFilter)?.has(c.id)) return false;
+    if (itemFilter && !contactIdsByItem.get(itemFilter)?.has(c.id)) return false;
     return (
       c.name.toLowerCase().includes(q) ||
       (c.email ?? "").toLowerCase().includes(q) ||
@@ -1935,15 +1899,17 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
   };
 
   const handleCreateContact = async () => {
-    if (!newName.trim() || !newEmail.trim()) return;
-    const emailErr = validateEmail(newEmail.trim());
-    if (emailErr) { setNewEmailError(emailErr); return; }
+    if (!newName.trim() || (!newEmail.trim() && !newPhone.trim())) return;
+    const emailErr = newEmail.trim() ? validateEmail(newEmail.trim()) : null;
+    const phoneErr = newPhone.trim() ? validatePhone(newPhone.trim()) : null;
+    if (emailErr || phoneErr) { setNewEmailError(emailErr); setNewPhoneError(phoneErr); return; }
     setNewEmailError(null);
+    setNewPhoneError(null);
     try {
       await createContact.mutateAsync({
         name: newName.trim(),
-        email: newEmail.trim(),
-        phone: null,
+        email: newEmail.trim() || null,
+        phone: newPhone.trim() || null,
         company: null,
         tags: [],
       });
@@ -1951,6 +1917,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
       setShowNew(false);
       setNewName("");
       setNewEmail("");
+      setNewPhone("");
     } catch {
       toast.error("Error al crear el contacto");
     }
@@ -2004,7 +1971,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
         // Arrays/objects: union / deep merge, primary takes precedence on conflicts
         tags: [...new Set([...(detail.tags ?? []), ...(secondary.tags ?? [])])],
         ai_collected_data: { ...(secondary.ai_collected_data ?? {}), ...(detail.ai_collected_data ?? {}) },
-        custom_fields: { ...(secondary.custom_fields ?? {}), ...(detail.custom_fields ?? {}) },
+        custom_fields: { ...parseCustomFields(secondary.custom_fields), ...parseCustomFields(detail.custom_fields) } as Json,
       };
       await updateContact.mutateAsync({ id: detail.id, ...merged });
       await deleteContact.mutateAsync({ id: secondaryId, name: secondary.name });
@@ -2076,7 +2043,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
     />
 
     {/* New contact dialog */}
-    <Dialog open={showNew} onOpenChange={(v) => { if (!v) { setShowNew(false); setNewName(""); setNewEmail(""); setNewEmailError(null); } else setShowNew(true); }}>
+    <Dialog open={showNew} onOpenChange={(v) => { if (!v) { setShowNew(false); setNewName(""); setNewEmail(""); setNewPhone(""); setNewEmailError(null); setNewPhoneError(null); } else setShowNew(true); }}>
       <DialogContent className="max-w-sm rounded-2xl">
         <DialogHeader>
           <DialogTitle className="text-base font-semibold">Nuevo Contacto</DialogTitle>
@@ -2087,21 +2054,30 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
             <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre completo" className="h-9" autoFocus />
           </div>
           <div>
-            <label className="text-xs font-medium text-muted-foreground mb-1 block">Email *</label>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Email</label>
             <Input
               value={newEmail}
               onChange={(e) => { setNewEmail(e.target.value); setNewEmailError(null); }}
               placeholder="email@ejemplo.com"
               className="h-9"
               type="email"
-              onKeyDown={(e) => { if (e.key === "Enter" && newName.trim() && newEmail.trim()) handleCreateContact(); }}
+              onKeyDown={(e) => { if (e.key === "Enter" && newName.trim() && (newEmail.trim() || newPhone.trim())) handleCreateContact(); }}
             />
             {newEmailError && <p className="text-xs text-destructive mt-1">{newEmailError}</p>}
           </div>
+          <div>
+            <label className="text-xs font-medium text-muted-foreground mb-1 block">Teléfono</label>
+            <PhoneInput
+              value={newPhone}
+              onChange={(v) => { setNewPhone(v); setNewPhoneError(null); }}
+            />
+            {newPhoneError && <p className="text-xs text-destructive mt-1">{newPhoneError}</p>}
+          </div>
+          <p className="text-[11px] text-muted-foreground">Debes indicar al menos un email o un teléfono.</p>
         </div>
         <DialogFooter>
-          <Button variant="ghost" onClick={() => { setShowNew(false); setNewName(""); setNewEmail(""); setNewEmailError(null); }}>Cancelar</Button>
-          <Button onClick={handleCreateContact} disabled={!newName.trim() || !newEmail.trim() || createContact.isPending} className="rounded-xl">
+          <Button variant="ghost" onClick={() => { setShowNew(false); setNewName(""); setNewEmail(""); setNewPhone(""); setNewEmailError(null); setNewPhoneError(null); }}>Cancelar</Button>
+          <Button onClick={handleCreateContact} disabled={!newName.trim() || (!newEmail.trim() && !newPhone.trim()) || createContact.isPending} className="rounded-xl">
             {createContact.isPending && <Loader2 size={14} className="animate-spin mr-2" />}
             Guardar contacto
           </Button>
@@ -2169,16 +2145,29 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                     </p>
                   </div>
                 </div>
-                {isSuperAdmin && (() => {
-                  const cf = (detail.custom_fields ?? {}) as Record<string, any>;
-                  const hasOnboarding = forms.some(f => cf[f.id] !== undefined && (f.slug?.toLowerCase().includes("onboarding") || f.name?.toLowerCase().includes("onboarding")));
-                  if (!hasOnboarding) return null;
-                  return <Button className="w-full h-9 rounded-xl text-xs font-medium gap-2" onClick={() => setViewing(detail.id)}><Eye size={14} />Ver Ficha Técnica</Button>;
-                })()}
+                <div className="space-y-1.5">
+                  <IdentifierField
+                    icon={Mail}
+                    label="Email"
+                    value={detail.email}
+                    placeholder="Sin email"
+                    type="email"
+                    canEdit={canEdit}
+                    onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})}
+                  />
+                  <IdentifierField
+                    icon={Phone}
+                    label="Teléfono"
+                    value={detail.phone}
+                    placeholder="Sin teléfono"
+                    type="tel"
+                    canEdit={canEdit}
+                    onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})}
+                  />
+                </div>
                 <SaasAccessPanel
                   contactId={detail.id}
                   contactName={detail.name}
-                  contactEmail={detail.email}
                   saasServices={services.filter((s) => s.is_saas)}
                   isSuperAdmin={isSuperAdmin}
                   onAccessCrm={handleAccessCrm}
@@ -2187,10 +2176,6 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                 />
               </div>
               <div className="p-5 space-y-5">
-                <div className="space-y-2">
-                  <InlineEdit icon={Mail} value={detail.email} placeholder="Añadir email" type="email" readOnly={!canEdit} onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})} />
-                  <InlineEdit icon={Phone} value={detail.phone} placeholder="Añadir teléfono" type="tel" readOnly={!canEdit} onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})} />
-                </div>
                 <div>
                   <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">Etiquetas</p>
                   <div className="flex flex-wrap gap-1.5">
@@ -2246,23 +2231,15 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                     </div>
                   );
                 })()}
-                <ContactCoursesPanel email={detail.email} />
+                <ContactProductsPanel contactId={detail.id} sales={sales} products={products} courses={courses} />
                 <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
                 <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
-                {(canDelete || canEdit) && (
-                  <div className="pt-2 border-t space-y-2">
-                    {canEdit && (
-                      <button onClick={() => setMergeOpen(true)} className="w-full h-10 rounded-xl text-xs font-medium text-muted-foreground border border-border hover:bg-secondary/50 transition-colors flex items-center justify-center gap-2">
-                        <GitMerge size={13} /> Fusionar contacto
-                      </button>
-                    )}
-                    {canDelete && (
-                      <button onClick={() => setDeleteTarget({ id: detail.id, name: detail.name })} className="w-full h-10 rounded-xl text-xs font-medium text-destructive border border-destructive/20 hover:bg-destructive/5 transition-colors flex items-center justify-center gap-2">
-                        <Trash2 size={13} /> Eliminar contacto
-                      </button>
-                    )}
-                  </div>
-                )}
+                <ContactSettingsSection
+                  canEdit={canEdit}
+                  canDelete={canDelete}
+                  onMerge={() => setMergeOpen(true)}
+                  onDelete={() => setDeleteTarget({ id: detail.id, name: detail.name })}
+                />
               </div>
             </div>
           </div>
@@ -2327,14 +2304,18 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                     Solo clientes
                   </button>
                   <div className="relative">
-                    <select value={serviceFilter} onChange={(e) => setServiceFilter(e.target.value)} className="h-7 rounded-lg border bg-secondary/50 border-transparent text-[11px] font-semibold text-muted-foreground pl-2.5 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
-                      <option value="">Todos los servicios</option>
-                      {services.filter((s) => s.active).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    <select value={itemFilter} onChange={(e) => setItemFilter(e.target.value)} className="h-7 rounded-lg border bg-secondary/50 border-transparent text-[11px] font-semibold text-muted-foreground pl-2.5 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+                      <option value="">Todos los servicios/productos</option>
+                      {itemFilterGroups.map((g) => (
+                        <optgroup key={g.label} label={g.label}>
+                          {g.options.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                        </optgroup>
+                      ))}
                     </select>
                     <ChevronDown size={11} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                   </div>
-                  {(onlyClients || serviceFilter) && (
-                    <button onClick={() => { setOnlyClients(false); setServiceFilter(""); }} className="h-7 px-2.5 rounded-lg text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all flex items-center gap-1">
+                  {(onlyClients || itemFilter) && (
+                    <button onClick={() => { setOnlyClients(false); setItemFilter(""); }} className="h-7 px-2.5 rounded-lg text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-all flex items-center gap-1">
                       <X size={11} /> Limpiar filtros
                     </button>
                   )}
@@ -2347,10 +2328,10 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                     <Users size={22} className="text-primary/40" />
                   </div>
                   <p className="text-sm font-medium text-foreground/70">
-                    {search || onlyClients || serviceFilter ? "Sin resultados" : "Sin contactos"}
+                    {search || onlyClients || itemFilter ? "Sin resultados" : "Sin contactos"}
                   </p>
                   <p className="text-xs text-muted-foreground mt-1">
-                    {search || onlyClients || serviceFilter ? "Prueba otros filtros o términos de búsqueda." : "Crea tu primer contacto con el botón de arriba."}
+                    {search || onlyClients || itemFilter ? "Prueba otros filtros o términos de búsqueda." : "Crea tu primer contacto con el botón de arriba."}
                   </p>
                 </div>
               ) : (
@@ -2384,16 +2365,26 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                             {isSaasDisabled && <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-destructive/10 text-destructive border border-destructive/20 shrink-0">Deshabilitado</span>}
                           </div>
                           <p className="text-xs text-muted-foreground truncate mt-0.5">{c.email ?? "Sin email"}</p>
-                          {(contactServices.get(c.id) ?? []).length > 0 && (
+                          {((contactServices.get(c.id) ?? []).length > 0 || (contactProductPurchases.get(c.id) ?? []).length > 0) && (
                             <div className="flex items-center gap-1 flex-wrap mt-1">
                               {(contactServices.get(c.id) ?? []).map((svc, i) => (
                                 <span key={`svc-${i}`} className="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200/60 font-medium">{svc.serviceName}</span>
                               ))}
-                              {c.email && (courseMap.get(c.email.toLowerCase()) ?? 0) > 0 && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200/60 font-medium dark:bg-blue-950/30 dark:text-blue-400">
-                                  {courseMap.get(c.email.toLowerCase())} curso{(courseMap.get(c.email.toLowerCase()) ?? 0) !== 1 ? "s" : ""}
+                              {(contactProductPurchases.get(c.id) ?? []).map((p) => (
+                                <span
+                                  key={`${p.kind}-${p.id}`}
+                                  className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium border ${
+                                    !p.active
+                                      ? "bg-secondary text-muted-foreground border-border/60 line-through"
+                                      : p.kind === "course"
+                                        ? "bg-blue-50 text-blue-700 border-blue-200/60 dark:bg-blue-950/30 dark:text-blue-400"
+                                        : "bg-violet-50 text-violet-700 border-violet-200/60 dark:bg-violet-950/30 dark:text-violet-400"
+                                  }`}
+                                  title={p.active ? (p.kind === "course" ? "Curso activo" : "Producto activo") : "Renovación vencida"}
+                                >
+                                  {p.name}
                                 </span>
-                              )}
+                              ))}
                             </div>
                           )}
                         </div>
@@ -2462,25 +2453,30 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                         <X size={14} />
                       </button>
                     </div>
-                    {isSuperAdmin && (() => {
-                      const cf = (detail.custom_fields ?? {}) as Record<string, any>;
-                      const hasOnboarding = forms.some(f =>
-                        cf[f.id] !== undefined &&
-                        (f.slug?.toLowerCase().includes("onboarding") || f.name?.toLowerCase().includes("onboarding"))
-                      );
-                      if (!hasOnboarding) return null;
-                      return (
-                        <Button className="w-full h-9 rounded-xl text-xs font-medium gap-2" onClick={() => setViewing(detail.id)}>
-                          <Eye size={14} />
-                          Ver Ficha Técnica
-                        </Button>
-                      );
-                    })()}
+                    <div className="space-y-1.5">
+                      <IdentifierField
+                        icon={Mail}
+                        label="Email"
+                        value={detail.email}
+                        placeholder="Sin email"
+                        type="email"
+                        canEdit={canEdit}
+                        onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})}
+                      />
+                      <IdentifierField
+                        icon={Phone}
+                        label="Teléfono"
+                        value={detail.phone}
+                        placeholder="Sin teléfono"
+                        type="tel"
+                        canEdit={canEdit}
+                        onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})}
+                      />
+                    </div>
 
                     <SaasAccessPanel
                       contactId={detail.id}
                       contactName={detail.name}
-                      contactEmail={detail.email}
                       saasServices={services.filter((s) => s.is_saas)}
                       isSuperAdmin={isSuperAdmin}
                       onAccessCrm={handleAccessCrm}
@@ -2490,25 +2486,6 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
 
                   {/* Scrollable body */}
                   <div className="p-5 overflow-y-auto flex-1 space-y-5">
-
-                  <div className="space-y-2">
-                    <InlineEdit
-                      icon={Mail}
-                      value={detail.email}
-                      placeholder="Añadir email"
-                      type="email"
-                      readOnly={!canEdit}
-                      onSave={(v) => updateContact.mutateAsync({ id: detail.id, email: v || null }).then(() => {})}
-                    />
-                    <InlineEdit
-                      icon={Phone}
-                      value={detail.phone}
-                      placeholder="Añadir teléfono"
-                      type="tel"
-                      readOnly={!canEdit}
-                      onSave={(v) => updateContact.mutateAsync({ id: detail.id, phone: v || null }).then(() => {})}
-                    />
-                  </div>
 
                   {/* Tags */}
                   <div>
@@ -2586,23 +2563,15 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                     );
                   })()}
 
-                  <ContactCoursesPanel email={detail.email} />
+                  <ContactProductsPanel contactId={detail.id} sales={sales} products={products} courses={courses} />
                   <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
                   <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
-                  {(canDelete || canEdit) && (
-                    <div className="pt-2 border-t space-y-2">
-                      {canEdit && (
-                        <button onClick={() => setMergeOpen(true)} className="w-full h-10 rounded-xl text-xs font-medium text-muted-foreground border border-border hover:bg-secondary/50 transition-colors flex items-center justify-center gap-2">
-                          <GitMerge size={13} /> Fusionar contacto
-                        </button>
-                      )}
-                      {canDelete && (
-                        <button onClick={() => setDeleteTarget({ id: detail.id, name: detail.name })} className="w-full h-10 rounded-xl text-xs font-medium text-destructive border border-destructive/20 hover:bg-destructive/5 transition-colors flex items-center justify-center gap-2">
-                          <Trash2 size={13} /> Eliminar contacto
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  <ContactSettingsSection
+                    canEdit={canEdit}
+                    canDelete={canDelete}
+                    onMerge={() => setMergeOpen(true)}
+                    onDelete={() => setDeleteTarget({ id: detail.id, name: detail.name })}
+                  />
                 </div>
                 </>
               ) : (

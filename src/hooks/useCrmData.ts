@@ -508,10 +508,14 @@ export const useCreateSale = () => {
       // Decrementar stock — la alerta de poco stock se dispara automáticamente
       // vía trigger de Postgres (trg_stock_alert_variants / trg_stock_alert_products)
       if (sale.product_id) {
-        supabase.rpc("decrement_sale_stock", {
-          p_product_id: sale.product_id,
-          p_variant_id: sale.product_variant_id ?? null,
-        }).catch(() => {});
+        try {
+          await supabase.rpc("decrement_sale_stock", {
+            p_product_id: sale.product_id,
+            p_variant_id: sale.product_variant_id ?? null,
+          });
+        } catch {
+          // no-op — no bloquear el registro de venta si falla el decremento de stock
+        }
       }
 
       return data as CrmSale;
@@ -748,6 +752,39 @@ export const useCreateContactNote = () => {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_contact_notes", data.contact_id] });
+    },
+  });
+};
+
+export const useUpdateContactNote = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, body }: { id: string; body: string }) => {
+      const { data, error } = await supabase
+        .from("crm_contact_notes")
+        .update({ body })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmContactNote;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_contact_notes", data.contact_id] });
+    },
+  });
+};
+
+export const useDeleteContactNote = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, contactId }: { id: string; contactId: string }) => {
+      const { error } = await supabase.from("crm_contact_notes").delete().eq("id", id);
+      if (error) throw error;
+      return { id, contactId };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_contact_notes", data.contactId] });
     },
   });
 };
@@ -2090,7 +2127,9 @@ export const useSearchWaMessages = (query: string) => {
         .not("content", "ilike", "[notif]%")
         .order("created_at", { ascending: false })
         .limit(20);
-      return (data ?? []) as Array<{
+      // El embed de una relación N:1 vuelve tipado como array por defecto — en runtime
+      // Supabase devuelve un único objeto (o null) para este join, no un array.
+      return (data ?? []) as unknown as Array<{
         id: string;
         content: string;
         created_at: string;
@@ -2982,48 +3021,6 @@ export const useRevokeCourseAccess = () => {
     onSuccess: (courseId) => qc.invalidateQueries({ queryKey: ["crm_course_access", courseId] }),
   });
 };
-
-// Devuelve un Map<email, count> con el número de cursos asignados a cada email
-export const useContactCourseMap = () =>
-  useQuery({
-    queryKey: ["contact_course_map"],
-    queryFn: async () => {
-      const { data: courses } = await supabase.from("crm_courses").select("id");
-      if (!courses?.length) return new Map<string, number>();
-      const courseIds = courses.map((c: { id: string }) => c.id);
-      const { data: accesses } = await supabase
-        .from("crm_course_access")
-        .select("email, course_id")
-        .in("course_id", courseIds);
-      const map = new Map<string, number>();
-      accesses?.forEach((a: { email: string; course_id: string }) => {
-        if (a.email) map.set(a.email, (map.get(a.email) ?? 0) + 1);
-      });
-      return map;
-    },
-    staleTime: 30_000,
-  });
-
-export const useContactCourseAccess = (email: string | null | undefined) =>
-  useQuery({
-    queryKey: ["contact_course_access", email],
-    queryFn: async () => {
-      if (!email) return [];
-      const { data } = await supabase
-        .from("crm_course_access")
-        .select("id, status, expires_at, course_id, crm_courses(id, title, user_id, slug, is_published)")
-        .eq("email", email.toLowerCase().trim());
-      return (data ?? []) as Array<{
-        id: string;
-        status: string;
-        expires_at: string | null;
-        course_id: string;
-        crm_courses: { id: string; title: string; user_id: string; slug: string; is_published: boolean } | null;
-      }>;
-    },
-    enabled: !!email,
-    staleTime: 30_000,
-  });
 
 // ─── Multi-currency prices ────────────────────────────────────────────────────
 

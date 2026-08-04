@@ -787,7 +787,7 @@ export default function LopezPainting() {
 }
 
 // ── SERVICE CARD ──────────────────────────────────────────────────────────────
-function ServiceCard({ title, desc, photo }: { title: string; desc: string; photo: string; id: string; Icon: React.ComponentType<{size?: number}> }) {
+function ServiceCard({ title, desc, photo }: { title: string; desc: string; photo: string; id: string; Icon: React.ElementType }) {
   return (
     <div className="group rounded-2xl overflow-hidden border border-gray-100 shadow-sm hover:shadow-lg transition-all duration-200 bg-white flex flex-col cursor-pointer">
       <div className="aspect-video relative overflow-hidden">

@@ -4,11 +4,9 @@ import SalesTrendCard from "@/components/crm/SalesTrendCard";
 import { getOverdueRenewals, getUpcomingRenewals } from "@/components/crm/RenewalsPanel";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { useContacts, useAppointments, useSales, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
+import type { View } from "@/pages/Crm";
 
 const toDateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-
-type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts"
-  | "ventas_reporte" | "ventas_registrar" | "ventas_historial" | "ventas_renovaciones" | "settings" | "soporte" | "videos" | "agente_ia";
 
 const CrmOverview = ({ onNavigate }: {
   onNavigate?: (view: View) => void;

@@ -1193,8 +1193,8 @@ const AdminCourseEditor = ({
           sort_order: 0,
         });
         setActiveCourse(created);
-        toast.success("Curso creado — ahora configura el acceso y agrega módulos");
-        setTab("access");
+        toast.success("Curso creado — ahora agrega módulos");
+        setTab("content");
       } else {
         const updated = await updateCourse.mutateAsync({
           id: activeCourse!.id,

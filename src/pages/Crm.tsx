@@ -28,7 +28,7 @@ import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdmin
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts" | "ventas_reporte" | "ventas_registrar" | "ventas_historial" | "ventas_renovaciones" | "settings" | "soporte" | "tutoriales" | "agente_ia";
+export type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts" | "ventas_reporte" | "ventas_registrar" | "ventas_historial" | "ventas_renovaciones" | "settings" | "soporte" | "tutoriales" | "agente_ia";
 
 type NavChild = { id: View; label: string; icon: React.ElementType };
 type NavItem = { id: string; label: string; icon: React.ElementType; group: string; children?: NavChild[] };

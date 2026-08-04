@@ -502,7 +502,11 @@ function TemplateForm({ forcedCategory, initial, onSave, onCancel, loading, asso
           const isOptOut = forcedCategory === "MARKETING" && isLast;
           return (
             <div key={idx} className={`flex items-center gap-2 p-2 rounded-lg ${isOptOut ? "bg-orange-50 dark:bg-orange-900/10 border border-orange-200 dark:border-orange-800/30" : "bg-muted/50"}`}>
-              {isOptOut && <ShieldOff size={12} className="text-orange-500 shrink-0" title="Opt-out" />}
+              {isOptOut && (
+                <span title="Opt-out" className="shrink-0 inline-flex">
+                  <ShieldOff size={12} className="text-orange-500" />
+                </span>
+              )}
               <select
                 value={btn.type}
                 onChange={e => updateButton(idx, { type: e.target.value as any })}
