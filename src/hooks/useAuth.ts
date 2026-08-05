@@ -3,7 +3,7 @@ import { User, Session } from '@supabase/supabase-js'
 import { supabase } from '@/lib/supabase'
 import type { CrmStaff } from '@/lib/supabase'
 import { buildPermChecker, visibleNavItems, getAllowedItemIds, canAccessItem } from '@/lib/permissions'
-import type { Section, Action } from '@/lib/permissions'
+import type { Section, Action, ItemSection } from '@/lib/permissions'
 
 /**
  * Returns the current authenticated Supabase user and session.
@@ -84,10 +84,10 @@ export const useStaffPermissions = () => {
   const can = (section: Section, action: Action) =>
     buildPermChecker(staffRecord)(section, action)
 
-  const allowedIds = (section: "calendarios" | "formularios") =>
+  const allowedIds = (section: ItemSection) =>
     getAllowedItemIds(staffRecord, section)
 
-  const canItem = (section: "calendarios" | "formularios", itemId: string, action: "read" | "edit") =>
+  const canItem = (section: ItemSection, itemId: string, action: "read" | "edit") =>
     canAccessItem(staffRecord, section, itemId, action)
 
   return {

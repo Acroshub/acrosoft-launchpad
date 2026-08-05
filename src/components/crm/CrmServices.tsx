@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Plus, Trash2, ArrowLeft, Settings, Briefcase, DollarSign, Loader2, Tag, CreditCard, Check, Image as ImageIcon, Info, Wallet, SlidersHorizontal, ChevronRight, ChevronLeft } from "lucide-react";
 import { useServices, useCreateService, useUpdateService, useDeleteService, usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs, useUpsertPaymentMethod } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
-import { useCurrentUser } from "@/hooks/useAuth";
+import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import type { CrmService, CrmPaymentMethod } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
@@ -872,7 +872,12 @@ const CrmServices = ({
   canCreate?: boolean;
   canDelete?: boolean;
 }) => {
-  const { data: services = [], isLoading } = useServices();
+  const { data: allServices = [], isLoading } = useServices();
+  const { allowedIds } = useStaffPermissions();
+  const allowedServiceIds = allowedIds("servicios");
+  const services = allowedServiceIds
+    ? allServices.filter((s) => allowedServiceIds.includes(s.id))
+    : allServices;
   const createService = useCreateService();
   const updateService = useUpdateService();
 

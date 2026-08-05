@@ -23,7 +23,6 @@ import type {
   CrmReminderConfig,
   CrmReminder,
   CrmLog,
-  SupportNotificationRecipient,
   CrmVideoCourse,
   CrmVideoModule,
   CrmVideo,
@@ -1788,68 +1787,6 @@ export const useAdminUnreadCount = () => {
   });
 };
 
-// ─── SOPORTE — Notification Recipients (SP-5) ─────────────────────────────────
-
-export const useNotificationRecipients = () => {
-  const { user } = useCurrentUser();
-  return useQuery({
-    queryKey: ["support_notification_recipients"],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("support_notification_recipients")
-        .select("*")
-        .order("created_at", { ascending: true });
-      if (error) throw error;
-      return data as SupportNotificationRecipient[];
-    },
-    enabled: !!user && user.email === ACROSOFT_ADMIN_EMAIL,
-  });
-};
-
-export const useAddNotificationRecipient = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (email: string) => {
-      const { data, error } = await supabase
-        .from("support_notification_recipients")
-        .insert({ email, active: true })
-        .select()
-        .single();
-      if (error) throw error;
-      return data as SupportNotificationRecipient;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["support_notification_recipients"] }),
-  });
-};
-
-export const useToggleNotificationRecipient = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ id, active }: { id: string; active: boolean }) => {
-      const { error } = await supabase
-        .from("support_notification_recipients")
-        .update({ active })
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["support_notification_recipients"] }),
-  });
-};
-
-export const useDeleteNotificationRecipient = () => {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const { error } = await supabase
-        .from("support_notification_recipients")
-        .delete()
-        .eq("id", id);
-      if (error) throw error;
-    },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["support_notification_recipients"] }),
-  });
-};
-
 export const useMarkSalePaid = () => {
   const qc = useQueryClient();
   return useMutation({
@@ -2281,7 +2218,8 @@ export const useSearchWaMessages = (query: string) => {
 
 export const useCatalogs = (userId?: string) => {
   const { user } = useCurrentUser();
-  const effectiveId = userId ?? user?.id;
+  const { ownerUserId } = useStaffPermissions();
+  const effectiveId = userId ?? ownerUserId ?? user?.id;
   return useQuery({
     queryKey: ["crm_catalogs", effectiveId],
     queryFn: async () => {
@@ -2337,7 +2275,8 @@ export const useDeleteCatalog = () => {
 
 export const useProducts = (userId?: string) => {
   const { user } = useCurrentUser();
-  const effectiveId = userId ?? user?.id;
+  const { ownerUserId } = useStaffPermissions();
+  const effectiveId = userId ?? ownerUserId ?? user?.id;
   return useQuery({
     queryKey: ["crm_products", effectiveId],
     queryFn: async () => {
@@ -2597,7 +2536,8 @@ export const useDeleteProductVariant = () => {
 
 export const useOrphanProducts = (userId?: string) => {
   const { user } = useCurrentUser();
-  const effectiveId = userId ?? user?.id;
+  const { ownerUserId } = useStaffPermissions();
+  const effectiveId = userId ?? ownerUserId ?? user?.id;
   return useQuery({
     queryKey: ["crm_orphan_products", effectiveId],
     queryFn: async () => {

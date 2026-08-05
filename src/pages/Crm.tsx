@@ -236,10 +236,10 @@ const Crm = () => {
       case "calendar":  return can("calendarios","read")    ? <CrmCalendar onNavigateToContact={handleNavigateToContact} />  : null;
       case "forms":     return can("formularios","read")    ? <CrmForms />     : null;
       case "contacts":  return can("contactos","read")      ? <CrmContacts isSuperAdmin={effectiveIsAdmin} initialContactId={pendingContactId} /> : null;
-      case "ventas_reporte":      return can("ventas","read") ? <CrmVentas section="reporte" onNavigate={navigateTo} />      : null;
-      case "ventas_registrar":    return can("ventas","read") ? <CrmVentas section="registrar" onNavigate={navigateTo} />    : null;
-      case "ventas_historial":    return can("ventas","read") ? <CrmVentas section="historial" onNavigate={navigateTo} />    : null;
-      case "ventas_renovaciones": return can("ventas","read") ? <CrmVentas section="renovaciones" onNavigate={navigateTo} /> : null;
+      case "ventas_reporte":      return can("ventas_reporte","read")   ? <CrmVentas section="reporte" onNavigate={navigateTo} />      : null;
+      case "ventas_historial":    return can("ventas_reporte","read")   ? <CrmVentas section="historial" onNavigate={navigateTo} />    : null;
+      case "ventas_registrar":    return can("ventas_registrar","read") ? <CrmVentas section="registrar" onNavigate={navigateTo} />    : null;
+      case "ventas_renovaciones": return can("ventas_registrar","read") ? <CrmVentas section="renovaciones" onNavigate={navigateTo} /> : null;
       case "ventas_stripe": return effectiveIsAdmin ? <CrmStripe /> : null;
       case "settings":  return !isStaff                     ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} /> : null;
       case "soporte":   return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;

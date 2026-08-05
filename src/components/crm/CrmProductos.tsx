@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import { useCurrentUser } from "@/hooks/useAuth";
+import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import PaymentMethodsEditor from "@/components/shared/PaymentMethodsEditor";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import {
@@ -1539,11 +1539,21 @@ export default function CrmProductos({ kind, canEdit = true, canCreate = true, c
   const { data: allVariants = [] }         = useAllProductVariants();
   const upsertCatalog = useUpsertCatalog();
 
+  const { allowedIds } = useStaffPermissions();
+  const itemSection = kind === "fisico" ? "productos_fisicos" : "productos_digitales";
+  const allowedProductIds = allowedIds(itemSection);
+
   // Cada instancia de CrmProductos está escopeada a un solo tipo (físico/archivo) —
   // filtramos aquí en vez de en los hooks para mantenerlos genéricos y reusables.
   const catalogs       = useMemo(() => allCatalogsRaw.filter(c => c.catalog_kind === catalogKind), [allCatalogsRaw, catalogKind]);
-  const allProducts    = useMemo(() => allProductsRaw.filter(p => p.product_kind === kind), [allProductsRaw, kind]);
-  const orphanProducts = useMemo(() => orphanProductsRaw.filter(p => p.product_kind === kind), [orphanProductsRaw, kind]);
+  const allProducts    = useMemo(
+    () => allProductsRaw.filter(p => p.product_kind === kind && (!allowedProductIds || allowedProductIds.includes(p.id))),
+    [allProductsRaw, kind, allowedProductIds]
+  );
+  const orphanProducts = useMemo(
+    () => orphanProductsRaw.filter(p => p.product_kind === kind && (!allowedProductIds || allowedProductIds.includes(p.id))),
+    [orphanProductsRaw, kind, allowedProductIds]
+  );
 
   const agentPhone   = agentConfig?.verified_phone ?? null;
 

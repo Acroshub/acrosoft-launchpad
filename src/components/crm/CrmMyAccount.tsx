@@ -1,10 +1,13 @@
-import { User, Mail, Phone, Loader2 } from "lucide-react";
+import { useState } from "react";
+import { User, Mail, Phone, Loader2, Lock } from "lucide-react";
 import { useBusinessProfile, useUpsertBusinessProfile, useUpdateStaff } from "@/hooks/useCrmData";
-import { useStaffPermissions } from "@/hooks/useAuth";
+import { useStaffPermissions, useCurrentUser } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { supabase } from "@/lib/supabase";
 import type { CrmBusinessProfile, CrmStaff } from "@/lib/supabase";
 import { validateEmail } from "@/lib/validators";
 import { SectionCard, EditableField, PhoneEditableField } from "@/components/shared/BusinessFormFields";
+import { Button } from "@/components/ui/button";
 
 const StaffAccountView = ({
   staff, canEdit, onUpdate,
@@ -41,8 +44,45 @@ const OwnerAccountView = ({
   </SectionCard>
 );
 
+const SecurityCard = ({ email }: { email: string | null | undefined }) => {
+  const [sending, setSending] = useState(false);
+
+  const handleReset = async () => {
+    if (!email) {
+      toast.error("No se encontró un correo asociado a tu cuenta");
+      return;
+    }
+    setSending(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("reset-password", { body: { email } });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      toast.success(`Te enviamos un correo a ${email} para restablecer tu contraseña`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo enviar el correo. Intenta de nuevo en unos minutos.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <SectionCard title="Seguridad" subtitle="Acceso a tu cuenta" icon={Lock} className="max-w-lg">
+      <div className="flex items-center justify-between gap-4">
+        <p className="text-xs text-muted-foreground">
+          Te enviaremos un enlace a tu correo ({email ?? "sin correo"}) para elegir una contraseña nueva.
+        </p>
+        <Button variant="outline" onClick={handleReset} disabled={sending || !email} className="rounded-xl gap-2 shrink-0">
+          {sending && <Loader2 size={14} className="animate-spin" />}
+          Restablecer Contraseña
+        </Button>
+      </div>
+    </SectionCard>
+  );
+};
+
 const CrmMyAccount = () => {
   const { isStaff, staffRecord, can } = useStaffPermissions();
+  const { user }                      = useCurrentUser();
   const { data: profile, isLoading }  = useBusinessProfile();
   const upsertProfile                 = useUpsertBusinessProfile();
   const updateStaff                   = useUpdateStaff();
@@ -76,6 +116,8 @@ const CrmMyAccount = () => {
         ? <StaffAccountView staff={staffRecord} canEdit={can("mi_negocio_personal", "edit")} onUpdate={handleUpdateStaff} />
         : <OwnerAccountView profile={profile} update={handleUpdate} />
       }
+
+      <SecurityCard email={user?.email} />
     </div>
   );
 };

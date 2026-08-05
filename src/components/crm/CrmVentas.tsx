@@ -125,9 +125,9 @@ const ProofUpload = ({ onUploaded }: { onUploaded: (url: string) => void }) => {
 const CrmVentas = ({ section, onNavigate }: { section: VentasSection; onNavigate?: (view: "ventas_registrar") => void }) => {
   const { user }      = useCurrentUser();
   const { can }       = useStaffPermissions();
-  const canCreateSale = can("ventas", "create");
-  const canEditSale   = can("ventas", "edit");
-  const canDeleteSale = can("ventas", "delete");
+  const canCreateSale = can("ventas_registrar", "create");
+  const canEditSale   = can("ventas_reporte", "edit");
+  const canDeleteSale = can("ventas_reporte", "delete");
 
   const { data: contacts = [] }                            = useContacts();
   const { data: services = [] }                            = useServices();

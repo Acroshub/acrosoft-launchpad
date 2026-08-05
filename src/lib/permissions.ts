@@ -18,7 +18,8 @@ export type Section =
   | "productos_fisicos"
   | "productos_digitales"
   | "dashboard"
-  | "ventas"
+  | "ventas_reporte"
+  | "ventas_registrar"
   | "calendarios"
   | "formularios"
   | "contactos"
@@ -37,7 +38,8 @@ export const SECTION_TO_KEY: Record<Section, PermKey> = {
   productos_fisicos:    "perm_productos_fisicos",
   productos_digitales:  "perm_productos_digitales",
   dashboard:            "perm_dashboard",
-  ventas:               "perm_ventas",
+  ventas_reporte:       "perm_ventas_reporte",
+  ventas_registrar:     "perm_ventas_registrar",
   calendarios:          "perm_calendarios",
   formularios:          "perm_formularios",
   contactos:            "perm_contactos",
@@ -61,12 +63,15 @@ export function buildPermChecker(staffRecord: CrmStaff | null) {
   };
 }
 
-type ItemSection = "calendarios" | "formularios"
+export type ItemSection = "calendarios" | "formularios" | "servicios" | "productos_fisicos" | "productos_digitales"
 type ItemKey = `perm_${ItemSection}_items`
 
 const ITEM_KEY: Record<ItemSection, ItemKey> = {
   calendarios: "perm_calendarios_items",
   formularios:  "perm_formularios_items",
+  servicios: "perm_servicios_items",
+  productos_fisicos: "perm_productos_fisicos_items",
+  productos_digitales: "perm_productos_digitales_items",
 }
 
 /**
@@ -125,7 +130,8 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (can("calendarios",  "read")) visible.add("calendar");
   if (can("formularios",  "read")) visible.add("forms");
   if (can("contactos",     "read")) visible.add("contacts");
-  if (can("ventas", "read")) { visible.add("ventas_reporte"); visible.add("ventas_registrar"); visible.add("ventas_historial"); visible.add("ventas_renovaciones"); }
+  if (can("ventas_reporte",   "read")) { visible.add("ventas_reporte"); visible.add("ventas_historial"); }
+  if (can("ventas_registrar", "read")) { visible.add("ventas_registrar"); visible.add("ventas_renovaciones"); }
   if (can("agente_ia",    "read")) visible.add("agente_ia");
   // Soporte es visible para todo el staff (sin permiso específico requerido)
   visible.add("soporte");

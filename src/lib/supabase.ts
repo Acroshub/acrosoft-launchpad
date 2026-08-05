@@ -503,6 +503,7 @@ export type CrmStaff = {
   created_at: string
   owner_user_id: string
   staff_user_id: string | null
+  contact_id: string | null
   name: string
   email: string
   description: string | null
@@ -515,7 +516,8 @@ export type CrmStaff = {
   perm_productos_fisicos: StaffPermission
   perm_productos_digitales: StaffPermission
   perm_dashboard: StaffPermission
-  perm_ventas: StaffPermission
+  perm_ventas_reporte: StaffPermission
+  perm_ventas_registrar: StaffPermission
   perm_calendarios: StaffPermission
   perm_formularios: StaffPermission
   perm_contactos:     StaffPermission
@@ -524,6 +526,9 @@ export type CrmStaff = {
   // item-level overrides — null = no restriction (section perm applies to all)
   perm_calendarios_items: Record<string, StaffItemPermission> | null
   perm_formularios_items: Record<string, StaffItemPermission> | null
+  perm_servicios_items: Record<string, StaffItemPermission> | null
+  perm_productos_fisicos_items: Record<string, StaffItemPermission> | null
+  perm_productos_digitales_items: Record<string, StaffItemPermission> | null
 }
 
 export type CrmLog = {

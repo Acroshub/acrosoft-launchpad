@@ -1,12 +1,14 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, ChevronRight, ChevronLeft, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, UserCog, Bell, MessageCircle, Bot } from "lucide-react";
-import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, useNotificationRecipients, useAddNotificationRecipient, useToggleNotificationRecipient } from "@/hooks/useCrmData";
+import { Activity, Loader2, Filter, Users, ChevronDown, ChevronRight, ChevronLeft, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, UserCog, Bell, Bot } from "lucide-react";
+import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, useContacts, useServices, useProducts } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmLog, CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
+import type { ItemSection } from "@/lib/permissions";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import PhoneInputField from "@/components/shared/PhoneInput";
+import ContactPicker from "@/components/crm/ContactPicker";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -365,7 +367,8 @@ type PermKey = keyof Pick<
   | "perm_productos_fisicos"
   | "perm_productos_digitales"
   | "perm_dashboard"
-  | "perm_ventas"
+  | "perm_ventas_reporte"
+  | "perm_ventas_registrar"
   | "perm_calendarios"
   | "perm_formularios"
   | "perm_contactos"
@@ -373,23 +376,59 @@ type PermKey = keyof Pick<
   | "perm_agente_ia"
 >;
 
-const PERM_SECTIONS: { key: PermKey; label: string; actions: (keyof StaffPermission)[] }[] = [
-  { key: "perm_mi_negocio_datos",    label: "Mi Negocio — Datos del negocio",  actions: ["read", "edit"] },
-  { key: "perm_servicios",           label: "Servicios",                        actions: ["read", "edit", "create", "delete"] },
-  { key: "perm_productos_fisicos",   label: "Productos Físicos",                actions: ["read", "edit", "create", "delete"] },
-  { key: "perm_productos_digitales", label: "Productos Digitales",              actions: ["read", "edit", "create", "delete"] },
-  { key: "perm_dashboard",           label: "Dashboard",                        actions: ["read"] },
-  { key: "perm_ventas",              label: "Registro de Ventas",               actions: ["read", "edit", "create", "delete"] },
-  { key: "perm_calendarios",         label: "Calendarios",                      actions: ["read", "edit", "create", "delete"] },
-  { key: "perm_formularios",         label: "Formularios",                      actions: ["read", "edit", "create", "delete"] },
-  { key: "perm_contactos",           label: "Contactos",                        actions: ["read", "edit", "create", "delete"] },
-  { key: "perm_recordatorios",       label: "Recordatorios",                    actions: ["read", "create"] },
-  { key: "perm_agente_ia",           label: "Agente IA (solo conversaciones)",  actions: ["read"] },
+type PermSectionDef = { key: PermKey; label: string; actions: (keyof StaffPermission)[] };
+
+// Agrupadas en el mismo orden que el menú principal de la izquierda (Crm.tsx: navItems).
+const PERM_GROUPS: { label: string; sections: PermSectionDef[] }[] = [
+  {
+    label: "Inicio",
+    sections: [
+      { key: "perm_dashboard", label: "Inicio", actions: ["read"] },
+    ],
+  },
+  {
+    label: "Productos",
+    sections: [
+      { key: "perm_servicios",           label: "Servicios",           actions: ["read", "edit", "create", "delete"] },
+      { key: "perm_productos_fisicos",   label: "Productos Físicos",   actions: ["read", "edit", "create", "delete"] },
+      { key: "perm_productos_digitales", label: "Productos Digitales", actions: ["read", "edit", "create", "delete"] },
+    ],
+  },
+  {
+    label: "Ventas",
+    sections: [
+      { key: "perm_ventas_reporte",   label: "Reporte General e Historial",     actions: ["read", "edit", "delete"] },
+      { key: "perm_ventas_registrar", label: "Registrar Manual y Renovaciones", actions: ["read", "create"] },
+    ],
+  },
+  {
+    label: "CRM",
+    sections: [
+      { key: "perm_contactos",   label: "Contactos",   actions: ["read", "edit", "create", "delete"] },
+      { key: "perm_calendarios", label: "Calendarios", actions: ["read", "edit", "create", "delete"] },
+      { key: "perm_formularios", label: "Formularios", actions: ["read", "edit", "create", "delete"] },
+    ],
+  },
+  {
+    label: "IA",
+    sections: [
+      { key: "perm_agente_ia", label: "WhatsApp IA (solo conversaciones)", actions: ["read"] },
+    ],
+  },
+  {
+    label: "Otros",
+    sections: [
+      { key: "perm_mi_negocio_datos", label: "Mi Negocio — Datos del negocio", actions: ["read", "edit"] },
+      { key: "perm_recordatorios",    label: "Recordatorios",                 actions: ["read", "create"] },
+    ],
+  },
 ];
+
+const PERM_SECTIONS: PermSectionDef[] = PERM_GROUPS.flatMap((g) => g.sections);
 
 const DEFAULT_PERMS = (): Pick<CrmStaff,
   "perm_mi_negocio_datos" | "perm_mi_negocio_personal" | "perm_servicios" | "perm_productos_fisicos" | "perm_productos_digitales" |
-  "perm_dashboard" | "perm_ventas" | "perm_calendarios" | "perm_formularios" |
+  "perm_dashboard" | "perm_ventas_reporte" | "perm_ventas_registrar" | "perm_calendarios" | "perm_formularios" |
   "perm_contactos" | "perm_recordatorios" | "perm_agente_ia"
 > => ({
   perm_mi_negocio_datos:    { read: true,  edit: false },
@@ -398,7 +437,8 @@ const DEFAULT_PERMS = (): Pick<CrmStaff,
   perm_productos_fisicos:   { read: true,  edit: false, create: false, delete: false },
   perm_productos_digitales: { read: true,  edit: false, create: false, delete: false },
   perm_dashboard:           { read: false },
-  perm_ventas:              { read: false, edit: false, create: false, delete: false },
+  perm_ventas_reporte:      { read: false, edit: false, create: false, delete: false },
+  perm_ventas_registrar:    { read: false, edit: false, create: false, delete: false },
   perm_calendarios:         { read: false, edit: false, create: false, delete: false },
   perm_formularios:         { read: false, edit: false, create: false, delete: false },
   perm_contactos:           { read: false, edit: false, create: false, delete: false },
@@ -410,7 +450,7 @@ const DEFAULT_PERMS = (): Pick<CrmStaff,
 
 type ItemPerms = Record<string, StaffItemPermission>
 
-const ITEM_SECTION_KEYS = new Set<PermKey>(["perm_calendarios", "perm_formularios"]);
+const ITEM_SECTION_KEYS = new Set<PermKey>(["perm_calendarios", "perm_formularios", "perm_servicios", "perm_productos_fisicos", "perm_productos_digitales"]);
 
 type ItemSectionMode = "none" | "ver_todos" | "admin_todos" | "seleccionar";
 
@@ -435,11 +475,8 @@ const PermMatrix = ({
 }: {
   perms: ReturnType<typeof DEFAULT_PERMS>;
   onChange: (perms: ReturnType<typeof DEFAULT_PERMS>) => void;
-  itemData: {
-    calendarios: { items: ItemPerms | null; available: { id: string; name: string }[] };
-    formularios:  { items: ItemPerms | null; available: { id: string; name: string }[] };
-  };
-  onItemData: (section: "calendarios" | "formularios", items: ItemPerms | null) => void;
+  itemData: Record<ItemSection, { items: ItemPerms | null; available: { id: string; name: string }[] }>;
+  onItemData: (section: ItemSection, items: ItemPerms | null) => void;
 }) => {
   const toggleRead = (key: PermKey) => {
     const current = perms[key] as StaffPermission;
@@ -459,7 +496,7 @@ const PermMatrix = ({
     onChange({ ...perms, [key]: updated });
   };
 
-  const setItemMode = (section: "calendarios" | "formularios", mode: ItemSectionMode) => {
+  const setItemMode = (section: ItemSection, mode: ItemSectionMode) => {
     const key = `perm_${section}` as PermKey;
     const current = getItemMode(perms[key] as StaffPermission, itemData[section].items);
     // Clicking the active mode toggles it off → "none"
@@ -484,7 +521,7 @@ const PermMatrix = ({
     }
   };
 
-  const toggleItemRead = (section: "calendarios" | "formularios", id: string) => {
+  const toggleItemRead = (section: ItemSection, id: string) => {
     const current = itemData[section].items ?? {};
     const perm = current[id];
     if (perm?.read) {
@@ -496,15 +533,13 @@ const PermMatrix = ({
     }
   };
 
-  const toggleItemEdit = (section: "calendarios" | "formularios", id: string) => {
+  const toggleItemEdit = (section: ItemSection, id: string) => {
     const current = itemData[section].items ?? {};
     const perm = current[id] ?? { read: false, edit: false };
     onItemData(section, { ...current, [id]: { read: true, edit: !perm.edit } });
   };
 
-  return (
-    <div className="space-y-1">
-      {PERM_SECTIONS.map((section) => {
+  const renderSection = (section: PermSectionDef) => {
         const perm = perms[section.key] as StaffPermission;
         const adminActions = section.actions.filter((a) => a !== "read") as (keyof StaffPermission)[];
         const isRead  = !!perm.read;
@@ -512,7 +547,7 @@ const PermMatrix = ({
 
         // Item-expandable sections
         if (ITEM_SECTION_KEYS.has(section.key)) {
-          const sectionName = section.key.replace("perm_", "") as "calendarios" | "formularios";
+          const sectionName = section.key.replace("perm_", "") as ItemSection;
           const { items, available } = itemData[sectionName];
           const mode = getItemMode(perm, items);
           return (
@@ -593,7 +628,22 @@ const PermMatrix = ({
             </div>
           </div>
         );
-      })}
+  };
+
+  return (
+    <div className="space-y-3">
+      {PERM_GROUPS.map((group) => (
+        <div key={group.label}>
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 px-3 mb-0.5">
+            {group.label}
+          </p>
+          <div className="space-y-1">
+            {group.sections.map((section) => (
+              <div key={section.key}>{renderSection(section)}</div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 };
@@ -615,11 +665,18 @@ const StaffDialog = ({
 }) => {
   const { data: calendars = [] }  = useCalendars();
   const { data: rawForms = [] }   = useForms();
+  const { data: contacts = [] }   = useContacts();
+  const { data: services = [] }   = useServices();
+  const { data: allProducts = [] } = useProducts();
+  const physicalProducts = allProducts.filter((p) => p.product_kind === "fisico");
+  const digitalProducts  = allProducts.filter((p) => p.product_kind === "archivo");
 
   const [name, setName]        = useState(initial?.name ?? "");
   const [email, setEmail]      = useState(initial?.email ?? "");
   const [description, setDesc] = useState(initial?.description ?? "");
   const [phone, setPhone]      = useState(initial?.phone ?? "");
+  const [selectedContactId, setSelectedContactId] = useState(initial?.contact_id ?? "");
+  const selectedContact = contacts.find((c) => c.id === selectedContactId) ?? null;
   const [perms, setPerms]      = useState<ReturnType<typeof DEFAULT_PERMS>>(
     initial
       ? {
@@ -629,7 +686,8 @@ const StaffDialog = ({
           perm_productos_fisicos:   initial.perm_productos_fisicos,
           perm_productos_digitales: initial.perm_productos_digitales,
           perm_dashboard:           initial.perm_dashboard,
-          perm_ventas:              initial.perm_ventas,
+          perm_ventas_reporte:      initial.perm_ventas_reporte,
+          perm_ventas_registrar:    initial.perm_ventas_registrar,
           perm_calendarios:         initial.perm_calendarios,
           perm_formularios:         initial.perm_formularios,
           perm_contactos:           initial.perm_contactos,
@@ -641,31 +699,42 @@ const StaffDialog = ({
 
   const [calItems,  setCalItems]  = useState<ItemPerms | null>(initial?.perm_calendarios_items ?? null);
   const [formItems, setFormItems] = useState<ItemPerms | null>(initial?.perm_formularios_items ?? null);
+  const [servItems, setServItems] = useState<ItemPerms | null>(initial?.perm_servicios_items ?? null);
+  const [prodFisicoItems,   setProdFisicoItems]   = useState<ItemPerms | null>(initial?.perm_productos_fisicos_items ?? null);
+  const [prodDigitalItems,  setProdDigitalItems]  = useState<ItemPerms | null>(initial?.perm_productos_digitales_items ?? null);
 
-  const itemData = {
+  const itemData: Record<ItemSection, { items: ItemPerms | null; available: { id: string; name: string }[] }> = {
     calendarios: { items: calItems,  available: calendars.map(c => ({ id: c.id, name: c.name ?? c.slug ?? c.id })) },
     formularios:  { items: formItems, available: rawForms.map(f => ({ id: f.id, name: f.name })) },
+    servicios:            { items: servItems,       available: services.map(s => ({ id: s.id, name: s.name })) },
+    productos_fisicos:    { items: prodFisicoItems,  available: physicalProducts.map(p => ({ id: p.id, name: p.name })) },
+    productos_digitales:  { items: prodDigitalItems, available: digitalProducts.map(p => ({ id: p.id, name: p.name })) },
   };
 
-  const handleItemData = (section: "calendarios" | "formularios", items: ItemPerms | null) => {
+  const handleItemData = (section: ItemSection, items: ItemPerms | null) => {
     if (section === "calendarios") setCalItems(items);
-    else setFormItems(items);
+    else if (section === "formularios") setFormItems(items);
+    else if (section === "servicios") setServItems(items);
+    else if (section === "productos_fisicos") setProdFisicoItems(items);
+    else setProdDigitalItems(items);
   };
 
-  const phoneDigits = phone.replace(/\D/g, "");
-  const phoneValid  = phoneDigits.length >= 10;
+  const canSubmit = initial ? !!name.trim() && !!email.trim() : !!selectedContact && !!selectedContact.email;
 
   const handleSubmit = () => {
-    if (!name.trim() || !email.trim()) return;
-    if (!initial && !phoneValid) return;
+    if (!canSubmit) return;
     onSave({
-      name:        name.trim(),
-      email:       email.trim(),
+      contact_id:  initial ? (initial.contact_id ?? null) : selectedContact!.id,
+      name:        initial ? name.trim() : selectedContact!.name,
+      email:       initial ? email.trim() : selectedContact!.email!,
       description: description.trim() || null,
-      phone:       phone.trim() || null,
+      phone:       initial ? (phone.trim() || null) : selectedContact!.phone,
       ...perms,
       perm_calendarios_items: calItems,
       perm_formularios_items: formItems,
+      perm_servicios_items: servItems,
+      perm_productos_fisicos_items: prodFisicoItems,
+      perm_productos_digitales_items: prodDigitalItems,
     });
   };
 
@@ -681,28 +750,49 @@ const StaffDialog = ({
         <div className="flex-1 overflow-y-auto space-y-5 py-2 pr-1">
           {/* Basic info */}
           <div className="space-y-3">
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Nombre *</label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre completo" className="h-9" autoFocus={!initial} />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Email *</label>
-              <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@ejemplo.com" type="email" className="h-9" disabled={!!initial} />
-              {!initial && <p className="text-[10px] text-muted-foreground/60 mt-1">Se enviará un email de invitación para establecer contraseña.</p>}
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">Rol / Cargo</label>
-              <Input value={description} onChange={(e) => setDesc(e.target.value)} placeholder="Ej: Asistente, Coordinador..." className="h-9" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                WhatsApp / Teléfono {!initial && <span className="text-destructive">*</span>}
-              </label>
-              <PhoneInputField value={phone} onChange={setPhone} placeholder="71234567" />
-              {!initial && !phoneValid && phone && (
-                <p className="text-[10px] text-destructive mt-1">Ingresa un número válido con código de país.</p>
-              )}
-            </div>
+            {!initial ? (
+              <>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Contacto *</label>
+                  <ContactPicker
+                    contacts={contacts}
+                    value={selectedContactId}
+                    onChange={setSelectedContactId}
+                    requireEmail
+                    placeholder="Buscar contacto por nombre, correo o teléfono..."
+                  />
+                  {selectedContact && !selectedContact.email && (
+                    <p className="text-[10px] text-destructive mt-1">
+                      Este contacto no tiene correo — agrégale uno desde Contactos antes de invitarlo como staff.
+                    </p>
+                  )}
+                  <p className="text-[10px] text-muted-foreground/60 mt-1">Se enviará un email de invitación para establecer contraseña.</p>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Rol / Cargo</label>
+                  <Input value={description} onChange={(e) => setDesc(e.target.value)} placeholder="Ej: Asistente, Coordinador..." className="h-9" />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Nombre *</label>
+                  <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nombre completo" className="h-9" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Email *</label>
+                  <Input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@ejemplo.com" type="email" className="h-9" disabled />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">Rol / Cargo</label>
+                  <Input value={description} onChange={(e) => setDesc(e.target.value)} placeholder="Ej: Asistente, Coordinador..." className="h-9" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1 block">WhatsApp / Teléfono</label>
+                  <PhoneInputField value={phone} onChange={setPhone} placeholder="71234567" />
+                </div>
+              </>
+            )}
           </div>
 
           {/* Permissions */}
@@ -723,7 +813,7 @@ const StaffDialog = ({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancelar</Button>
           <Button
             onClick={handleSubmit}
-            disabled={!name.trim() || !email.trim() || (!initial && !phoneValid) || isSaving}
+            disabled={!canSubmit || isSaving}
             className="rounded-xl"
           >
             {isSaving && <Loader2 size={14} className="animate-spin mr-2" />}
@@ -1082,98 +1172,6 @@ const RemindersTab = () => {
 
 // ─── General Tab (admin only) ─────────────────────────────────────────────────
 
-// ─── Support Notifications Tab (admin only) ───────────────────────────────────
-
-const SupportTab = () => {
-  const { data: staff = [], isLoading: loadingStaff }             = useStaff();
-  const { data: recipients = [], isLoading: loadingRecipients }   = useNotificationRecipients();
-  const addRecipient    = useAddNotificationRecipient();
-  const toggleRecipient = useToggleNotificationRecipient();
-
-  const isLoading = loadingStaff || loadingRecipients;
-
-  // Map email → recipient row for quick lookup
-  const recipientByEmail = useMemo(
-    () => Object.fromEntries(recipients.map((r) => [r.email, r])),
-    [recipients],
-  );
-
-  const handleToggle = async (email: string) => {
-    const existing = recipientByEmail[email];
-    try {
-      if (existing) {
-        if (existing.active) {
-          // disable: just mark inactive
-          await toggleRecipient.mutateAsync({ id: existing.id, active: false });
-        } else {
-          // re-enable
-          await toggleRecipient.mutateAsync({ id: existing.id, active: true });
-        }
-      } else {
-        // first time enabling
-        await addRecipient.mutateAsync(email);
-      }
-    } catch {
-      toast.error("Error al actualizar");
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-16">
-        <Loader2 size={22} className="animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-card border rounded-2xl p-5 space-y-4">
-        <div className="flex items-start gap-3">
-          <Bell size={16} className="text-primary mt-0.5 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold">Notificaciones de soporte por email</p>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Activa los miembros del equipo que recibirán un email cuando un cliente abra o responda un ticket.
-            </p>
-          </div>
-        </div>
-
-        {staff.length === 0 ? (
-          <p className="text-xs text-muted-foreground text-center py-6">
-            No hay miembros de staff registrados.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {staff.map((member) => {
-              const rec = recipientByEmail[member.email];
-              const isActive = !!rec && rec.active;
-              return (
-                <div key={member.id} className="flex items-center gap-3 px-3 py-2.5 border rounded-xl">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{member.name}</p>
-                    <p className="text-xs text-muted-foreground truncate">{member.email}</p>
-                  </div>
-                  <button
-                    onClick={() => handleToggle(member.email)}
-                    className="shrink-0 transition-colors"
-                    title={isActive ? "Desactivar notificaciones" : "Activar notificaciones"}
-                  >
-                    {isActive
-                      ? <ToggleRight size={22} className="text-primary" />
-                      : <ToggleLeft size={22} className="text-muted-foreground" />
-                    }
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-};
-
 // ─── Settings shell ───────────────────────────────────────────────────────────
 
 // ─── Tab: Costos IA ──────────────────────────────────────────────────────────
@@ -1321,7 +1319,7 @@ const IACostosTab = () => {
   );
 };
 
-type TabId = "logs" | "staff" | "reminders" | "saas" | "soporte" | "ia_costos";
+type TabId = "logs" | "staff" | "reminders" | "saas" | "ia_costos";
 
 type TabDef = {
   id: TabId;
@@ -1336,8 +1334,7 @@ type TabDef = {
 
 const ALL_TABS: TabDef[] = [
   { id: "staff",        label: "Staff",             description: "Equipo y permisos",          icon: Users,         group: "General",      adminOnly: true,  saasClientVisible: true,   Component: StaffTab            },
-  { id: "reminders",    label: "Recordatorios",     description: "Email y WhatsApp",           icon: Bell,          group: "Comunicación",                                             Component: RemindersTab        },
-  { id: "soporte",      label: "Soporte",           description: "Canal de soporte",           icon: MessageCircle, group: "Comunicación", adminOnly: true,                           Component: SupportTab          },
+  { id: "reminders",    label: "Historial de Comunicaciones", description: "Email y WhatsApp", icon: Bell,          group: "Comunicación",                                             Component: RemindersTab        },
   { id: "logs",         label: "Logs",              description: "Historial de actividad",     icon: Activity,      group: "Sistema",      adminOnly: true,  saasClientVisible: true,   Component: LogsTab             },
   { id: "ia_costos",    label: "Costos IA",         description: "Uso y costo del agente IA",  icon: Bot,           group: "Sistema",      adminOnly: true,                           Component: IACostosTab         },
 ];
@@ -1350,7 +1347,7 @@ const CrmSettings = ({ isSuperAdmin, isSaasClient }: { isSuperAdmin?: boolean; i
     return true;
   });
 
-  const defaultTab: TabId = "reminders";
+  const defaultTab: TabId = "staff";
   const [selectedId, setSelectedId] = useState<TabId>(defaultTab);
   const [showMobileContent, setShowMobileContent] = useState(false);
 
