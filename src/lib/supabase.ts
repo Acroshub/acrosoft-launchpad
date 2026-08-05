@@ -271,6 +271,18 @@ export type CrmContactNote = {
   body: string
 }
 
+export type CrmEmailTemplate = {
+  id: string
+  created_at: string
+  updated_at: string
+  user_id: string
+  category: string
+  email_type: string
+  name: string
+  subject: string
+  body: string
+}
+
 export type CrmBusinessProfile = {
   id: string
   created_at: string

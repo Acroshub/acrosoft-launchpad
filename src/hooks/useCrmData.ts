@@ -17,6 +17,7 @@ import type {
   CrmCalendarConfig,
   CrmBusinessProfile,
   CrmContactNote,
+  CrmEmailTemplate,
   CrmClientAccount,
   CrmStaff,
   CrmReminderConfig,
@@ -786,6 +787,139 @@ export const useDeleteContactNote = () => {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["crm_contact_notes", data.contactId] });
     },
+  });
+};
+
+// ─── Email templates (Comunicaciones) ─────────────────────────────────────────
+// La plantilla "Original" de cada email_type vive como constante en el frontend
+// (igual para todos, no editable, no se guarda aquí) — esta tabla solo contiene
+// las copias personalizadas que crea cada tenant.
+export const useEmailTemplatesByCategory = (category: string) => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  return useQuery({
+    queryKey: ["crm_email_templates_category", ownerUserId ?? user?.id, category],
+    queryFn: async () => {
+      const uid = ownerUserId ?? user!.id;
+      const { data, error } = await supabase
+        .from("crm_email_templates")
+        .select("*")
+        .eq("user_id", uid)
+        .eq("category", category)
+        .order("created_at", { ascending: true });
+      if (error) throw error;
+      return data as CrmEmailTemplate[];
+    },
+    enabled: !!user && !!category,
+  });
+};
+
+export const useCreateEmailTemplate = () => {
+  const qc = useQueryClient();
+  const { ownerUserId } = useStaffPermissions();
+  return useMutation({
+    mutationFn: async (payload: { category: string; emailType: string; name: string; subject: string; body: string }) => {
+      const { data, error } = await supabase
+        .from("crm_email_templates")
+        .insert({
+          user_id: ownerUserId!,
+          category: payload.category,
+          email_type: payload.emailType,
+          name: payload.name,
+          subject: payload.subject,
+          body: payload.body,
+        })
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmEmailTemplate;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_email_templates_category", data.user_id, data.category] });
+    },
+  });
+};
+
+export const useUpdateEmailTemplate = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...updates }: { id: string; name?: string; subject?: string; body?: string }) => {
+      const { data, error } = await supabase
+        .from("crm_email_templates")
+        .update({ ...updates, updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .select()
+        .single();
+      if (error) throw error;
+      return data as CrmEmailTemplate;
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_email_templates_category", data.user_id, data.category] });
+    },
+  });
+};
+
+export const useDeleteEmailTemplate = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, userId, category }: { id: string; userId: string; category: string }) => {
+      const { error } = await supabase.from("crm_email_templates").delete().eq("id", id);
+      if (error) throw error;
+      return { id, userId, category };
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["crm_email_templates_category", data.userId, data.category] });
+    },
+  });
+};
+
+// ─── Stripe (conexión — Milestone 1) ──────────────────────────────────────────
+export type StripeConnectionStatus = {
+  connected: boolean;
+  mode?: "test" | "live";
+  publishable_key?: string | null;
+  account_email?: string | null;
+  last_verified_at?: string | null;
+  has_webhook_secret?: boolean;
+};
+
+export const useStripeConnectionStatus = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["stripe_connection_status", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke("stripe-connection-status");
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as StripeConnectionStatus;
+    },
+    enabled: !!user,
+  });
+};
+
+export const useSaveStripeKeys = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { mode?: "test" | "live"; secret_key?: string; publishable_key?: string; webhook_secret?: string }) => {
+      const { data, error } = await supabase.functions.invoke("stripe-save-keys", { body: payload });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { success: true };
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["stripe_connection_status"] }),
+  });
+};
+
+export const useDisconnectStripe = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const { data, error } = await supabase.functions.invoke("stripe-disconnect");
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { success: true };
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["stripe_connection_status"] }),
   });
 };
 

@@ -2,9 +2,9 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, CalendarDays, Users, LogOut, ClipboardList, User,
-  Store, Settings, Bell, DollarSign, ShieldOff, Loader2, MessageCircle,
+  Store, Settings, DollarSign, ShieldOff, Loader2, MessageCircle,
   PlayCircle, Bot, Sparkles, GraduationCap, Menu, X, ChevronRight, ShoppingBag, BookOpen, Briefcase, Video,
-  TrendingUp, Plus, History, RefreshCcw,
+  TrendingUp, Plus, History, RefreshCcw, Mail, CreditCard,
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
@@ -21,6 +21,8 @@ import CrmSupport from "@/components/crm/CrmSupport";
 import CrmSupportAdmin from "@/components/crm/CrmSupportAdmin";
 import CrmVideos from "@/components/crm/CrmVideos";
 import CrmAgentIA from "@/components/crm/CrmAgentIA";
+import CrmComunicaciones from "@/components/crm/CrmComunicaciones";
+import CrmStripe from "@/components/crm/CrmStripe";
 import CrmServices from "@/components/crm/CrmServices";
 import CrmProductos from "@/components/crm/CrmProductos";
 import CrmProductosDigitales from "@/components/crm/CrmProductosDigitales";
@@ -28,7 +30,7 @@ import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdmin
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-export type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts" | "ventas_reporte" | "ventas_registrar" | "ventas_historial" | "ventas_renovaciones" | "settings" | "soporte" | "tutoriales" | "agente_ia";
+export type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts" | "ventas_reporte" | "ventas_registrar" | "ventas_historial" | "ventas_renovaciones" | "ventas_stripe" | "settings" | "soporte" | "tutoriales" | "agente_ia" | "comunicaciones";
 
 type NavChild = { id: View; label: string; icon: React.ElementType };
 type NavItem = { id: string; label: string; icon: React.ElementType; group: string; children?: NavChild[] };
@@ -51,12 +53,14 @@ const VENTAS_CHILDREN: NavChild[] = [
   { id: "ventas_historial",    label: "Historial",        icon: History    },
   { id: "ventas_registrar",    label: "Registrar Manual", icon: Plus       },
   { id: "ventas_renovaciones", label: "Renovaciones",     icon: RefreshCcw },
+  { id: "ventas_stripe",       label: "Stripe",           icon: CreditCard },
 ];
 
 const CRM_CHILDREN: NavChild[] = [
-  { id: "contacts", label: "Contactos",   icon: Users         },
-  { id: "calendar", label: "Calendarios", icon: CalendarDays  },
-  { id: "forms",    label: "Formularios", icon: ClipboardList },
+  { id: "contacts",        label: "Contactos",       icon: Users         },
+  { id: "calendar",        label: "Calendarios",     icon: CalendarDays  },
+  { id: "forms",           label: "Formularios",     icon: ClipboardList },
+  { id: "comunicaciones",  label: "Comunicaciones",  icon: Mail          },
 ];
 
 const IA_CHILDREN: NavChild[] = [
@@ -80,6 +84,9 @@ const navItems: NavItem[] = [
 // Condiciones extra de visibilidad para items hijos, más allá del permiso base del staff.
 const EXTRA_CHILD_VISIBILITY: Partial<Record<View, (ctx: { effectiveIsAdmin: boolean; isSaasClient: boolean }) => boolean>> = {
   tutoriales: ({ effectiveIsAdmin, isSaasClient }) => effectiveIsAdmin || isSaasClient,
+  // En desarrollo — visible solo para el admin de Acrosoft, no para clientes SaaS ni staff.
+  comunicaciones: ({ effectiveIsAdmin }) => effectiveIsAdmin,
+  ventas_stripe: ({ effectiveIsAdmin }) => effectiveIsAdmin,
 };
 
 const flatNavItems: NavChild[] = navItems.flatMap(n => (n.children ?? [n]) as NavChild[]);
@@ -104,7 +111,7 @@ const Crm = () => {
   const brandLogo    = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
 
-  const VALID_VIEWS: View[] = ["overview","mi_cuenta","business","servicios","productos_fisicos","productos_digitales","calendar","forms","contacts","ventas_reporte","ventas_registrar","ventas_historial","ventas_renovaciones","settings","soporte","tutoriales","agente_ia"];
+  const VALID_VIEWS: View[] = ["overview","mi_cuenta","business","servicios","productos_fisicos","productos_digitales","calendar","forms","contacts","ventas_reporte","ventas_registrar","ventas_historial","ventas_renovaciones","ventas_stripe","settings","soporte","tutoriales","agente_ia","comunicaciones"];
   const [view, setViewRaw]                         = useState<View>(() => {
     const saved = localStorage.getItem("crm_view") as View | null;
     return saved && VALID_VIEWS.includes(saved) ? saved : "overview";
@@ -233,6 +240,7 @@ const Crm = () => {
       case "ventas_registrar":    return can("ventas","read") ? <CrmVentas section="registrar" onNavigate={navigateTo} />    : null;
       case "ventas_historial":    return can("ventas","read") ? <CrmVentas section="historial" onNavigate={navigateTo} />    : null;
       case "ventas_renovaciones": return can("ventas","read") ? <CrmVentas section="renovaciones" onNavigate={navigateTo} /> : null;
+      case "ventas_stripe": return effectiveIsAdmin ? <CrmStripe /> : null;
       case "settings":  return !isStaff                     ? <CrmSettings isSuperAdmin={effectiveIsAdmin} isSaasClient={isSaasClient} /> : null;
       case "soporte":   return effectiveIsAdmin ? <CrmSupportAdmin /> : <CrmSupport />;
       case "tutoriales": return (effectiveIsAdmin || isSaasClient) ? <CrmVideos isAdmin={effectiveIsAdmin} /> : null;
@@ -242,6 +250,7 @@ const Crm = () => {
         isStaff={isStaff}
         ownerUserId={isStaff ? ownerUserId : null}
       />;
+      case "comunicaciones": return effectiveIsAdmin ? <CrmComunicaciones /> : null;
     }
   };
 
