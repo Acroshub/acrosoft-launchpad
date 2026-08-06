@@ -6382,7 +6382,7 @@ const CrmAgentIA = ({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [labelFilter, setLabelFilter]         = useState<string | null>(null);
   const [assignFilter, setAssignFilter]       = useState<"all" | "mine" | "unassigned">("all");
-  const [readFilter, setReadFilter]           = useState<"all" | "unread" | "favorites">("all");
+  const [readFilter, setReadFilter]           = useState<"all" | "unread" | "favorites" | "pending_payment">("all");
   const [wizardDone, setWizardDone]           = useState(false);
   const [forceWizard, setForceWizard]         = useState(false);
   const [deleteModalId, setDeleteModalId]     = useState<string | null>(null);
@@ -6422,6 +6422,25 @@ const CrmAgentIA = ({
     [pendingSales],
   );
 
+  // Tabs del listado — "Pagos" solo aparece (al frente) mientras haya pagos pendientes de revisión
+  const conversationTabs = useMemo(() => {
+    const base = [
+      { id: "all" as const,       label: "Todos" },
+      { id: "unread" as const,    label: "Sin leer", count: conversations.filter(c => (c.unread_count ?? 0) > 0).length },
+      { id: "favorites" as const, label: "Favoritos", icon: "star" as const },
+    ];
+    if (pendingSaleConvIds.size === 0) return base;
+    const paymentTab = { id: "pending_payment" as const, label: "Pagos", icon: "payment" as const, count: pendingSaleConvIds.size, amber: true };
+    return [paymentTab, ...base];
+  }, [conversations, pendingSaleConvIds]);
+
+  // Si el tab de pagos pendientes desaparece (todo confirmado/rechazado) y estaba activo, volver a "Todos"
+  useEffect(() => {
+    if (readFilter === "pending_payment" && pendingSaleConvIds.size === 0) {
+      setReadFilter("all");
+    }
+  }, [readFilter, pendingSaleConvIds]);
+
   const filteredConvs = useMemo(() => {
     const source = showArchived ? archivedConversations : conversations;
     const q = search.toLowerCase().replace(/\s/g, "");
@@ -6444,6 +6463,8 @@ const CrmAgentIA = ({
         result = result.filter(c => (c.unread_count ?? 0) > 0);
       } else if (readFilter === "favorites") {
         result = result.filter(c => c.is_favorite);
+      } else if (readFilter === "pending_payment") {
+        result = result.filter(c => pendingSaleConvIds.has(c.id));
       }
       // Chats con pago pendiente al tope
       return [...result].sort((a, b) => {
@@ -6624,34 +6645,39 @@ const CrmAgentIA = ({
             {/* Tabs: Unread / All / Assignment filter */}
             {!showArchived && <div className="px-4 pt-3 pb-0 border-b space-y-2.5">
               {/* Unread / All / Favorites tabs */}
-              <div className="flex gap-0">
-                {[
-                  { id: "all", label: "Todos" },
-                  { id: "unread", label: "Sin leer", count: conversations.filter(c => (c.unread_count ?? 0) > 0).length },
-                  { id: "favorites", label: "Favoritos", icon: true },
-                ].map(tab => (
-                  <button
-                    key={tab.id}
-                    onClick={() => setReadFilter(tab.id as "all" | "unread" | "favorites")}
-                    className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors ${
-                      readFilter === tab.id
-                        ? "border-[#1877F2] text-[#1877F2]"
-                        : "border-transparent text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    {tab.icon && <Star size={12} fill={readFilter === tab.id ? "currentColor" : "none"} />}
-                    {tab.label}
-                    {tab.count !== undefined && tab.count > 0 && (
-                      <span className="min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[#1877F2] text-[10px] font-bold text-white">
-                        {tab.count > 99 ? "99+" : tab.count}
-                      </span>
-                    )}
-                  </button>
-                ))}
+              <div className="flex gap-0 overflow-x-auto">
+                {conversationTabs.map(tab => {
+                  const isActive = readFilter === tab.id;
+                  const amber = (tab as any).amber === true;
+                  return (
+                    <button
+                      key={tab.id}
+                      onClick={() => setReadFilter(tab.id as "all" | "unread" | "favorites" | "pending_payment")}
+                      className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors shrink-0 ${
+                        isActive
+                          ? amber
+                            ? "border-amber-500 text-amber-600 dark:text-amber-400"
+                            : "border-[#1877F2] text-[#1877F2]"
+                          : amber
+                            ? "border-transparent text-amber-600/80 hover:text-amber-600 dark:text-amber-400/80 dark:hover:text-amber-400"
+                            : "border-transparent text-muted-foreground hover:text-foreground"
+                      }`}
+                    >
+                      {tab.icon === "star" && <Star size={12} fill={isActive ? "currentColor" : "none"} />}
+                      {tab.icon === "payment" && <CreditCard size={12} />}
+                      {tab.label}
+                      {tab.count !== undefined && tab.count > 0 && (
+                        <span className={`min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full text-[10px] font-bold text-white ${amber ? "bg-amber-500" : "bg-[#1877F2]"}`}>
+                          {tab.count > 99 ? "99+" : tab.count}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
                 {staffList.length > 0 && staffRecord && (
                   <button
                     onClick={() => setAssignFilter(f => f === "mine" ? "all" : "mine")}
-                    className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ml-auto ${
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ml-auto shrink-0 ${
                       assignFilter === "mine"
                         ? "border-[#1877F2] text-[#1877F2]"
                         : "border-transparent text-muted-foreground hover:text-foreground"
@@ -6663,7 +6689,7 @@ const CrmAgentIA = ({
                 {staffList.length > 0 && !staffRecord && (
                   <button
                     onClick={() => setAssignFilter(f => f === "unassigned" ? "all" : "unassigned")}
-                    className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ml-auto ${
+                    className={`flex items-center gap-1.5 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ml-auto shrink-0 ${
                       assignFilter === "unassigned"
                         ? "border-[#1877F2] text-[#1877F2]"
                         : "border-transparent text-muted-foreground hover:text-foreground"
@@ -6747,6 +6773,12 @@ const CrmAgentIA = ({
                         <Star size={24} className="opacity-30" />
                         <p className="text-xs font-medium">Sin favoritos</p>
                         <p className="text-xs opacity-70">Marca conversaciones con ⭐ para encontrarlas rápido.</p>
+                      </>
+                    ) : readFilter === "pending_payment" ? (
+                      <>
+                        <CreditCard size={24} className="opacity-30 text-amber-600 dark:text-amber-400" />
+                        <p className="text-xs font-medium">Sin pagos pendientes</p>
+                        <p className="text-xs opacity-70">Los comprobantes que necesiten tu confirmación manual aparecerán aquí.</p>
                       </>
                     ) : showArchived ? (
                       <>

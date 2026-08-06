@@ -26,7 +26,7 @@ import CrmStripe from "@/components/crm/CrmStripe";
 import CrmServices from "@/components/crm/CrmServices";
 import CrmProductos from "@/components/crm/CrmProductos";
 import CrmProductosDigitales from "@/components/crm/CrmProductosDigitales";
-import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount, useSales } from "@/hooks/useCrmData";
+import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount, useSales, useAiPendingSales } from "@/hooks/useCrmData";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
@@ -160,6 +160,9 @@ const Crm = () => {
 
   const { data: salesForRenewals = [] } = useSales();
   const renewalsBadge = getOverdueRenewals(salesForRenewals).length + getUpcomingRenewals(salesForRenewals).length;
+
+  const { data: pendingAiSales = [] } = useAiPendingSales();
+  const pendingPaymentsBadge = pendingAiSales.length;
 
   const userEmail     = user?.email ?? "";
   const userInitial   = userEmail[0]?.toUpperCase() ?? "U";
@@ -301,9 +304,11 @@ const Crm = () => {
                   if (item.children) {
                     const isOpen = openMenus.has(item.id);
                     const hasActiveChild = item.children.some(c => c.id === view);
+                    const isPaymentsItem = item.children.some(c => c.id === "agente_ia");
                     const showCollapsedBadge = !isOpen && (
                       (item.children.some(c => c.id === "soporte") && soporteBadge > 0) ||
-                      (item.children.some(c => c.id === "ventas_renovaciones") && renewalsBadge > 0)
+                      (item.children.some(c => c.id === "ventas_renovaciones") && renewalsBadge > 0) ||
+                      (isPaymentsItem && pendingPaymentsBadge > 0)
                     );
                     return (
                       <div key={item.id}>
@@ -316,7 +321,7 @@ const Crm = () => {
                           <Icon size={15} className="shrink-0" />
                           <span className="flex-1 text-left truncate">{item.label}</span>
                           {showCollapsedBadge && (
-                            <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 animate-pulse" />
+                            <span className={`w-2 h-2 rounded-full shrink-0 animate-pulse ${isPaymentsItem ? "bg-amber-500" : "bg-blue-500"}`} />
                           )}
                           <ChevronRight size={13} className={`shrink-0 transition-transform ${isOpen ? "rotate-90" : ""}`} />
                         </button>
@@ -338,8 +343,8 @@ const Crm = () => {
                                 >
                                   <ChildIcon size={14} className="shrink-0" />
                                   <span className="flex-1 text-left truncate">{child.label}</span>
-                                  {((child.id === "soporte" && soporteBadge > 0) || (child.id === "ventas_renovaciones" && renewalsBadge > 0)) && (
-                                    <span className="w-2 h-2 rounded-full bg-blue-500 shrink-0 animate-pulse" />
+                                  {((child.id === "soporte" && soporteBadge > 0) || (child.id === "ventas_renovaciones" && renewalsBadge > 0) || (child.id === "agente_ia" && pendingPaymentsBadge > 0)) && (
+                                    <span className={`w-2 h-2 rounded-full shrink-0 animate-pulse ${child.id === "agente_ia" ? "bg-amber-500" : "bg-blue-500"}`} />
                                   )}
                                 </button>
                               );
