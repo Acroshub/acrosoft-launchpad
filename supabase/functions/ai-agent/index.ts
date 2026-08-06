@@ -3523,7 +3523,6 @@ Deno.serve(async (req: Request) => {
             contact_id: resolvedContactId,
             contact_name: resolvedContactName,
             payment_method_type: payment.method_type,
-            commission_pct: 0,                                        // ventas IA no aplican comisión por defecto
           };
 
           // Deduplicación: evitar venta doble si el mismo comprobante fue enviado 2 veces en <10 min
