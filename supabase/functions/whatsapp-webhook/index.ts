@@ -443,10 +443,10 @@ async function upsertConversation(userId: string, phone: string, contactName: st
   // Normalizar teléfono: quitar "+" y espacios para comparación con crm_contacts
   const normalizedPhone = phone.replace(/\D/g, "");
 
-  // Buscar foto de perfil del contacto (si el tenant tiene uno registrado con este teléfono)
+  // Buscar contacto ya existente con este teléfono (para foto de perfil y para enlazarlo)
   const { data: contact } = await supabase
     .from("crm_contacts")
-    .select("profile_pic_url")
+    .select("id, profile_pic_url")
     .eq("user_id", userId)
     .or(`phone.eq.${phone},phone.eq.+${normalizedPhone},phone.eq.${normalizedPhone}`)
     .maybeSingle();
@@ -461,6 +461,33 @@ async function upsertConversation(userId: string, phone: string, contactName: st
     )
     .select().single();
   if (error) { console.error("[webhook] error upsert conversación:", error); return null; }
+
+  // Conversación sin contacto vinculado: enlazar uno existente por teléfono o, si el tenant
+  // tiene "crear contacto" activo, crear uno nuevo — así cada chat nuevo queda guardado en el
+  // CRM sin depender de que el agente IA extraiga datos de la conversación primero.
+  if (!data.contact_id) {
+    let contactId = contact?.id ?? null;
+    if (!contactId) {
+      const { data: cfg } = await supabase
+        .from("crm_ai_agent_config")
+        .select("can_create_contacts")
+        .eq("user_id", userId)
+        .maybeSingle();
+      if (cfg?.can_create_contacts) {
+        const { data: newContact } = await supabase
+          .from("crm_contacts")
+          .insert({ user_id: userId, name: contactName ?? phone, phone })
+          .select("id")
+          .single();
+        contactId = newContact?.id ?? null;
+      }
+    }
+    if (contactId) {
+      await supabase.from("crm_wa_conversations").update({ contact_id: contactId }).eq("id", data.id);
+      data.contact_id = contactId;
+    }
+  }
+
   return data;
 }
 

@@ -2461,6 +2461,51 @@ async function transferToHuman(
   }
 }
 
+// ─── Notificación de nuevo lead capturado (fire & forget) ────────────────────
+function sendNewLeadEmail(config: AgentConfig, contactData: Record<string, string>, phone: string): void {
+  if (!config.notify_email) return;
+  const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
+  if (!RESEND_API_KEY) return;
+  const RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
+  const leadName = contactData["nombre"] ?? contactData["name"] ?? phone;
+  const leadCompany = contactData["empresa"] ?? contactData["company"] ?? "No proporcionada";
+  const leadEmail = contactData["email"] ?? "No proporcionado";
+  const leadNotes = contactData["notas_internas"] ?? contactData["notas"] ?? "";
+  const crmUrl = Deno.env.get("SITE_URL") ?? "https://app.acrosoftlabs.com";
+  const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f4f5;">
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 20px;">
+<table width="100%" style="max-width:480px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
+<tr><td style="background:#18181b;padding:24px 32px;text-align:center;">
+  <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Nuevo Lead Capturado</p>
+</td></tr>
+<tr><td style="padding:32px;">
+  <p style="margin:0 0 16px;font-size:14px;color:#52525b;line-height:1.6;">
+    <strong>Nombre:</strong> ${leadName}<br/>
+    <strong>Empresa:</strong> ${leadCompany}<br/>
+    <strong>Email:</strong> ${leadEmail}<br/>
+    <strong>Teléfono:</strong> ${phone}<br/>
+    ${leadNotes ? `<strong>Notas:</strong> ${leadNotes}` : ""}
+  </p>
+  <a href="${crmUrl}/crm" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:500;">
+    Ver en el CRM &rarr;
+  </a>
+  <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">Lead capturado automáticamente por el Agente IA.</p>
+</td></tr>
+</table></td></tr></table>
+</body></html>`;
+  fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      from: RESEND_FROM,
+      to: [config.notify_email],
+      subject: `🎯 Nuevo lead: ${leadName}${leadCompany !== "No proporcionada" ? ` — ${leadCompany}` : ""}`,
+      html,
+    }),
+  }).then(() => console.log(`[ai-agent] email de nuevo lead enviado a ${config.notify_email}`))
+    .catch((e) => console.error("[ai-agent] error enviando email de lead:", e));
+}
+
 // ─── Precios por modelo (USD por millón de tokens) ───────────────────────────
 // Fuente: console.anthropic.com/settings/usage — cacheWrite = 1.25× input, cacheRead = 0.10× input
 const MODEL_PRICES: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
@@ -3215,65 +3260,35 @@ Deno.serve(async (req: Request) => {
                 contact_id: newContact.id, user_id: tenant_user_id, body: notesBody,
               });
             }
-            // Notificar al admin que se capturó un nuevo lead
-            if (config.notify_email) {
-              const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-              const RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
-              if (RESEND_API_KEY) {
-                const leadName = contactData["nombre"] ?? contactData["name"] ?? phone;
-                const leadCompany = contactData["empresa"] ?? contactData["company"] ?? "No proporcionada";
-                const leadEmail = contactData["email"] ?? "No proporcionado";
-                const leadNotes = contactData["notas_internas"] ?? contactData["notas"] ?? "";
-                const crmUrl = Deno.env.get("SITE_URL") ?? "https://app.acrosoftlabs.com";
-                const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f4f5;">
-<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 20px;">
-<table width="100%" style="max-width:480px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-<tr><td style="background:#18181b;padding:24px 32px;text-align:center;">
-  <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Nuevo Lead Capturado</p>
-</td></tr>
-<tr><td style="padding:32px;">
-  <p style="margin:0 0 16px;font-size:14px;color:#52525b;line-height:1.6;">
-    <strong>Nombre:</strong> ${leadName}<br/>
-    <strong>Empresa:</strong> ${leadCompany}<br/>
-    <strong>Email:</strong> ${leadEmail}<br/>
-    <strong>Teléfono:</strong> ${phone}<br/>
-    ${leadNotes ? `<strong>Notas:</strong> ${leadNotes}` : ""}
-  </p>
-  <a href="${crmUrl}/crm" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:500;">
-    Ver en el CRM &rarr;
-  </a>
-  <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">Lead capturado automáticamente por el Agente IA.</p>
-</td></tr>
-</table></td></tr></table>
-</body></html>`;
-                fetch("https://api.resend.com/emails", {
-                  method: "POST",
-                  headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    from: RESEND_FROM,
-                    to: [config.notify_email],
-                    subject: `🎯 Nuevo lead: ${leadName}${leadCompany !== "No proporcionada" ? ` — ${leadCompany}` : ""}`,
-                    html,
-                  }),
-                }).then(() => console.log(`[ai-agent] email de nuevo lead enviado a ${config.notify_email}`))
-                  .catch((e) => console.error("[ai-agent] error enviando email de lead:", e));
-              }
-            }
+            sendNewLeadEmail(config, contactData, phone);
             console.log(`[ai-agent] contacto creado: ${newContact.id}`);
           }
         } else {
-          // Fusionar nuevos datos con los existentes
+          // Fusionar nuevos datos con los existentes — el contacto puede ya existir sin datos
+          // propios (ej. creado apenas empezó el chat, ver whatsapp-webhook/upsertConversation),
+          // así que además de acumular en ai_collected_data actualizamos name/email/company.
           const { data: existing } = await supabase
             .from("crm_contacts")
-            .select("ai_collected_data")
+            .select("name, email, company, ai_collected_data")
             .eq("id", contactId)
             .single();
+
+          const hadNoPriorData = !existing?.ai_collected_data || Object.keys(existing.ai_collected_data).length === 0;
+          const newName = contactData["nombre"] ?? contactData["name"];
+          const newEmail = contactData["email"];
+          const newCompany = contactData["empresa"] ?? contactData["company"];
 
           const merged = { ...(existing?.ai_collected_data ?? {}), ...contactData };
           await supabase
             .from("crm_contacts")
-            .update({ ai_collected_data: merged })
+            .update({
+              ai_collected_data: merged,
+              ...(newName ? { name: newName } : {}),
+              ...(newEmail ? { email: newEmail } : {}),
+              ...(newCompany ? { company: newCompany } : {}),
+            })
             .eq("id", contactId);
+          if (hadNoPriorData) sendNewLeadEmail(config, contactData, phone);
           const notesBody = contactData["notas_internas"] ?? contactData["notas"] ?? null;
           if (notesBody) {
             await supabase.from("crm_contact_notes").insert({
