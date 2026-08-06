@@ -2275,14 +2275,20 @@ async function buildSystemPrompt(
 4. AUDIO NO TRANSCRITO: Si el último mensaje del usuario es "[Mensaje de voz]", el cliente envió una nota de voz que el sistema no pudo transcribir en este momento. Pídele de forma natural y breve que escriba su mensaje.`;
 
   // Instrucción de detección de pagos.
-  // La detección corre siempre que haya catálogo — auto_detect_payments solo decide si la venta
-  // se auto-confirma o queda pending_review para que el dueño la confirme manualmente (ver 10d más abajo).
+  // La detección corre siempre que haya catálogo — auto_detect_payments decide DOS cosas:
+  // 1) si se exige que el monto coincida con el precio esperado, o basta con que sea un comprobante real
+  //    (con el toggle OFF, la verificación del monto la hace el dueño manualmente, no la IA).
+  // 2) si la venta se auto-confirma o queda pending_review (ver 10d más abajo).
   let paymentInstruction = "";
   if (catalogSections.length > 0) {
-    const confirmReplyLine = config.auto_detect_payments
-      ? `- Responde brevemente (1-2 líneas): «¡Gracias! Comprobante recibido y verificado. Tu compra de [nombre_producto] está confirmada 🎉»`
-      : `- Responde brevemente (1-2 líneas): «¡Gracias! Recibimos tu comprobante de [nombre_producto], lo estamos verificando y te confirmamos en breve.» (NUNCA digas que la compra ya está confirmada — todavía falta la revisión del equipo)`;
-    paymentInstruction = `\n\nDETECCIÓN DE PAGOS — analiza visualmente la imagen recibida:
+    const markerBlock = `- Al FINAL añade EXACTAMENTE (sin espacios extra): [PAYMENT_DETECTED|product_id:{id}|variant_id:{variant_id_o_none}|amount:{monto_numerico}|method_type:{tipo}]
+  · product_id: copia el valor exacto de [product_id:...] o [service_id:...] que aparece en el catálogo junto al producto/servicio identificado
+  · variant_id: si el producto tiene variantes listadas (ves [variant_id:...] en el catálogo), DEBES poner el variant_id de la variante que compró el cliente. Si el producto tiene una sola variante, usa siempre ese variant_id. Solo escribe "none" si el producto NO tiene variantes en absoluto.
+  · amount: el número exacto visible en el comprobante, sin símbolo de moneda (ej: 25.00)
+  · method_type: "transfer" | "qr" | "cash" | "card" | "other"`;
+
+    paymentInstruction = config.auto_detect_payments
+      ? `\n\nDETECCIÓN DE PAGOS — analiza visualmente la imagen recibida:
 Cuando el cliente envíe una imagen, inspecciona su contenido visual para determinar si es un comprobante de pago.
 
 Para registrar el pago deben cumplirse OBLIGATORIAMENTE estos 2 requisitos:
@@ -2296,16 +2302,32 @@ IMPORTANTE — lo que NO debes revisar:
 
 Si ambos requisitos se cumplen:
 - Identifica el producto o servicio del catálogo al que corresponde (elige el más probable según la conversación).
-${confirmReplyLine}
-- Al FINAL añade EXACTAMENTE (sin espacios extra): [PAYMENT_DETECTED|product_id:{id}|variant_id:{variant_id_o_none}|amount:{monto_numerico}|method_type:{tipo}]
-  · product_id: copia el valor exacto de [product_id:...] o [service_id:...] que aparece en el catálogo junto al producto/servicio identificado
-  · variant_id: si el producto tiene variantes listadas (ves [variant_id:...] en el catálogo), DEBES poner el variant_id de la variante que compró el cliente. Si el producto tiene una sola variante, usa siempre ese variant_id. Solo escribe "none" si el producto NO tiene variantes en absoluto.
-  · amount: el número exacto visible en el comprobante, sin símbolo de moneda (ej: 25.00)
-  · method_type: "transfer" | "qr" | "cash" | "card" | "other"
+- Responde brevemente (1-2 líneas): «¡Gracias! Comprobante recibido y verificado. Tu compra de [nombre_producto] está confirmada 🎉»
+${markerBlock}
 
 Si algún requisito NO se cumple:
 - NO añadas el marcador [PAYMENT_DETECTED]
-- Responde: «Gracias por enviarlo, pero el comprobante no coincide con el pago esperado. Por favor envía el comprobante correcto del pago de [producto] por [monto].»`;
+- Responde: «Gracias por enviarlo, pero el comprobante no coincide con el pago esperado. Por favor envía el comprobante correcto del pago de [producto] por [monto].»`
+      : `\n\nDETECCIÓN DE PAGOS — analiza visualmente la imagen recibida:
+Cuando el cliente envíe una imagen, inspecciona su contenido visual para determinar si es un comprobante de pago.
+
+Para reportarlo debe cumplirse SOLO este requisito:
+1. COMPROBANTE: La imagen muestra claramente un comprobante de pago completado (recibo de transferencia, voucher bancario, QR con monto confirmado, captura de pago exitoso, etc.). NO aplica si es una foto de producto, captura de app sin transacción completada, o imagen genérica.
+
+IMPORTANTE — lo que NO debes revisar:
+- NO verifiques si el monto coincide con el precio del producto o servicio discutido — repórtalo tal cual aparece en la imagen, aunque te parezca incorrecto o insuficiente. Un humano del equipo revisará el monto manualmente, esa verificación NO es tu responsabilidad en este modo.
+- NO verifiques el nombre del destinatario ni de quién está a nombre el QR o cuenta. Los pagos pueden ir a nombres personales, apodos, o nombres distintos al negocio — eso es completamente normal y válido.
+- NO rechaces un comprobante por el banco, app de pago o método usado.
+- Solo importa: ¿es un comprobante real?
+
+Si se cumple el requisito:
+- Identifica el producto o servicio del catálogo al que corresponde (elige el más probable según la conversación).
+- Responde brevemente (1-2 líneas): «¡Gracias! Recibimos tu comprobante de [nombre_producto], lo estamos verificando y te confirmamos en breve.» (NUNCA digas que la compra ya está confirmada — todavía falta la revisión del equipo)
+${markerBlock}
+
+Si el requisito NO se cumple (la imagen no es un comprobante real):
+- NO añadas el marcador [PAYMENT_DETECTED]
+- Responde: «Gracias por enviarlo, pero no logro identificar un comprobante de pago válido en la imagen. ¿Podrías enviarlo de nuevo?»`;
   }
 
   // Construir el base según si hay config estratégica o config libre legacy
