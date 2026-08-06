@@ -48,6 +48,7 @@ interface AgentConfig {
   agent_faq: Array<{ q: string; a: string }> | null;
   use_business_faq: boolean;
   agent_extra_prompt: string | null;
+  sales_pattern_summary: string | null;
 }
 
 interface WaMessage {
@@ -2386,6 +2387,10 @@ REGLAS:
     }
   }
 
+  const salesPatternInstruction = config.sales_pattern_summary?.trim()
+    ? `\n\nPATRÓN DE VENTAS EXITOSAS DE ESTE NEGOCIO (aprendido de conversaciones previas que terminaron en venta — úsalo como guía de estilo y estructura conversacional, NUNCA lo menciones ni lo cites literalmente al cliente):\n${config.sales_pattern_summary.trim()}`
+    : "";
+
   const currencyNote = contactCurrency
     ? `\n\nMoneda del cliente detectada: ${contactCurrency}. Los precios en el catálogo ya están adaptados a esta moneda cuando existe un precio registrado para ella. Si algún precio aparece en otra moneda, es porque no hay precio en ${contactCurrency} configurado para ese ítem — en ese caso, menciónalo con naturalidad y sin tecnicismos (ej: "el precio disponible es USD 50, ¿te funciona?"). Los métodos de pago también ya fueron filtrados para ${contactCurrency}.`
     : "";
@@ -2405,6 +2410,7 @@ REGLAS:
     + transferInstruction
     + schedulingInstruction
     + systemEventsInstruction
+    + salesPatternInstruction
     + labelInstruction;
 
   const contactName = conv?.contact_name ?? null;
@@ -3590,6 +3596,12 @@ Deno.serve(async (req: Request) => {
               }).then(async r => console.log(`[ai-agent] sale email sent: ${r.status} ${(await r.text()).slice(0,60)}`)).catch(e => console.error("[ai-agent] sale email error:", e.message));
             } else {
               console.warn(`[ai-agent] sale email omitido — key:${!!_RESEND_KEY} to:${saleToEmail}`);
+            }
+
+            // Aprendizaje de patrón de ventas — fire-and-forget, solo con ventas confirmadas
+            if (isConfirmed) {
+              supabase.functions.invoke("analyze-sales-pattern", { body: { user_id: config.user_id } })
+                .catch(e => console.error("[ai-agent] analyze-sales-pattern error:", e.message));
             }
 
             // Ejecutar en paralelo: entregable + stock

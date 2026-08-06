@@ -68,6 +68,11 @@ Deno.serve(async (req: Request) => {
       supabase.functions.invoke("send-deliverable", { body: { sale_id } }).catch(() => {});
     }
 
+    // Aprendizaje de patrón de ventas (fire-and-forget) — esta venta también cuenta como éxito del agente
+    if (sale.is_ai_sale) {
+      supabase.functions.invoke("analyze-sales-pattern", { body: { user_id: sale.user_id } }).catch(() => {});
+    }
+
     return new Response(JSON.stringify({ ok: true, action: "confirmed" }), { status: 200, headers: corsHeaders });
   }
 
