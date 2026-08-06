@@ -6,7 +6,24 @@
  * type: "remove" → instrucción para QUITAR la etiqueta
  */
 
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { logAiUsage } from "../_shared/ai-usage.ts";
+
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+const HINT_MODEL = "claude-haiku-4-5-20251001";
+
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+);
+
+/** user_id del JWT del llamador — solo para atribuir el costo en el panel. */
+async function resolveUserId(req: Request): Promise<string | null> {
+  const token = req.headers.get("Authorization")?.replace("Bearer ", "");
+  if (!token) return null;
+  const { data } = await supabase.auth.getUser(token);
+  return data.user?.id ?? null;
+}
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -45,7 +62,7 @@ Deno.serve(async (req: Request) => {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: HINT_MODEL,
         max_tokens: 200,
         messages: [{
           role: "user",
@@ -67,6 +84,8 @@ Reescribe esa descripción como una instrucción directa para el agente IA. Requ
     });
 
     const json = await res.json();
+    const userId = await resolveUserId(req);
+    if (userId) logAiUsage(supabase, { userId, model: HINT_MODEL, source: "improve-label-hint", category: "hints_etiquetas", usage: json.usage });
     const improved = (json.content?.[0]?.text ?? hint).trim();
 
     return new Response(JSON.stringify({ improved }), {

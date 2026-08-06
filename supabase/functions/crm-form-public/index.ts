@@ -423,26 +423,6 @@ Deno.serve(async (req) => {
       }
     }
 
-    // ── Trigger master doc generation for onboarding forms ────────────────────
-    const formSlug: string = (form as any).slug ?? "";
-    if (contactId && formSlug.toLowerCase().includes("onboarding")) {
-      const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-      const serviceKey  = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-      fetch(`${supabaseUrl}/functions/v1/generate-master-doc`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${serviceKey}`,
-        },
-        body: JSON.stringify({
-          contact_id: contactId,
-          form_id,
-          data: data ?? {},
-          user_id: form.user_id,
-        }),
-      }).catch((e) => console.error("generate-master-doc trigger (non-fatal):", e));
-    }
-
     // ── Fire form submission reminder rules ─────────────────────────────────
     if (contactId) {
       try {

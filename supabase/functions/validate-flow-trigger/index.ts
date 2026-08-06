@@ -1,6 +1,22 @@
 import { getCorsHeaders } from "../_shared/cors.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { logAiUsage } from "../_shared/ai-usage.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const VALIDATOR_MODEL = "claude-haiku-4-5-20251001";
+
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+);
+
+/** user_id del JWT del llamador — solo para atribuir el costo en el panel. */
+async function resolveUserId(req: Request): Promise<string | null> {
+  const token = req.headers.get("Authorization")?.replace("Bearer ", "");
+  if (!token) return null;
+  const { data } = await supabase.auth.getUser(token);
+  return data.user?.id ?? null;
+}
 
 const SYSTEM_PROMPT = `Valida si un trigger de WhatsApp detecta únicamente intenciones basadas en mensajes del usuario.
 
@@ -55,7 +71,7 @@ export default async function handler(req: Request): Promise<Response> {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: VALIDATOR_MODEL,
         max_tokens: 50,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: trigger_text.trim() }],
@@ -66,7 +82,9 @@ export default async function handler(req: Request): Promise<Response> {
       throw new Error(`Anthropic API error: ${response.status}`);
     }
 
-    const aiData = await response.json() as { content: Array<{ text: string }> };
+    const aiData = await response.json() as { content: Array<{ text: string }>; usage?: Record<string, number> };
+    const userId = await resolveUserId(req);
+    if (userId) logAiUsage(supabase, { userId, model: VALIDATOR_MODEL, source: "validate-flow-trigger", category: "validacion_triggers", usage: aiData.usage ?? {} });
     const raw = aiData.content?.[0]?.text?.trim() ?? "";
 
     let result: { severity: string; category: string | null; reason: string };

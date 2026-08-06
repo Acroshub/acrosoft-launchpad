@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from "react";
 import { Activity, Loader2, Filter, Users, ChevronDown, ChevronRight, ChevronLeft, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, UserCog, Bell, Bot } from "lucide-react";
 import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, useContacts, useServices, useProducts } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
@@ -1176,21 +1176,55 @@ const RemindersTab = () => {
 
 // ─── Tab: Costos IA ──────────────────────────────────────────────────────────
 type UsageRow = {
-  user_id: string; business_name: string | null; contact_email: string | null;
+  user_id: string; business_name: string | null; email: string | null;
   total_calls: number; total_input: number; total_output: number;
   total_cache_read: number; total_cache_creation: number; total_cost: number;
 };
 
-// Costo que hubiera tenido SIN caching (todos los tokens al precio normal de entrada)
+// Desglose por función (`source`) y operación concreta (`category`)
+type SourceRow = {
+  source: string; category: string; total_calls: number;
+  total_input: number; total_output: number;
+  total_cache_read: number; total_cache_creation: number; total_cost: number;
+};
+
+const SOURCE_LABELS: Record<string, string> = {
+  "ai-agent":              "Agente IA (WhatsApp)",
+  "analyze-sales-pattern": "Aprendizaje de ventas",
+  "manage-wa-templates":   "Plantillas de WhatsApp",
+  "improve-label-hint":    "Etiquetas automáticas",
+  "validate-flow-trigger": "Flujos: validación",
+};
+
+const CATEGORY_LABELS: Record<string, { label: string; desc: string }> = {
+  respuesta_texto:       { label: "Responder mensajes de texto", desc: "Genera la respuesta al cliente" },
+  respuesta_media:       { label: "Analizar imágenes y PDFs",    desc: "Visión + detección de comprobantes de pago" },
+  agendamiento:          { label: "Agendar citas",               desc: "Respuesta con acceso al calendario" },
+  deteccion_intencion:   { label: "Detectar intención",          desc: "Decide si el mensaje dispara un flujo" },
+  personalizacion_flujo: { label: "Personalizar flujos",         desc: "Reescribe cada paso con contexto" },
+  aprendizaje_ventas:    { label: "Aprender de ventas",          desc: "Resume el patrón de ventas exitosas" },
+  plantillas_whatsapp:   { label: "Reescribir plantillas",       desc: "Adapta plantillas para aprobación de Meta" },
+  hints_etiquetas:       { label: "Mejorar hints",               desc: "Reescribe las reglas de etiquetado" },
+  validacion_triggers:   { label: "Validar triggers",            desc: "Comprueba que un trigger sea detectable" },
+  historico_sin_clasificar: { label: "Sin clasificar (histórico)", desc: "Registrado antes de que existieran las categorías" },
+};
+
+// Costo que hubiera tenido SIN caching (todos los tokens al precio normal de entrada).
+// Precios de Haiku 4.5, el modelo del agente IA (USD por millón de tokens).
 const costWithoutCache = (r: UsageRow) => {
   const allInput = Number(r.total_input) + Number(r.total_cache_read) + Number(r.total_cache_creation);
-  return (allInput * 0.25 + Number(r.total_output) * 1.25) / 1_000_000;
+  return (allInput * 1.0 + Number(r.total_output) * 5.0) / 1_000_000;
 };
+
+// Techo de costo real por negocio al mes. La suscripción es de $10, así que por
+// encima de esto el margen se erosiona.
+const BUDGET_PER_ACCOUNT = 5;
 
 const IACostosTab = () => {
   const now = new Date();
   const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
   const [rows, setRows] = useState<UsageRow[]>([]);
+  const [sourceRows, setSourceRows] = useState<SourceRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -1198,11 +1232,14 @@ const IACostosTab = () => {
     const from = new Date(y, m - 1, 1).toISOString();
     const to = new Date(y, m, 0, 23, 59, 59).toISOString();
     setLoading(true);
-    supabase.rpc("get_ai_usage_by_account", { p_from: from, p_to: to })
-      .then(({ data, error }) => {
-        if (!error && data) setRows(data as UsageRow[]);
-        setLoading(false);
-      });
+    Promise.all([
+      supabase.rpc("get_ai_usage_by_account", { p_from: from, p_to: to }),
+      supabase.rpc("get_ai_usage_by_source",  { p_from: from, p_to: to }),
+    ]).then(([byAccount, bySource]) => {
+      if (!byAccount.error && byAccount.data) setRows(byAccount.data as UsageRow[]);
+      if (!bySource.error  && bySource.data)  setSourceRows(bySource.data as SourceRow[]);
+      setLoading(false);
+    });
   }, [month]);
 
   const totals = rows.reduce(
@@ -1218,6 +1255,14 @@ const IACostosTab = () => {
 
   const fmtUsd  = (n: number) => `$${n.toFixed(4)}`;
   const fmtPct  = (n: number) => `${n.toFixed(1)}%`;
+
+  // Proyección a fin de mes: solo tiene sentido para el mes en curso, donde los
+  // días transcurridos son una muestra parcial. En meses cerrados el total es final.
+  const [selY, selM] = month.split("-").map(Number);
+  const isCurrentMonth = selY === now.getFullYear() && selM === now.getMonth() + 1;
+  const daysInMonth = new Date(selY, selM, 0).getDate();
+  const daysElapsed = isCurrentMonth ? now.getDate() : daysInMonth;
+  const project = (cost: number) => (cost / daysElapsed) * daysInMonth;
 
   return (
     <div className="space-y-4">
@@ -1246,10 +1291,19 @@ const IACostosTab = () => {
             <p className="text-xs text-muted-foreground mb-1">Ahorro por caching</p>
             <p className="text-xl font-semibold text-emerald-600">{fmtUsd(totalSaved)}</p>
           </div>
-          <div className="border rounded-xl p-4 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10">
-            <p className="text-xs text-muted-foreground mb-1">% Ahorro global</p>
-            <p className="text-xl font-semibold text-emerald-600">{fmtPct(totalSavedPct)}</p>
-          </div>
+          {(() => {
+            const over = rows.filter(r => project(Number(r.total_cost)) > BUDGET_PER_ACCOUNT).length;
+            return (
+              <div className={`border rounded-xl p-4 ${over > 0
+                ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10"
+                : "border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10"}`}>
+                <p className="text-xs text-muted-foreground mb-1">Cuentas sobre ${BUDGET_PER_ACCOUNT}/mes</p>
+                <p className={`text-xl font-semibold ${over > 0 ? "text-red-600" : "text-emerald-600"}`}>
+                  {over} <span className="text-sm font-normal text-muted-foreground">de {rows.length}</span>
+                </p>
+              </div>
+            );
+          })()}
         </div>
       )}
 
@@ -1268,30 +1322,39 @@ const IACostosTab = () => {
                 <th className="text-left px-3 py-2 font-medium">Email</th>
                 <th className="text-right px-3 py-2 font-medium">Llamadas</th>
                 <th className="text-right px-3 py-2 font-medium">Costo real</th>
-                <th className="text-right px-3 py-2 font-medium">Sin caching</th>
-                <th className="text-right px-3 py-2 font-medium text-emerald-600">Ahorro $</th>
-                <th className="text-right px-3 py-2 font-medium text-emerald-600">Ahorro %</th>
+                <th className="text-right px-3 py-2 font-medium">{isCurrentMonth ? "Proyección mes" : "—"}</th>
+                <th className="text-right px-3 py-2 font-medium">Margen s/ $10</th>
+                <th className="text-right px-3 py-2 font-medium text-emerald-600">Ahorro caché</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {rows.map(r => {
-                const without = costWithoutCache(r);
-                const saved   = without - Number(r.total_cost);
-                const savedPct = without > 0 ? (saved / without) * 100 : 0;
+                const cost      = Number(r.total_cost);
+                const without   = costWithoutCache(r);
+                const saved     = without - cost;
+                const projected = project(cost);
+                const overBudget = projected > BUDGET_PER_ACCOUNT;
                 return (
-                  <tr key={r.user_id} className="hover:bg-muted/30">
+                  <tr key={r.user_id} className={overBudget ? "bg-red-50/50 dark:bg-red-900/10" : "hover:bg-muted/30"}>
                     <td className="px-3 py-2 font-medium">{r.business_name ?? <span className="text-muted-foreground italic">Sin nombre</span>}</td>
-                    <td className="px-3 py-2 text-muted-foreground text-xs">{r.contact_email ?? "—"}</td>
+                    <td className="px-3 py-2 text-muted-foreground text-xs">{r.email ?? "—"}</td>
                     <td className="px-3 py-2 text-right">{Number(r.total_calls).toLocaleString("es-MX")}</td>
-                    <td className="px-3 py-2 text-right font-medium">{fmtUsd(Number(r.total_cost))}</td>
-                    <td className="px-3 py-2 text-right text-muted-foreground">{fmtUsd(without)}</td>
-                    <td className="px-3 py-2 text-right font-semibold text-emerald-600">{saved > 0 ? fmtUsd(saved) : "—"}</td>
+                    <td className="px-3 py-2 text-right font-medium">{fmtUsd(cost)}</td>
                     <td className="px-3 py-2 text-right">
-                      {savedPct > 0
-                        ? <span className="inline-block bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-1.5 py-0.5 rounded-full">{fmtPct(savedPct)}</span>
-                        : <span className="text-muted-foreground">—</span>
-                      }
+                      {isCurrentMonth
+                        ? <span className={overBudget ? "font-semibold text-red-600" : "text-muted-foreground"}>
+                            {fmtUsd(projected)}
+                          </span>
+                        : <span className="text-muted-foreground">—</span>}
                     </td>
+                    <td className="px-3 py-2 text-right">
+                      <span className={overBudget
+                        ? "inline-block bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 text-xs font-semibold px-1.5 py-0.5 rounded-full"
+                        : "inline-block bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-1.5 py-0.5 rounded-full"}>
+                        ${(10 - projected).toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right font-semibold text-emerald-600">{saved > 0 ? fmtUsd(saved) : "—"}</td>
                   </tr>
                 );
               })}
@@ -1301,10 +1364,12 @@ const IACostosTab = () => {
                 <td className="px-3 py-2" colSpan={2}>Total</td>
                 <td className="px-3 py-2 text-right">{totals.calls.toLocaleString("es-MX")}</td>
                 <td className="px-3 py-2 text-right">{fmtUsd(totals.costReal)}</td>
-                <td className="px-3 py-2 text-right text-muted-foreground">{fmtUsd(totals.costWithout)}</td>
-                <td className="px-3 py-2 text-right text-emerald-600">{fmtUsd(totalSaved)}</td>
-                <td className="px-3 py-2 text-right">
-                  <span className="inline-block bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-1.5 py-0.5 rounded-full">{fmtPct(totalSavedPct)}</span>
+                <td className="px-3 py-2 text-right text-muted-foreground">
+                  {isCurrentMonth ? fmtUsd(project(totals.costReal)) : "—"}
+                </td>
+                <td className="px-3 py-2" />
+                <td className="px-3 py-2 text-right text-emerald-600">
+                  {fmtUsd(totalSaved)} <span className="font-normal">({fmtPct(totalSavedPct)})</span>
                 </td>
               </tr>
             </tfoot>
@@ -1312,8 +1377,86 @@ const IACostosTab = () => {
         </div>
       )}
 
+      {!loading && sourceRows.length > 0 && (() => {
+        // Agrupar categorías bajo su función, ambas ordenadas por costo desc.
+        const byFn = new Map<string, SourceRow[]>();
+        for (const r of sourceRows) {
+          if (!byFn.has(r.source)) byFn.set(r.source, []);
+          byFn.get(r.source)!.push(r);
+        }
+        const groups = [...byFn.entries()]
+          .map(([source, cats]) => ({
+            source,
+            cats: [...cats].sort((a, b) => Number(b.total_cost) - Number(a.total_cost)),
+            calls: cats.reduce((n, c) => n + Number(c.total_calls), 0),
+            cost:  cats.reduce((n, c) => n + Number(c.total_cost), 0),
+          }))
+          .sort((a, b) => b.cost - a.cost);
+        const grandTotal = groups.reduce((n, g) => n + g.cost, 0);
+
+        return (
+          <div className="space-y-2 pt-2">
+            <h4 className="font-semibold text-sm">Consumo por función</h4>
+            <div className="overflow-x-auto rounded-lg border">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-medium">Función / operación</th>
+                    <th className="text-right px-3 py-2 font-medium">Llamadas</th>
+                    <th className="text-right px-3 py-2 font-medium">Entrada</th>
+                    <th className="text-right px-3 py-2 font-medium">Salida</th>
+                    <th className="text-right px-3 py-2 font-medium">Caché (lee/escribe)</th>
+                    <th className="text-right px-3 py-2 font-medium">Costo</th>
+                    <th className="text-right px-3 py-2 font-medium">% del total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {groups.map(g => (
+                    <Fragment key={g.source}>
+                      <tr className="bg-muted/30 font-semibold">
+                        <td className="px-3 py-2">{SOURCE_LABELS[g.source] ?? g.source}</td>
+                        <td className="px-3 py-2 text-right">{g.calls.toLocaleString("es-MX")}</td>
+                        <td className="px-3 py-2" colSpan={3} />
+                        <td className="px-3 py-2 text-right">{fmtUsd(g.cost)}</td>
+                        <td className="px-3 py-2 text-right">
+                          {grandTotal > 0 ? fmtPct((g.cost / grandTotal) * 100) : "—"}
+                        </td>
+                      </tr>
+                      {g.cats.map(c => {
+                        const meta = CATEGORY_LABELS[c.category];
+                        return (
+                          <tr key={`${c.source}-${c.category}`} className="hover:bg-muted/20">
+                            <td className="px-3 py-2 pl-8">
+                              <span>{meta?.label ?? c.category}</span>
+                              {meta && <p className="text-xs text-muted-foreground">{meta.desc}</p>}
+                            </td>
+                            <td className="px-3 py-2 text-right">{Number(c.total_calls).toLocaleString("es-MX")}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">{Number(c.total_input).toLocaleString("es-MX")}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">{Number(c.total_output).toLocaleString("es-MX")}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground text-xs">
+                              {Number(c.total_cache_read).toLocaleString("es-MX")} / {Number(c.total_cache_creation).toLocaleString("es-MX")}
+                            </td>
+                            <td className="px-3 py-2 text-right font-medium">{fmtUsd(Number(c.total_cost))}</td>
+                            <td className="px-3 py-2 text-right text-muted-foreground">
+                              {grandTotal > 0 ? fmtPct((Number(c.total_cost) / grandTotal) * 100) : "—"}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Enviar y recibir mensajes de WhatsApp no consume tokens: el gasto ocurre solo cuando la IA genera o analiza contenido.
+            </p>
+          </div>
+        );
+      })()}
+
       <p className="text-xs text-muted-foreground">
-        "Sin caching" = costo hipotético si todos los tokens se cobraran al precio normal ($0.25/M entrada). El ahorro refleja el beneficio real del prompt caching.
+        "Sin caching" = costo hipotético si todos los tokens se cobraran al precio normal ($1.00/M entrada). El ahorro refleja el beneficio real del prompt caching.
       </p>
     </div>
   );

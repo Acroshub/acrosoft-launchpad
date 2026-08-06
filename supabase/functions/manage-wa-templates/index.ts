@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { logAiUsage } from "../_shared/ai-usage.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -6,6 +7,7 @@ const supabase = createClient(
 );
 
 const GRAPH = "https://graph.facebook.com/v21.0";
+const TEMPLATE_MODEL = "claude-haiku-4-5-20251001";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -209,7 +211,7 @@ async function deleteTemplate(templateId: string, userId: string) {
 }
 
 // ─── Rewrite template body with AI ───────────────────────────────────────────
-async function rewriteTemplate(bodyText: string, category: string) {
+async function rewriteTemplate(bodyText: string, category: string, userId: string) {
   const apiKey = Deno.env.get("ANTHROPIC_API_KEY");
   if (!apiKey) return { ok: false, error: "ANTHROPIC_API_KEY no configurada" };
 
@@ -243,7 +245,7 @@ Responde ÚNICAMENTE con el texto del mensaje reescrito, sin explicaciones.`;
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: "claude-haiku-4-5-20251001",
+      model: TEMPLATE_MODEL,
       max_tokens: 400,
       system: systemPrompt,
       messages: [{ role: "user", content: `Reescribe esta plantilla:\n\n${bodyText}` }],
@@ -257,6 +259,7 @@ Responde ÚNICAMENTE con el texto del mensaje reescrito, sin explicaciones.`;
   }
 
   const data = await res.json();
+  logAiUsage(supabase, { userId, model: TEMPLATE_MODEL, source: "manage-wa-templates", category: "plantillas_whatsapp", usage: data.usage });
   const rewritten: string = data.content?.[0]?.text?.trim() ?? "";
   if (!rewritten) return { ok: false, error: "La IA no devolvió contenido" };
   return { ok: true, rewritten };
@@ -287,7 +290,7 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "rewrite") {
-      const result = await rewriteTemplate(body.body_text ?? "", body.category ?? "MARKETING");
+      const result = await rewriteTemplate(body.body_text ?? "", body.category ?? "MARKETING", user.id);
       return json(result, result.ok ? 200 : 500);
     }
   }

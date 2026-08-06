@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { logAiUsage } from "../_shared/ai-usage.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -6,6 +7,17 @@ const supabase = createClient(
 );
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
+
+// Modelo de las tareas auxiliares del agente (clasificar intención, reescribir
+// pasos de flujo). La respuesta al cliente usa el modelo de la config del tenant.
+const FLOW_MODEL = "claude-haiku-4-5-20251001";
+
+// Margen bajo la ventana de agrupación del webhook (25s): si el último mensaje
+// del cliente es más reciente que esto, otra invocación viene en camino con el
+// contexto completo y esta se descarta. Va por debajo de la ventana para
+// absorber la latencia entre el webhook y esta función.
+const DEBOUNCE_GUARD_MS = 20_000;
+
 const GRAPH_VERSION = "v21.0";
 
 // ─── Tipos ─────────────────────────────────────────────────────────────────────
@@ -972,7 +984,7 @@ async function personalizeStepText(
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
+        model: FLOW_MODEL,
         max_tokens: 256,
         system: `Eres el redactor de mensajes de WhatsApp de ${config.agent_name}. Tu tarea es reescribir un mensaje base de forma natural y variada: cambia sinónimos, ajusta ligeramente el largo, varía la estructura de las frases. Si hay contexto de conversación relevante (nombre del cliente, interés específico), incorpóralo. Responde únicamente con el mensaje final, sin explicaciones ni preguntas.`,
         messages: [
@@ -986,6 +998,14 @@ async function personalizeStepText(
 
     if (!res.ok) return baseText;
     const json = await res.json();
+    logAiUsage(supabase, {
+      userId: config.user_id,
+      conversationId,
+      model: FLOW_MODEL,
+      source: "ai-agent",
+      category: "personalizacion_flujo",
+      usage: json.usage,
+    });
     const raw = (json.content?.[0]?.text ?? "").trim();
 
     // Guard: si la IA respondió con meta-texto (preguntas, excusas, pedidos de info)
@@ -2084,12 +2104,20 @@ async function buildProductImagesInstruction(config: AgentConfig): Promise<strin
 }
 
 // ─── Compilar system prompt con variables dinámicas ───────────────────────────
+// El prompt se devuelve partido en dos bloques para aprovechar el prompt caching:
+//   · stable   — idéntico para todos los contactos del tenant (con la misma moneda).
+//                Se cachea una vez y se reutiliza en todas las conversaciones.
+//   · volatile — datos de este contacto (nombre, citas, eventos, slots). Cambia
+//                por conversación, así que va DESPUÉS del breakpoint estable.
+// Mezclar ambos en un solo bloque hacía que cualquier dato del contacto
+// invalidara el prompt completo y forzara un cache write de ~9k tokens.
 async function buildSystemPrompt(
   config: AgentConfig,
   phone: string,
   canTransfer = false,
   conversationId?: string,
-): Promise<{ prompt: string; contactId: string | null; contactName: string | null; availableSlots: AvailableSlot[] }> {
+  hasMedia = false,
+): Promise<{ stable: string; volatile: string; contactId: string | null; contactName: string | null; availableSlots: AvailableSlot[] }> {
   const canSchedule = !!(config.can_book_appointments && config.scheduling_calendar_id);
 
   const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: config.timezone ?? "UTC" }).format(new Date());
@@ -2280,8 +2308,10 @@ async function buildSystemPrompt(
   // 1) si se exige que el monto coincida con el precio esperado, o basta con que sea un comprobante real
   //    (con el toggle OFF, la verificación del monto la hace el dueño manualmente, no la IA).
   // 2) si la venta se auto-confirma o queda pending_review (ver 10d más abajo).
+  // Solo se inyecta cuando el mensaje trae un adjunto (imagen o PDF): es la única
+  // situación en que aplica, y son ~600 tokens que de otro modo se pagan siempre.
   let paymentInstruction = "";
-  if (catalogSections.length > 0) {
+  if (hasMedia && catalogSections.length > 0) {
     const markerBlock = `- Al FINAL añade EXACTAMENTE (sin espacios extra): [PAYMENT_DETECTED|product_id:{id}|variant_id:{variant_id_o_none}|amount:{monto_numerico}|method_type:{tipo}]
   · product_id: copia el valor exacto de [product_id:...] o [service_id:...] que aparece en el catálogo junto al producto/servicio identificado
   · variant_id: si el producto tiene variantes listadas (ves [variant_id:...] en el catálogo), DEBES poner el variant_id de la variante que compró el cliente. Si el producto tiene una sola variante, usa siempre ese variant_id. Solo escribe "none" si el producto NO tiene variantes en absoluto.
@@ -2395,26 +2425,52 @@ REGLAS:
     ? `\n\nMoneda del cliente detectada: ${contactCurrency}. Los precios en el catálogo ya están adaptados a esta moneda cuando existe un precio registrado para ella. Si algún precio aparece en otra moneda, es porque no hay precio en ${contactCurrency} configurado para ese ítem — en ese caso, menciónalo con naturalidad y sin tecnicismos (ej: "el precio disponible es USD 50, ¿te funciona?"). Los métodos de pago también ya fueron filtrados para ${contactCurrency}.`
     : "";
 
-  const prompt = base
+  const contactName = conv?.contact_name ?? null;
+
+  // BLOQUE ESTABLE — sin datos del contacto, para que se cachee una sola vez por
+  // tenant. {{contacto.nombre}} se neutraliza aquí y el nombre real viaja en el
+  // bloque volátil de abajo.
+  const stable = base
     .replace(/\{\{negocio\.nombre\}\}/g, business?.business_name ?? "el negocio")
     .replace(/\{\{negocio\.descripcion\}\}/g, business?.description ?? "")
     .replace(/\{\{negocio\.servicios\}\}/g, servicesList)
-    .replace(/\{\{contacto\.nombre\}\}/g, conv?.contact_name ?? "cliente")
+    .replace(/\{\{contacto\.nombre\}\}/g, "el cliente")
     .replace(/\{\{fecha\.hoy\}\}/g, now)
     + `\n\nFecha actual: ${now}.`
     + currencyNote
     + globalRules
     + catalogInstruction
     + (productImagesInstruction ? `\n\n${productImagesInstruction}` : "")
-    + paymentInstruction
     + transferInstruction
-    + schedulingInstruction
-    + systemEventsInstruction
     + salesPatternInstruction
     + labelInstruction;
 
-  const contactName = conv?.contact_name ?? null;
-  return { prompt, contactId, contactName, availableSlots };
+  // BLOQUE VOLÁTIL — específico de este contacto y momento.
+  const volatile = (contactName ? `\n\nEl cliente de esta conversación se llama ${contactName}.` : "")
+    + paymentInstruction
+    + schedulingInstruction
+    + systemEventsInstruction;
+
+  // Cada carácter del bloque estable se paga en cada mensaje (lectura de caché) y
+  // en cada reescritura. Por encima de ~20k chars el costo mensual del tenant se
+  // dispara, así que se registra el desglose para poder ver qué sección engorda.
+  if (stable.length > 20000) console.warn("[ai-agent] prompt grande:", JSON.stringify({
+    base: base.length,
+    globalRules: globalRules.length,
+    catalogo: catalogInstruction.length,
+    fotosProducto: productImagesInstruction.length,
+    etiquetas: labelInstruction.length,
+    patronVentas: salesPatternInstruction.length,
+    moneda: currencyNote.length,
+    transferir: transferInstruction.length,
+    TOTAL_estable: stable.length,
+    pagos: paymentInstruction.length,
+    agenda: schedulingInstruction.length,
+    eventos: systemEventsInstruction.length,
+    TOTAL_volatil: volatile.length,
+  }));
+
+  return { stable, volatile, contactId, contactName, availableSlots };
 }
 
 // ─── Enviar mensaje de texto por Graph API ────────────────────────────────────
@@ -2537,24 +2593,32 @@ async function transferToHuman(
   }
 }
 
-// ─── Precios por modelo (USD por millón de tokens) ───────────────────────────
-// Fuente: console.anthropic.com/settings/usage — cacheWrite = 1.25× input, cacheRead = 0.10× input
-const MODEL_PRICES: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
-  "claude-haiku-4-5-20251001": { input: 0.25, output: 1.25, cacheWrite: 0.30, cacheRead: 0.03 },
-  "claude-haiku-4-5":          { input: 0.25, output: 1.25, cacheWrite: 0.30, cacheRead: 0.03 },
-  "claude-3-haiku-20240307":   { input: 0.25, output: 1.25, cacheWrite: 0.30, cacheRead: 0.03 },
-  "claude-sonnet-4-5":         { input: 3.00, output: 15.00, cacheWrite: 3.75, cacheRead: 0.30 },
-  "claude-sonnet-4-6":         { input: 3.00, output: 15.00, cacheWrite: 3.75, cacheRead: 0.30 },
-  "claude-opus-4-7":           { input: 15.00, output: 75.00, cacheWrite: 18.75, cacheRead: 1.50 },
-};
+/**
+ * Bloques `system` con dos breakpoints de caché:
+ *   1. estable  → TTL 1h. Compartido por todas las conversaciones del tenant;
+ *      se escribe pocas veces al día y se lee en cada mensaje.
+ *   2. volátil  → TTL 5m. Datos del contacto; se reutiliza entre los mensajes
+ *      seguidos de una misma conversación.
+ * El límite de la API son 4 breakpoints; aquí usamos 2.
+ */
+function buildSystemBlocks(stable: string, volatile: string): unknown[] {
+  const blocks: unknown[] = [
+    { type: "text", text: stable, cache_control: { type: "ephemeral", ttl: "1h" } },
+  ];
+  if (volatile.trim()) {
+    blocks.push({ type: "text", text: volatile, cache_control: { type: "ephemeral" } });
+  }
+  return blocks;
+}
 
 // ─── Llamada a Claude (con soporte de visión/PDF + prompt caching) ───────────
 async function callClaude(
-  systemPrompt: string,
+  systemStable: string,
+  systemVolatile: string,
   history: WaMessage[],
   model: string,
   media?: { base64: string; mimeType: string; type: "image" | "document" } | null,
-): Promise<{ text: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }> {
+): Promise<{ text: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cacheWrite5m: number; cacheWrite1h: number }> {
   const messages: any[] = history.slice(0, -1).map(m => ({
     role: m.role === "user" ? "user" : "assistant",
     content: m.content,
@@ -2584,14 +2648,12 @@ async function callClaude(
     headers: {
       "x-api-key": ANTHROPIC_API_KEY,
       "anthropic-version": "2023-06-01",
-      "anthropic-beta": "prompt-caching-2024-07-31",
       "content-type": "application/json",
     },
     body: JSON.stringify({
       model,
       max_tokens: 512,
-      // El system prompt se cachea por 5 min — ahorra ~90% de tokens de entrada en conversaciones activas
-      system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+      system: buildSystemBlocks(systemStable, systemVolatile),
       messages,
     }),
   });
@@ -2610,6 +2672,8 @@ async function callClaude(
     outputTokens:        json.usage?.output_tokens             ?? 0,
     cacheReadTokens:     json.usage?.cache_read_input_tokens   ?? 0,
     cacheCreationTokens: json.usage?.cache_creation_input_tokens ?? 0,
+    cacheWrite5m:        json.usage?.cache_creation?.ephemeral_5m_input_tokens ?? 0,
+    cacheWrite1h:        json.usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0,
   };
 }
 
@@ -2710,13 +2774,14 @@ function makeSchedulingToolExecutor(
 
 // ─── Llamada a Claude con soporte de tool use (loop agéntico) ─────────────────
 async function callClaudeAgentLoop(
-  systemPrompt: string,
+  systemStable: string,
+  systemVolatile: string,
   history: WaMessage[],
   model: string,
   tools: any[],
   toolExecutor: (name: string, input: any) => Promise<string>,
   media?: { base64: string; mimeType: string; type: "image" | "document" } | null,
-): Promise<{ text: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number }> {
+): Promise<{ text: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cacheWrite5m: number; cacheWrite1h: number }> {
   const messages: any[] = history.slice(0, -1).map(m => ({
     role: m.role === "user" ? "user" : "assistant",
     content: m.content,
@@ -2735,6 +2800,7 @@ async function callClaudeAgentLoop(
   }
 
   let totalInput = 0, totalOutput = 0, totalCacheRead = 0, totalCacheCreation = 0;
+  let totalWrite5m = 0, totalWrite1h = 0;
 
   for (let iteration = 0; iteration < 6; iteration++) {
     const res = await fetch("https://api.anthropic.com/v1/messages", {
@@ -2742,13 +2808,12 @@ async function callClaudeAgentLoop(
       headers: {
         "x-api-key": ANTHROPIC_API_KEY,
         "anthropic-version": "2023-06-01",
-        "anthropic-beta": "prompt-caching-2024-07-31",
         "content-type": "application/json",
       },
       body: JSON.stringify({
         model,
         max_tokens: 512,
-        system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+        system: buildSystemBlocks(systemStable, systemVolatile),
         tools,
         messages,
       }),
@@ -2761,11 +2826,13 @@ async function callClaudeAgentLoop(
     totalOutput       += json.usage?.output_tokens              ?? 0;
     totalCacheRead    += json.usage?.cache_read_input_tokens    ?? 0;
     totalCacheCreation+= json.usage?.cache_creation_input_tokens ?? 0;
+    totalWrite5m      += json.usage?.cache_creation?.ephemeral_5m_input_tokens ?? 0;
+    totalWrite1h      += json.usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0;
 
     if (json.stop_reason === "end_turn") {
       const textBlock = json.content?.find((b: any) => b.type === "text");
       if (!textBlock?.text) throw new Error("Claude no devolvió texto");
-      return { text: textBlock.text, inputTokens: totalInput, outputTokens: totalOutput, cacheReadTokens: totalCacheRead, cacheCreationTokens: totalCacheCreation };
+      return { text: textBlock.text, inputTokens: totalInput, outputTokens: totalOutput, cacheReadTokens: totalCacheRead, cacheCreationTokens: totalCacheCreation, cacheWrite5m: totalWrite5m, cacheWrite1h: totalWrite1h };
     }
 
     if (json.stop_reason === "tool_use") {
@@ -2800,6 +2867,7 @@ Deno.serve(async (req: Request) => {
     media_mime_type?: string;
     media_type?: string;
     button_reply_id?: string;
+    debounced?: boolean;
   };
   try {
     body = await req.json();
@@ -2807,7 +2875,7 @@ Deno.serve(async (req: Request) => {
     return new Response("bad json", { status: 400 });
   }
 
-  const { conversation_id, tenant_user_id, phone, media_base64, media_mime_type, media_type, button_reply_id } = body;
+  const { conversation_id, tenant_user_id, phone, media_base64, media_mime_type, media_type, button_reply_id, debounced } = body;
   const media = (media_base64 && media_mime_type && media_type)
     ? { base64: media_base64, mimeType: media_mime_type, type: media_type as "image" | "document" }
     : null;
@@ -2816,6 +2884,26 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    // Agrupación de mensajes fragmentados: el webhook difiere esta invocación
+    // DEBOUNCE_MS. Si mientras tanto llegó otro mensaje del cliente, esta queda
+    // obsoleta — la invocación de ese mensaje responderá a todos juntos.
+    if (debounced) {
+      const { data: lastUser } = await supabase
+        .from("crm_wa_messages")
+        .select("created_at")
+        .eq("conversation_id", conversation_id)
+        .eq("role", "user")
+        .eq("is_internal", false)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lastUser && Date.now() - new Date(lastUser.created_at).getTime() < DEBOUNCE_GUARD_MS) {
+        console.log(`[ai-agent] descartada por agrupación: llegó un mensaje más nuevo (${phone})`);
+        return new Response(JSON.stringify({ ok: true, reason: "debounced" }), { status: 200 });
+      }
+    }
+
     // Indicar que la IA está procesando (B19-7)
     await supabase.from("crm_wa_conversations").update({ ai_typing: true }).eq("id", conversation_id);
 
@@ -3071,7 +3159,7 @@ Deno.serve(async (req: Request) => {
                 "content-type": "application/json",
               },
               body: JSON.stringify({
-                model: "claude-haiku-4-5-20251001",
+                model: FLOW_MODEL,
                 max_tokens: 64,
                 system: "Eres un clasificador de intenciones. Responde SOLO con el id entre corchetes de la intención activada, o con la palabra null. Sin explicación, sin puntuación extra.",
                 messages: [{
@@ -3082,6 +3170,14 @@ Deno.serve(async (req: Request) => {
             });
             if (intentRes.ok) {
               const intentJson = await intentRes.json();
+              logAiUsage(supabase, {
+                userId: tenant_user_id,
+                conversationId: conversation_id,
+                model: FLOW_MODEL,
+                source: "ai-agent",
+                category: "deteccion_intencion",
+                usage: intentJson.usage,
+              });
               const raw = (intentJson.content?.[0]?.text ?? "").trim().toLowerCase();
               if (raw !== "null" && raw !== "") {
                 const idMatch = raw.match(/[a-f0-9\-]{8,}/);
@@ -3108,8 +3204,8 @@ Deno.serve(async (req: Request) => {
 
     // 4. Construir system prompt con catálogo, variables y etiquetas
     const t0 = Date.now();
-    const { prompt: systemPrompt, contactId: convContactId, contactName: convContactName, availableSlots: preloadedSlots } =
-      await buildSystemPrompt(config as AgentConfig, phone, config.can_transfer_human ?? false, conversation_id);
+    const { stable: systemStable, volatile: systemVolatile, contactId: convContactId, contactName: convContactName, availableSlots: preloadedSlots } =
+      await buildSystemPrompt(config as AgentConfig, phone, config.can_transfer_human ?? false, conversation_id, !!media);
 
     // 5. Llamar a Claude — con tool use para agendamiento, sin tools para el resto
     const model = "claude-haiku-4-5-20251001";
@@ -3117,6 +3213,7 @@ Deno.serve(async (req: Request) => {
 
     let rawReply: string;
     let inputTokens: number, outputTokens: number, cacheReadTokens: number, cacheCreationTokens: number;
+    let cacheWrite5m: number, cacheWrite1h: number;
 
     if (canSchedule) {
       // contactId ya viene del buildSystemPrompt — no hay query duplicada
@@ -3125,18 +3222,32 @@ Deno.serve(async (req: Request) => {
         phone, convContactId, config.timezone ?? "UTC",
         preloadedSlots, convContactName,
       );
-      ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens } =
-        await callClaudeAgentLoop(systemPrompt, history, model, SCHEDULING_TOOLS, toolExecutor, media));
+      ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cacheWrite5m, cacheWrite1h } =
+        await callClaudeAgentLoop(systemStable, systemVolatile, history, model, SCHEDULING_TOOLS, toolExecutor, media));
     } else {
-      ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens } =
-        await callClaude(systemPrompt, history, model, media));
+      ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cacheWrite5m, cacheWrite1h } =
+        await callClaude(systemStable, systemVolatile, history, model, media));
     }
 
-    console.log(`[ai-agent] Claude respondió en ${Date.now() - t0}ms tokens:${inputTokens}in/${outputTokens}out cacheRead:${cacheReadTokens} cacheWrite:${cacheCreationTokens}`);
+    console.log(`[ai-agent] Claude respondió en ${Date.now() - t0}ms tokens:${inputTokens}in/${outputTokens}out cacheRead:${cacheReadTokens} cacheWrite:${cacheCreationTokens} promptChars:${systemStable.length}est/${systemVolatile.length}vol`);
 
-    const _prices = MODEL_PRICES[model] ?? { input: 0.25, output: 1.25, cacheWrite: 0.30, cacheRead: 0.03 };
-    const _costUsd = (inputTokens * _prices.input + outputTokens * _prices.output + cacheCreationTokens * _prices.cacheWrite + cacheReadTokens * _prices.cacheRead) / 1_000_000;
-    supabase.from("crm_ai_usage_log").insert({ user_id: tenant_user_id, conversation_id, model, input_tokens: inputTokens, output_tokens: outputTokens, cache_read_tokens: cacheReadTokens, cache_creation_tokens: cacheCreationTokens, cost_usd: _costUsd }).then(() => {}).catch(() => {});
+    logAiUsage(supabase, {
+      userId: tenant_user_id,
+      conversationId: conversation_id,
+      model,
+      source: "ai-agent",
+      category: media ? "respuesta_media" : (canSchedule ? "agendamiento" : "respuesta_texto"),
+      usage: {
+        input_tokens: inputTokens,
+        output_tokens: outputTokens,
+        cache_read_input_tokens: cacheReadTokens,
+        cache_creation_input_tokens: cacheCreationTokens,
+        cache_creation: {
+          ephemeral_5m_input_tokens: cacheWrite5m,
+          ephemeral_1h_input_tokens: cacheWrite1h,
+        },
+      },
+    });
 
     // 6. Extraer marcadores del reply (agendamiento ya fue procesado por tool use)
     const { text: withoutPayment, payment } = parseAndStripPayment(rawReply);

@@ -528,6 +528,15 @@ async function invokeAgentWithRetry(
   console.error("[webhook] ai-agent falló después de todos los intentos");
 }
 
+/**
+ * Ventana de agrupación para mensajes de texto. Los clientes suelen fragmentar
+ * una idea en varios mensajes seguidos ("Hola" → "Precio" → "?"); responder a
+ * cada uno cuesta una llamada al modelo y produce tres respuestas sueltas.
+ * Esperamos esta ventana y el agente descarta la invocación si mientras tanto
+ * llegó otro mensaje, de modo que solo la última responde — a todos a la vez.
+ */
+const DEBOUNCE_MS = 25_000;
+
 async function maybeInvokeAgent(
   conv: { id: string; mode: string },
   tenantUserId: string,
@@ -551,10 +560,29 @@ async function maybeInvokeAgent(
     "Authorization": `Bearer ${serviceKey}`,
     "apikey": serviceKey,
   };
-  const body = JSON.stringify({ conversation_id: conv.id, tenant_user_id: tenantUserId, phone, ...extra });
 
-  invokeAgentWithRetry(`${supabaseUrl}/functions/v1/ai-agent`, body, headers)
-    .catch((err) => console.error("[webhook] error inesperado en retry:", err));
+  // Solo se agrupa el texto: un adjunto o un botón son acciones puntuales que el
+  // cliente espera ver atendidas de inmediato.
+  const debounced = !extra.media_base64 && !extra.button_reply_id;
+  const body = JSON.stringify({ conversation_id: conv.id, tenant_user_id: tenantUserId, phone, debounced, ...extra });
+  const url = `${supabaseUrl}/functions/v1/ai-agent`;
+
+  if (!debounced) {
+    invokeAgentWithRetry(url, body, headers)
+      .catch((err) => console.error("[webhook] error inesperado en retry:", err));
+    return;
+  }
+
+  const pending = (async () => {
+    await new Promise((r) => setTimeout(r, DEBOUNCE_MS));
+    await invokeAgentWithRetry(url, body, headers);
+  })();
+
+  // Sin waitUntil el runtime puede cortar la función al responder a Meta y la
+  // invocación diferida nunca saldría.
+  const waitUntil = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil;
+  if (waitUntil) waitUntil(pending);
+  pending.catch((err) => console.error("[webhook] error inesperado en retry:", err));
 }
 
 // ─── Entry point ───────────────────────────────────────────────────────────────

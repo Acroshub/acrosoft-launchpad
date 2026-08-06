@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { logAiUsage } from "../_shared/ai-usage.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -131,6 +132,7 @@ ${transcripts.join("\n\n")}`;
 
     if (!res.ok) throw new Error(`anthropic api error: ${res.status} ${await res.text()}`);
     const json = await res.json();
+    logAiUsage(supabase, { userId, model: SUMMARY_MODEL, source: "analyze-sales-pattern", category: "aprendizaje_ventas", usage: json.usage });
     const summary = (json.content?.[0]?.text ?? "").trim();
     if (!summary) throw new Error("empty summary from model");
 
