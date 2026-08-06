@@ -12,10 +12,11 @@ import { useCurrentUser } from "@/hooks/useAuth";
 import {
   useUpsertProduct, useDeleteProduct, useToggleCatalogProduct,
   useProductVariants, useUpsertProductVariant, useDeleteProductVariant,
-  usePricesByEntity, useUpsertPrices, useFaqsByEntity, useUpsertFaqs,
+  usePricesByEntity, useUpsertPrices, useUpsertSecondaryPrice, useDeleteSecondaryPrice,
+  useFaqsByEntity, useUpsertFaqs,
   useUpsertPaymentMethod, useCatalogs, useProductCatalogIds,
 } from "@/hooks/useCrmData";
-import type { CrmProduct, CrmProductVariant, CrmPaymentMethod } from "@/lib/supabase";
+import type { CrmProduct, CrmProductVariant, CrmPaymentMethod, CrmPrice } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
 import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
@@ -389,6 +390,126 @@ function VariantPaymentsRow({ variant }: { variant: CrmProductVariant }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Precios secundarios — mismo currency que el precio base, con título y
+// descripción para que el Agente IA sepa cuándo ofrecer cada uno (ej. "Precio
+// mayorista" para pedidos de 10+ unidades), y su propio método de pago.
+// Igual dualidad borrador/edición que las variantes de arriba.
+// ═══════════════════════════════════════════════════════════════════════════
+
+type DraftSecondaryPrice = {
+  _key: number;
+  title: string;
+  description: string;
+  price: string;
+  paymentMethods: Partial<CrmPaymentMethod>[];
+};
+
+const emptyDraftSecondaryPrice = (key: number): DraftSecondaryPrice => ({
+  _key: key, title: "", description: "", price: "", paymentMethods: [],
+});
+
+function DraftSecondaryPriceCard({ sp, onChange, onRemove, baseCurrency }: {
+  sp: DraftSecondaryPrice; onChange: (v: DraftSecondaryPrice) => void; onRemove: () => void; baseCurrency: string;
+}) {
+  return (
+    <div className="bg-secondary/20 border rounded-xl p-3 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <Input value={sp.title} onChange={e => onChange({ ...sp, title: e.target.value })}
+          placeholder="Ej: Precio mayorista" className="h-8 text-sm flex-1" />
+        <button onClick={onRemove} className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
+          <Trash2 size={13} />
+        </button>
+      </div>
+      <textarea value={sp.description} onChange={e => onChange({ ...sp, description: e.target.value })}
+        placeholder="Cuándo debe usarlo la IA — ej: para compras de 10 unidades o más" rows={2}
+        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+      <div className="w-40 space-y-1">
+        <span className="text-[10px] text-muted-foreground/70">Precio ({baseCurrency}) *</span>
+        <Input type="number" min={0} value={sp.price} onChange={e => onChange({ ...sp, price: e.target.value })}
+          placeholder="0" className="h-8 text-sm" />
+      </div>
+      <p className="text-[10px] text-muted-foreground/60 italic">Su método de pago se configura en la pestaña "Métodos de pago".</p>
+    </div>
+  );
+}
+
+function SecondaryPriceRow({ sp, productId, onDeleted, baseCurrency }: {
+  sp: CrmPrice; productId: string; onDeleted: () => void; baseCurrency: string;
+}) {
+  const upsert = useUpsertSecondaryPrice();
+  const remove = useDeleteSecondaryPrice();
+  const [title, setTitle] = useState(sp.title ?? "");
+  const [description, setDescription] = useState(sp.description ?? "");
+  const [price, setPrice] = useState(String(sp.price));
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>();
+  const isFirst = useRef(true);
+  useEffect(() => {
+    if (isFirst.current) { isFirst.current = false; return; }
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      const parsed = parseFloat(price);
+      if (!title.trim() || isNaN(parsed)) return;
+      upsert.mutate({
+        id: sp.id, entity_type: "product", entity_id: productId,
+        title: title.trim(), description: description || null, price: parsed, currency: baseCurrency, sort_order: sp.sort_order,
+      }, { onError: () => toast.error("Error al guardar el precio secundario") });
+    }, 800);
+    return () => clearTimeout(saveTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, description, price]);
+
+  const handleDelete = async () => {
+    await remove.mutateAsync({ id: sp.id, entityType: "product", entityId: productId });
+    toast.success("Precio secundario eliminado");
+    onDeleted();
+  };
+
+  return (
+    <div className="bg-secondary/20 border rounded-xl p-3 space-y-2.5">
+      <div className="flex items-center gap-2">
+        <Input value={title} onChange={e => setTitle(e.target.value)}
+          placeholder="Ej: Precio mayorista" className="h-8 text-sm flex-1" />
+        <button onClick={() => setConfirmDelete(true)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
+          <Trash2 size={13} />
+        </button>
+        <DeleteConfirmDialog open={confirmDelete} onOpenChange={setConfirmDelete} onConfirm={handleDelete}
+          isPending={remove.isPending} description={`¿Eliminar el precio secundario "${title}"? Esta acción no se puede deshacer.`} />
+      </div>
+      <textarea value={description} onChange={e => setDescription(e.target.value)}
+        placeholder="Cuándo debe usarlo la IA — ej: para compras de 10 unidades o más" rows={2}
+        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+      <div className="w-40 space-y-1">
+        <span className="text-[10px] text-muted-foreground/70">Precio ({baseCurrency}) *</span>
+        <Input type="number" min={0} value={price} onChange={e => setPrice(e.target.value)} placeholder="0" className="h-8 text-sm" />
+      </div>
+      <p className="text-[10px] text-muted-foreground/60 italic">Su método de pago se configura en la pestaña "Métodos de pago".</p>
+    </div>
+  );
+}
+
+function DraftSecondaryPricePaymentsCard({ sp, onChange }: {
+  sp: DraftSecondaryPrice; onChange: (v: DraftSecondaryPrice) => void;
+}) {
+  return (
+    <div className="bg-secondary/20 border rounded-xl p-3 space-y-2">
+      <p className="text-xs font-semibold">{sp.title || "Precio secundario sin título"}</p>
+      <PaymentMethodsDraftEditor value={sp.paymentMethods} onChange={paymentMethods => onChange({ ...sp, paymentMethods })} hideCurrencySelector />
+    </div>
+  );
+}
+
+function SecondaryPricePaymentsRow({ sp, productId }: { sp: CrmPrice; productId: string }) {
+  return (
+    <div className="bg-secondary/20 border rounded-xl p-3 space-y-2">
+      <p className="text-xs font-semibold">{sp.title || "Precio secundario sin título"}</p>
+      <PaymentMethodsEditor entityType="product" entityId={productId} lockedPriceId={sp.id} />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Editor principal
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -421,6 +542,7 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
   const toggleCatalog = useToggleCatalogProduct();
   const upsertVariant = useUpsertProductVariant();
   const upsertPrices = useUpsertPrices();
+  const upsertSecondaryPrice = useUpsertSecondaryPrice();
   const upsertFaqs = useUpsertFaqs();
   const upsertPaymentMethod = useUpsertPaymentMethod();
 
@@ -460,6 +582,23 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
     }, 800);
   };
   useEffect(() => () => clearTimeout(pricesSaveTimer.current), []);
+
+  // Precios secundarios — borrador en memoria (wizard) o filas reales (edición),
+  // cada una con su propio price_id estable para poder colgarle métodos de pago.
+  const [draftSecondaryPrices, setDraftSecondaryPrices] = useState<DraftSecondaryPrice[]>(
+    (d?.draftSecondaryPrices ?? []).map((sp: Partial<DraftSecondaryPrice>, i: number) => ({
+      _key: sp._key ?? i,
+      title: sp.title ?? "",
+      description: sp.description ?? "",
+      price: sp.price ?? "",
+      paymentMethods: sp.paymentMethods ?? [],
+    }))
+  );
+  const secondaryDraftKeyRef = useRef(Math.max(0, ...draftSecondaryPrices.map(sp => sp._key)) + 1);
+  const addDraftSecondaryPrice = () => setDraftSecondaryPrices(prev => [...prev, emptyDraftSecondaryPrice(secondaryDraftKeyRef.current++)]);
+  const updateDraftSecondaryPrice = (key: number, next: DraftSecondaryPrice) => setDraftSecondaryPrices(prev => prev.map(sp => sp._key === key ? next : sp));
+  const removeDraftSecondaryPrice = (key: number) => setDraftSecondaryPrices(prev => prev.filter(sp => sp._key !== key));
+  const { data: secondaryPrices = [], refetch: refetchSecondaryPrices } = usePricesByEntity("product", product?.id ?? null, "secondary");
 
   // FAQs del producto
   const { data: existingFaqs = [] } = useFaqsByEntity("product", product?.id ?? null);
@@ -519,10 +658,10 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
     if (!isNew) return;
     sessionStorage.setItem(NEW_PRODUCT_DRAFT_KEY, JSON.stringify({
       name, description, sku, isActive, hasVariants, stockEnabled, stockVal, images,
-      price, currency, discountPct, prices, faqs, draftVariants, paymentMethods: draftPaymentMethods, paymentMode,
+      price, currency, discountPct, prices, draftSecondaryPrices, faqs, draftVariants, paymentMethods: draftPaymentMethods, paymentMode,
     }));
   }, [isNew, name, description, sku, isActive, hasVariants, stockEnabled, stockVal, images,
-      price, currency, discountPct, prices, faqs, draftVariants, draftPaymentMethods, paymentMode]);
+      price, currency, discountPct, prices, draftSecondaryPrices, faqs, draftVariants, draftPaymentMethods, paymentMode]);
 
   // Autoguardado de los campos base del producto — solo edición
   const isFirstRender = useRef(true);
@@ -591,6 +730,20 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
             })),
           ]);
         }));
+      }
+      if (!hasVariants) {
+        tasks.push(...draftSecondaryPrices
+          .filter(sp => sp.title.trim() && sp.price !== "")
+          .map(async (sp, idx) => {
+            const savedSp = await upsertSecondaryPrice.mutateAsync({
+              entity_type: "product", entity_id: created.id,
+              title: sp.title.trim(), description: sp.description || null, price: parseFloat(sp.price), currency, sort_order: idx,
+            });
+            await Promise.all(sp.paymentMethods.map((pm, pmIdx) => upsertPaymentMethod.mutateAsync({
+              entity_type: "product", entity_id: created.id, type: pm.type ?? "bank_transfer",
+              label: pm.label ?? null, content: pm.content ?? "", sort_order: pmIdx, price_id: savedSp.id, currency: null,
+            })));
+          }));
       }
       if (fromCatalogId) {
         tasks.push(toggleCatalog.mutateAsync({ catalogId: fromCatalogId, productId: created.id, add: true }));
@@ -731,6 +884,37 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
             <label className="text-xs font-medium text-muted-foreground">Precio en otra moneda (opcional)</label>
             <PriceListEditor value={prices} onChange={handlePricesChange} baseCurrency={currency} />
           </div>
+
+          <div className="space-y-2.5 pt-2 border-t">
+            <div className="pt-2">
+              <label className="text-xs font-medium text-muted-foreground">Precios secundarios (opcional)</label>
+              <p className="text-[11px] text-muted-foreground/60 mt-0.5">
+                Precios alternativos en la misma moneda — ej. "Precio mayorista". Ponle un título y una descripción
+                clara de cuándo aplica; el Agente IA los usa para saber cuál cotizar en cada conversación. El método
+                de pago de cada uno se configura en la pestaña "Métodos de pago".
+              </p>
+            </div>
+            {isNew
+              ? draftSecondaryPrices.map(sp => (
+                  <DraftSecondaryPriceCard key={sp._key} sp={sp} baseCurrency={currency}
+                    onChange={next => updateDraftSecondaryPrice(sp._key, next)} onRemove={() => removeDraftSecondaryPrice(sp._key)} />
+                ))
+              : secondaryPrices.map(sp => (
+                  <SecondaryPriceRow key={sp.id} sp={sp} productId={product!.id} baseCurrency={currency}
+                    onDeleted={() => refetchSecondaryPrices()} />
+                ))}
+            <button
+              onClick={() => isNew
+                ? addDraftSecondaryPrice()
+                : upsertSecondaryPrice.mutate({
+                    entity_type: "product", entity_id: product!.id,
+                    title: `Precio secundario ${secondaryPrices.length + 1}`, description: null, price: 0, currency, sort_order: secondaryPrices.length,
+                  })}
+              className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <Plus size={12} /> Añadir precio secundario
+            </button>
+          </div>
         </>
       ) : (
         <div className="space-y-1.5">
@@ -796,6 +980,17 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
           {isNew
             ? draftVariants.map(v => <DraftVariantPaymentsCard key={v._key} variant={v} onChange={next => updateDraftVariant(v._key, next)} baseCurrency={currency} />)
             : realVariants.map(v => <VariantPaymentsRow key={v.id} variant={v} />)}
+        </div>
+      )}
+
+      {!hasVariants && (draftSecondaryPrices.length > 0 || secondaryPrices.length > 0) && (
+        <div className="space-y-2.5 pt-2 border-t">
+          <p className="text-xs text-muted-foreground/70 pt-2">
+            Métodos de pago por precio secundario — si alguno queda sin configurar, el Agente IA usará los métodos generales de arriba como respaldo.
+          </p>
+          {isNew
+            ? draftSecondaryPrices.map(sp => <DraftSecondaryPricePaymentsCard key={sp._key} sp={sp} onChange={next => updateDraftSecondaryPrice(sp._key, next)} />)
+            : secondaryPrices.map(sp => <SecondaryPricePaymentsRow key={sp.id} sp={sp} productId={product!.id} />)}
         </div>
       )}
     </div>

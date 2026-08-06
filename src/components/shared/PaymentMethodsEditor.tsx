@@ -38,6 +38,7 @@ export function MethodForm({
   entityId,
   prices,
   baseCurrency,
+  hideCurrencySelector,
   onSave,
   onCancel,
   saving,
@@ -47,6 +48,10 @@ export function MethodForm({
   entityId: string;
   prices?: CrmPrice[];
   baseCurrency?: string;
+  // Oculta el selector "Moneda asociada" — usado cuando este método ya está
+  // implícitamente scopeado a un precio específico (ej. un precio secundario),
+  // donde elegir moneda/precio otra vez sería redundante.
+  hideCurrencySelector?: boolean;
   onSave: (v: Partial<CrmPaymentMethod>) => void;
   onCancel: () => void;
   saving: boolean;
@@ -108,6 +113,7 @@ export function MethodForm({
       </div>
 
       {/* Selector de moneda */}
+      {!hideCurrencySelector && (
       <div className="space-y-1.5">
         <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-1">
           <DollarSign size={11} /> Moneda asociada
@@ -164,6 +170,7 @@ export function MethodForm({
           </p>
         )}
       </div>
+      )}
 
       {/* Etiqueta */}
       <Input
@@ -262,13 +269,19 @@ export default function PaymentMethodsEditor({
   entityId,
   prices,
   baseCurrency,
+  lockedPriceId,
 }: {
   entityType: CrmPaymentMethod["entity_type"];
   entityId: string | null;
   prices?: CrmPrice[];
   baseCurrency?: string;
+  // Cuando se pasa, este editor solo muestra/crea métodos de pago atados a este
+  // price_id específico (ej. un precio secundario) — oculta el selector de moneda
+  // porque el scope ya está implícito, y fuerza price_id en cada guardado.
+  lockedPriceId?: string;
 }) {
-  const { data: methods = [] } = usePaymentMethods(entityType, entityId);
+  const { data: allMethods = [] } = usePaymentMethods(entityType, entityId);
+  const methods = lockedPriceId ? allMethods.filter(m => m.price_id === lockedPriceId) : allMethods;
   const upsert = useUpsertPaymentMethod();
   const remove = useDeletePaymentMethod();
   const [editingId, setEditingId]   = useState<string | null>(null);
@@ -285,8 +298,8 @@ export default function PaymentMethodsEditor({
         label: v.label ?? null,
         content: v.content!,
         sort_order: v.sort_order ?? methods.length,
-        price_id: v.price_id ?? null,
-        currency: v.currency ?? null,
+        price_id: lockedPriceId ?? v.price_id ?? null,
+        currency: lockedPriceId ? null : (v.currency ?? null),
       });
       toast.success("Método de pago guardado");
       setEditingId(null);
@@ -325,6 +338,7 @@ export default function PaymentMethodsEditor({
             entityId={entityId}
             prices={prices}
             baseCurrency={baseCurrency}
+            hideCurrencySelector={!!lockedPriceId}
             onSave={handleSave}
             onCancel={() => setEditingId(null)}
             saving={upsert.isPending}
@@ -373,6 +387,7 @@ export default function PaymentMethodsEditor({
           entityId={entityId}
           prices={prices}
           baseCurrency={baseCurrency}
+          hideCurrencySelector={!!lockedPriceId}
           onSave={handleSave}
           onCancel={() => setShowNew(false)}
           saving={upsert.isPending}
@@ -401,10 +416,12 @@ export function PaymentMethodsDraftEditor({
   value,
   onChange,
   baseCurrency,
+  hideCurrencySelector,
 }: {
   value: Partial<CrmPaymentMethod>[];
   onChange: (next: Partial<CrmPaymentMethod>[]) => void;
   baseCurrency?: string;
+  hideCurrencySelector?: boolean;
 }) {
   const [editingIdx, setEditingIdx] = useState<number | null>(null);
   const [showNew, setShowNew]       = useState(false);
@@ -431,6 +448,7 @@ export function PaymentMethodsDraftEditor({
             entityType="service"
             entityId=""
             baseCurrency={baseCurrency}
+            hideCurrencySelector={hideCurrencySelector}
             onSave={v => handleSaveAt(idx, v)}
             onCancel={() => setEditingIdx(null)}
             saving={false}
@@ -478,6 +496,7 @@ export function PaymentMethodsDraftEditor({
           entityType="service"
           entityId=""
           baseCurrency={baseCurrency}
+          hideCurrencySelector={hideCurrencySelector}
           onSave={v => handleSaveAt(null, v)}
           onCancel={() => setShowNew(false)}
           saving={false}

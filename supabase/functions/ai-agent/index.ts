@@ -71,6 +71,7 @@ interface PaymentMethodRow {
   content: string;
   sort_order: number;
   currency: string | null;
+  price_id?: string | null;
 }
 
 function getCurrencyFromPhone(phone: string): string | null {
@@ -1302,8 +1303,8 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
 
   const allProductIds = allProducts.map(p => p.id);
 
-  // Cargar variantes, FAQs, precios multi-moneda y planes (productos archivo) en paralelo
-  const [variantsRes, faqsRes, pricesRes, plansRes] = await Promise.all([
+  // Cargar variantes, FAQs, precios multi-moneda, precios secundarios y planes (productos archivo) en paralelo
+  const [variantsRes, faqsRes, pricesRes, secondaryPricesRes, plansRes] = await Promise.all([
     supabase
       .from("crm_product_variants")
       .select("id, product_id, name, price_override, discount_pct, sort_order, stock")
@@ -1320,6 +1321,14 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
       .select("entity_id, currency, price, discount_pct")
       .in("entity_id", allProductIds)
       .eq("entity_type", "product")
+      .eq("kind", "currency")
+      .order("sort_order"),
+    supabase
+      .from("crm_prices")
+      .select("id, entity_id, title, description, price, currency")
+      .in("entity_id", allProductIds)
+      .eq("entity_type", "product")
+      .eq("kind", "secondary")
       .order("sort_order"),
     supabase
       .from("crm_product_plans")
@@ -1328,6 +1337,13 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
       .eq("is_active", true)
       .order("sort_order"),
   ]);
+
+  type SecondaryPriceRow = { id: string; entity_id: string; title: string | null; description: string | null; price: number; currency: string };
+  const secondaryPricesByProduct = new Map<string, SecondaryPriceRow[]>();
+  for (const sp of (secondaryPricesRes.data ?? []) as SecondaryPriceRow[]) {
+    if (!secondaryPricesByProduct.has(sp.entity_id)) secondaryPricesByProduct.set(sp.entity_id, []);
+    secondaryPricesByProduct.get(sp.entity_id)!.push(sp);
+  }
 
   type ProductPlanRow = {
     id: string; product_id: string; name: string;
@@ -1379,7 +1395,7 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
   const allVariantIdsForPm = (variantsRes.data ?? []).map(v => v.id);
   const paymentMethodsRes = await supabase
     .from("crm_payment_methods")
-    .select("id, entity_id, entity_type, type, label, content, sort_order, currency")
+    .select("id, entity_id, entity_type, type, label, content, sort_order, currency, price_id")
     .in("entity_id", [...allProductIds, ...allVariantIdsForPm])
     .in("entity_type", ["product", "product_variant"])
     .order("sort_order");
@@ -1387,6 +1403,14 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
   const variants = variantsRes.data ?? [];
   const paymentMethods = paymentMethodsRes.data ?? [];
   const productFaqs = faqsRes.data ?? [];
+
+  // Métodos de pago de cada precio secundario, agrupados por price_id
+  const pmBySecondaryPrice = new Map<string, PaymentMethodRow[]>();
+  for (const pm of paymentMethods) {
+    if (pm.entity_type !== "product" || !pm.price_id) continue;
+    if (!pmBySecondaryPrice.has(pm.price_id)) pmBySecondaryPrice.set(pm.price_id, []);
+    pmBySecondaryPrice.get(pm.price_id)!.push(pm as PaymentMethodRow);
+  }
 
   // Precio por moneda del contacto: entity_id → { currency, price, discount_pct }
   const pricesByProduct = new Map<string, { currency: string; price: number; discount_pct: number | null }>();
@@ -1428,6 +1452,7 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
   const pmByProduct = new Map<string, PaymentMethodRow[]>();
   const pmByVariant = new Map<string, PaymentMethodRow[]>();
   for (const pm of paymentMethods) {
+    if (pm.price_id) continue; // scoped a un precio secundario — se lista aparte, no en el general
     if (pm.currency && contactCurrency && pm.currency !== contactCurrency) continue;
     const target = pm.entity_type === "product_variant" ? pmByVariant : pmByProduct;
     if (!target.has(pm.entity_id)) target.set(pm.entity_id, []);
@@ -1571,6 +1596,24 @@ async function buildProductsCatalog(config: AgentConfig, contactCurrency: string
         lines.push(pms.length > 0
           ? `  (El resto de variantes usa los métodos de pago generales de arriba)`
           : `  ⚠️ Las demás variantes (${variantsWithoutOwnPm.map((v: any) => v.name).join(", ")}) no tienen métodos de pago`);
+      }
+    }
+
+    // Precios alternativos (secundarios) — misma moneda, para casos específicos (ej. mayoreo).
+    // Úsalos en vez del precio base cuando la descripción calce con lo que pide el cliente.
+    const secondaryPrices = secondaryPricesByProduct.get(p.id) ?? [];
+    if (secondaryPrices.length > 0) {
+      lines.push(`  Precios alternativos (usa el que corresponda según la conversación, no el base):`);
+      for (const sp of secondaryPrices) {
+        const desc = sp.description ? ` — ${sp.description}` : "";
+        lines.push(`    · ${sp.title ?? "Precio alternativo"}: ${formatPrice(sp.price, sp.currency)}${desc} [price_id:${sp.id}]`);
+        const spPms = pmBySecondaryPrice.get(sp.id) ?? [];
+        if (spPms.length > 0) {
+          lines.push(`      Métodos de pago:`);
+          for (const pm of spPms) lines.push(`        · ${formatPaymentMethod(pm)}`);
+        } else {
+          lines.push(`      ⚠️ Sin métodos de pago — usa los generales del producto de arriba si el cliente confirma la compra`);
+        }
       }
     }
 
@@ -2231,9 +2274,14 @@ async function buildSystemPrompt(
 3. FORMATO WHATSAPP: Para negrilla usa *un solo asterisco* por lado — NUNCA doble asterisco **. Para cursiva _guion bajo_. Para tachado ~virgulilla~.
 4. AUDIO NO TRANSCRITO: Si el último mensaje del usuario es "[Mensaje de voz]", el cliente envió una nota de voz que el sistema no pudo transcribir en este momento. Pídele de forma natural y breve que escriba su mensaje.`;
 
-  // Instrucción de detección de pagos
+  // Instrucción de detección de pagos.
+  // La detección corre siempre que haya catálogo — auto_detect_payments solo decide si la venta
+  // se auto-confirma o queda pending_review para que el dueño la confirme manualmente (ver 10d más abajo).
   let paymentInstruction = "";
-  if (config.auto_detect_payments && catalogSections.length > 0) {
+  if (catalogSections.length > 0) {
+    const confirmReplyLine = config.auto_detect_payments
+      ? `- Responde brevemente (1-2 líneas): «¡Gracias! Comprobante recibido y verificado. Tu compra de [nombre_producto] está confirmada 🎉»`
+      : `- Responde brevemente (1-2 líneas): «¡Gracias! Recibimos tu comprobante de [nombre_producto], lo estamos verificando y te confirmamos en breve.» (NUNCA digas que la compra ya está confirmada — todavía falta la revisión del equipo)`;
     paymentInstruction = `\n\nDETECCIÓN DE PAGOS — analiza visualmente la imagen recibida:
 Cuando el cliente envíe una imagen, inspecciona su contenido visual para determinar si es un comprobante de pago.
 
@@ -2248,7 +2296,7 @@ IMPORTANTE — lo que NO debes revisar:
 
 Si ambos requisitos se cumplen:
 - Identifica el producto o servicio del catálogo al que corresponde (elige el más probable según la conversación).
-- Responde brevemente (1-2 líneas): «¡Gracias! Comprobante recibido y verificado. Tu compra de [nombre_producto] está confirmada 🎉»
+${confirmReplyLine}
 - Al FINAL añade EXACTAMENTE (sin espacios extra): [PAYMENT_DETECTED|product_id:{id}|variant_id:{variant_id_o_none}|amount:{monto_numerico}|method_type:{tipo}]
   · product_id: copia el valor exacto de [product_id:...] o [service_id:...] que aparece en el catálogo junto al producto/servicio identificado
   · variant_id: si el producto tiene variantes listadas (ves [variant_id:...] en el catálogo), DEBES poner el variant_id de la variante que compró el cliente. Si el producto tiene una sola variante, usa siempre ese variant_id. Solo escribe "none" si el producto NO tiene variantes en absoluto.
@@ -2459,51 +2507,6 @@ async function transferToHuman(
       }).catch(() => {});
     }
   }
-}
-
-// ─── Notificación de nuevo lead capturado (fire & forget) ────────────────────
-function sendNewLeadEmail(config: AgentConfig, contactData: Record<string, string>, phone: string): void {
-  if (!config.notify_email) return;
-  const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-  if (!RESEND_API_KEY) return;
-  const RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
-  const leadName = contactData["nombre"] ?? contactData["name"] ?? phone;
-  const leadCompany = contactData["empresa"] ?? contactData["company"] ?? "No proporcionada";
-  const leadEmail = contactData["email"] ?? "No proporcionado";
-  const leadNotes = contactData["notas_internas"] ?? contactData["notas"] ?? "";
-  const crmUrl = Deno.env.get("SITE_URL") ?? "https://app.acrosoftlabs.com";
-  const html = `<!DOCTYPE html><html><body style="margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f4f5;">
-<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:40px 20px;">
-<table width="100%" style="max-width:480px;background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,0.1);">
-<tr><td style="background:#18181b;padding:24px 32px;text-align:center;">
-  <p style="margin:0;font-size:18px;font-weight:700;color:#ffffff;">Nuevo Lead Capturado</p>
-</td></tr>
-<tr><td style="padding:32px;">
-  <p style="margin:0 0 16px;font-size:14px;color:#52525b;line-height:1.6;">
-    <strong>Nombre:</strong> ${leadName}<br/>
-    <strong>Empresa:</strong> ${leadCompany}<br/>
-    <strong>Email:</strong> ${leadEmail}<br/>
-    <strong>Teléfono:</strong> ${phone}<br/>
-    ${leadNotes ? `<strong>Notas:</strong> ${leadNotes}` : ""}
-  </p>
-  <a href="${crmUrl}/crm" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:500;">
-    Ver en el CRM &rarr;
-  </a>
-  <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">Lead capturado automáticamente por el Agente IA.</p>
-</td></tr>
-</table></td></tr></table>
-</body></html>`;
-  fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from: RESEND_FROM,
-      to: [config.notify_email],
-      subject: `🎯 Nuevo lead: ${leadName}${leadCompany !== "No proporcionada" ? ` — ${leadCompany}` : ""}`,
-      html,
-    }),
-  }).then(() => console.log(`[ai-agent] email de nuevo lead enviado a ${config.notify_email}`))
-    .catch((e) => console.error("[ai-agent] error enviando email de lead:", e));
 }
 
 // ─── Precios por modelo (USD por millón de tokens) ───────────────────────────
@@ -3260,7 +3263,6 @@ Deno.serve(async (req: Request) => {
                 contact_id: newContact.id, user_id: tenant_user_id, body: notesBody,
               });
             }
-            sendNewLeadEmail(config, contactData, phone);
             console.log(`[ai-agent] contacto creado: ${newContact.id}`);
           }
         } else {
@@ -3273,7 +3275,6 @@ Deno.serve(async (req: Request) => {
             .eq("id", contactId)
             .single();
 
-          const hadNoPriorData = !existing?.ai_collected_data || Object.keys(existing.ai_collected_data).length === 0;
           const newName = contactData["nombre"] ?? contactData["name"];
           const newEmail = contactData["email"];
           const newCompany = contactData["empresa"] ?? contactData["company"];
@@ -3288,7 +3289,6 @@ Deno.serve(async (req: Request) => {
               ...(newCompany ? { company: newCompany } : {}),
             })
             .eq("id", contactId);
-          if (hadNoPriorData) sendNewLeadEmail(config, contactData, phone);
           const notesBody = contactData["notas_internas"] ?? contactData["notas"] ?? null;
           if (notesBody) {
             await supabase.from("crm_contact_notes").insert({
@@ -3423,14 +3423,30 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          // Validar que el monto reportado por Claude sea razonable (≥ 90% del precio esperado)
-          // Solo cuando auto_detect_payments está ON — si está OFF el admin lo revisa manualmente
+          // Validar que el monto reportado por Claude sea razonable (≥ 90% del precio esperado,
+          // o de alguno de los precios secundarios del producto — ej. un precio mayorista
+          // legítimamente distinto al base). Solo cuando auto_detect_payments está ON — si
+          // está OFF el admin lo revisa manualmente de todos modos.
           const autoConfirm = config.auto_detect_payments ?? false;
           if (autoConfirm && expectedPrice > 0) {
             const ratio = payment.amount / expectedPrice;
             if (ratio < 0.9) {
-              console.warn(`[ai-agent] monto sospechoso: reportado=${payment.amount} esperado=${expectedPrice} ratio=${ratio.toFixed(2)} → forzando revisión manual`);
-              (payment as any)._forceReview = true;
+              let matchesSecondaryPrice = false;
+              if (isProduct) {
+                const { data: secondaryPriceRows } = await supabase
+                  .from("crm_prices")
+                  .select("price")
+                  .eq("entity_type", "product")
+                  .eq("entity_id", itemId)
+                  .eq("kind", "secondary");
+                matchesSecondaryPrice = (secondaryPriceRows ?? []).some(sp => sp.price > 0 && payment.amount / sp.price >= 0.9);
+              }
+              if (!matchesSecondaryPrice) {
+                console.warn(`[ai-agent] monto sospechoso: reportado=${payment.amount} esperado=${expectedPrice} ratio=${ratio.toFixed(2)} → forzando revisión manual`);
+                (payment as any)._forceReview = true;
+              } else {
+                console.log(`[ai-agent] monto ${payment.amount} coincide con un precio secundario del producto ${itemId} — se acepta sin forzar revisión`);
+              }
             }
           }
 

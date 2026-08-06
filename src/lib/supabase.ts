@@ -250,6 +250,9 @@ export type CrmPrice = {
   discount_pct: number | null
   sort_order: number
   created_at: string
+  kind: 'currency' | 'secondary'
+  title: string | null
+  description: string | null
 }
 
 export type CrmEntityFaq = {

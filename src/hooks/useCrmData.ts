@@ -3098,12 +3098,16 @@ export const useRevokeCourseAccess = () => {
 
 // ─── Multi-currency prices ────────────────────────────────────────────────────
 
-export const usePricesByEntity = (entityType: CrmPrice["entity_type"], entityId: string | null | undefined) => {
+export const usePricesByEntity = (
+  entityType: CrmPrice["entity_type"],
+  entityId: string | null | undefined,
+  kind: CrmPrice["kind"] = "currency",
+) => {
   const { user } = useCurrentUser();
   const { ownerUserId } = useStaffPermissions();
   const uid = ownerUserId ?? user?.id;
   return useQuery({
-    queryKey: ["crm_prices", entityType, entityId],
+    queryKey: ["crm_prices", entityType, entityId, kind],
     enabled: !!(uid && entityId),
     queryFn: async () => {
       const { data, error } = await supabase
@@ -3111,6 +3115,7 @@ export const usePricesByEntity = (entityType: CrmPrice["entity_type"], entityId:
         .select("*")
         .eq("entity_type", entityType)
         .eq("entity_id", entityId!)
+        .eq("kind", kind)
         .order("sort_order", { ascending: true });
       if (error) throw error;
       return (data ?? []) as CrmPrice[];
@@ -3126,31 +3131,95 @@ export const useUpsertPrices = () => {
       entityType,
       entityId,
       prices,
+      kind = "currency",
     }: {
       entityType: CrmPrice["entity_type"];
       entityId: string;
-      prices: { currency: string; price: number; discount_pct?: number | null }[];
+      prices: { currency: string; price: number; discount_pct?: number | null; title?: string | null; description?: string | null }[];
+      kind?: CrmPrice["kind"];
     }) => {
       if (!user?.id) throw new Error("No user");
-      // Delete all existing prices for this entity, then insert fresh
-      await supabase.from("crm_prices").delete().eq("entity_id", entityId).eq("entity_type", entityType);
+      // Delete existing prices of this kind for this entity, then insert fresh
+      // (scoped by `kind` so saving the currency list never touches secondary-price rows, and vice versa)
+      await supabase.from("crm_prices").delete().eq("entity_id", entityId).eq("entity_type", entityType).eq("kind", kind);
       if (prices.length === 0) return;
       const { error } = await supabase.from("crm_prices").insert(
         prices.map((p, i) => ({
           user_id: user.id,
           entity_type: entityType,
           entity_id: entityId,
+          kind,
           currency: p.currency,
           price: p.price,
           discount_pct: p.discount_pct ?? null,
+          title: p.title ?? null,
+          description: p.description ?? null,
           sort_order: i,
         }))
       );
       if (error) throw error;
     },
     onSuccess: (_d, vars) => {
-      qc.invalidateQueries({ queryKey: ["crm_prices", vars.entityType, vars.entityId] });
+      qc.invalidateQueries({ queryKey: ["crm_prices", vars.entityType, vars.entityId, vars.kind ?? "currency"] });
     },
+  });
+};
+
+// ─── Precios secundarios (mismo currency que el base, con título/descripción
+// para que el Agente IA sepa cuándo ofrecer cada uno) — filas individuales y
+// estables (a diferencia de la lista multi-moneda de arriba, que se reemplaza
+// entera en cada guardado) porque cada una puede tener sus propios métodos de
+// pago colgando vía crm_payment_methods.price_id. Ver CrmPhysicalProductEditor.
+export const useUpsertSecondaryPrice = () => {
+  const qc = useQueryClient();
+  const { user } = useCurrentUser();
+  return useMutation({
+    mutationFn: async (row: {
+      id?: string;
+      entity_type: CrmPrice["entity_type"];
+      entity_id: string;
+      title: string;
+      description?: string | null;
+      price: number;
+      currency: string;
+      sort_order?: number;
+    }) => {
+      if (row.id) {
+        const { data, error } = await supabase
+          .from("crm_prices")
+          .update({ title: row.title, description: row.description ?? null, price: row.price, currency: row.currency, sort_order: row.sort_order ?? 0 })
+          .eq("id", row.id).select().single();
+        if (error) throw error;
+        return data as CrmPrice;
+      } else {
+        if (!user?.id) throw new Error("No user");
+        const { data, error } = await supabase
+          .from("crm_prices")
+          .insert({
+            user_id: user.id, entity_type: row.entity_type, entity_id: row.entity_id, kind: "secondary",
+            title: row.title, description: row.description ?? null, price: row.price, currency: row.currency,
+            sort_order: row.sort_order ?? 0,
+          })
+          .select().single();
+        if (error) throw error;
+        return data as CrmPrice;
+      }
+    },
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["crm_prices", vars.entity_type, vars.entity_id, "secondary"] });
+    },
+  });
+};
+
+export const useDeleteSecondaryPrice = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, entityType, entityId }: { id: string; entityType: CrmPrice["entity_type"]; entityId: string }) => {
+      const { error } = await supabase.from("crm_prices").delete().eq("id", id);
+      if (error) throw error;
+      return { entityType, entityId };
+    },
+    onSuccess: (_d, vars) => qc.invalidateQueries({ queryKey: ["crm_prices", vars.entityType, vars.entityId, "secondary"] }),
   });
 };
 

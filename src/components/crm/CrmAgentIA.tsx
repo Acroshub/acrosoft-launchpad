@@ -374,7 +374,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
       can_answer_services: canServices,
       can_transfer_human: canTransfer,
       auto_detect_payments: autoDetectPayments,
-      payment_notify_email: autoDetectPayments && wizPaymentNotify ? (wizPaymentEmail.trim() || null) : null,
+      payment_notify_email: wizPaymentNotify ? (wizPaymentEmail.trim() || null) : null,
       notify_on_transfer: wizNotifyOnTransfer,
       notify_email: wizNotifyOnTransfer ? (wizNotifyEmail.trim() || null) : null,
       products_mode: productsMode,
@@ -870,36 +870,34 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 <div className="flex items-center justify-between gap-4">
                   <div>
                     <p className="text-sm font-medium">Detectar pagos con IA</p>
-                    <p className="text-xs text-muted-foreground">La IA analiza comprobantes de pago enviados por WhatsApp y registra ventas automáticamente</p>
+                    <p className="text-xs text-muted-foreground">La IA analiza comprobantes de pago enviados por WhatsApp y registra ventas automáticamente. Si lo desactivas, el comprobante detectado queda pendiente de tu confirmación manual en el CRM.</p>
                   </div>
                   <button onClick={() => setAutoDetectPayments(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
                     <span className={`absolute inset-0 rounded-full transition-colors ${autoDetectPayments ? "bg-primary" : "bg-secondary border"}`} />
                     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${autoDetectPayments ? "left-[22px]" : "left-0.5"}`} />
                   </button>
                 </div>
-                {autoDetectPayments && (
-                  <div className="mt-3 pl-3 border-l-2 border-primary/20 space-y-2.5">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-medium">Notificación por email</p>
-                        <p className="text-xs text-muted-foreground">Recibe un correo cuando se registre una venta</p>
-                      </div>
-                      <button onClick={() => setWizPaymentNotify(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                        <span className={`absolute inset-0 rounded-full transition-colors ${wizPaymentNotify ? "bg-primary" : "bg-secondary border"}`} />
-                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${wizPaymentNotify ? "left-[22px]" : "left-0.5"}`} />
-                      </button>
+                <div className="mt-3 pl-3 border-l-2 border-primary/20 space-y-2.5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium">Notificación por email</p>
+                      <p className="text-xs text-muted-foreground">Recibe un correo cuando se registre una venta o cuando haya un pago pendiente de tu confirmación</p>
                     </div>
-                    {wizPaymentNotify && (
-                      <Input
-                        type="email"
-                        value={wizPaymentEmail}
-                        onChange={e => setWizPaymentEmail(e.target.value)}
-                        placeholder="tu@correo.com"
-                        className="h-8 text-xs"
-                      />
-                    )}
+                    <button onClick={() => setWizPaymentNotify(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
+                      <span className={`absolute inset-0 rounded-full transition-colors ${wizPaymentNotify ? "bg-primary" : "bg-secondary border"}`} />
+                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${wizPaymentNotify ? "left-[22px]" : "left-0.5"}`} />
+                    </button>
                   </div>
-                )}
+                  {wizPaymentNotify && (
+                    <Input
+                      type="email"
+                      value={wizPaymentEmail}
+                      onChange={e => setWizPaymentEmail(e.target.value)}
+                      placeholder="tu@correo.com"
+                      className="h-8 text-xs"
+                    />
+                  )}
+                </div>
               </div>
             </div>
 
@@ -2445,7 +2443,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         can_answer_services: canServices,
         can_transfer_human: canTransfer,
         auto_detect_payments: autoDetectPaymentsSP,
-        payment_notify_email: autoDetectPaymentsSP && paymentNotifySP ? (paymentEmailSP.trim() || null) : null,
+        payment_notify_email: paymentNotifySP ? (paymentEmailSP.trim() || null) : null,
         notify_on_transfer: notifyOnTransfer,
         notify_email: notifyOnTransfer ? (notifyEmail.trim() || null) : null,
         products_mode: spProductsMode,
@@ -3166,43 +3164,41 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-sm font-medium">Detectar pagos con IA</p>
-                    <p className="text-xs text-muted-foreground">La IA analiza comprobantes de pago y registra ventas automáticamente</p>
+                    <p className="text-xs text-muted-foreground">La IA analiza comprobantes de pago y registra ventas automáticamente. Si lo desactivas, el comprobante detectado queda pendiente de tu confirmación manual en el CRM.</p>
                   </div>
                   <button onClick={() => setAutoDetectPaymentsSP(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
                     <span className={`absolute inset-0 rounded-full transition-colors ${autoDetectPaymentsSP ? "bg-primary" : "bg-secondary border"}`} />
                     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${autoDetectPaymentsSP ? "left-[22px]" : "left-0.5"}`} />
                   </button>
                 </div>
-                {autoDetectPaymentsSP && (
-                  <div className="mt-3 pl-3 border-l-2 border-primary/20 space-y-2.5">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-medium">Notificación por email</p>
-                        <p className="text-xs text-muted-foreground">Recibe un correo cuando se registre una venta</p>
-                      </div>
-                      <button onClick={() => setPaymentNotifySP(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                        <span className={`absolute inset-0 rounded-full transition-colors ${paymentNotifySP ? "bg-primary" : "bg-secondary border"}`} />
-                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${paymentNotifySP ? "left-[22px]" : "left-0.5"}`} />
-                      </button>
+                <div className="mt-3 pl-3 border-l-2 border-primary/20 space-y-2.5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm font-medium">Notificación por email</p>
+                      <p className="text-xs text-muted-foreground">Recibe un correo cuando se registre una venta o cuando haya un pago pendiente de tu confirmación</p>
                     </div>
-                    {paymentNotifySP && (
-                      <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Correo de destino</p>
-                        {editingPaymentEmail ? (
-                          <div className="flex gap-2">
-                            <Input type="email" value={paymentEmailSP} onChange={e => setPaymentEmailSP(e.target.value)} placeholder="tu@correo.com" className="h-8 text-xs flex-1" autoFocus />
-                            <button type="button" onClick={() => setEditingPaymentEmail(false)} className="text-xs text-primary font-medium hover:underline shrink-0">Listo</button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-background border border-border/60">
-                            <span className="text-xs text-foreground truncate">{paymentEmailSP || "Sin correo configurado"}</span>
-                            <button type="button" onClick={() => setEditingPaymentEmail(true)} className="text-[11px] text-primary font-medium hover:underline shrink-0">Cambiar</button>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                    <button onClick={() => setPaymentNotifySP(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
+                      <span className={`absolute inset-0 rounded-full transition-colors ${paymentNotifySP ? "bg-primary" : "bg-secondary border"}`} />
+                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${paymentNotifySP ? "left-[22px]" : "left-0.5"}`} />
+                    </button>
                   </div>
-                )}
+                  {paymentNotifySP && (
+                    <div className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Correo de destino</p>
+                      {editingPaymentEmail ? (
+                        <div className="flex gap-2">
+                          <Input type="email" value={paymentEmailSP} onChange={e => setPaymentEmailSP(e.target.value)} placeholder="tu@correo.com" className="h-8 text-xs flex-1" autoFocus />
+                          <button type="button" onClick={() => setEditingPaymentEmail(false)} className="text-xs text-primary font-medium hover:underline shrink-0">Listo</button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-background border border-border/60">
+                          <span className="text-xs text-foreground truncate">{paymentEmailSP || "Sin correo configurado"}</span>
+                          <button type="button" onClick={() => setEditingPaymentEmail(true)} className="text-[11px] text-primary font-medium hover:underline shrink-0">Cambiar</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="flex items-center justify-between py-3 border-t">
                 <div>
