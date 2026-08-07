@@ -1,16 +1,19 @@
-import { CalendarDays, Check, Settings2, RefreshCcw, ChevronRight } from "lucide-react";
+import { CalendarDays, Check, Settings2, RefreshCcw, ChevronRight, ShieldAlert, X } from "lucide-react";
 import OnboardingWizard from "@/components/crm/OnboardingWizard";
 import SalesTrendCard from "@/components/crm/SalesTrendCard";
 import { getOverdueRenewals, getUpcomingRenewals } from "@/components/crm/RenewalsPanel";
 import { useState, useMemo, useEffect, useRef } from "react";
-import { useContacts, useAppointments, useSales, useBusinessProfile, useUpsertBusinessProfile } from "@/hooks/useCrmData";
+import { useContacts, useAppointments, useSales, useBusinessProfile, useUpsertBusinessProfile, useAdminAlerts, useResolveAdminAlert } from "@/hooks/useCrmData";
 import type { View } from "@/pages/Crm";
 
 const toDateKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
-const CrmOverview = ({ onNavigate }: {
+const CrmOverview = ({ onNavigate, isSuperAdmin }: {
   onNavigate?: (view: View) => void;
+  isSuperAdmin?: boolean;
 }) => {
+  const { data: adminAlerts = [] } = useAdminAlerts();
+  const resolveAlert = useResolveAdminAlert();
   const { data: contacts = [] } = useContacts();
   const { data: appointments = [] } = useAppointments();
   const { data: salesData = [] } = useSales();
@@ -112,6 +115,33 @@ const CrmOverview = ({ onNavigate }: {
           )}
         </div>
       </div>
+
+      {/* ── Alertas administrativas (solo superadmin, nunca visible al cliente SaaS) ── */}
+      {isSuperAdmin && adminAlerts.length > 0 && (
+        <div className="space-y-2">
+          {adminAlerts.map(alert => (
+            <div
+              key={alert.id}
+              className="w-full flex items-start gap-3 px-5 py-3.5 rounded-2xl border border-red-200 bg-red-50"
+            >
+              <div className="w-9 h-9 rounded-xl bg-red-500/15 flex items-center justify-center shrink-0">
+                <ShieldAlert size={16} className="text-red-600" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-red-800">Alerta de sistema</p>
+                <p className="text-xs text-red-600 mt-0.5">{alert.message}</p>
+              </div>
+              <button
+                onClick={() => resolveAlert.mutate(alert.id)}
+                title="Marcar como resuelta"
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-red-500 hover:bg-red-100 transition-colors shrink-0"
+              >
+                <X size={14} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* ── Banner de renovaciones ── */}
       {renewalsCount > 0 && (

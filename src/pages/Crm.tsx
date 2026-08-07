@@ -214,7 +214,7 @@ const Crm = () => {
 
   const renderView = () => {
     switch (view) {
-      case "overview":  return <CrmOverview onNavigate={navigateTo} />;
+      case "overview":  return <CrmOverview onNavigate={navigateTo} isSuperAdmin={effectiveIsAdmin} />;
       case "mi_cuenta": return <CrmMyAccount />;
       case "business":  return (!isStaff || can("mi_negocio_datos","read")) ? <CrmBusiness /> : null;
       case "servicios": return (!isStaff || can("servicios","read")) ? (

@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
+import DateRangePicker, { type DateRange } from "@/components/crm/DateRangePicker";
 
 // ─── Logs Tab ─────────────────────────────────────────────────────────────────
 
@@ -1177,8 +1178,13 @@ const RemindersTab = () => {
 // ─── Tab: Costos IA ──────────────────────────────────────────────────────────
 type UsageRow = {
   user_id: string; business_name: string | null; email: string | null;
+  // Filtrados por el rango de fecha seleccionado:
   total_calls: number; total_input: number; total_output: number;
   total_cache_read: number; total_cache_creation: number; total_cost: number;
+  // Globales — TODO el historial, nunca afectados por el filtro de fecha:
+  revenue_usd: number | null; revenue_has_data: boolean;
+  margin_cost_usd: number; covered_by_admin_usd: number;
+  is_admin_account: boolean;
 };
 
 // Desglose por función (`source`) y operación concreta (`category`)
@@ -1216,21 +1222,40 @@ const costWithoutCache = (r: UsageRow) => {
   return (allInput * 1.0 + Number(r.total_output) * 5.0) / 1_000_000;
 };
 
-// Techo de costo real por negocio al mes. La suscripción es de $10, así que por
-// encima de esto el margen se erosiona.
-const BUDGET_PER_ACCOUNT = 5;
+// Margen = (ingreso TOTAL histórico del cliente − costo TOTAL histórico de IA
+// de esa cuenta) / ingreso. Global a propósito — nunca usa total_cost (que sí
+// respeta el filtro de fecha de la tabla): el margen responde "en toda la
+// relación con este cliente, ¿estoy ganando o perdiendo?", no "¿y esta semana?".
+// Colores: ≥50% verde, 10-50% amarillo, ≤10% (incluye 0 y negativo) rojo.
+// Sin registro de pago → se trata como 0% de margen, en rojo: ese costo de IA
+// no lo está cubriendo ningún cliente, lo está cubriendo Acrosoft directamente.
+// Esto incluye la propia cuenta del admin (Acros Software LLC): no tiene
+// ingreso porque no es un cliente, así que cae en el mismo 0% que cualquier
+// cuenta sin pago — su costo también es dinero real que sale del bolsillo.
+const RED = "bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400";
+function marginInfo(r: UsageRow): { pct: number; label: string; classes: string; noPayment: boolean } {
+  if (!r.revenue_has_data || !r.revenue_usd) {
+    return { pct: 0, label: "0%", classes: RED, noPayment: true };
+  }
+  const pct = ((r.revenue_usd - r.margin_cost_usd) / r.revenue_usd) * 100;
+  if (pct >= 50) return { pct, label: `${pct.toFixed(0)}%`, classes: "bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400", noPayment: false };
+  if (pct >= 10) return { pct, label: `${pct.toFixed(0)}%`, classes: "bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400", noPayment: false };
+  return { pct, label: `${pct.toFixed(0)}%`, classes: RED, noPayment: false };
+}
 
 const IACostosTab = () => {
-  const now = new Date();
-  const [month, setMonth] = useState(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`);
+  const [range, setRange] = useState<DateRange>(() => {
+    const to = new Date();
+    const from = new Date(to.getFullYear(), to.getMonth(), 1);
+    return { from, to };
+  });
   const [rows, setRows] = useState<UsageRow[]>([]);
   const [sourceRows, setSourceRows] = useState<SourceRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const [y, m] = month.split("-").map(Number);
-    const from = new Date(y, m - 1, 1).toISOString();
-    const to = new Date(y, m, 0, 23, 59, 59).toISOString();
+    const from = range.from.toISOString();
+    const to = range.to.toISOString();
     setLoading(true);
     Promise.all([
       supabase.rpc("get_ai_usage_by_account", { p_from: from, p_to: to }),
@@ -1240,70 +1265,69 @@ const IACostosTab = () => {
       if (!bySource.error  && bySource.data)  setSourceRows(bySource.data as SourceRow[]);
       setLoading(false);
     });
-  }, [month]);
+  }, [range]);
 
   const totals = rows.reduce(
     (acc, r) => ({
       calls:       acc.calls       + Number(r.total_calls),
       costReal:    acc.costReal    + Number(r.total_cost),
       costWithout: acc.costWithout + costWithoutCache(r),
+      revenue:     acc.revenue     + (!r.is_admin_account && r.revenue_has_data ? Number(r.revenue_usd) : 0),
+      marginCost:  acc.marginCost  + (!r.is_admin_account && r.revenue_has_data ? r.margin_cost_usd : 0),
+      // covered_by_admin_usd es global (histórico completo), sin filtrar por
+      // fecha. Incluye la propia cuenta del admin (Acros): no es un cliente
+      // subsidiado, pero sigue siendo dinero real que sale de su bolsillo.
+      coveredByMe: acc.coveredByMe + Number(r.covered_by_admin_usd),
     }),
-    { calls: 0, costReal: 0, costWithout: 0 }
+    { calls: 0, costReal: 0, costWithout: 0, revenue: 0, marginCost: 0, coveredByMe: 0 }
   );
   const totalSaved   = totals.costWithout - totals.costReal;
   const totalSavedPct = totals.costWithout > 0 ? (totalSaved / totals.costWithout) * 100 : 0;
+  // Global, igual que por fila: usa el costo histórico total (marginCost), no
+  // el costo filtrado por fecha (costReal).
+  const totalMarginPct = totals.revenue > 0 ? ((totals.revenue - totals.marginCost) / totals.revenue) * 100 : null;
 
   const fmtUsd  = (n: number) => `$${n.toFixed(4)}`;
   const fmtPct  = (n: number) => `${n.toFixed(1)}%`;
 
-  // Proyección a fin de mes: solo tiene sentido para el mes en curso, donde los
-  // días transcurridos son una muestra parcial. En meses cerrados el total es final.
-  const [selY, selM] = month.split("-").map(Number);
-  const isCurrentMonth = selY === now.getFullYear() && selM === now.getMonth() + 1;
-  const daysInMonth = new Date(selY, selM, 0).getDate();
-  const daysElapsed = isCurrentMonth ? now.getDate() : daysInMonth;
-  const project = (cost: number) => (cost / daysElapsed) * daysInMonth;
-
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h3 className="font-semibold">Costos de IA por cuenta</h3>
-        <input
-          type="month"
-          value={month}
-          onChange={e => setMonth(e.target.value)}
-          className="border rounded-md px-3 py-1.5 text-sm bg-background"
-        />
+        <DateRangePicker value={range} onChange={setRange} />
       </div>
 
       {/* KPI cards resumen */}
       {!loading && rows.length > 0 && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <div className="border rounded-xl p-4">
-            <p className="text-xs text-muted-foreground mb-1">Llamadas totales</p>
+            <p className="text-xs text-muted-foreground mb-1">Llamadas <span className="opacity-60">(filtro)</span></p>
             <p className="text-xl font-semibold">{totals.calls.toLocaleString("es-MX")}</p>
           </div>
           <div className="border rounded-xl p-4">
-            <p className="text-xs text-muted-foreground mb-1">Costo real</p>
+            <p className="text-xs text-muted-foreground mb-1">Costo real <span className="opacity-60">(filtro)</span></p>
             <p className="text-xl font-semibold">{fmtUsd(totals.costReal)}</p>
           </div>
-          <div className="border rounded-xl p-4 border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10">
-            <p className="text-xs text-muted-foreground mb-1">Ahorro por caching</p>
-            <p className="text-xl font-semibold text-emerald-600">{fmtUsd(totalSaved)}</p>
+          <div className="border rounded-xl p-4">
+            <p className="text-xs text-muted-foreground mb-1">Ingreso <span className="opacity-60">(global)</span></p>
+            <p className="text-xl font-semibold">{fmtUsd(totals.revenue)}</p>
           </div>
-          {(() => {
-            const over = rows.filter(r => project(Number(r.total_cost)) > BUDGET_PER_ACCOUNT).length;
-            return (
-              <div className={`border rounded-xl p-4 ${over > 0
-                ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10"
-                : "border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10"}`}>
-                <p className="text-xs text-muted-foreground mb-1">Cuentas sobre ${BUDGET_PER_ACCOUNT}/mes</p>
-                <p className={`text-xl font-semibold ${over > 0 ? "text-red-600" : "text-emerald-600"}`}>
-                  {over} <span className="text-sm font-normal text-muted-foreground">de {rows.length}</span>
-                </p>
-              </div>
-            );
-          })()}
+          <div className={`border rounded-xl p-4 ${totalMarginPct === null ? "" :
+            totalMarginPct >= 50 ? "border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10" :
+            totalMarginPct >= 10 ? "border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-900/10" :
+            "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10"}`}>
+            <p className="text-xs text-muted-foreground mb-1">Margen <span className="opacity-60">(global)</span></p>
+            <p className={`text-xl font-semibold ${totalMarginPct === null ? "text-muted-foreground" :
+              totalMarginPct >= 50 ? "text-emerald-600" : totalMarginPct >= 10 ? "text-amber-600" : "text-red-600"}`}>
+              {totalMarginPct === null ? "—" : fmtPct(totalMarginPct)}
+            </p>
+          </div>
+          <div className={`border rounded-xl p-4 ${totals.coveredByMe > 0 ? "border-red-200 dark:border-red-800 bg-red-50/50 dark:bg-red-900/10" : "border-emerald-200 dark:border-emerald-800 bg-emerald-50/50 dark:bg-emerald-900/10"}`}>
+            <p className="text-xs text-muted-foreground mb-1">Lo cubres tú <span className="opacity-60">(global)</span></p>
+            <p className={`text-xl font-semibold ${totals.coveredByMe > 0 ? "text-red-600" : "text-emerald-600"}`}>
+              {fmtUsd(totals.coveredByMe)}
+            </p>
+          </div>
         </div>
       )}
 
@@ -1312,48 +1336,54 @@ const IACostosTab = () => {
           <Loader2 className="w-4 h-4 animate-spin" /> Cargando...
         </div>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground text-center py-8">Sin datos para este mes.</p>
+        <p className="text-sm text-muted-foreground text-center py-8">Sin datos para este rango de fechas.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border">
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
+                <th className="text-left px-3 py-1 font-medium" colSpan={2} />
+                <th className="text-center px-3 py-1 font-semibold text-[10px] uppercase tracking-wide text-muted-foreground border-l-2 border-border" colSpan={2}>
+                  Global — todo el historial
+                </th>
+                <th className="text-center px-3 py-1 font-semibold text-[10px] uppercase tracking-wide text-muted-foreground border-l-2 border-border" colSpan={3}>
+                  Filtrado por fecha
+                </th>
+              </tr>
+              <tr>
                 <th className="text-left px-3 py-2 font-medium">Negocio</th>
                 <th className="text-left px-3 py-2 font-medium">Email</th>
-                <th className="text-right px-3 py-2 font-medium">Llamadas</th>
+                <th className="text-right px-3 py-2 font-medium border-l-2 border-border">Ingreso (USD)</th>
+                <th className="text-right px-3 py-2 font-medium">Margen</th>
+                <th className="text-right px-3 py-2 font-medium border-l-2 border-border">Llamadas</th>
                 <th className="text-right px-3 py-2 font-medium">Costo real</th>
-                <th className="text-right px-3 py-2 font-medium">{isCurrentMonth ? "Proyección mes" : "—"}</th>
-                <th className="text-right px-3 py-2 font-medium">Margen s/ $10</th>
                 <th className="text-right px-3 py-2 font-medium text-emerald-600">Ahorro caché</th>
               </tr>
             </thead>
             <tbody className="divide-y">
               {rows.map(r => {
-                const cost      = Number(r.total_cost);
-                const without   = costWithoutCache(r);
-                const saved     = without - cost;
-                const projected = project(cost);
-                const overBudget = projected > BUDGET_PER_ACCOUNT;
+                const cost    = Number(r.total_cost);
+                const without = costWithoutCache(r);
+                const saved   = without - cost;
+                const margin  = marginInfo(r);
                 return (
-                  <tr key={r.user_id} className={overBudget ? "bg-red-50/50 dark:bg-red-900/10" : "hover:bg-muted/30"}>
-                    <td className="px-3 py-2 font-medium">{r.business_name ?? <span className="text-muted-foreground italic">Sin nombre</span>}</td>
+                  <tr key={r.user_id} className={margin.pct < 10 ? "bg-red-50/50 dark:bg-red-900/10" : "hover:bg-muted/30"}>
+                    <td className="px-3 py-2 font-medium">
+                      {r.business_name ?? <span className="text-muted-foreground italic">Sin nombre</span>}
+                      {r.is_admin_account && <span className="ml-1.5 text-[10px] font-normal text-muted-foreground">(tú)</span>}
+                    </td>
                     <td className="px-3 py-2 text-muted-foreground text-xs">{r.email ?? "—"}</td>
-                    <td className="px-3 py-2 text-right">{Number(r.total_calls).toLocaleString("es-MX")}</td>
-                    <td className="px-3 py-2 text-right font-medium">{fmtUsd(cost)}</td>
-                    <td className="px-3 py-2 text-right">
-                      {isCurrentMonth
-                        ? <span className={overBudget ? "font-semibold text-red-600" : "text-muted-foreground"}>
-                            {fmtUsd(projected)}
-                          </span>
-                        : <span className="text-muted-foreground">—</span>}
+                    <td className="px-3 py-2 text-right border-l-2 border-border">
+                      {r.revenue_has_data ? fmtUsd(Number(r.revenue_usd)) : <span className="text-muted-foreground">—</span>}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <span className={overBudget
-                        ? "inline-block bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 text-xs font-semibold px-1.5 py-0.5 rounded-full"
-                        : "inline-block bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 text-xs font-semibold px-1.5 py-0.5 rounded-full"}>
-                        ${(10 - projected).toFixed(2)}
+                      <span className={`inline-block text-xs font-semibold px-1.5 py-0.5 rounded-full ${margin.classes}`}>
+                        {margin.label}
                       </span>
+                      {margin.noPayment && <p className="text-[10px] text-red-500 mt-0.5">lo cubres tú</p>}
                     </td>
+                    <td className="px-3 py-2 text-right border-l-2 border-border">{Number(r.total_calls).toLocaleString("es-MX")}</td>
+                    <td className="px-3 py-2 text-right font-medium">{fmtUsd(cost)}</td>
                     <td className="px-3 py-2 text-right font-semibold text-emerald-600">{saved > 0 ? fmtUsd(saved) : "—"}</td>
                   </tr>
                 );
@@ -1362,12 +1392,12 @@ const IACostosTab = () => {
             <tfoot className="bg-muted/50 font-semibold border-t-2">
               <tr>
                 <td className="px-3 py-2" colSpan={2}>Total</td>
-                <td className="px-3 py-2 text-right">{totals.calls.toLocaleString("es-MX")}</td>
-                <td className="px-3 py-2 text-right">{fmtUsd(totals.costReal)}</td>
-                <td className="px-3 py-2 text-right text-muted-foreground">
-                  {isCurrentMonth ? fmtUsd(project(totals.costReal)) : "—"}
+                <td className="px-3 py-2 text-right border-l-2 border-border">{fmtUsd(totals.revenue)}</td>
+                <td className="px-3 py-2 text-right">
+                  {totalMarginPct === null ? "—" : fmtPct(totalMarginPct)}
                 </td>
-                <td className="px-3 py-2" />
+                <td className="px-3 py-2 text-right border-l-2 border-border">{totals.calls.toLocaleString("es-MX")}</td>
+                <td className="px-3 py-2 text-right">{fmtUsd(totals.costReal)}</td>
                 <td className="px-3 py-2 text-right text-emerald-600">
                   {fmtUsd(totalSaved)} <span className="font-normal">({fmtPct(totalSavedPct)})</span>
                 </td>
@@ -1457,6 +1487,8 @@ const IACostosTab = () => {
 
       <p className="text-xs text-muted-foreground">
         "Sin caching" = costo hipotético si todos los tokens se cobraran al precio normal ($1.00/M entrada). El ahorro refleja el beneficio real del prompt caching.
+        <br />
+"Ingreso" y "Margen" son globales: suman TODOS los pagos históricos del negocio (crm_sales, convertidos a USD con crm_fx_rates) contra su costo de IA histórico completo — el filtro de fecha de arriba nunca los afecta. Solo "Llamadas", "Costo real" y "Ahorro caché" respetan el filtro. Sin registro de pago = margen 0% en rojo, y ese costo cuenta en "Lo cubres tú". "Acros Software LLC (tú)" es tu propia cuenta — no tiene margen aplicable (no eres tu propio cliente), pero su costo de IA sí suma en "Lo cubres tú": sigue siendo gasto real tuyo.
       </p>
     </div>
   );

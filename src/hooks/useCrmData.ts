@@ -1787,6 +1787,50 @@ export const useAdminUnreadCount = () => {
   });
 };
 
+export type AdminAlert = {
+  id: string;
+  type: string;
+  user_id: string | null;
+  message: string;
+  metadata: Record<string, unknown> | null;
+  created_at: string;
+};
+
+// Alertas administrativas persistentes (ej. relleno de caché insuficiente para
+// un tenant). RLS ya restringe la lectura al superadmin — `enabled` evita la
+// llamada de red para todos los demás roles.
+export const useAdminAlerts = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["admin_alerts"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_admin_alerts")
+        .select("id, type, user_id, message, metadata, created_at")
+        .is("resolved_at", null)
+        .order("created_at", { ascending: false });
+      if (error) return [];
+      return data as AdminAlert[];
+    },
+    enabled: !!user && user.email === ACROSOFT_ADMIN_EMAIL,
+    refetchInterval: 60_000,
+  });
+};
+
+export const useResolveAdminAlert = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase
+        .from("crm_admin_alerts")
+        .update({ resolved_at: new Date().toISOString() })
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["admin_alerts"] }),
+  });
+};
+
 export const useMarkSalePaid = () => {
   const qc = useQueryClient();
   return useMutation({

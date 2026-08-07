@@ -2103,6 +2103,102 @@ async function buildProductImagesInstruction(config: AgentConfig): Promise<strin
   return lines.join("\n");
 }
 
+// ─── Relleno de caché — garantiza que TODO tenant cruce el umbral de caché ────
+// Haiku 4.5 solo cachea bloques de ≥4.096 tokens (medido, no aproximado — la API
+// no cobra menos por prefijos más cortos, simplemente no los cachea). Un negocio
+// con poco contenido propio (prompt corto, sin catálogo) queda por debajo y paga
+// precio completo en cada mensaje, para siempre, sin importar cuántas veces se
+// repita la conversación.
+//
+// En vez de engordar un bloque compartido por todos (lo que penalizaría a los
+// tenants que YA cruzan el umbral con lo suyo) o exigirle al negocio que escriba
+// más, este mecanismo mide el bloque estable de CADA tenant ya armado y, solo si
+// no llega al margen de seguridad, le agrega módulos de buenas prácticas de venta
+// — contenido real, no relleno vacío — hasta cruzarlo. A un tenant que ya cruza
+// por su cuenta no se le agrega nada.
+//
+// El margen (4.500 en vez de 4.096) absorbe el error de la conversión
+// caracteres→tokens: calibrado con mediciones reales de la API (Barón Group,
+// ~3.05 chars/token en español), pero puede variar unos puntos porcentuales
+// según el contenido de cada negocio (emojis, mezcla de idiomas, etc.).
+const CACHE_SAFETY_MARGIN_TOKENS = 4500;
+const CHARS_PER_TOKEN_ES = 3.05;
+const MIN_STABLE_CHARS = Math.ceil(CACHE_SAFETY_MARGIN_TOKENS * CHARS_PER_TOKEN_ES);
+
+// Módulos independientes, en orden de prioridad. Cada uno es contenido genuino
+// de buenas prácticas para un agente de ventas por WhatsApp — ninguno repite lo
+// que ya cubren las REGLAS GLOBALES (identidad humana, formato, audio). Se van
+// agregando uno a uno hasta cruzar MIN_STABLE_CHARS; a un tenant que necesita
+// poco relleno solo le toca el primero.
+const CACHE_FILLER_MODULES: string[] = [
+  `\n\nMANEJO DE MENSAJES AMBIGUOS: Cuando el mensaje del cliente es ambiguo, corto o no queda claro qué pregunta (un emoji, "?", "ok", "cuánto"), no asumas ni sueltes toda la información de una vez. Responde con una pregunta breve que aclare la intención, o retoma el hilo de la conversación anterior si el contexto ya lo sugiere. Evita pedir aclaraciones sobre algo que ya es obvio por el contexto previo — genera fricción innecesaria.`,
+  `\n\nVARIAS PREGUNTAS EN UN MENSAJE: Si el cliente hace varias preguntas juntas, respóndelas todas, pero organizadas: no las mezcles en un párrafo denso. Si son muchas, prioriza las 2-3 más relevantes para avanzar la conversación y deja las secundarias para un segundo mensaje breve. No ignores ninguna pregunta explícita, aunque no te parezca la más importante.`,
+  `\n\nCUANDO NO TIENES LA INFORMACIÓN: Si el cliente pregunta algo que no puedes responder con certeza porque no está en tu configuración, nunca inventes ni improvises un dato — precio, plazo, disponibilidad, política. Es preferible decir con naturalidad que vas a confirmar esa información, o derivar a alguien del equipo, que arriesgarte a un dato incorrecto que después genere un problema con el cliente.`,
+  `\n\nRITMO DE LA CONVERSACIÓN: No apresures el cierre si el cliente todavía está conociendo el producto o servicio. Si ya mostró señales claras de decisión (pregunta cómo pagar, pide confirmar, dice que quiere avanzar), no lo hagas retroceder repitiendo información que ya tiene — avanza directo a confirmar los datos para cerrar.`,
+  `\n\nCONSISTENCIA ENTRE MENSAJES: No contradigas en un mensaje algo que ya afirmaste antes en la misma conversación. Si el cliente vuelve a preguntar algo que ya respondiste, no lo hagas notar ni te frustres — respóndelo de nuevo con naturalidad, como lo haría una persona real.`,
+  `\n\nCLIENTES MOLESTOS O CON RECLAMOS: Si el cliente muestra frustración o hace un reclamo sobre un pedido ya entregado, no minimices su molestia ni te pongas a la defensiva. Reconoce el problema con empatía genuina, y si no puedes resolverlo tú, sé claro en que lo vas a escalar al equipo humano — no lo dejes sin una respuesta concreta sobre qué sigue.`,
+  `\n\nPACIENCIA Y CLARIDAD: Responde siempre con calma, incluso si el cliente repite preguntas, escribe con errores, o tarda en decidirse. No apures al cliente ni le des a entender que está tardando demasiado. La claridad es más importante que la brevedad cuando hay un dato importante que comunicar (precio, condiciones, pasos a seguir).`,
+  `\n\nEVITA SONAR ROBÓTICO: No repitas exactamente las mismas frases de apertura o cierre en cada mensaje. Varía la forma de saludar y de continuar la conversación, como lo haría una persona real que ya lleva un rato hablando con el cliente.`,
+  `\n\nSEÑALES DE COMPRA: Presta atención a frases que indican decisión de compra aunque no sean explícitas ("me interesa", "cómo hago para conseguirlo", "y el envío cómo es"). Ante estas señales, avanza hacia confirmar los datos necesarios en vez de seguir dando información general que el cliente ya no necesita.`,
+  `\n\nERRORES DE ESCRITURA DEL CLIENTE: No corrijas ni comentes errores ortográficos o de tipeo del cliente. Interpreta la intención del mensaje aunque tenga errores, abreviaciones o falte de tildes — es normal en WhatsApp y no amerita ningún comentario.`,
+  `\n\nSEGUIMIENTO DE CONVERSACIONES PAUSADAS: Si el cliente deja de responder a mitad de una conversación y retoma el contacto después de un tiempo, no repitas todo desde cero — continúa naturalmente desde donde quedó, como lo haría alguien que recuerda la conversación anterior.`,
+  `\n\nTRANSPARENCIA SOBRE LÍMITES: Si el cliente pide algo que está fuera de lo que puedes resolver por este medio, sé claro y directo sobre esa limitación en vez de dar vueltas o prometer algo que no vas a poder cumplir.`,
+  `\n\nMANEJO DE SILENCIOS: Si pasó tiempo desde el último mensaje del cliente y no respondió a una pregunta directa, no la repitas exactamente igual al retomar — reformúlala o da un empujón suave, sin sonar insistente.`,
+  `\n\nEVITAR TECNICISMOS INTERNOS: Nunca uses términos de sistema, configuración o jerga interna del negocio al hablar con el cliente. Todo debe sonar como lo diría una persona explicándolo con sus propias palabras, no como quien lee de una base de datos.`,
+  `\n\nCONFIRMAR ANTES DE CERRAR: Antes de dar por cerrado un pedido o una cita, confirma por escrito los datos clave — qué, cuánto, cuándo, cómo — para que el cliente pueda corregir algo si hay un malentendido antes de que sea tarde.`,
+  `\n\nRESPETAR LA DECISIÓN DEL CLIENTE: Si el cliente dice explícitamente que no le interesa o que no va a comprar, no insistas ni cambies de tema para intentar retenerlo. Agradece con naturalidad y deja la puerta abierta para el futuro, sin presionar.`,
+  `\n\nUSO MODERADO DE MAYÚSCULAS Y SIGNOS: Evita escribir en mayúsculas sostenidas o con múltiples signos de exclamación seguidos — se lee como si estuvieras gritando. Usa un tono natural de conversación escrita.`,
+  `\n\nPRIORIZAR CLARIDAD SOBRE VELOCIDAD: No sacrifiques claridad por responder rápido. Es mejor usar un mensaje más para explicar bien algo importante, que resumir tanto que el cliente se quede con dudas.`,
+  `\n\nNO REPETIR SALUDOS INNECESARIOS: Si ya llevas varios mensajes en la misma conversación, no vuelvas a saludar como si fuera la primera vez. Continúa el hilo natural de la conversación.`,
+  `\n\nADAPTARSE AL TONO DEL CLIENTE: Si el cliente escribe de forma muy formal, ajusta un poco tu formalidad; si escribe relajado y con emojis, puedes ser un poco más distendido también — sin perder profesionalismo ni la esencia definida para este negocio.`,
+  `\n\nNO PROMETER TIEMPOS QUE NO CONTROLAS: Evita comprometerte con plazos exactos ("en 10 minutos", "hoy mismo") a menos que esa información esté explícitamente configurada. Usa expresiones honestas como "a la brevedad" o "en cuanto lo confirme el equipo" cuando no tengas el dato exacto.`,
+  `\n\nRECONOCER CUANDO EL CLIENTE YA DECIDIÓ EL MEDIO DE PAGO: Si el cliente ya mencionó cómo quiere pagar, no vuelvas a preguntarle ni le repitas todas las opciones disponibles — continúa directamente con los pasos para ese método específico.`,
+  `\n\nMANEJO DE COMPARACIONES CON LA COMPETENCIA: Si el cliente menciona que vio algo similar en otro lado o a otro precio, no hables mal de la competencia ni te pongas a la defensiva. Enfócate en el valor concreto de lo que ofrece este negocio, con seguridad y sin necesidad de desacreditar a nadie.`,
+  `\n\nCUIDADO CON LA REPETICIÓN DE EMOJIS: Usa emojis con moderación y variedad — repetir siempre el mismo emoji o encadenar varios seguidos resta naturalidad. Un emoji bien puesto vale más que varios juntos.`,
+];
+
+function applyCacheFiller(stableContent: string): { text: string; insufficient: boolean } {
+  if (stableContent.length >= MIN_STABLE_CHARS) return { text: stableContent, insufficient: false };
+  let result = stableContent;
+  for (const module of CACHE_FILLER_MODULES) {
+    if (result.length >= MIN_STABLE_CHARS) break;
+    result += module;
+  }
+  // Caso extremo: un tenant tan vacío (sin prompt ni catálogo) que ni siquiera
+  // todos los módulos alcanzan. No es un problema del negocio — es que hacen
+  // falta más módulos de relleno — así que se avisa al superadmin, nunca al
+  // cliente SaaS, y nunca bloquea ni degrada la respuesta al cliente.
+  return { text: result, insufficient: result.length < MIN_STABLE_CHARS };
+}
+
+// Alerta persistente para el superadmin — nunca visible para el cliente SaaS.
+// Fire-and-forget: no debe añadir latencia a la respuesta del agente. Dedupe
+// simple: no crea una segunda alerta del mismo tipo para el mismo tenant si ya
+// hay una sin resolver.
+function notifyInsufficientFiller(userId: string, currentChars: number): void {
+  supabase
+    .from("crm_admin_alerts")
+    .select("id")
+    .eq("type", "cache_filler_insufficient")
+    .eq("user_id", userId)
+    .is("resolved_at", null)
+    .limit(1)
+    .maybeSingle()
+    .then(({ data: existing }) => {
+      if (existing) return Promise.resolve();
+      return supabase.from("crm_admin_alerts").insert({
+        type: "cache_filler_insufficient",
+        user_id: userId,
+        message: `El relleno de caché no alcanza para este negocio: ${currentChars}/${MIN_STABLE_CHARS} caracteres incluso con todos los módulos agregados. Agrega más módulos en CACHE_FILLER_MODULES o revisa por qué el prompt de este tenant es tan corto.`,
+        metadata: { current_chars: currentChars, target_chars: MIN_STABLE_CHARS },
+      }).then(() => {});
+    })
+    .then(
+      () => {},
+      (e: unknown) => console.error("[ai-agent] error registrando alerta de relleno insuficiente:", e),
+    );
+}
+
 // ─── Compilar system prompt con variables dinámicas ───────────────────────────
 // El prompt se devuelve partido en dos bloques para aprovechar el prompt caching:
 //   · stable   — idéntico para todos los contactos del tenant (con la misma moneda).
@@ -2430,7 +2526,7 @@ REGLAS:
   // BLOQUE ESTABLE — sin datos del contacto, para que se cachee una sola vez por
   // tenant. {{contacto.nombre}} se neutraliza aquí y el nombre real viaja en el
   // bloque volátil de abajo.
-  const stable = base
+  const stableRaw = base
     .replace(/\{\{negocio\.nombre\}\}/g, business?.business_name ?? "el negocio")
     .replace(/\{\{negocio\.descripcion\}\}/g, business?.description ?? "")
     .replace(/\{\{negocio\.servicios\}\}/g, servicesList)
@@ -2445,6 +2541,15 @@ REGLAS:
     + salesPatternInstruction
     + labelInstruction;
 
+  const fillerResult = applyCacheFiller(stableRaw);
+  const stable = fillerResult.text;
+  if (stable.length !== stableRaw.length) {
+    console.log(`[ai-agent] relleno de caché aplicado para user_id:${config.user_id} — ${stableRaw.length}→${stable.length} chars (~${Math.round(stableRaw.length / CHARS_PER_TOKEN_ES)}→~${Math.round(stable.length / CHARS_PER_TOKEN_ES)} tokens est.)`);
+  }
+  if (fillerResult.insufficient) {
+    notifyInsufficientFiller(config.user_id, stable.length);
+  }
+
   // BLOQUE VOLÁTIL — específico de este contacto y momento.
   const volatile = (contactName ? `\n\nEl cliente de esta conversación se llama ${contactName}.` : "")
     + paymentInstruction
@@ -2454,7 +2559,7 @@ REGLAS:
   // Cada carácter del bloque estable se paga en cada mensaje (lectura de caché) y
   // en cada reescritura. Por encima de ~20k chars el costo mensual del tenant se
   // dispara, así que se registra el desglose para poder ver qué sección engorda.
-  if (stable.length > 20000) console.warn("[ai-agent] prompt grande:", JSON.stringify({
+  if (stableRaw.length > 20000) console.warn("[ai-agent] prompt grande:", JSON.stringify({
     base: base.length,
     globalRules: globalRules.length,
     catalogo: catalogInstruction.length,
@@ -2463,7 +2568,7 @@ REGLAS:
     patronVentas: salesPatternInstruction.length,
     moneda: currencyNote.length,
     transferir: transferInstruction.length,
-    TOTAL_estable: stable.length,
+    TOTAL_estable: stableRaw.length,
     pagos: paymentInstruction.length,
     agenda: schedulingInstruction.length,
     eventos: systemEventsInstruction.length,
