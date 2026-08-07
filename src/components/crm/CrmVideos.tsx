@@ -268,14 +268,14 @@ const VideoUploadRow = ({
             placeholder="Título del video *"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="h-9 text-sm"
+            className="h-9 text-base md:text-sm"
             disabled={uploading}
           />
           <Input
             placeholder="Descripción (opcional)"
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            className="h-9 text-sm"
+            className="h-9 text-base md:text-sm"
             disabled={uploading}
           />
         </div>
@@ -446,8 +446,8 @@ const EditVideoPanel = ({
               onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }} />
           </div>
           <div className="flex-1 space-y-2">
-            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Título *" className="h-9 text-sm" disabled={uploading} />
-            <Input value={description} onChange={(e) => setDesc(e.target.value)} placeholder="Descripción (opcional)" className="h-9 text-sm" disabled={uploading} />
+            <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Título *" className="h-9 text-base md:text-sm" disabled={uploading} />
+            <Input value={description} onChange={(e) => setDesc(e.target.value)} placeholder="Descripción (opcional)" className="h-9 text-base md:text-sm" disabled={uploading} />
           </div>
         </div>
 
@@ -793,7 +793,7 @@ const ModuleEditor = ({
               <Input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                className="h-8 text-sm flex-1 font-semibold"
+                className="h-8 text-base md:text-sm flex-1 font-semibold"
                 autoFocus
                 onKeyDown={(e) => { if (e.key === "Enter") saveTitle(); if (e.key === "Escape") cancelEdit(); }}
               />
@@ -986,7 +986,7 @@ const AccessControl = ({
                 value={emailInput}
                 onChange={(e) => setEmailInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && addEmail()}
-                className="h-9 text-sm"
+                className="h-9 text-base md:text-sm"
               />
               <Button variant="outline" size="sm" onClick={addEmail} className="h-9 shrink-0">
                 Agregar
@@ -1294,7 +1294,7 @@ const AdminCourseEditor = ({
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Ej: Marketing Digital Avanzado"
-                  className="h-10 text-sm"
+                  className="h-10 text-base md:text-sm"
                 />
               </div>
               <div className="space-y-1.5 flex-1">
@@ -1303,7 +1303,7 @@ const AdminCourseEditor = ({
                   value={description}
                   onChange={(e) => setDesc(e.target.value)}
                   placeholder="Describe de qué trata el curso..."
-                  className="w-full h-full min-h-[80px] border border-input rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none bg-background"
+                  className="w-full h-full min-h-[80px] border border-input rounded-xl px-3 py-2.5 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-ring resize-none bg-background"
                 />
               </div>
             </div>
@@ -1352,7 +1352,7 @@ const AdminCourseEditor = ({
                 value={newModuleTitle}
                 onChange={(e) => setNewModuleTitle(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") handleAddModule(); if (e.key === "Escape") { setNewModuleTitle(""); setAddingModule(false); } }}
-                className="h-9 text-sm"
+                className="h-9 text-base md:text-sm"
               />
               <Button size="sm" onClick={handleAddModule} className="h-9 shrink-0" style={{ backgroundColor: ACROSOFT_BLUE }}>
                 <Check size={14} />

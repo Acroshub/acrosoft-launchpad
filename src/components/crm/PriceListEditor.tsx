@@ -45,7 +45,7 @@ function PriceInput({
         onKeyDown={onKeyDown}
         placeholder={placeholder}
         autoFocus={autoFocus}
-        className="flex-1 h-full bg-transparent text-sm outline-none px-2.5 min-w-0"
+        className="flex-1 h-full bg-transparent text-base md:text-sm outline-none px-2.5 min-w-0"
       />
     </div>
   );
@@ -129,7 +129,7 @@ export default function PriceListEditor({ value, onChange, baseCurrency }: Props
                 onChange={e => handleUpdateDiscount(idx, e.target.value)}
                 placeholder="0%"
                 title="Descuento para esta moneda (%)"
-                className="w-full h-8 pl-6 pr-5 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                className="w-full h-8 pl-6 pr-5 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
               />
               <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">%</span>
             </div>
@@ -157,7 +157,7 @@ export default function PriceListEditor({ value, onChange, baseCurrency }: Props
           <select
             value={addCur}
             onChange={e => setAddCur(e.target.value)}
-            className="w-full h-8 pl-2 pr-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all cursor-pointer"
+            className="w-full h-8 pl-2 pr-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all cursor-pointer"
             autoFocus
           >
             <option value="">Selecciona una moneda…</option>
@@ -189,7 +189,7 @@ export default function PriceListEditor({ value, onChange, baseCurrency }: Props
                 onChange={e => setAddDiscount(e.target.value)}
                 placeholder="Descuento"
                 title="Descuento (%)"
-                className="w-full h-8 pl-6 pr-6 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                className="w-full h-8 pl-6 pr-6 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
               />
               <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground pointer-events-none">%</span>
             </div>

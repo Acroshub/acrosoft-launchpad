@@ -366,7 +366,7 @@ export function QuoteForm() {
 
   const inputCls = {
     width: "100%", border: `1px solid ${C.border}`, borderRadius: 6,
-    padding: "11px 14px", fontSize: 14, color: C.text, outline: "none",
+    padding: "11px 14px", fontSize: 16, color: C.text, outline: "none",
     background: C.white, transition: "border-color 150ms",
   };
 

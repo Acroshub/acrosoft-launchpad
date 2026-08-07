@@ -106,7 +106,7 @@ const IdentifierField = ({
                 }}
                 disabled={saving}
                 placeholder={placeholder}
-                className="h-7 text-xs flex-1 bg-background"
+                className="h-7 text-base md:text-xs flex-1 bg-background"
               />
             )}
           </div>
@@ -223,7 +223,7 @@ const ContactNotesThread = ({ contactId, canEdit }: { contactId: string; canEdit
                       if (e.key === "Escape") setEditingId(null);
                     }}
                     rows={2}
-                    className="text-xs resize-none bg-background"
+                    className="text-base md:text-xs resize-none bg-background"
                   />
                   <div className="flex items-center gap-1.5">
                     <Button size="sm" className="h-6 text-[11px] px-2" onClick={commitEdit} disabled={!editBody.trim() || updateNote.isPending}>
@@ -272,7 +272,7 @@ const ContactNotesThread = ({ contactId, canEdit }: { contactId: string; canEdit
             }}
             rows={2}
             placeholder="Escribe una nota… (Cmd+Enter para guardar)"
-            className="text-xs resize-none"
+            className="text-base md:text-xs resize-none"
           />
           <Button
             size="sm"
@@ -543,14 +543,14 @@ const FormDataPanel = ({
                               value={editValues[f.id] ?? ""}
                               onChange={(e) => setEditValues((p) => ({ ...p, [f.id]: e.target.value }))}
                               placeholder={f.placeholder ?? ""}
-                              className="flex w-full rounded-md border border-input bg-background px-3 py-1.5 text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none min-h-[60px]"
+                              className="flex w-full rounded-md border border-input bg-background px-3 py-1.5 text-base md:text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none min-h-[60px]"
                             />
                           ) : (
                             <Input
                               value={editValues[f.id] ?? ""}
                               onChange={(e) => setEditValues((p) => ({ ...p, [f.id]: e.target.value }))}
                               placeholder={f.placeholder ?? ""}
-                              className="h-7 text-xs"
+                              className="h-7 text-base md:text-xs"
                             />
                           )}
                         </div>
@@ -712,7 +712,7 @@ const MergeContactDialog = ({
                 placeholder="Nombre, email o teléfono..."
                 value={mergeSearch}
                 onChange={(e) => { setMergeSearch(e.target.value); setMergeSelected(null); }}
-                className="pl-9 h-9 text-xs"
+                className="pl-9 h-9 text-base md:text-xs"
               />
             </div>
             {mergeSearch && (
@@ -1261,7 +1261,7 @@ const ImportWizard = ({ open, onOpenChange, existingContacts }: ImportWizardProp
                         <select
                           value={mapping[header] ?? "__custom"}
                           onChange={(e) => setMapping((m) => ({ ...m, [header]: e.target.value }))}
-                          className="w-full h-8 rounded-lg border bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                          className="w-full h-8 rounded-lg border bg-background text-base md:text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary"
                         >
                           {SYSTEM_FIELD_OPTIONS.map((o) => (
                             <option key={o.value} value={o.value}>{o.label}</option>
@@ -1272,7 +1272,7 @@ const ImportWizard = ({ open, onOpenChange, existingContacts }: ImportWizardProp
                             placeholder="Nombre del campo personalizado"
                             value={customLabels[header] ?? header}
                             onChange={(e) => setCustomLabels((l) => ({ ...l, [header]: e.target.value }))}
-                            className="h-7 text-xs"
+                            className="h-7 text-base md:text-xs"
                           />
                         )}
                       </td>
@@ -1658,7 +1658,7 @@ const SaasActivationModal = ({
           <select
             value={planId}
             onChange={(e) => setPlanId(e.target.value)}
-            className="w-full h-9 rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="w-full h-9 rounded-xl border bg-background px-3 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
           >
             <option value="">Sin plan específico</option>
             {saasServices.map((s) => (
@@ -1672,7 +1672,7 @@ const SaasActivationModal = ({
             type="date"
             value={startsAt}
             onChange={(e) => setStartsAt(e.target.value)}
-            className="w-full h-9 rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="w-full h-9 rounded-xl border bg-background px-3 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
         <div className="space-y-1.5">
@@ -1692,7 +1692,7 @@ const SaasActivationModal = ({
               value={expiresAt}
               onChange={(e) => setExpiresAt(e.target.value)}
               min={startsAt}
-              className="w-full h-9 rounded-xl border bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full h-9 rounded-xl border bg-background px-3 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           )}
         </div>
@@ -1703,7 +1703,7 @@ const SaasActivationModal = ({
             onChange={(e) => setNotes(e.target.value)}
             placeholder="Notas visibles solo para el admin..."
             rows={3}
-            className="w-full rounded-xl border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="w-full rounded-xl border bg-background px-3 py-2 text-base md:text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
       </div>
@@ -2128,7 +2128,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                             if (e.key === "Enter") handleSaveName(detail.id, nameVal);
                             if (e.key === "Escape") setEditingName(false);
                           }}
-                          className="h-8 text-sm font-bold flex-1"
+                          className="h-8 text-base md:text-sm font-bold flex-1"
                         />
                       </div>
                     ) : (
@@ -2191,7 +2191,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                     <div className="flex items-center gap-2 mt-2">
                       <Input autoFocus value={tagValue} onChange={(e) => setTagValue(e.target.value)}
                         onKeyDown={(e) => { if (e.key === "Enter") addTag(detail.id); if (e.key === "Escape") setTagInputId(null); }}
-                        onBlur={() => setTimeout(() => setTagInputId(null), 150)} placeholder="Nueva etiqueta..." className="h-7 text-xs flex-1" />
+                        onBlur={() => setTimeout(() => setTagInputId(null), 150)} placeholder="Nueva etiqueta..." className="h-7 text-base md:text-xs flex-1" />
                       <button onMouseDown={(e) => e.preventDefault()} onClick={() => addTag(detail.id)} className="p-1 rounded-md bg-primary text-primary-foreground"><Plus size={13} /></button>
                       <button onMouseDown={(e) => e.preventDefault()} onClick={() => setTagInputId(null)} className="p-1 rounded-md hover:bg-secondary text-muted-foreground"><X size={13} /></button>
                     </div>
@@ -2291,7 +2291,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                       placeholder="Buscar por nombre, email, teléfono o etiqueta..."
                       value={search}
                       onChange={(e) => setSearch(e.target.value)}
-                      className="pl-9 h-9 text-sm bg-secondary/30 border-transparent"
+                      className="pl-9 h-9 text-base md:text-sm bg-secondary/30 border-transparent"
                     />
                   </div>
                   <span className="text-xs text-muted-foreground shrink-0 font-medium tabular-nums">{filtered.length}</span>
@@ -2304,7 +2304,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                     Solo clientes
                   </button>
                   <div className="relative">
-                    <select value={itemFilter} onChange={(e) => setItemFilter(e.target.value)} className="h-7 rounded-lg border bg-secondary/50 border-transparent text-[11px] font-semibold text-muted-foreground pl-2.5 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
+                    <select value={itemFilter} onChange={(e) => setItemFilter(e.target.value)} className="h-7 rounded-lg border bg-secondary/50 border-transparent text-base md:text-[11px] font-semibold text-muted-foreground pl-2.5 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary">
                       <option value="">Todos los servicios/productos</option>
                       {itemFilterGroups.map((g) => (
                         <optgroup key={g.label} label={g.label}>
@@ -2432,7 +2432,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                                 if (e.key === "Enter") handleSaveName(detail.id, nameVal);
                                 if (e.key === "Escape") setEditingName(false);
                               }}
-                              className="h-7 text-sm font-semibold"
+                              className="h-7 text-base md:text-sm font-semibold"
                             />
                           ) : (
                             <button
@@ -2511,7 +2511,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                       <div className="flex items-center gap-2 mt-2">
                         <Input autoFocus value={tagValue} onChange={(e) => setTagValue(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter") addTag(detail.id); if (e.key === "Escape") setTagInputId(null); }}
-                          onBlur={() => setTimeout(() => setTagInputId(null), 150)} placeholder="Nueva etiqueta..." className="h-7 text-xs flex-1" />
+                          onBlur={() => setTimeout(() => setTagInputId(null), 150)} placeholder="Nueva etiqueta..." className="h-7 text-base md:text-xs flex-1" />
                         <button onMouseDown={(e) => e.preventDefault()} onClick={() => addTag(detail.id)} className="p-1 rounded-md bg-primary text-primary-foreground"><Plus size={13} /></button>
                         <button onMouseDown={(e) => e.preventDefault()} onClick={() => setTagInputId(null)} className="p-1 rounded-md hover:bg-secondary text-muted-foreground"><X size={13} /></button>
                       </div>

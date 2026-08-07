@@ -194,7 +194,7 @@ function BookingCalendar() {
   for (let i = 0; i < firstDow; i++) cells.push(null);
   for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
-  const inputCls = "w-full border border-[#D8D0C4] focus:border-[#B86A30] rounded-lg px-3 py-2.5 text-sm text-[#162018] placeholder-[#ADC5B4] outline-none transition-colors";
+  const inputCls = "w-full border border-[#D8D0C4] focus:border-[#B86A30] rounded-lg px-3 py-2.5 text-base md:text-sm text-[#162018] placeholder-[#ADC5B4] outline-none transition-colors";
 
   if (submitted) {
     return (

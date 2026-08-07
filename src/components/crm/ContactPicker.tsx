@@ -135,12 +135,12 @@ const ContactPicker = ({
       <div className="border rounded-xl p-3.5 space-y-2.5 bg-card">
         <p className="text-xs font-semibold text-muted-foreground">Nuevo contacto</p>
         <div className="space-y-1">
-          <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre completo *" className="h-9 text-sm" autoFocus />
+          <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre completo *" className="h-9 text-base md:text-sm" autoFocus />
           {errors.name && <p className="text-[11px] text-destructive">{errors.name}</p>}
         </div>
         <div className="space-y-1">
           <Input type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)}
-            placeholder={requireEmail ? "Correo *" : "Correo"} className="h-9 text-sm" />
+            placeholder={requireEmail ? "Correo *" : "Correo"} className="h-9 text-base md:text-sm" />
           {errors.email && <p className="text-[11px] text-destructive">{errors.email}</p>}
         </div>
         <div className="space-y-1">

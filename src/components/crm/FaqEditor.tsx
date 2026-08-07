@@ -80,7 +80,7 @@ export default function FaqEditor({ value, onChange }: Props) {
               onChange={e => { e.stopPropagation(); handleUpdate(idx, "question", e.target.value); }}
               onClick={e => e.stopPropagation()}
               placeholder="¿Pregunta frecuente?"
-              className="flex-1 min-w-0 bg-transparent text-xs font-medium outline-none placeholder:text-muted-foreground/50"
+              className="flex-1 min-w-0 bg-transparent text-base md:text-xs font-medium outline-none placeholder:text-muted-foreground/50"
             />
             <div className="flex items-center gap-1 shrink-0">
               <button
@@ -105,7 +105,7 @@ export default function FaqEditor({ value, onChange }: Props) {
                 onChange={e => handleUpdate(idx, "answer", e.target.value)}
                 placeholder="Respuesta detallada que el Agente IA usará..."
                 rows={3}
-                className="w-full bg-transparent text-xs text-muted-foreground outline-none resize-none placeholder:text-muted-foreground/40 leading-relaxed"
+                className="w-full bg-transparent text-base md:text-xs text-muted-foreground outline-none resize-none placeholder:text-muted-foreground/40 leading-relaxed"
               />
             </div>
           )}

@@ -75,18 +75,18 @@ export function PlanFields({ name, price, currency, discountPct, isRecurring, re
     <>
       <div className="space-y-1.5">
         <label className="text-[11px] text-muted-foreground">Nombre del plan</label>
-        <Input value={name} onChange={e => onChange({ name: e.target.value })} className="h-9 text-sm font-medium" placeholder="Ej: Pago único, Plan mensual..." />
+        <Input value={name} onChange={e => onChange({ name: e.target.value })} className="h-9 text-base md:text-sm font-medium" placeholder="Ej: Pago único, Plan mensual..." />
       </div>
 
       <div className="grid grid-cols-3 gap-3">
         <div className="space-y-1">
           <label className="text-[11px] text-muted-foreground">Precio</label>
-          <Input type="number" min="0" step="0.01" value={price} onChange={e => onChange({ price: e.target.value })} placeholder="0.00" className="h-9 text-sm" />
+          <Input type="number" min="0" step="0.01" value={price} onChange={e => onChange({ price: e.target.value })} placeholder="0.00" className="h-9 text-base md:text-sm" />
         </div>
         <div className="space-y-1">
           <label className="text-[11px] text-muted-foreground">Moneda</label>
           <select value={currency} onChange={e => onChange({ currency: e.target.value })}
-            className="h-9 w-full rounded-xl border border-border bg-background text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
+            className="h-9 w-full rounded-xl border border-border bg-background text-base md:text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
             {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code}</option>)}
           </select>
         </div>
@@ -94,7 +94,7 @@ export function PlanFields({ name, price, currency, discountPct, isRecurring, re
           <label className="text-[11px] text-muted-foreground">Descuento (%)</label>
           <Input type="number" min={0} max={99} value={discountPct || ""}
             onChange={e => onChange({ discountPct: Math.min(99, Math.max(0, parseFloat(e.target.value) || 0)) })}
-            placeholder="0" className="h-9 text-sm" />
+            placeholder="0" className="h-9 text-base md:text-sm" />
         </div>
       </div>
       {discountPct > 0 && price !== "" && (
@@ -115,12 +115,12 @@ export function PlanFields({ name, price, currency, discountPct, isRecurring, re
         <div className="grid grid-cols-2 gap-3 pl-1">
           <div className="space-y-1">
             <label className="text-[11px] text-muted-foreground">Monto recurrente ({currency})</label>
-            <Input type="number" min="0" step="0.01" value={recurringPrice} onChange={e => onChange({ recurringPrice: e.target.value })} placeholder="0.00" className="h-9 text-sm" />
+            <Input type="number" min="0" step="0.01" value={recurringPrice} onChange={e => onChange({ recurringPrice: e.target.value })} placeholder="0.00" className="h-9 text-base md:text-sm" />
           </div>
           <div className="space-y-1">
             <label className="text-[11px] text-muted-foreground">Intervalo</label>
             <select value={recurringInterval ?? "mensual"} onChange={e => onChange({ recurringInterval: e.target.value as RecurringInterval })}
-              className="h-9 w-full rounded-xl border border-border bg-background text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
+              className="h-9 w-full rounded-xl border border-border bg-background text-base md:text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
               {INTERVAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </div>
@@ -128,7 +128,7 @@ export function PlanFields({ name, price, currency, discountPct, isRecurring, re
             <label className="text-[11px] text-muted-foreground">Descuento recurrente (%)</label>
             <Input type="number" min={0} max={99} value={recurringDiscountPct || ""}
               onChange={e => onChange({ recurringDiscountPct: Math.min(99, Math.max(0, parseFloat(e.target.value) || 0)) })}
-              placeholder="0" className="h-9 text-sm" />
+              placeholder="0" className="h-9 text-base md:text-sm" />
           </div>
           {recurringDiscountPct > 0 && recurringPrice !== "" && (
             <p className="text-xs text-primary font-medium col-span-2 -mt-2">

@@ -75,7 +75,7 @@ const VariableChipsEditor = ({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         rows={rows}
-        className="w-full rounded-xl border border-input bg-background text-sm px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50"
+        className="w-full rounded-xl border border-input bg-background text-base md:text-sm px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50"
       />
       {/* Variable chips */}
       <div className="flex flex-wrap gap-1.5">

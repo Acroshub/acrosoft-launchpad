@@ -36,19 +36,19 @@ const Step3Identity = () => {
           <Field label="Color Primario">
             <div className="flex gap-2">
               <Input type="color" value={data.primaryColor} onChange={(e) => updateData({ primaryColor: e.target.value })} className="h-11 w-14 p-1 cursor-pointer" />
-              <Input placeholder="#2563EB" value={data.primaryColor} onChange={(e) => updateData({ primaryColor: e.target.value })} className="h-11 font-mono text-xs uppercase" />
+              <Input placeholder="#2563EB" value={data.primaryColor} onChange={(e) => updateData({ primaryColor: e.target.value })} className="h-11 font-mono text-base md:text-xs uppercase" />
             </div>
           </Field>
           <Field label="Color Secundario">
             <div className="flex gap-2">
               <Input type="color" value={data.secondaryColor} onChange={(e) => updateData({ secondaryColor: e.target.value })} className="h-11 w-14 p-1 cursor-pointer" />
-              <Input placeholder="#1E40AF" value={data.secondaryColor} onChange={(e) => updateData({ secondaryColor: e.target.value })} className="h-11 font-mono text-xs uppercase" />
+              <Input placeholder="#1E40AF" value={data.secondaryColor} onChange={(e) => updateData({ secondaryColor: e.target.value })} className="h-11 font-mono text-base md:text-xs uppercase" />
             </div>
           </Field>
           <Field label="Color de Acento">
             <div className="flex gap-2">
               <Input type="color" value={data.accentColor} onChange={(e) => updateData({ accentColor: e.target.value })} className="h-11 w-14 p-1 cursor-pointer" />
-              <Input placeholder="#F59E0B" value={data.accentColor} onChange={(e) => updateData({ accentColor: e.target.value })} className="h-11 font-mono text-xs uppercase" />
+              <Input placeholder="#F59E0B" value={data.accentColor} onChange={(e) => updateData({ accentColor: e.target.value })} className="h-11 font-mono text-base md:text-xs uppercase" />
             </div>
           </Field>
         </div>
@@ -57,7 +57,7 @@ const Step3Identity = () => {
           <Field label="Tipografía preferida">
             <div className="relative">
               <Type className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <select value={data.typography} onChange={(e) => updateData({ typography: e.target.value })} className="w-full h-11 border rounded-md pl-10 pr-3 py-2 text-sm bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all">
+              <select value={data.typography} onChange={(e) => updateData({ typography: e.target.value })} className="w-full h-11 border rounded-md pl-10 pr-3 py-2 text-base md:text-sm bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all">
                 <option value="">Selecciona un estilo de fuente</option>
                 <option value="modern">Moderna e Innovadora (Inter, Roboto)</option>
                 <option value="classic">Clásica y Formal (Playfair, Lora)</option>
@@ -70,7 +70,7 @@ const Step3Identity = () => {
           <Field label="Estilo visual">
             <div className="relative">
               <Palette className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <select value={data.visualStyle} onChange={(e) => updateData({ visualStyle: e.target.value })} className="w-full h-11 border rounded-md pl-10 pr-3 py-2 text-sm bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all">
+              <select value={data.visualStyle} onChange={(e) => updateData({ visualStyle: e.target.value })} className="w-full h-11 border rounded-md pl-10 pr-3 py-2 text-base md:text-sm bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all">
                 <option value="">Selecciona un estilo visual</option>
                 <option value="minimalist">Minimalista y Limpio</option>
                 <option value="professional">Profesional y Corporativo</option>
@@ -82,7 +82,7 @@ const Step3Identity = () => {
         </div>
 
         <div className="space-y-4">
-          <Label className="text-sm font-bold flex items-center gap-2">
+          <Label className="text-base md:text-sm font-bold flex items-center gap-2">
             <LinkIcon size={14} className="text-primary" /> Sitios de referencia que te inspiren
           </Label>
           <div className="grid gap-3">

@@ -212,7 +212,7 @@ const WaVarMapper = ({
             <select
               value={selectedKey}
               onChange={(e) => handleSelect(num, e.target.value)}
-              className="flex-1 h-7 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+              className="flex-1 h-7 rounded-lg border border-input bg-background text-base md:text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
             >
               <option value="">— elegir —</option>
               {WA_VAR_OPTIONS.map((opt) => {
@@ -225,7 +225,7 @@ const WaVarMapper = ({
                 value={(entry as any).value ?? ""}
                 onChange={(e) => updateVar(num, { source: "fixed", value: e.target.value })}
                 placeholder="Texto fijo"
-                className="flex-1 h-7 text-xs"
+                className="flex-1 h-7 text-base md:text-xs"
               />
             )}
           </div>
@@ -546,7 +546,7 @@ const RuleForm = ({
                     whatsapp_variable_map: id ? {} : null,
                   });
                 }}
-                className="w-full h-8 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
+                className="w-full h-8 rounded-lg border border-input bg-background text-base md:text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary/40"
               >
                 <option value="">— selecciona una plantilla —</option>
                 {utilityApprovedTemplates.map(t => (
@@ -600,12 +600,12 @@ const RuleForm = ({
                 max={999}
                 value={rule.amount}
                 onChange={(e) => onChange({ amount: Math.max(1, Number(e.target.value) || 1) })}
-                className="w-16 h-8 rounded-lg border border-input bg-background text-sm px-2 text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="w-16 h-8 rounded-lg border border-input bg-background text-base md:text-sm px-2 text-center focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
               <select
                 value={rule.unit}
                 onChange={(e) => onChange({ unit: e.target.value as ReminderUnit })}
-                className="h-8 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                className="h-8 rounded-lg border border-input bg-background text-base md:text-xs px-2 focus:outline-none focus:ring-2 focus:ring-primary/20"
               >
                 {UNITS.map((u) => (
                   <option key={u.value} value={u.value}>{u.label}</option>
@@ -642,7 +642,7 @@ const RuleForm = ({
               onChange={(e) => onChange({ subject: e.target.value })}
               onFocus={() => setActiveField("subject")}
               placeholder="Ej: Recordatorio de tu cita — {{appointment.date}}"
-              className="h-8 text-xs"
+              className="h-8 text-base md:text-xs"
             />
           </div>
 
@@ -655,7 +655,7 @@ const RuleForm = ({
               onFocus={() => setActiveField("content")}
               placeholder="Hola {{contact.name}}, te recordamos tu cita el {{appointment.date}} a las {{appointment.time}}."
               rows={3}
-              className="text-xs resize-none"
+              className="text-base md:text-xs resize-none"
             />
             <p className="text-[10px] text-muted-foreground/50 mt-1">
               Si lo dejas vacío se usará el mensaje por defecto del sistema.

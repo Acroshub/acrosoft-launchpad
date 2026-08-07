@@ -68,7 +68,7 @@ const FilterSelect = ({ value, onChange, children }: {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full h-8 pl-2.5 pr-6 rounded-lg border border-border bg-background text-xs font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer truncate"
+      className="w-full h-8 pl-2.5 pr-6 rounded-lg border border-border bg-background text-base md:text-xs font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer truncate"
     >
       {children}
     </select>

@@ -448,7 +448,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                 <Input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className={`h-10 text-sm ${!name.trim() ? "border-destructive/50 focus-visible:ring-destructive/30" : ""}`}
+                  className={`h-10 text-base md:text-sm ${!name.trim() ? "border-destructive/50 focus-visible:ring-destructive/30" : ""}`}
                   placeholder="Ej: Consultas Iniciales"
                 />
               </Field>
@@ -457,7 +457,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                 <Input
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
-                  className="h-10 text-sm"
+                  className="h-10 text-base md:text-sm"
                   placeholder="Ej: Consulta inicial sin costo"
                 />
               </Field>
@@ -466,7 +466,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                 <select
                   value={linkedFormId ?? ""}
                   onChange={(e) => { setLinkedFormId(e.target.value || null); setUseFormPixel(false); }}
-                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
                 >
                   <option value="">Sin formulario (se creará uno básico)</option>
                   {forms.map(f => (
@@ -499,7 +499,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                         value={pixelId}
                         onChange={(e) => setPixelId(e.target.value)}
                         placeholder="Ej: 1234567890123456"
-                        className="h-10 text-sm font-mono"
+                        className="h-10 text-base md:text-sm font-mono"
                       />
                     )}
                     <p className="text-[10px] text-muted-foreground mt-1">
@@ -513,7 +513,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                 <select
                   value={timezone}
                   onChange={(e) => setTimezone(e.target.value)}
-                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
+                  className="flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-ring appearance-none"
                 >
                   {((Intl as any).supportedValuesOf?.("timeZone") ?? ["America/La_Paz"]).map((tz: string) => (
                     <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
@@ -529,7 +529,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                   <select
                     value={duration}
                     onChange={(e) => setDuration(Number(e.target.value) as 15 | 30 | 60)}
-                    className="h-10 rounded-xl border border-input bg-background px-3 text-sm w-full focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    className="h-10 rounded-xl border border-input bg-background px-3 text-base md:text-sm w-full focus:outline-none focus:ring-2 focus:ring-primary/20"
                   >
                     <option value={15}>15 min</option>
                     <option value={30}>30 min</option>
@@ -545,7 +545,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                     min={0}
                     value={bufferTime}
                     onChange={(e) => setBufferTime(Number(e.target.value))}
-                    className="h-10 text-sm"
+                    className="h-10 text-base md:text-sm"
                   />
                   <p className="text-[10px] text-muted-foreground mt-1">
                     Margen adicional entre citas consecutivas.
@@ -560,7 +560,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                     min={0}
                     value={minAdvanceHours}
                     onChange={(e) => setMinAdvanceHours(Number(e.target.value))}
-                    className="h-10 text-sm"
+                    className="h-10 text-base md:text-sm"
                   />
                   <p className="text-[10px] text-muted-foreground mt-1">
                     Horas mínimas antes de una cita para poder reservarla.
@@ -572,7 +572,7 @@ const CrmCalendarConfig = ({ onBack, existingCalendar, onCreated, onGoogleConnec
                     min={1}
                     value={maxFutureDays}
                     onChange={(e) => setMaxFutureDays(Number(e.target.value))}
-                    className="h-10 text-sm"
+                    className="h-10 text-base md:text-sm"
                   />
                   <p className="text-[10px] text-muted-foreground mt-1">
                     Cuántos días hacia adelante se pueden ver en el calendario.

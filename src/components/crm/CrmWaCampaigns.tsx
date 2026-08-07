@@ -157,7 +157,7 @@ function VarSourceSelector({ varNum, label, value, onChange }: { varNum: number;
           else if (s === "product_field" && products[0]) onChange({ source: "product_field", entityId: products[0].id, entityName: products[0].name, field: "name" });
           else if (s === "service_field" && services[0]) onChange({ source: "service_field", entityId: services[0].id, entityName: services[0].name, field: "name" });
           else if (s === "course_field" && courses[0]) onChange({ source: "course_field", entityId: courses[0].id, entityName: courses[0].title, field: "title" });
-        }} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">
+        }} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">
           <option value="contact_field">Campo del contacto</option>
           {products.length > 0 && <option value="product_field">Producto</option>}
           {services.length > 0 && <option value="service_field">Servicio</option>}
@@ -166,7 +166,7 @@ function VarSourceSelector({ varNum, label, value, onChange }: { varNum: number;
         </select>
         {source === "contact_field" && (
           <select value={(value as any)?.field ?? "name"} onChange={e => onChange({ source: "contact_field", field: e.target.value as any })}
-            className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">
+            className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">
             {Object.entries(CONTACT_FIELD_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
         )}
@@ -178,11 +178,11 @@ function VarSourceSelector({ varNum, label, value, onChange }: { varNum: number;
           return (
             <>
               <select value={cur} onChange={e => { const item = list.find((x: any) => x.id === e.target.value); onChange({ source: source as any, entityId: e.target.value, entityName: (item as any)?.[nameKey] ?? "", field: fieldVal } as any); }}
-                className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 flex-1 min-w-0">
+                className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 flex-1 min-w-0">
                 {list.map((item: any) => <option key={item.id} value={item.id}>{item[nameKey]}</option>)}
               </select>
               <select value={fieldVal} onChange={e => onChange({ ...(value as any), field: e.target.value })}
-                className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">
+                className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">
                 <option value={source === "course_field" ? "title" : "name"}>{source === "course_field" ? "Título" : "Nombre"}</option>
                 <option value="price">Precio</option>
               </select>
@@ -192,7 +192,7 @@ function VarSourceSelector({ varNum, label, value, onChange }: { varNum: number;
         {source === "fixed" && (
           <input value={(value as any)?.value ?? ""} onChange={e => onChange({ source: "fixed", value: e.target.value })}
             placeholder="Texto que se enviará a todos"
-            className="flex-1 h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 min-w-0" />
+            className="flex-1 h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 min-w-0" />
         )}
       </div>
     </div>
@@ -269,14 +269,14 @@ function FilterBuilder({ filters, onChange }: { filters: WaAudienceFilter[]; onC
       <div className="rounded-xl border border-dashed border-border p-3 space-y-2 bg-muted/20">
         <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Agregar filtro</p>
         <div className="flex flex-wrap gap-2">
-          <select value={addType} onChange={e => setAddType(e.target.value as FilterType)} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">
+          <select value={addType} onChange={e => setAddType(e.target.value as FilterType)} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">
             {Object.entries(FILTER_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
           </select>
-          {addType === "tag" && tags.length > 0 && <select value={addTag || tags[0]} onChange={e => setAddTag(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">{tags.map((t: string) => <option key={t} value={t}>{t}</option>)}</select>}
-          {addType === "wa_label" && waLabels.length > 0 && <select value={addLabelId || waLabels[0]?.id} onChange={e => setAddLabelId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">{waLabels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-          {addType === "has_sale_product" && products.length > 0 && <select value={addProductId || products[0]?.id} onChange={e => setAddProductId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 flex-1 min-w-0">{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
-          {addType === "has_sale_service" && services.length > 0 && <select value={addServiceId || services[0]?.id} onChange={e => setAddServiceId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 flex-1 min-w-0">{services.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
-          {addType === "has_appointment_recent" && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><input type="number" min={1} max={365} value={addDays} onChange={e => setAddDays(e.target.value)} className="w-16 h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 text-center" /><span>días</span></div>}
+          {addType === "tag" && tags.length > 0 && <select value={addTag || tags[0]} onChange={e => setAddTag(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">{tags.map((t: string) => <option key={t} value={t}>{t}</option>)}</select>}
+          {addType === "wa_label" && waLabels.length > 0 && <select value={addLabelId || waLabels[0]?.id} onChange={e => setAddLabelId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">{waLabels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
+          {addType === "has_sale_product" && products.length > 0 && <select value={addProductId || products[0]?.id} onChange={e => setAddProductId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 flex-1 min-w-0">{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
+          {addType === "has_sale_service" && services.length > 0 && <select value={addServiceId || services[0]?.id} onChange={e => setAddServiceId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 flex-1 min-w-0">{services.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
+          {addType === "has_appointment_recent" && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><input type="number" min={1} max={365} value={addDays} onChange={e => setAddDays(e.target.value)} className="w-16 h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 text-center" /><span>días</span></div>}
           <button type="button" onClick={handleAdd} className="h-8 px-3 rounded-lg bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors flex items-center gap-1"><Plus size={12} /> Agregar</button>
         </div>
       </div>
@@ -330,7 +330,7 @@ function StepReview({ template, varMap, audienceType, filters, campaignName, onN
     <div className="space-y-4">
       <div className="space-y-1">
         <label className="text-xs font-semibold text-muted-foreground">Nombre de la campaña *</label>
-        <input value={campaignName} onChange={e => onNameChange(e.target.value)} placeholder="ej. Promoción junio 2025" className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
+        <input value={campaignName} onChange={e => onNameChange(e.target.value)} placeholder="ej. Promoción junio 2025" className="w-full h-9 px-3 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
       </div>
       <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2 text-xs">
         <div className="flex justify-between"><span className="text-muted-foreground">Plantilla</span><span className="font-mono font-semibold">{template.name}</span></div>
@@ -1009,7 +1009,7 @@ function InstantCampaignsSection() {
           <div className="space-y-1.5">
             <label className="text-xs font-semibold text-muted-foreground">Nombre del envío *</label>
             <input value={campName} onChange={e => setCampName(e.target.value)} placeholder="ej. Seguimiento clientes activos"
-              className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
+              className="w-full h-9 px-3 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
           </div>
 
           {/* Media selector */}
@@ -1063,7 +1063,7 @@ function InstantCampaignsSection() {
                 placeholder={mediaType === "none"
                   ? "Hola! Queremos recordarte que...\n\nEscribe aquí tu mensaje libre. No necesita aprobación de Meta."
                   : "Escribe un pie de foto o descripción (opcional)..."}
-                className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none leading-relaxed" />
+                className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none leading-relaxed" />
               {mediaType === "none" && <p className="text-[10px] text-muted-foreground">{msgText.length} caracteres · Límite sugerido: 1024</p>}
             </div>
           )}
@@ -1205,9 +1205,9 @@ function InstantCampaignsSection() {
                 <div className="grid grid-cols-[1fr_auto] gap-2">
                   <input type="date" value={schedDate} min={new Date().toLocaleDateString("en-CA")}
                     onChange={e => setSchedDate(e.target.value)}
-                    className={`h-9 px-3 rounded-lg border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all w-full ${schedInPast ? "border-destructive focus:border-destructive" : "border-border focus:border-primary"}`} />
+                    className={`h-9 px-3 rounded-lg border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all w-full ${schedInPast ? "border-destructive focus:border-destructive" : "border-border focus:border-primary"}`} />
                   <input type="time" value={schedTime} onChange={e => setSchedTime(e.target.value)}
-                    className={`h-9 px-3 rounded-lg border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all w-32 ${schedInPast ? "border-destructive focus:border-destructive" : "border-border focus:border-primary"}`} />
+                    className={`h-9 px-3 rounded-lg border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all w-32 ${schedInPast ? "border-destructive focus:border-destructive" : "border-border focus:border-primary"}`} />
                 </div>
                 {schedInPast && (
                   <p className="text-[11px] text-destructive flex items-center gap-1 mt-1">
@@ -1237,7 +1237,7 @@ function InstantCampaignsSection() {
                     {tzMode === "user" && (
                       <div className="mt-2.5 ml-6 space-y-1.5" onClick={e => e.stopPropagation()}>
                         <select value={userTz} onChange={e => setUserTz(e.target.value)}
-                          className="w-full h-9 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30">
+                          className="w-full h-9 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">
                           {tzOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
                         </select>
                         {schedDate && schedTime && (

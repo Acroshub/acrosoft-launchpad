@@ -345,7 +345,7 @@ function TemplateForm({ forcedCategory, initial, onSave, onCancel, loading, asso
             value={form.name}
             onChange={e => set("name", e.target.value)}
             placeholder="ej. seguimiento_cliente"
-            className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+            className="w-full h-9 px-3 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
           />
           <p className="text-[10px] text-muted-foreground">Solo letras, números y _</p>
         </div>
@@ -357,7 +357,7 @@ function TemplateForm({ forcedCategory, initial, onSave, onCancel, loading, asso
           <select
             value={form.language}
             onChange={e => set("language", e.target.value)}
-            className="w-full h-9 px-3 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+            className="w-full h-9 px-3 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
           >
             {LANGUAGES.map(l => <option key={l.code} value={l.code}>{l.name}</option>)}
           </select>
@@ -425,7 +425,7 @@ function TemplateForm({ forcedCategory, initial, onSave, onCancel, loading, asso
           placeholder={forcedCategory === "MARKETING"
             ? "Hola {{1}}, tenemos una oferta especial para ti en {{2}}. ¿Te interesa saber más?"
             : "Hola {{1}}, te recordamos tu cita el {{2}} a las {{3}}."}
-          className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none"
+          className="w-full px-3 py-2 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none"
         />
         <div className="flex justify-between items-start gap-2">
           <div className="space-y-0.5">
@@ -465,7 +465,7 @@ function TemplateForm({ forcedCategory, initial, onSave, onCancel, loading, asso
                   value={form.variable_labels[num - 1] ?? ""}
                   onChange={e => setVarLabel(num, e.target.value)}
                   placeholder={num === 1 ? "ej. Juan Pérez" : num === 2 ? "ej. lunes 3 de junio" : "ej. 10:00 AM"}
-                  className="flex-1 h-7 px-2 rounded-md border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                  className="flex-1 h-7 px-2 rounded-md border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
                 />
               </div>
             ))}
@@ -510,7 +510,7 @@ function TemplateForm({ forcedCategory, initial, onSave, onCancel, loading, asso
               <select
                 value={btn.type}
                 onChange={e => updateButton(idx, { type: e.target.value as any })}
-                className="h-8 px-2 rounded-md border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 shrink-0"
+                className="h-8 px-2 rounded-md border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 shrink-0"
               >
                 <option value="QUICK_REPLY">Respuesta rápida</option>
                 <option value="URL">Ir a URL</option>
@@ -521,14 +521,14 @@ function TemplateForm({ forcedCategory, initial, onSave, onCancel, loading, asso
                 onChange={e => updateButton(idx, { text: e.target.value })}
                 placeholder={isOptOut ? "ej. No, gracias" : "Texto del botón"}
                 maxLength={25}
-                className="flex-1 h-8 min-w-0 px-2 rounded-md border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                className="flex-1 h-8 min-w-0 px-2 rounded-md border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30"
               />
               {btn.type === "URL" && (
                 <input
                   value={(btn as any).url ?? ""}
                   onChange={e => updateButton(idx, { url: e.target.value } as any)}
                   placeholder="https://..."
-                  className="flex-1 h-8 min-w-0 px-2 rounded-md border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                  className="flex-1 h-8 min-w-0 px-2 rounded-md border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30"
                 />
               )}
               {btn.type === "PHONE_NUMBER" && (
@@ -536,7 +536,7 @@ function TemplateForm({ forcedCategory, initial, onSave, onCancel, loading, asso
                   value={(btn as any).phone_number ?? ""}
                   onChange={e => updateButton(idx, { phone_number: e.target.value } as any)}
                   placeholder="+591..."
-                  className="w-24 h-8 px-2 rounded-md border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30"
+                  className="w-24 h-8 px-2 rounded-md border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30"
                 />
               )}
               <button type="button" onClick={() => removeButton(idx)} className="text-muted-foreground hover:text-destructive transition-colors shrink-0">

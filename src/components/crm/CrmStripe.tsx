@@ -158,7 +158,7 @@ const CrmStripe = () => {
                 value={secretKey}
                 onChange={(e) => setSecretKey(e.target.value)}
                 placeholder={mode === "test" ? "sk_test_..." : "sk_live_..."}
-                className="h-9 text-sm font-mono"
+                className="h-9 text-base md:text-sm font-mono"
               />
             </div>
 
@@ -168,7 +168,7 @@ const CrmStripe = () => {
                 value={publishableKey}
                 onChange={(e) => setPublishableKey(e.target.value)}
                 placeholder={mode === "test" ? "pk_test_..." : "pk_live_..."}
-                className="h-9 text-sm font-mono"
+                className="h-9 text-base md:text-sm font-mono"
               />
             </div>
 

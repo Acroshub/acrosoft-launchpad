@@ -231,7 +231,7 @@ function QuoteForm() {
     border: `1px solid ${C.border}`,
     borderRadius: 6,
     padding: "11px 14px",
-    fontSize: 14,
+    fontSize: 16,
     color: C.text,
     outline: "none",
     background: C.white,

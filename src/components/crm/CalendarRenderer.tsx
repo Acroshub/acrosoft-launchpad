@@ -185,7 +185,7 @@ const Field = ({
 );
 
 const inputCls =
-  "w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-300 focus:outline-none focus:border-gray-400 transition-colors bg-white";
+  "w-full border border-gray-200 rounded-lg px-3 py-2.5 text-base md:text-sm text-gray-900 placeholder:text-gray-300 focus:outline-none focus:border-gray-400 transition-colors bg-white";
 
 // ─── Booking Form ─────────────────────────────────────────────────────────────
 
@@ -673,7 +673,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
             <select
               value={visitorTz}
               onChange={(e) => setVisitorTz(e.target.value)}
-              className="bg-transparent text-xs text-gray-500 focus:outline-none cursor-pointer max-w-[110px] sm:max-w-[160px] truncate"
+              className="bg-transparent text-base md:text-xs text-gray-500 focus:outline-none cursor-pointer max-w-[110px] sm:max-w-[160px] truncate"
             >
               {((Intl as any).supportedValuesOf?.("timeZone") ?? [calendarTz]).map((tz: string) => (
                 <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>

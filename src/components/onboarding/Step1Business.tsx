@@ -28,7 +28,7 @@ const Step1Business = () => {
           <select 
             value={data.industry} 
             onChange={(e) => updateData({ industry: e.target.value })}
-            className="w-full h-11 border rounded-md px-3 py-2 text-sm bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
+            className="w-full h-11 border rounded-md px-3 py-2 text-base md:text-sm bg-background focus:ring-2 focus:ring-primary focus:border-transparent outline-none transition-all"
           >
             <option value="">Selecciona un rubro</option>
             <option value="restaurant">Restaurante / Comida</option>

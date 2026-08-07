@@ -325,7 +325,7 @@ const ServiceEditor = ({
         <Input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="h-10 text-sm"
+          className="h-10 text-base md:text-sm"
           placeholder="Ej: Diseño Web, Corte de Cabello..."
         />
       </div>
@@ -334,7 +334,7 @@ const ServiceEditor = ({
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
+          className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
           placeholder="Describe brevemente qué incluye este servicio"
         />
       </div>
@@ -353,7 +353,7 @@ const ServiceEditor = ({
             type="number"
             value={price}
             onChange={(e) => setPrice(Number(e.target.value))}
-            className="h-10 text-sm"
+            className="h-10 text-base md:text-sm"
             min={0}
           />
         </div>
@@ -362,7 +362,7 @@ const ServiceEditor = ({
           <select
             value={currency}
             onChange={e => setCurrency(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code} — {c.name.split(" (")[0]}</option>)}
           </select>
@@ -377,7 +377,7 @@ const ServiceEditor = ({
               type="number"
               value={discountPct}
               onChange={(e) => setDiscountPct(Math.max(0, Math.min(100, Number(e.target.value))))}
-              className="h-10 text-sm pr-8"
+              className="h-10 text-base md:text-sm pr-8"
               min={0}
               max={100}
               placeholder="0"
@@ -418,7 +418,7 @@ const ServiceEditor = ({
             <select
               value={recurringCurrency}
               onChange={e => handleRecurringCurrencyChange(e.target.value)}
-              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {priceOptions.map(o => (
                 <option key={o.currency} value={o.currency}>
@@ -434,7 +434,7 @@ const ServiceEditor = ({
                 type="number"
                 value={recurringPrice}
                 onChange={(e) => setRecurringPrice(Number(e.target.value))}
-                className="h-9 text-sm"
+                className="h-9 text-base md:text-sm"
                 min={0}
               />
             </div>
@@ -443,7 +443,7 @@ const ServiceEditor = ({
               <select
                 value={recurringInterval ?? "mensual"}
                 onChange={e => setRecurringInterval(e.target.value as CrmService["recurring_interval"])}
-                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 {INTERVAL_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
@@ -456,7 +456,7 @@ const ServiceEditor = ({
                 type="number"
                 value={recurringDiscountPct}
                 onChange={(e) => setRecurringDiscountPct(Math.max(0, Math.min(100, Number(e.target.value))))}
-                className="h-9 text-sm pr-8"
+                className="h-9 text-base md:text-sm pr-8"
                 min={0}
                 max={100}
                 placeholder="0"

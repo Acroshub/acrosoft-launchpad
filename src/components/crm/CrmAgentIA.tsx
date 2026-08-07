@@ -546,24 +546,24 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             <div className="space-y-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Phone Number ID <span className="text-destructive">*</span></label>
-                <Input value={phoneNumberId} onChange={e => setPhoneNumberIdSafe(e.target.value)} placeholder="123456789012345" className="h-9 text-sm font-mono" />
+                <Input value={phoneNumberId} onChange={e => setPhoneNumberIdSafe(e.target.value)} placeholder="123456789012345" className="h-9 text-base md:text-sm font-mono" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Access Token (System User) <span className="text-destructive">*</span></label>
                 <div className="relative">
-                  <Input type={showToken ? "text" : "password"} value={accessToken} onChange={e => setAccessTokenSafe(e.target.value)} placeholder="EAAG..." className="h-9 text-sm font-mono pr-9" />
+                  <Input type={showToken ? "text" : "password"} value={accessToken} onChange={e => setAccessTokenSafe(e.target.value)} placeholder="EAAG..." className="h-9 text-base md:text-sm font-mono pr-9" />
                   <button onClick={() => setShowToken(!showToken)} className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground">{showToken ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                 </div>
                 <p className="text-[10px] text-muted-foreground">Usa un System User Token permanente, no el token de prueba de 24h.</p>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">WABA ID</label>
-                <Input value={wabaId} onChange={e => setWabaId(e.target.value)} placeholder="WhatsApp Business Account ID" className="h-9 text-sm font-mono" />
+                <Input value={wabaId} onChange={e => setWabaId(e.target.value)} placeholder="WhatsApp Business Account ID" className="h-9 text-base md:text-sm font-mono" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">App Secret <span className="text-destructive">*</span></label>
                 <div className="relative">
-                  <Input type={showSecret ? "text" : "password"} value={appSecret} onChange={e => setAppSecret(e.target.value)} placeholder="App Dashboard → Settings → Basic" className="h-9 text-sm font-mono pr-9" />
+                  <Input type={showSecret ? "text" : "password"} value={appSecret} onChange={e => setAppSecret(e.target.value)} placeholder="App Dashboard → Settings → Basic" className="h-9 text-base md:text-sm font-mono pr-9" />
                   <button onClick={() => setShowSecret(!showSecret)} className="absolute right-2.5 top-2 text-muted-foreground hover:text-foreground">{showSecret ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                 </div>
               </div>
@@ -607,7 +607,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             {/* Nombre */}
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Nombre del agente</label>
-              <Input value={agentName} onChange={e => setAgentName(e.target.value)} placeholder="Sofi, Asistente..." className="h-9 text-sm" />
+              <Input value={agentName} onChange={e => setAgentName(e.target.value)} placeholder="Sofi, Asistente..." className="h-9 text-base md:text-sm" />
             </div>
 
             {/* Objetivos */}
@@ -721,9 +721,9 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                       </button>
                     </div>
                     <Input value={pair.q} onChange={e => setAgentFaqWiz(agentFaqWiz.map((p, j) => j === i ? { ...p, q: e.target.value } : p))}
-                      placeholder="¿Cuál es el horario de atención?" className="h-7 text-xs" />
+                      placeholder="¿Cuál es el horario de atención?" className="h-7 text-base md:text-xs" />
                     <Textarea value={pair.a} onChange={e => setAgentFaqWiz(agentFaqWiz.map((p, j) => j === i ? { ...p, a: e.target.value } : p))}
-                      placeholder="Atendemos de lunes a viernes de 9am a 6pm." rows={2} className="text-xs resize-none" />
+                      placeholder="Atendemos de lunes a viernes de 9am a 6pm." rows={2} className="text-base md:text-xs resize-none" />
                   </div>
                 ))}
                 <button onClick={() => setAgentFaqWiz([...agentFaqWiz, { q: "", a: "" }])}
@@ -737,7 +737,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Instrucciones adicionales <span className="text-[10px] text-muted-foreground">(opcional — se añaden al final)</span></label>
               <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4}
-                className="text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
+                className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
             </div>
 
             {/* Info media */}
@@ -777,7 +777,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 <select
                   value={schedulingCalendarIdWiz}
                   onChange={e => setSchedulingCalendarIdWiz(e.target.value)}
-                  className="w-full text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-full text-base md:text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
                 >
                   <option value="">Ninguno</option>
                   {calendars.map(cal => (
@@ -820,7 +820,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                     <div className="flex gap-1.5">
                       <Input value={customDataFieldWiz} onChange={e => setCustomDataFieldWiz(e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter" && customDataFieldWiz.trim()) { setAgentDataCollectWiz(prev => [...new Set([...prev, customDataFieldWiz.trim()])]); setCustomDataFieldWiz(""); } }}
-                        placeholder="Personalizado (ej: Empresa, RFC...)" className="h-7 text-xs flex-1" />
+                        placeholder="Personalizado (ej: Empresa, RFC...)" className="h-7 text-base md:text-xs flex-1" />
                       <button onClick={() => { if (customDataFieldWiz.trim()) { setAgentDataCollectWiz(prev => [...new Set([...prev, customDataFieldWiz.trim()])]); setCustomDataFieldWiz(""); } }}
                         className="text-xs px-2.5 py-1 rounded-lg border border-primary text-primary hover:bg-primary/10 transition-colors shrink-0">
                         + Añadir
@@ -859,7 +859,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                         value={wizNotifyEmail}
                         onChange={e => setWizNotifyEmail(e.target.value)}
                         placeholder="tu@correo.com"
-                        className="h-8 text-xs"
+                        className="h-8 text-base md:text-xs"
                       />
                     )}
                   </div>
@@ -894,7 +894,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                       value={wizPaymentEmail}
                       onChange={e => setWizPaymentEmail(e.target.value)}
                       placeholder="tu@correo.com"
-                      className="h-8 text-xs"
+                      className="h-8 text-base md:text-xs"
                     />
                   )}
                 </div>
@@ -1139,13 +1139,13 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             <WeeklySchedulePicker value={schedule} onChange={setSchedule} interval={30} />
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Zona horaria</label>
-              <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+              <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 {(TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES]).map(tz => <option key={tz} value={tz}>{tz}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Mensaje fuera de horario</label>
-              <Textarea value={offHoursMsg} onChange={e => setOffHoursMsg(e.target.value)} rows={2} className="text-sm resize-none"
+              <Textarea value={offHoursMsg} onChange={e => setOffHoursMsg(e.target.value)} rows={2} className="text-base md:text-sm resize-none"
                 placeholder="Ej: ¡Hola! Estamos fuera de horario. Nuestro equipo te atenderá pronto." />
             </div>
             <div className="flex gap-2">
@@ -1213,7 +1213,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 value={bio}
                 onChange={e => setBio(e.target.value.slice(0, 139))}
                 rows={3}
-                className="text-sm resize-none"
+                className="text-base md:text-sm resize-none"
                 placeholder="Ej: Servicio de atención al cliente 24/7"
               />
               <span className={`text-[10px] ${bio.length >= 130 ? "text-amber-500" : "text-muted-foreground"}`}>
@@ -1643,7 +1643,7 @@ function SortableSequenceStep({
         <select
           value={step.type}
           onChange={e => handleTypeChange(e.target.value as SequenceStep["type"])}
-          className="ml-1 h-6 px-1.5 text-[10px] rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-primary/30"
+          className="ml-1 h-6 px-1.5 text-base md:text-[10px] rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-primary/30"
         >
           {(["message", "question", "link", "image", "video", "audio", "file"] as const).map(t => (
             <option key={t} value={t}>{STEP_TYPE_LABELS[t]}</option>
@@ -1664,7 +1664,7 @@ function SortableSequenceStep({
               onChange={e => onChange({ ...step, text: e.target.value })}
               placeholder="Texto del mensaje…"
               rows={2}
-              className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+              className="w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
             />
             <div
               role="switch"
@@ -1695,7 +1695,7 @@ function SortableSequenceStep({
             onChange={e => onChange({ ...step, text: e.target.value })}
             placeholder="Texto de la pregunta…"
             rows={2}
-            className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+            className="w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
           />
         )}
 
@@ -1712,7 +1712,7 @@ function SortableSequenceStep({
                     onChange={e => setOption(i, { label: e.target.value.slice(0, 20) })}
                     maxLength={20}
                     placeholder={`Texto del botón ${i + 1}`}
-                    className="flex-1 h-7 px-2 text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-primary/20 min-w-0"
+                    className="flex-1 h-7 px-2 text-base md:text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-primary/20 min-w-0"
                   />
                   <span className={`text-[10px] tabular-nums shrink-0 ${opt.label.length >= 18 ? "text-amber-500" : "text-muted-foreground/65"}`}>
                     {opt.label.length}/20
@@ -1729,7 +1729,7 @@ function SortableSequenceStep({
                   <select
                     value={opt.next_step_id ?? ""}
                     onChange={e => setOption(i, { next_step_id: e.target.value || null })}
-                    className={`flex-1 h-6 px-1.5 text-[10px] rounded-md border focus:outline-none bg-background ${
+                    className={`flex-1 h-6 px-1.5 text-base md:text-[10px] rounded-md border focus:outline-none bg-background ${
                       !opt.next_step_id ? "border-amber-400/60 text-amber-600 dark:text-amber-400" : "border-input"
                     }`}
                   >
@@ -1767,7 +1767,7 @@ function SortableSequenceStep({
               onChange={e => onChange({ ...step, link_url: e.target.value })}
               placeholder="https://ejemplo.com"
               type="url"
-              className="w-full h-7 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+              className="w-full h-7 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
             <div className="flex items-center gap-2">
               <input
@@ -1775,7 +1775,7 @@ function SortableSequenceStep({
                 onChange={e => onChange({ ...step, link_label: e.target.value.slice(0, 20) })}
                 maxLength={20}
                 placeholder="Texto del botón"
-                className="flex-1 h-7 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-0"
+                className="flex-1 h-7 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-0"
               />
               <span className={`text-[10px] tabular-nums shrink-0 ${(step.link_label?.length ?? 0) >= 18 ? "text-amber-500" : "text-muted-foreground/65"}`}>
                 {step.link_label?.length ?? 0}/20
@@ -1832,7 +1832,7 @@ function SortableSequenceStep({
                   onChange={e => onChange({ ...step, text: e.target.value })}
                   placeholder="Caption / texto acompañante (opcional)"
                   rows={2}
-                  className="w-full min-h-0 px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
+                  className="w-full min-h-0 px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
                 />
                 {step.text?.trim() && (
                   <div
@@ -2678,7 +2678,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 value={password}
                 onChange={e => setPassword(e.target.value)}
                 onKeyDown={e => { if (e.key === "Enter") handleVerifyPassword(); }}
-                className="h-10 text-sm"
+                className="h-10 text-base md:text-sm"
                 autoFocus
               />
               <div className="flex gap-2">
@@ -2858,19 +2858,19 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Phone Number ID</label>
-                    <Input value={phoneNumberId} onChange={e => setPhoneNumberId(e.target.value)} className="h-9 text-sm font-mono" />
+                    <Input value={phoneNumberId} onChange={e => setPhoneNumberId(e.target.value)} className="h-9 text-base md:text-sm font-mono" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Access Token</label>
-                    <Input value={accessToken} onChange={e => setAccessToken(e.target.value)} className="h-9 text-sm font-mono" />
+                    <Input value={accessToken} onChange={e => setAccessToken(e.target.value)} className="h-9 text-base md:text-sm font-mono" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">WABA ID</label>
-                    <Input value={wabaId} onChange={e => setWabaId(e.target.value)} className="h-9 text-sm font-mono" />
+                    <Input value={wabaId} onChange={e => setWabaId(e.target.value)} className="h-9 text-base md:text-sm font-mono" />
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">App Secret</label>
-                    <Input value={appSecret} onChange={e => setAppSecret(e.target.value)} className="h-9 text-sm font-mono" />
+                    <Input value={appSecret} onChange={e => setAppSecret(e.target.value)} className="h-9 text-base md:text-sm font-mono" />
                   </div>
                   {testResult && (
                     <div className="flex items-center gap-2 text-xs text-emerald-600 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800 rounded-xl px-3 py-2">
@@ -2916,7 +2916,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
               {/* Nombre */}
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Nombre del agente</label>
-                <Input value={agentName} onChange={e => setAgentName(e.target.value)} className="h-9 text-sm" />
+                <Input value={agentName} onChange={e => setAgentName(e.target.value)} className="h-9 text-base md:text-sm" />
               </div>
 
               {/* Objetivos */}
@@ -3030,9 +3030,9 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         </button>
                       </div>
                       <Input value={pair.q} onChange={e => setAgentFaqSP(agentFaqSP.map((p, j) => j === i ? { ...p, q: e.target.value } : p))}
-                        placeholder="¿Cuál es el horario de atención?" className="h-7 text-xs" />
+                        placeholder="¿Cuál es el horario de atención?" className="h-7 text-base md:text-xs" />
                       <Textarea value={pair.a} onChange={e => setAgentFaqSP(agentFaqSP.map((p, j) => j === i ? { ...p, a: e.target.value } : p))}
-                        placeholder="Atendemos de lunes a viernes de 9am a 6pm." rows={2} className="text-xs resize-none" />
+                        placeholder="Atendemos de lunes a viernes de 9am a 6pm." rows={2} className="text-base md:text-xs resize-none" />
                     </div>
                   ))}
                   <button onClick={() => setAgentFaqSP([...agentFaqSP, { q: "", a: "" }])}
@@ -3045,7 +3045,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
               {/* Instrucciones adicionales */}
               <div className="space-y-1.5">
                 <label className="text-xs font-medium text-muted-foreground">Instrucciones adicionales <span className="text-[10px] text-muted-foreground">(opcional)</span></label>
-                <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} className="text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
+                <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
               </div>
 
 
@@ -3064,7 +3064,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 <select
                   value={schedulingCalendarId}
                   onChange={e => setSchedulingCalendarId(e.target.value)}
-                  className="w-full text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="w-full text-base md:text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
                 >
                   <option value="">Ninguno</option>
                   {calendars.map(cal => (
@@ -3107,7 +3107,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     <div className="flex gap-1.5">
                       <Input value={customDataField} onChange={e => setCustomDataField(e.target.value)}
                         onKeyDown={e => { if (e.key === "Enter" && customDataField.trim()) { setAgentDataCollect(prev => [...new Set([...prev, customDataField.trim()])]); setCustomDataField(""); } }}
-                        placeholder="Personalizado (ej: Empresa, RFC...)" className="h-7 text-xs flex-1" />
+                        placeholder="Personalizado (ej: Empresa, RFC...)" className="h-7 text-base md:text-xs flex-1" />
                       <button onClick={() => { if (customDataField.trim()) { setAgentDataCollect(prev => [...new Set([...prev, customDataField.trim()])]); setCustomDataField(""); } }}
                         className="text-xs px-2.5 py-1 rounded-lg border border-primary text-primary hover:bg-primary/10 transition-colors shrink-0">
                         + Añadir
@@ -3145,7 +3145,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         <p className="text-xs text-muted-foreground">Correo de destino</p>
                         {editingNotifyEmail ? (
                           <div className="flex gap-2">
-                            <Input type="email" value={notifyEmail} onChange={e => setNotifyEmail(e.target.value)} placeholder="tu@correo.com" className="h-8 text-xs flex-1" autoFocus />
+                            <Input type="email" value={notifyEmail} onChange={e => setNotifyEmail(e.target.value)} placeholder="tu@correo.com" className="h-8 text-base md:text-xs flex-1" autoFocus />
                             <button type="button" onClick={() => setEditingNotifyEmail(false)} className="text-xs text-primary font-medium hover:underline shrink-0">Listo</button>
                           </div>
                         ) : (
@@ -3187,7 +3187,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                       <p className="text-xs text-muted-foreground">Correo de destino</p>
                       {editingPaymentEmail ? (
                         <div className="flex gap-2">
-                          <Input type="email" value={paymentEmailSP} onChange={e => setPaymentEmailSP(e.target.value)} placeholder="tu@correo.com" className="h-8 text-xs flex-1" autoFocus />
+                          <Input type="email" value={paymentEmailSP} onChange={e => setPaymentEmailSP(e.target.value)} placeholder="tu@correo.com" className="h-8 text-base md:text-xs flex-1" autoFocus />
                           <button type="button" onClick={() => setEditingPaymentEmail(false)} className="text-xs text-primary font-medium hover:underline shrink-0">Listo</button>
                         </div>
                       ) : (
@@ -3421,13 +3421,13 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
               <WeeklySchedulePicker value={schedule} onChange={setSchedule} interval={30} />
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">Zona horaria</label>
-                <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                   {(TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES]).map(tz => <option key={tz} value={tz}>{tz}</option>)}
                 </select>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs text-muted-foreground">Mensaje fuera de horario</label>
-                <Textarea value={offHoursMsg} onChange={e => setOffHoursMsg(e.target.value)} rows={3} className="text-sm resize-none"
+                <Textarea value={offHoursMsg} onChange={e => setOffHoursMsg(e.target.value)} rows={3} className="text-base md:text-sm resize-none"
                   placeholder="Ej: ¡Hola! Estamos fuera de horario. Te atenderemos pronto." />
               </div>
             </div>
@@ -3488,7 +3488,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                       value={bio}
                       onChange={e => setBio(e.target.value.slice(0, 139))}
                       rows={3}
-                      className="text-sm resize-none"
+                      className="text-base md:text-sm resize-none"
                       placeholder="Ej: Servicio de atención al cliente 24/7"
                     />
                     <div className="flex items-center justify-between">
@@ -3534,7 +3534,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         <input
                           value={editingLabel.name}
                           onChange={e => setEditingLabel(prev => prev ? { ...prev, name: e.target.value } : null)}
-                          className="w-full h-7 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none"
+                          className="w-full h-7 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none"
                           placeholder="Nombre"
                           autoFocus
                         />
@@ -3545,7 +3545,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                             onChange={e => setEditingLabel(prev => prev ? { ...prev, hint: e.target.value } : null)}
                             placeholder="ej: cuando el usuario pregunta por precios o quiere comprar"
                             rows={2}
-                            className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
+                            className="w-full px-2 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
                           />
                           {editingLabel.hint?.trim() && (
                             <button
@@ -3575,7 +3575,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                             onChange={e => setEditingLabel(prev => prev ? { ...prev, remove_hint: e.target.value } : null)}
                             placeholder="ej: cuando el usuario envía comprobante de pago o confirma el pago"
                             rows={2}
-                            className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
+                            className="w-full px-2 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
                           />
                           {editingLabel.remove_hint?.trim() && (
                             <button
@@ -3644,7 +3644,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   value={newLabelName}
                   onChange={e => setNewLabelName(e.target.value)}
                   placeholder="Nombre de la etiqueta"
-                  className="w-full h-8 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  className="w-full h-8 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
                 <div className="space-y-1">
                   <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Cuándo asignar</label>
@@ -3653,7 +3653,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     onChange={e => setNewLabelHint(e.target.value)}
                     placeholder="ej: cuando el usuario pregunta por precios o quiere comprar"
                     rows={2}
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                    className="w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                   />
                   {newLabelHint.trim() && (
                     <button
@@ -3683,7 +3683,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     onChange={e => setNewLabelRemoveHint(e.target.value)}
                     placeholder="ej: cuando el usuario envía comprobante de pago o confirma el pago"
                     rows={2}
-                    className="w-full px-2.5 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+                    className="w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                   />
                   {newLabelRemoveHint.trim() && (
                     <button
@@ -3738,7 +3738,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         <input
                           value={editingQr.shortcut}
                           onChange={e => setEditingQr(prev => prev ? { ...prev, shortcut: e.target.value } : null)}
-                          className="w-full h-7 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none font-mono"
+                          className="w-full h-7 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none font-mono"
                           placeholder="atajo (ej: saludo)"
                           autoFocus
                         />
@@ -3760,7 +3760,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                           value={editingQr.content}
                           onChange={e => setEditingQr(prev => prev ? { ...prev, content: e.target.value } : null)}
                           rows={3}
-                          className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
+                          className="w-full px-2 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
                           placeholder={editingQr.media_url ? "Caption (opcional)..." : "Contenido completo..."}
                         />
                         <input ref={editingQrFileRef} type="file" className="hidden"
@@ -3817,7 +3817,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 <input
                   value={newQrShortcut}
                   onChange={e => setNewQrShortcut(e.target.value.replace(/\s/g, "").replace(/^\//, ""))}
-                  className="w-full h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none font-mono"
+                  className="w-full h-8 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none font-mono"
                   placeholder="atajo  (ej: saludo, precio, cita)"
                 />
                 {/* Preview de media en formulario de creación */}
@@ -3838,7 +3838,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   value={newQrContent}
                   onChange={e => setNewQrContent(e.target.value)}
                   rows={3}
-                  className="w-full px-2 py-1.5 text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
+                  className="w-full px-2 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
                   placeholder={newQrMediaUrl ? "Caption (opcional)..." : "Hola! Gracias por contactarnos..."}
                 />
                 <input ref={newQrFileRef} type="file" className="hidden"
@@ -3931,7 +3931,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         value={editingSeq.name}
                         onChange={e => setEditingSeq(s => s ? { ...s, name: e.target.value } : s)}
                         placeholder="ej: Presentación Paquete Gold"
-                        className="w-full h-8 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        className="w-full h-8 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
                       />
                     </div>
 
@@ -3949,7 +3949,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                           }
                           setEditingSeq(s => s ? { ...s, product_id: val, entity_type: etype, currency: null } : s);
                         }}
-                        className="w-full h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
+                        className="w-full h-8 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none">
                         <option value="">Sin asociar</option>
                         {allServices.length > 0 && <option disabled>── Servicios ──</option>}
                         {allServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -4494,7 +4494,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                           value={editingFlow.name}
                           onChange={e => setEditingFlow(f => f ? { ...f, name: e.target.value } : f)}
                           placeholder="ej: Consulta de precios"
-                          className="w-full h-8 px-2.5 text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          className="w-full h-8 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
                         />
                       </div>
 
@@ -4533,7 +4533,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                               onChange={e => setEditingFlow(f => f ? { ...f, trigger_text: e.target.value } : f)}
                               placeholder="Describe en lenguaje natural la intención del usuario. Ej: «cuando el usuario pregunta por precios, planes o quiere cotizar»"
                               rows={3}
-                              className={`w-full px-2.5 py-1.5 text-xs rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed transition-colors ${
+                              className={`w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none leading-relaxed transition-colors ${
                                 triggerValidation
                                   ? triggerValidation.severity === "valid"
                                     ? "border-emerald-400/70"
@@ -4614,7 +4614,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                           <select
                             value={editingFlow.sequence_id ?? ""}
                             onChange={e => setEditingFlow(f => f ? { ...f, sequence_id: e.target.value || null } : f)}
-                            className="flex-1 h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
+                            className="flex-1 h-8 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none">
                             <option value="">Sin secuencia</option>
                             {sequences.map(s => (
                               <option key={s.id} value={s.id}>{s.name}</option>
@@ -4669,7 +4669,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                                   return { ...f, country_sequences: next };
                                 })}
                                 disabled={!cs.sequence_id}
-                                className="w-40 h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none shrink-0 disabled:opacity-40">
+                                className="w-40 h-8 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none shrink-0 disabled:opacity-40">
                                 <option value="">País…</option>
                                 {countryOptions.map(c => (
                                   <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
@@ -4696,7 +4696,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         <select
                           value={editingFlow.final_action}
                           onChange={e => setEditingFlow(f => f ? { ...f, final_action: e.target.value as CrmWaFlowFinalAction } : f)}
-                          className="w-full h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
+                          className="w-full h-8 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none">
                           {(Object.entries(FLOW_FINAL_ACTION_LABELS) as [CrmWaFlowFinalAction, string][]).map(([k, v]) => (
                             <option key={k} value={k}>{v}</option>
                           ))}
@@ -5765,7 +5765,7 @@ const ChatPanel = ({
               }
             }}
             placeholder="Buscar en la conversación..."
-            className="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground/60"
+            className="flex-1 text-base md:text-sm bg-transparent outline-none placeholder:text-muted-foreground/60"
           />
           {searchMatches.length > 0 && (
             <div className="flex items-center gap-1 shrink-0">
@@ -6707,7 +6707,7 @@ const CrmAgentIA = ({
                   value={search}
                   onChange={e => setSearch(e.target.value)}
                   placeholder="Buscar conversaciones..."
-                  className="h-9 text-sm pl-8 bg-secondary/60 border-transparent focus:border-input rounded-xl"
+                  className="h-9 text-base md:text-sm pl-8 bg-secondary/60 border-transparent focus:border-input rounded-xl"
                 />
                 {search && (
                   <button onClick={() => setSearch("")} className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground">
@@ -6746,7 +6746,7 @@ const CrmAgentIA = ({
                     value={search}
                     onChange={e => setSearch(e.target.value)}
                     placeholder="Buscar archivadas..."
-                    className="h-9 text-sm pl-8 bg-secondary/60 border-transparent focus:border-input rounded-xl"
+                    className="h-9 text-base md:text-sm pl-8 bg-secondary/60 border-transparent focus:border-input rounded-xl"
                   />
                   {search && (
                     <button onClick={() => setSearch("")} className="absolute right-2.5 top-2.5 text-muted-foreground hover:text-foreground">

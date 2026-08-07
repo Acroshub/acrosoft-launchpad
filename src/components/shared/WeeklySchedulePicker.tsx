@@ -60,7 +60,7 @@ const TimeSelect = ({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-8 rounded-lg border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 flex-1 min-w-0"
+      className="h-8 rounded-lg border border-border bg-background px-2 text-base md:text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/20 flex-1 min-w-0"
     >
       {opts.map((h) => (
         <option key={h} value={h}>

@@ -245,7 +245,7 @@ function TicketThread({
               value={content}
               onChange={(e) => setContent(e.target.value)}
               placeholder="Escribe tu respuesta..."
-              className="min-h-[60px] max-h-[120px] text-sm resize-none flex-1"
+              className="min-h-[60px] max-h-[120px] text-base md:text-sm resize-none flex-1"
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
@@ -375,7 +375,7 @@ function NewTicketForm({
             placeholder={type === "ticket"
               ? "Explica con detalle qué está pasando, pasos para reproducirlo, etc."
               : "Cuéntanos tu idea o mejora..."}
-            className="min-h-[140px] text-sm resize-none"
+            className="min-h-[140px] text-base md:text-sm resize-none"
           />
         </div>
 

@@ -181,7 +181,7 @@ export function MethodForm({
           type === "payment_link"  ? "Ej: PayPal, Stripe, Binance..." :
           "Ej: QR Transfermóvil"
         }
-        className="h-8 text-sm"
+        className="h-8 text-base md:text-sm"
       />
 
       {/* Contenido según tipo */}
@@ -191,7 +191,7 @@ export function MethodForm({
           onChange={e => setContent(e.target.value)}
           placeholder={"Banco: XYZ\nCuenta: 1234-5678\nTitular: Nombre\nCCI: ..."}
           rows={4}
-          className="w-full px-3 py-2 text-sm rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+          className="w-full px-3 py-2 text-base md:text-sm rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
         />
       )}
 
@@ -200,7 +200,7 @@ export function MethodForm({
           value={content}
           onChange={e => setContent(e.target.value)}
           placeholder="https://paypal.me/tu-usuario"
-          className="h-8 text-sm font-mono"
+          className="h-8 text-base md:text-sm font-mono"
         />
       )}
 

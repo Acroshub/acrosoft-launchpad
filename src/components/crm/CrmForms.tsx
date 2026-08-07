@@ -225,7 +225,7 @@ const FieldRow = ({
         <Input
           value={field.label}
           onChange={(e) => onChangeLabel(e.target.value)}
-          className="h-9 text-sm flex-1 min-w-[140px]"
+          className="h-9 text-base md:text-sm flex-1 min-w-[140px]"
           placeholder="Nombre del campo"
         />
 
@@ -235,7 +235,7 @@ const FieldRow = ({
             value={field.type}
             onChange={(e) => onChangeType(e.target.value as FieldType)}
             disabled={field.locked}
-            className={`h-9 rounded-lg border bg-background text-xs pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary ${field.locked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+            className={`h-9 rounded-lg border bg-background text-base md:text-xs pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary ${field.locked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
           >
             {FIELD_TYPES.map((t) => (
               <option key={t.value} value={t.value}>{t.label}</option>
@@ -298,7 +298,7 @@ const FieldRow = ({
             value={field.placeholder ?? ""}
             onChange={(e) => onChangePlaceholder(e.target.value)}
             placeholder="Texto de ayuda (placeholder)…"
-            className="h-8 text-xs text-muted-foreground"
+            className="h-8 text-base md:text-xs text-muted-foreground"
           />
         </div>
       )}
@@ -377,7 +377,7 @@ const FieldRow = ({
                   value={field.doc_key ?? ""}
                   onChange={(e) => onChangeDocKey(slugifyDocKey(e.target.value))}
                   placeholder="ej: business_name, city…"
-                  className="h-7 text-[11px] font-mono flex-1"
+                  className="h-7 text-base md:text-[11px] font-mono flex-1"
                   autoFocus
                 />
                 <button
@@ -424,7 +424,7 @@ const FieldRow = ({
                 <Input
                   value={opt}
                   onChange={(e) => onChangeOption(i, e.target.value)}
-                  className="h-8 text-xs flex-1"
+                  className="h-8 text-base md:text-xs flex-1"
                   placeholder={`Opción ${i + 1}`}
                 />
                 <button
@@ -461,7 +461,7 @@ const FieldRow = ({
                 <Input
                   value={opt}
                   onChange={(e) => onChangeOption(i, e.target.value)}
-                  className="h-8 text-xs flex-1"
+                  className="h-8 text-base md:text-xs flex-1"
                   placeholder={`Opción ${i + 1}`}
                 />
                 <button
@@ -567,7 +567,7 @@ const FieldRow = ({
               max={20}
               value={field.maxItems ?? 3}
               onChange={(e) => onChangeMaxItems(Number(e.target.value))}
-              className="h-8 w-20 rounded-lg border border-input bg-background px-2 text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary"
+              className="h-8 w-20 rounded-lg border border-input bg-background px-2 text-base md:text-sm text-center focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
@@ -580,12 +580,12 @@ const FieldRow = ({
                   value={sf.label}
                   onChange={(e) => onChangeSubField(i, { label: e.target.value })}
                   placeholder={`Campo ${i + 1}`}
-                  className="h-8 flex-1 rounded-md border border-input bg-background px-3 text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="h-8 flex-1 rounded-md border border-input bg-background px-3 text-base md:text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                 />
                 <select
                   value={sf.type}
                   onChange={(e) => onChangeSubField(i, { type: e.target.value as SubFieldType })}
-                  className="h-8 rounded-lg border border-input bg-background text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="h-8 rounded-lg border border-input bg-background text-base md:text-xs px-2 focus:outline-none focus:ring-1 focus:ring-primary"
                 >
                   {SUB_FIELD_TYPES.map((t) => (
                     <option key={t.value} value={t.value}>{t.label}</option>
@@ -984,7 +984,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                               onBlur={() => setEditingSectionId(null)}
                               onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditingSectionId(null); }}
                               autoFocus
-                              className="h-8 text-sm font-semibold border-none bg-background px-2 -ml-2 focus-visible:ring-1 max-w-[250px]"
+                              className="h-8 text-base md:text-sm font-semibold border-none bg-background px-2 -ml-2 focus-visible:ring-1 max-w-[250px]"
                               placeholder="Nombre de la sección"
                             />
                           ) : (
@@ -1049,7 +1049,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                             value={sec.subtitle ?? ""}
                             onChange={(e) => updateSectionSubtitle(sec.id, e.target.value)}
                             placeholder="Descripción de la página (opcional)…"
-                            className="w-full text-xs text-muted-foreground bg-transparent border-none outline-none placeholder:text-muted-foreground/30 focus:text-foreground transition-colors"
+                            className="w-full text-base md:text-xs text-muted-foreground bg-transparent border-none outline-none placeholder:text-muted-foreground/30 focus:text-foreground transition-colors"
                           />
                         </div>
                       )}
@@ -1082,7 +1082,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                             onChange={(e) => setConfirmationMessage(e.target.value)}
                             rows={3}
                             placeholder="Ej: Al confirmar, nuestro equipo comenzará a trabajar en tu proyecto. Recibirás un correo de confirmación."
-                            className="w-full rounded-xl border border-amber-200/60 dark:border-amber-800/40 bg-background/80 text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-amber-400/60 placeholder:text-muted-foreground/50"
+                            className="w-full rounded-xl border border-amber-200/60 dark:border-amber-800/40 bg-background/80 text-base md:text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-amber-400/60 placeholder:text-muted-foreground/50"
                           />
                           <p className="text-[10px] text-muted-foreground">Si lo dejas vacío, no se mostrará ningún mensaje.</p>
                         </div>
@@ -1171,7 +1171,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                 value={submitButtonText}
                 onChange={e => setSubmitButtonText(e.target.value)}
                 placeholder="Ej: Agendar Cita"
-                className="h-10 text-sm"
+                className="h-10 text-base md:text-sm"
               />
             </div>
 
@@ -1206,7 +1206,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                       setNewAutoTag("");
                     }}
                     placeholder="+ nueva etiqueta"
-                    className="text-xs h-7 px-2.5 rounded-full border border-dashed bg-transparent text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary w-36"
+                    className="text-base md:text-xs h-7 px-2.5 rounded-full border border-dashed bg-transparent text-muted-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary w-36"
                   />
                 </div>
               </div>
@@ -1257,7 +1257,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                       value={successPopupMessage}
                       onChange={e => setSuccessPopupMessage(e.target.value)}
                       placeholder="¡Gracias! Hemos recibido tu solicitud."
-                      className="h-10 text-sm bg-background border-input"
+                      className="h-10 text-base md:text-sm bg-background border-input"
                     />
                     <p className="text-[10px] text-muted-foreground mt-1">
                       Este texto aparecerá en grande {successImageType === "icon" ? "debajo del icono de éxito" : "debajo de tu logotipo"} al enviar la información.
@@ -1271,7 +1271,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                     value={successRedirectUrl}
                     onChange={e => setSuccessRedirectUrl(e.target.value)}
                     placeholder="https://tudominio.com/gracias"
-                    className="h-10 text-sm bg-background border-input font-mono"
+                    className="h-10 text-base md:text-sm bg-background border-input font-mono"
                   />
                   <p className="text-[10px] text-muted-foreground mt-1">El usuario será redirigido automáticamente a este enlace al completar el formulario.</p>
                 </div>
@@ -1290,7 +1290,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                 value={facebookPixelId}
                 onChange={e => setFacebookPixelId(e.target.value)}
                 placeholder="Ej: 1234567890123456"
-                className="h-10 text-sm font-mono"
+                className="h-10 text-base md:text-sm font-mono"
               />
               <p className="text-[10px] text-muted-foreground leading-relaxed">
                 Se dispara <strong>ViewContent</strong> al cargar el formulario y <strong>Lead</strong> al enviar el formulario.
@@ -1337,7 +1337,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                       {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
                     </p>
                     <div className="flex gap-2">
-                      <Input readOnly value={`${window.location.origin}/f/${form.id}?lang=${lang}`} className="h-9 text-[11px] bg-secondary/30 font-mono" />
+                      <Input readOnly value={`${window.location.origin}/f/${form.id}?lang=${lang}`} className="h-9 text-base md:text-[11px] bg-secondary/30 font-mono" />
                       <Button variant="secondary" size="icon" className="h-9 w-9 shrink-0" onClick={() => navigator.clipboard.writeText(`${window.location.origin}/f/${form.id}?lang=${lang}`)}>
                         <Copy size={13}/>
                       </Button>
@@ -1362,7 +1362,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                         {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
                       </p>
                       <div className="relative">
-                        <textarea readOnly value={code} className="w-full h-[76px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary" />
+                        <textarea readOnly value={code} className="w-full h-[76px] p-2.5 pr-10 text-base md:text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary" />
                         <Button variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6" onClick={() => navigator.clipboard.writeText(code)}>
                           <Copy size={11}/>
                         </Button>
@@ -1385,7 +1385,7 @@ const FormBuilder = ({ form, onBack, onUpdate, showDocKeys = false, readOnly = f
                         {lang === "es" ? "🇪🇸 Español" : "🇺🇸 English"}
                       </p>
                       <div className="relative">
-                        <textarea readOnly value={code} className="w-full h-[100px] p-2.5 pr-10 text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary" />
+                        <textarea readOnly value={code} className="w-full h-[100px] p-2.5 pr-10 text-base md:text-[10px] font-mono bg-secondary/30 rounded-xl border border-border/50 resize-none focus:outline-none focus:ring-1 focus:ring-primary" />
                         <Button variant="secondary" size="icon" className="absolute top-2 right-2 h-6 w-6" onClick={() => navigator.clipboard.writeText(code)}>
                           <Copy size={11}/>
                         </Button>

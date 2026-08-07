@@ -197,7 +197,7 @@ const NegocioTab = ({
                 <select
                   value={profile?.timezone ?? "America/La_Paz"}
                   onChange={(e) => update({ timezone: e.target.value })}
-                  className="w-full h-12 px-4 rounded-2xl border border-border bg-background text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer"
+                  className="w-full h-12 px-4 rounded-2xl border border-border bg-background text-base md:text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer"
                 >
                   {TIMEZONE_OPTIONS.map((tz) => (
                     <option key={tz} value={tz}>{tz.replace(/_/g, " ")}</option>
@@ -221,7 +221,7 @@ const NegocioTab = ({
               onChange={e => !readOnly && setDesc(e.target.value)}
               rows={5}
               readOnly={readOnly}
-              className={`w-full rounded-2xl border border-border bg-background text-sm px-4 py-3.5 resize-none outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all ${readOnly ? "opacity-70 cursor-default" : ""}`}
+              className={`w-full rounded-2xl border border-border bg-background text-base md:text-sm px-4 py-3.5 resize-none outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all ${readOnly ? "opacity-70 cursor-default" : ""}`}
               placeholder="Describe brevemente tu negocio, qué ofreces y a quién..."
             />
             {!readOnly && desc !== profile?.description && (
@@ -304,14 +304,14 @@ const NegocioTab = ({
                 value={newQ}
                 onChange={e => setNewQ(e.target.value)}
                 placeholder="¿Cuál es la pregunta que hacen los clientes?"
-                className="w-full h-10 rounded-xl border border-border bg-background text-sm px-3 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                className="w-full h-10 rounded-xl border border-border bg-background text-base md:text-sm px-3 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
               />
               <textarea
                 value={newA}
                 onChange={e => setNewA(e.target.value)}
                 rows={3}
                 placeholder="Escribe la respuesta que el agente debe dar..."
-                className="w-full rounded-xl border border-border bg-background text-sm px-3 py-2.5 resize-none outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                className="w-full rounded-xl border border-border bg-background text-base md:text-sm px-3 py-2.5 resize-none outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
               />
               <button
                 onClick={handleAddFaq}

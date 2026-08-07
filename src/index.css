@@ -74,6 +74,15 @@
 
   /* Selección de texto */
   ::selection { background: hsl(var(--primary) / 0.15); color: hsl(var(--foreground)); }
+
+  /* Red de seguridad: iOS Safari hace zoom automático al enfocar un campo con
+     font-size < 16px. Esto fuerza 16px en cualquier input/textarea/select por
+     debajo del breakpoint md, incluso si una clase de Tailwind intenta achicarlo. */
+  @media (max-width: 767px) {
+    input, textarea, select {
+      font-size: 16px !important;
+    }
+  }
 }
 
 @layer utilities {

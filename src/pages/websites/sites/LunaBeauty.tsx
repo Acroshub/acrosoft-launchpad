@@ -981,7 +981,7 @@ function BookPage({ initService = "", initSpecialist = "" }: { initService?: str
                     <div key={k}>
                       <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color:C.muted }}>{l}</label>
                       <input required type={t} placeholder={p} value={form[k as keyof typeof form]} onChange={e => setForm({...form,[k]:e.target.value})}
-                        className="w-full border rounded-xl px-4 py-3 text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
+                        className="w-full border rounded-xl px-4 py-3 text-base md:text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
                         onFocus={e => e.target.style.borderColor = C.roseMid}
                         onBlur={e => e.target.style.borderColor = C.border}
                       />
@@ -991,7 +991,7 @@ function BookPage({ initService = "", initSpecialist = "" }: { initService?: str
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color:C.muted }}>Email</label>
                   <input type="email" placeholder="you@email.com" value={form.email} onChange={e => setForm({...form,email:e.target.value})}
-                    className="w-full border rounded-xl px-4 py-3 text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
+                    className="w-full border rounded-xl px-4 py-3 text-base md:text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
                     onFocus={e => e.target.style.borderColor = C.roseMid}
                     onBlur={e => e.target.style.borderColor = C.border}
                   />
@@ -999,7 +999,7 @@ function BookPage({ initService = "", initSpecialist = "" }: { initService?: str
                 <div>
                   <label className="block text-xs font-semibold uppercase tracking-wider mb-1.5" style={{ color:C.muted }}>Special Requests (optional)</label>
                   <textarea rows={3} placeholder="Hair goals, inspiration photos, allergies…" value={form.notes} onChange={e => setForm({...form,notes:e.target.value})}
-                    className="w-full border rounded-xl px-4 py-3 text-sm focus:outline-none transition-colors resize-none" style={{ borderColor:C.border, color:C.text }}
+                    className="w-full border rounded-xl px-4 py-3 text-base md:text-sm focus:outline-none transition-colors resize-none" style={{ borderColor:C.border, color:C.text }}
                     onFocus={e => e.target.style.borderColor = C.roseMid}
                     onBlur={e => e.target.style.borderColor = C.border}
                   />

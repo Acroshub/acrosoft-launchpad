@@ -121,7 +121,7 @@ export default function CourseAccess() {
                   onChange={e => setEmail(e.target.value)}
                   placeholder="correo@ejemplo.com"
                   required
-                  className="w-full h-11 pl-9 pr-4 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                  className="w-full h-11 pl-9 pr-4 rounded-xl border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
                 />
               </div>
             </div>

@@ -788,7 +788,7 @@ function ContactPage() {
   const [form, setForm] = useState({ name: "", phone: "", email: "", service: "", message: "" });
   const [sent, setSent] = useState(false);
   function handleSubmit(e: React.FormEvent) { e.preventDefault(); setSent(true); }
-  const inputBase = "w-full rounded-xl px-4 py-3.5 text-sm transition-colors focus:outline-none border";
+  const inputBase = "w-full rounded-xl px-4 py-3.5 text-base md:text-sm transition-colors focus:outline-none border";
   const inputStyle = { background: C.bg, borderColor: C.border, color: C.text };
 
   return (

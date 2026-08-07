@@ -357,7 +357,7 @@ const RepeatableField = ({
                     value={item[sf.id] ?? ""}
                     onChange={e => updateItem(idx, sf.id, e.target.value)}
                     rows={2}
-                    className="w-full rounded-xl border border-input bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
+                    className="w-full rounded-xl border border-input bg-background text-base md:text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary placeholder:text-muted-foreground/50"
                   />
                 ) : sf.type === "checkbox" ? (
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -374,7 +374,7 @@ const RepeatableField = ({
                     type={sf.type === "number" ? "number" : sf.type === "url" ? "url" : "text"}
                     value={item[sf.id] ?? ""}
                     onChange={e => updateItem(idx, sf.id, e.target.value)}
-                    className="h-9 text-sm"
+                    className="h-9 text-base md:text-sm"
                   />
                 )}
               </div>
@@ -619,7 +619,7 @@ const FieldRenderer = ({
           <Input
             value={color}
             onChange={e => onChange(e.target.value)}
-            className="h-10 text-sm w-36 font-mono"
+            className="h-10 text-base md:text-sm w-36 font-mono"
             placeholder="#000000"
           />
         </div>
@@ -634,7 +634,7 @@ const FieldRenderer = ({
           <select
             value={value ?? ""}
             onChange={e => onChange(e.target.value)}
-            className="w-full h-11 rounded-xl border border-input bg-background text-sm px-3 pr-8 appearance-none focus:outline-none focus:ring-2 focus:ring-primary/20"
+            className="w-full h-11 rounded-xl border border-input bg-background text-base md:text-sm px-3 pr-8 appearance-none focus:outline-none focus:ring-2 focus:ring-primary/20"
           >
             <option value="">{field.placeholder || TF.selectOption}</option>
             {(field.options ?? []).map(opt => (
@@ -709,7 +709,7 @@ const FieldRenderer = ({
           onBlur={onBlur}
           placeholder={field.placeholder}
           rows={4}
-          className="w-full rounded-xl border border-input bg-background text-sm px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50 mt-1"
+          className="w-full rounded-xl border border-input bg-background text-base md:text-sm px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-primary/20 placeholder:text-muted-foreground/50 mt-1"
         />
       </FieldWrapper>
     );
@@ -746,7 +746,7 @@ const FieldRenderer = ({
         onChange={e => onChange(e.target.value)}
         onBlur={onBlur}
         placeholder={field.placeholder}
-        className="h-11 text-sm mt-1"
+        className="h-11 text-base md:text-sm mt-1"
       />
     </FieldWrapper>
   );

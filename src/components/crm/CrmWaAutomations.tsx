@@ -206,7 +206,7 @@ function AutoVarSelector({
             if (e.target.value === "contact_field") onChange({ source: "contact_field", field: "name" });
             else onChange({ source: "fixed", value: "" });
           }}
-          className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30"
+          className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30"
         >
           <option value="contact_field">Campo del contacto</option>
           <option value="fixed">Texto fijo</option>
@@ -215,7 +215,7 @@ function AutoVarSelector({
           <select
             value={(value as any)?.field ?? "name"}
             onChange={e => onChange({ source: "contact_field", field: e.target.value as any })}
-            className="h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30"
+            className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30"
           >
             <option value="name">Nombre</option>
             <option value="phone">Teléfono</option>
@@ -226,7 +226,7 @@ function AutoVarSelector({
             value={(value as any)?.value ?? ""}
             onChange={e => onChange({ source: "fixed", value: e.target.value })}
             placeholder="Texto fijo para todos"
-            className="flex-1 h-8 px-2 rounded-lg border border-border bg-background text-xs outline-none focus:ring-2 focus:ring-primary/30 min-w-0"
+            className="flex-1 h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 min-w-0"
           />
         )}
       </div>
@@ -428,7 +428,7 @@ function AutomationForm({
           value={form.name}
           onChange={e => set({ name: e.target.value })}
           placeholder="Ej: Seguimiento a nuevos contactos"
-          className="w-full h-9 px-3 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30"
+          className="w-full h-9 px-3 rounded-xl border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30"
         />
       </div>
 
@@ -445,7 +445,7 @@ function AutomationForm({
             type="number" min="1" max="720"
             value={form.trigger_inactivity_hours}
             onChange={e => set({ trigger_inactivity_hours: e.target.value })}
-            className="w-24 h-8 px-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 text-center"
+            className="w-24 h-8 px-2 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 text-center"
           />
           <span className="text-xs text-muted-foreground">horas</span>
         </div>
@@ -531,7 +531,7 @@ function AutomationForm({
             type="number" min="0" max="8760"
             value={form.delay_hours}
             onChange={e => set({ delay_hours: e.target.value })}
-            className="w-24 h-9 px-2 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 text-center font-semibold"
+            className="w-24 h-9 px-2 rounded-xl border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 text-center font-semibold"
           />
           <span className="text-xs text-muted-foreground">horas</span>
           <span className="text-[10px] text-muted-foreground/60 italic">
@@ -630,7 +630,7 @@ function AutomationForm({
               placeholder={form.media_type === "none"
                 ? "Escribe el mensaje que se enviará..."
                 : "Pie de foto o descripción (opcional)..."}
-              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30 resize-none"
+              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 resize-none"
             />
           )}
         </div>

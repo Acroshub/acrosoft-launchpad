@@ -58,10 +58,10 @@ function applyHistoryFilters(
   return r;
 }
 
-const SELECT_CLS = "w-full h-12 px-3.5 rounded-xl border border-border bg-card text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer";
-const INPUT_CLS  = "w-full h-12 px-4 rounded-xl border border-border bg-card text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-muted-foreground/50";
-const F_SELECT   = "w-full h-9 px-3 rounded-xl border border-border bg-card text-xs font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer";
-const F_INPUT    = "w-full h-9 px-3 rounded-xl border border-border bg-card text-xs font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all";
+const SELECT_CLS = "w-full h-12 px-3.5 rounded-xl border border-border bg-card text-base md:text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer";
+const INPUT_CLS  = "w-full h-12 px-4 rounded-xl border border-border bg-card text-base md:text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-muted-foreground/50";
+const F_SELECT   = "w-full h-9 px-3 rounded-xl border border-border bg-card text-base md:text-xs font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all appearance-none cursor-pointer";
+const F_INPUT    = "w-full h-9 px-3 rounded-xl border border-border bg-card text-base md:text-xs font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all";
 
 const Chevron = () => (
   <div className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">
@@ -744,7 +744,7 @@ const CrmVentas = ({ section, onNavigate }: { section: VentasSection; onNavigate
             value={renewalSearch}
             onChange={(e) => setRenewalSearch(e.target.value)}
             placeholder="Buscar por cliente o producto..."
-            className="w-full h-10 pl-9 pr-8 rounded-xl border border-border bg-card text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+            className="w-full h-10 pl-9 pr-8 rounded-xl border border-border bg-card text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
           />
           {renewalSearch && (
             <button type="button" onClick={() => setRenewalSearch("")}
@@ -1230,14 +1230,14 @@ const CrmVentas = ({ section, onNavigate }: { section: VentasSection; onNavigate
                   )}
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Notas</label>
-                    <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={2} className="text-sm resize-none rounded-xl" placeholder="Observaciones..." />
+                    <Textarea value={editNotes} onChange={(e) => setEditNotes(e.target.value)} rows={2} className="text-base md:text-sm resize-none rounded-xl" placeholder="Observaciones..." />
                   </div>
                 </>
               )}
               {saleModal.mode === "delete" && <p className="text-sm text-muted-foreground">Esta acción eliminará la transacción permanentemente.</p>}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Justificación <span className="text-destructive">*</span></label>
-                <Textarea value={justification} onChange={(e) => setJustification(e.target.value)} rows={2} className="text-sm resize-none rounded-xl" placeholder="Motivo de este cambio..." autoFocus />
+                <Textarea value={justification} onChange={(e) => setJustification(e.target.value)} rows={2} className="text-base md:text-sm resize-none rounded-xl" placeholder="Motivo de este cambio..." autoFocus />
               </div>
             </div>
           )}

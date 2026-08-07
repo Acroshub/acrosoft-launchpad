@@ -234,7 +234,7 @@ function EstimateForm() {
             placeholder="John Rivera"
             value={form.name}
             onChange={e => setForm({ ...form, name: e.target.value })}
-            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition"
+            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition"
           />
         </div>
         <div>
@@ -246,7 +246,7 @@ function EstimateForm() {
             placeholder="(713) 000-0000"
             value={form.phone}
             onChange={e => setForm({ ...form, phone: e.target.value })}
-            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition"
+            className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition"
           />
         </div>
       </div>
@@ -257,7 +257,7 @@ function EstimateForm() {
           required
           value={form.service}
           onChange={e => setForm({ ...form, service: e.target.value })}
-          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 text-sm focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition bg-white cursor-pointer"
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition bg-white cursor-pointer"
         >
           <option value="">Select a service…</option>
           <option>Tree Removal</option>
@@ -276,7 +276,7 @@ function EstimateForm() {
           placeholder="E.g., large oak tree near the house, neighbor's tree fell on fence…"
           value={form.message}
           onChange={e => setForm({ ...form, message: e.target.value })}
-          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition resize-none"
+          className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-900 placeholder-gray-400 text-base md:text-sm focus:outline-none focus:ring-2 focus:ring-[#f97316] focus:border-transparent transition resize-none"
         />
       </div>
       <button

@@ -392,15 +392,15 @@ const CategoryDetail = ({ category, onBack }: { category: CommsCategory; onBack:
                 <div className="rounded-2xl border bg-card p-5 space-y-3.5">
                   <div className="space-y-1">
                     <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Nombre de la copia</label>
-                    <Input value={nameVal} onChange={(e) => setNameVal(e.target.value)} className="h-9 text-sm" />
+                    <Input value={nameVal} onChange={(e) => setNameVal(e.target.value)} className="h-9 text-base md:text-sm" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Asunto</label>
-                    <Input value={subjectVal} onChange={(e) => setSubjectVal(e.target.value)} className="h-9 text-sm" />
+                    <Input value={subjectVal} onChange={(e) => setSubjectVal(e.target.value)} className="h-9 text-base md:text-sm" />
                   </div>
                   <div className="space-y-1">
                     <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Contenido</label>
-                    <Textarea value={bodyVal} onChange={(e) => setBodyVal(e.target.value)} rows={8} className="text-sm resize-none" />
+                    <Textarea value={bodyVal} onChange={(e) => setBodyVal(e.target.value)} rows={8} className="text-base md:text-sm resize-none" />
                   </div>
                 </div>
               ) : (

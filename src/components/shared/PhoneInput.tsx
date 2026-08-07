@@ -46,7 +46,7 @@ export default function PhoneInput({
   };
 
   const h = compact ? "h-7" : "h-11";
-  const text = compact ? "text-xs" : "text-sm";
+  const text = compact ? "text-base md:text-xs" : "text-base md:text-sm";
   const px = compact ? "px-1.5" : "px-2";
 
   return (

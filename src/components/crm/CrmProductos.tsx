@@ -92,7 +92,7 @@ const StockAdjuster = ({ productId, variantId, currentStock, onDone }: {
       <input
         type="number" min={0} value={val}
         onChange={e => setVal(Math.max(0, parseInt(e.target.value) || 0))}
-        className="w-12 h-6 border rounded-md text-center text-xs bg-background focus:outline-none focus:ring-1 focus:ring-primary"
+        className="w-12 h-6 border rounded-md text-center text-base md:text-xs bg-background focus:outline-none focus:ring-1 focus:ring-primary"
       />
       <button onClick={() => adjust(1)} className="w-6 h-6 rounded-md border flex items-center justify-center text-muted-foreground hover:bg-secondary transition-colors">
         <Plus size={10} />
@@ -394,12 +394,12 @@ function ProductEditor({ initialProduct, onBack, canDelete = true, kind }: {
       </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Nombre <span className="text-destructive">*</span></label>
-        <Input value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Ebook de Marketing Digital" className="h-9 text-sm" />
+        <Input value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Ebook de Marketing Digital" className="h-9 text-base md:text-sm" />
       </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Descripción</label>
         <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} placeholder="Describe tu producto..."
-          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
       </div>
       <FaqEditor value={faqs} onChange={setFaqs} />
     </div>
@@ -508,7 +508,7 @@ function ProductEditor({ initialProduct, onBack, canDelete = true, kind }: {
       {delivType === "text" && (
         <textarea value={delivText} onChange={e => setDelivText(e.target.value)} rows={3}
           placeholder="Ej: https://drive.google.com/... o instrucciones de acceso"
-          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
       )}
       <p className="text-xs text-emerald-600 flex items-center gap-1.5"><Check size={11} /> Si usas Agente IA, podrá enviar automáticamente el producto digital al confirmar la venta</p>
     </div>
@@ -1006,7 +1006,7 @@ function CatalogView({
       {showAddExisting && (
         <div className="bg-card border rounded-2xl p-4 space-y-3">
           <p className="text-sm font-medium">Seleccionar producto existente</p>
-          <Input value={addSearch} onChange={e => setAddSearch(e.target.value)} placeholder="Buscar..." className="h-8 text-sm" />
+          <Input value={addSearch} onChange={e => setAddSearch(e.target.value)} placeholder="Buscar..." className="h-8 text-base md:text-sm" />
           <div className="max-h-52 overflow-y-auto space-y-1">
             {available.length === 0 && <p className="text-xs text-muted-foreground/60 italic">No hay más productos para añadir.</p>}
             {available.map(p => (
@@ -1413,17 +1413,17 @@ function CatalogForm({ initial, userId, agentPhone, onSave, onCancel, saving, ca
       <div className="grid sm:grid-cols-2 gap-3">
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Nombre *</label>
-          <Input value={name} onChange={e => handleNameChange(e.target.value)} placeholder="Ej: Colección Verano" className="h-9 text-sm" />
+          <Input value={name} onChange={e => handleNameChange(e.target.value)} placeholder="Ej: Colección Verano" className="h-9 text-base md:text-sm" />
         </div>
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Slug</label>
           <Input value={slug} onChange={e => { slugEdited.current = true; setSlug(generateSlug(e.target.value)); }}
-            placeholder="coleccion-verano" className="h-9 text-sm font-mono" />
+            placeholder="coleccion-verano" className="h-9 text-base md:text-sm font-mono" />
         </div>
       </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Descripción (opcional)</label>
-        <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Breve descripción" className="h-9 text-sm" />
+        <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Breve descripción" className="h-9 text-base md:text-sm" />
       </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">
@@ -1434,7 +1434,7 @@ function CatalogForm({ initial, userId, agentPhone, onSave, onCancel, saving, ca
           value={whatsappNumber}
           onChange={e => setWhatsappNumber(e.target.value)}
           placeholder="Ej: 59176421171 (con código de país, sin +)"
-          className="h-9 text-sm font-mono"
+          className="h-9 text-base md:text-sm font-mono"
         />
         <p className="text-[10px] text-muted-foreground/60">El botón "Comprar por WhatsApp" en el catálogo público abrirá este número.</p>
       </div>

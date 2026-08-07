@@ -3,7 +3,7 @@ import { Pencil, Check, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import PhoneInput from "@/components/shared/PhoneInput";
 
-const INPUT_CLS = "w-full h-12 px-4 rounded-2xl border border-border bg-background text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-muted-foreground/50";
+const INPUT_CLS = "w-full h-12 px-4 rounded-2xl border border-border bg-background text-base md:text-sm font-medium outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all placeholder:text-muted-foreground/50";
 
 export const FieldLabel = ({ children }: { children: React.ReactNode }) => (
   <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60 mb-1.5">

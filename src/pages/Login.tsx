@@ -112,7 +112,7 @@ const Login = () => {
                       onChange={e => setEmail(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && email && handleResetPassword()}
                       autoFocus
-                      className="w-full h-12 px-4 rounded-xl border border-[#14161F]/15 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E] transition-all placeholder:text-[#14161F]/30"
+                      className="w-full h-12 px-4 rounded-xl border border-[#14161F]/15 bg-white text-base md:text-sm font-medium outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E] transition-all placeholder:text-[#14161F]/30"
                     />
                   </div>
 
@@ -165,7 +165,7 @@ const Login = () => {
                     onChange={e => setEmail(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && handleLogin()}
                     autoFocus
-                    className="w-full h-12 px-4 rounded-xl border border-[#14161F]/15 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E] transition-all placeholder:text-[#14161F]/30"
+                    className="w-full h-12 px-4 rounded-xl border border-[#14161F]/15 bg-white text-base md:text-sm font-medium outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E] transition-all placeholder:text-[#14161F]/30"
                   />
                 </div>
 
@@ -188,7 +188,7 @@ const Login = () => {
                       value={password}
                       onChange={e => setPassword(e.target.value)}
                       onKeyDown={e => e.key === "Enter" && handleLogin()}
-                      className="w-full h-12 px-4 pr-12 rounded-xl border border-[#14161F]/15 bg-white text-sm font-medium outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E] transition-all placeholder:text-[#14161F]/30"
+                      className="w-full h-12 px-4 pr-12 rounded-xl border border-[#14161F]/15 bg-white text-base md:text-sm font-medium outline-none focus:ring-2 focus:ring-[#0F766E]/25 focus:border-[#0F766E] transition-all placeholder:text-[#14161F]/30"
                     />
                     <button
                       type="button"

@@ -199,7 +199,7 @@ const LogsTab = () => {
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
             placeholder="Buscar por descripción, entidad, ID..."
-            className="h-9 pl-8 pr-8 text-sm"
+            className="h-9 pl-8 pr-8 text-base md:text-sm"
           />
           {search && (
             <button onClick={() => { setSearch(""); setPage(1); }}
@@ -253,7 +253,7 @@ const LogsTab = () => {
               type="date"
               value={dateFrom}
               onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-              className="h-7 text-xs border rounded-lg px-2 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="h-7 text-base md:text-xs border rounded-lg px-2 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               title="Desde"
             />
             <span className="text-muted-foreground text-xs">—</span>
@@ -261,7 +261,7 @@ const LogsTab = () => {
               type="date"
               value={dateTo}
               onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-              className="h-7 text-xs border rounded-lg px-2 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+              className="h-7 text-base md:text-xs border rounded-lg px-2 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
               title="Hasta"
             />
             {hasFilters && (

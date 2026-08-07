@@ -305,7 +305,7 @@ function BookingCalendar() {
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Full Name</label>
                 <input required type="text" placeholder="Carlos López" value={form.name} onChange={e => setForm({...form, name: e.target.value})}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-300 focus:outline-none focus:ring-2 transition"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base md:text-sm text-gray-900 placeholder-gray-300 focus:outline-none focus:ring-2 transition"
                   style={{ '--tw-ring-color': RED } as React.CSSProperties}
                   onFocus={e => e.target.style.borderColor = RED}
                   onBlur={e => e.target.style.borderColor = ""}
@@ -314,7 +314,7 @@ function BookingCalendar() {
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Phone Number</label>
                 <input required type="tel" placeholder="(407) 000-0000" value={form.phone} onChange={e => setForm({...form, phone: e.target.value})}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 placeholder-gray-300 focus:outline-none transition"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base md:text-sm text-gray-900 placeholder-gray-300 focus:outline-none transition"
                   onFocus={e => e.target.style.borderColor = RED}
                   onBlur={e => e.target.style.borderColor = ""}
                 />
@@ -322,7 +322,7 @@ function BookingCalendar() {
               <div>
                 <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Service</label>
                 <select required value={form.service} onChange={e => setForm({...form, service: e.target.value})}
-                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-900 bg-white focus:outline-none transition cursor-pointer"
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-base md:text-sm text-gray-900 bg-white focus:outline-none transition cursor-pointer"
                   onFocus={e => e.target.style.borderColor = RED}
                   onBlur={e => e.target.style.borderColor = ""}
                 >

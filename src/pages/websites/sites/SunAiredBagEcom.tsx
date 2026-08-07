@@ -120,7 +120,7 @@ function Stars({ rating }: { rating: number }) {
 
 const inputCls: React.CSSProperties = {
   width: "100%", border: `1px solid #D1D5DB`, borderRadius: 6,
-  padding: "10px 14px", fontSize: 14, color: C.navy, outline: "none",
+  padding: "10px 14px", fontSize: 16, color: C.navy, outline: "none",
   background: "#fff", transition: "border-color 150ms",
 };
 
@@ -146,7 +146,7 @@ function EcomNav({
             <input
               type="text"
               placeholder="Search bags, systems..."
-              className="w-full pl-9 pr-4 py-2 text-sm rounded border outline-none"
+              className="w-full pl-9 pr-4 py-2 text-base md:text-sm rounded border outline-none"
               style={{ borderColor: "#E0E4EF", background: "#F9FAFB", color: C.navy }}
             />
           </div>
@@ -392,7 +392,7 @@ function CatalogView({ onProduct }: { onProduct: (p: Product) => void }) {
           <SlidersHorizontal size={14} /> Filters
         </button>
         <select value={sort} onChange={e => setSort(e.target.value)}
-          className="flex-1 text-sm font-bold px-3 py-2.5 rounded border cursor-pointer outline-none"
+          className="flex-1 text-base md:text-sm font-bold px-3 py-2.5 rounded border cursor-pointer outline-none"
           style={{ borderColor: "#E0E4EF", color: C.navy }}>
           <option value="featured">Featured</option>
           <option value="price-asc">Price: Low to High</option>
@@ -419,7 +419,7 @@ function CatalogView({ onProduct }: { onProduct: (p: Product) => void }) {
         <div className="flex-1 min-w-0">
           <div className="hidden md:flex justify-end mb-6">
             <select value={sort} onChange={e => setSort(e.target.value)}
-              className="text-sm font-bold px-3 py-2 rounded border cursor-pointer outline-none"
+              className="text-base md:text-sm font-bold px-3 py-2 rounded border cursor-pointer outline-none"
               style={{ borderColor: "#E0E4EF", color: C.navy }}>
               <option value="featured">Featured</option>
               <option value="price-asc">Price: Low to High</option>

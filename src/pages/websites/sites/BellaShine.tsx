@@ -376,7 +376,7 @@ function BookingSection() {
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: C.muted }}>Full Name</label>
                     <input required type="text" placeholder="Sarah Martinez" value={form.name} onChange={e => setForm({...form,name:e.target.value})}
-                      className="w-full border rounded-xl px-4 py-3 text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
+                      className="w-full border rounded-xl px-4 py-3 text-base md:text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
                       onFocus={e => e.target.style.borderColor = C.cyan}
                       onBlur={e => e.target.style.borderColor = C.border}
                     />
@@ -384,7 +384,7 @@ function BookingSection() {
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: C.muted }}>Phone</label>
                     <input required type="tel" placeholder="(214) 000-0000" value={form.phone} onChange={e => setForm({...form,phone:e.target.value})}
-                      className="w-full border rounded-xl px-4 py-3 text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
+                      className="w-full border rounded-xl px-4 py-3 text-base md:text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
                       onFocus={e => e.target.style.borderColor = C.cyan}
                       onBlur={e => e.target.style.borderColor = C.border}
                     />
@@ -393,7 +393,7 @@ function BookingSection() {
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: C.muted }}>Email</label>
                   <input type="email" placeholder="you@email.com" value={form.email} onChange={e => setForm({...form,email:e.target.value})}
-                    className="w-full border rounded-xl px-4 py-3 text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
+                    className="w-full border rounded-xl px-4 py-3 text-base md:text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
                     onFocus={e => e.target.style.borderColor = C.cyan}
                     onBlur={e => e.target.style.borderColor = C.border}
                   />
@@ -401,7 +401,7 @@ function BookingSection() {
                 <div>
                   <label className="block text-xs font-bold uppercase tracking-wider mb-1.5" style={{ color: C.muted }}>Service Address</label>
                   <input required type="text" placeholder="1234 Oak St, Dallas, TX 75201" value={form.notes} onChange={e => setForm({...form,notes:e.target.value})}
-                    className="w-full border rounded-xl px-4 py-3 text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
+                    className="w-full border rounded-xl px-4 py-3 text-base md:text-sm focus:outline-none transition-colors" style={{ borderColor:C.border, color:C.text }}
                     onFocus={e => e.target.style.borderColor = C.cyan}
                     onBlur={e => e.target.style.borderColor = C.border}
                   />

@@ -279,7 +279,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                     value={contactSearch}
                     onChange={e => setContactSearch(e.target.value)}
                     placeholder="Buscar por nombre, email o teléfono..."
-                    className="flex-1 text-sm bg-transparent outline-none placeholder:text-muted-foreground/60"
+                    className="flex-1 text-base md:text-sm bg-transparent outline-none placeholder:text-muted-foreground/60"
                   />
                   {contactSearch && (
                     <button onClick={() => setContactSearch("")} className="text-muted-foreground hover:text-foreground transition-colors">
@@ -315,12 +315,12 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Fecha <span className="text-destructive">*</span></label>
-              <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
+              <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-base md:text-sm" />
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Hora <span className="text-destructive">*</span></label>
               <div className="relative">
-                <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary">
+                <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary">
                   {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
                 </select>
                 <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -329,7 +329,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Min.</label>
               <div className="relative">
-                <select value={newAppt.minute} onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary">
+                <select value={newAppt.minute} onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary">
                   {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                 </select>
                 <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -344,7 +344,7 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
               onChange={(e) => onChangeAppt({ notes: e.target.value })}
               placeholder="Motivo de la cita, instrucciones especiales..."
               rows={3}
-              className="w-full rounded-lg border bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+              className="w-full rounded-lg border bg-background text-base md:text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
 
@@ -379,20 +379,20 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
             <div className="space-y-3">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium">Fecha</label>
-                <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
+                <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-base md:text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <label className="text-sm font-medium">Desde</label>
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="relative">
-                      <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                      <select value={newAppt.hour} onChange={(e) => onChangeAppt({ hour: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
                         {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
                       </select>
                       <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     </div>
                     <div className="relative">
-                      <select value={newAppt.minute ?? 0} onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                      <select value={newAppt.minute ?? 0} onChange={(e) => onChangeAppt({ minute: Number(e.target.value) })} className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
                         {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                       </select>
                       <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -403,13 +403,13 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
                   <label className="text-sm font-medium">Hasta</label>
                   <div className="grid grid-cols-2 gap-1.5">
                     <div className="relative">
-                      <select value={blockEndHour} onChange={(e) => setBlockEndHour(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                      <select value={blockEndHour} onChange={(e) => setBlockEndHour(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
                         {apptHourOptions.map((h) => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
                       </select>
                       <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
                     </div>
                     <div className="relative">
-                      <select value={blockEndMinute} onChange={(e) => setBlockEndMinute(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
+                      <select value={blockEndMinute} onChange={(e) => setBlockEndMinute(Number(e.target.value))} className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50">
                         {apptMinuteOptions.map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                       </select>
                       <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -423,13 +423,13 @@ const SlotDialog = ({ newAppt, contacts, onClose, onChangeAppt, onSaveAppt, onSa
           {blockType === "fullday" && (
             <div className="space-y-1.5">
               <label className="text-sm font-medium">Fecha a bloquear</label>
-              <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-sm" />
+              <Input type="date" value={newAppt.date} onChange={(e) => onChangeAppt({ date: e.target.value })} className="h-9 text-base md:text-sm" />
             </div>
           )}
 
 <div className="space-y-1.5">
             <label className="text-sm font-medium text-muted-foreground">Motivo <span className="text-xs font-normal">(opcional)</span></label>
-            <Input value={blockReason} onChange={(e) => setBlockReason(e.target.value)} placeholder="Ej: Reunión interna, vacaciones..." className="h-9 text-sm" />
+            <Input value={blockReason} onChange={(e) => setBlockReason(e.target.value)} placeholder="Ej: Reunión interna, vacaciones..." className="h-9 text-base md:text-sm" />
           </div>
 
           <DialogFooter>
@@ -2484,7 +2484,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                 type="date"
                 value={editDate}
                 onChange={(e) => setEditDate(e.target.value)}
-                className="h-9 text-sm"
+                className="h-9 text-base md:text-sm"
               />
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -2494,7 +2494,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                   <select
                     value={editHour}
                     onChange={(e) => setEditHour(Number(e.target.value))}
-                    className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
                   >
                     {slotHourOptions.map((h) => (
                       <option key={h} value={h}>{String(h).padStart(2, "0")}</option>
@@ -2509,7 +2509,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                   <select
                     value={editMinute}
                     onChange={(e) => setEditMinute(Number(e.target.value))}
-                    className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-8 appearance-none focus:outline-none focus:ring-1 focus:ring-primary"
                   >
                     {[...new Set([...slotMinuteOptions, editMinute])].sort((a, b) => a - b).map((m) => (
                       <option key={m} value={m}>{String(m).padStart(2, "0")}</option>
@@ -2526,7 +2526,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                 onChange={(e) => setEditNotes(e.target.value)}
                 rows={3}
                 placeholder="Motivo de la cita, indicaciones..."
-                className="w-full rounded-lg border bg-background text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
+                className="w-full rounded-lg border bg-background text-base md:text-sm px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-primary"
               />
             </div>
           </div>
@@ -2630,7 +2630,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                       type="date"
                       value={blockModal.date}
                       onChange={e => setBlockModal(prev => prev && ({ ...prev, date: e.target.value }))}
-                      className="h-9 text-sm"
+                      className="h-9 text-base md:text-sm"
                     />
                   </div>
                   <div className="grid grid-cols-2 gap-3">
@@ -2641,7 +2641,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                           <select
                             value={blockModal.startHour}
                             onChange={e => setBlockModal(prev => prev && ({ ...prev, startHour: Number(e.target.value) }))}
-                            className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+                            className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                           >
                             {slotHourOptions.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
                           </select>
@@ -2651,7 +2651,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                           <select
                             value={blockModal.startMinute}
                             onChange={e => setBlockModal(prev => prev && ({ ...prev, startMinute: Number(e.target.value) }))}
-                            className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+                            className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                           >
                             {[...new Set([...slotMinuteOptions, blockModal.startMinute])].sort((a, b) => a - b).map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                           </select>
@@ -2666,7 +2666,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                           <select
                             value={blockModal.endHour}
                             onChange={e => setBlockModal(prev => prev && ({ ...prev, endHour: Number(e.target.value) }))}
-                            className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+                            className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                           >
                             {slotHourOptions.map(h => <option key={h} value={h}>{String(h).padStart(2, "0")}</option>)}
                           </select>
@@ -2676,7 +2676,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                           <select
                             value={blockModal.endMinute}
                             onChange={e => setBlockModal(prev => prev && ({ ...prev, endMinute: Number(e.target.value) }))}
-                            className="w-full h-9 rounded-lg border bg-background text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
+                            className="w-full h-9 rounded-lg border bg-background text-base md:text-sm pl-3 pr-7 appearance-none focus:outline-none focus:ring-1 focus:ring-amber-400/50"
                           >
                             {[...new Set([...slotMinuteOptions, blockModal.endMinute])].sort((a, b) => a - b).map(m => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
                           </select>
@@ -2696,7 +2696,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                     type="date"
                     value={blockModal.date}
                     onChange={e => setBlockModal(prev => prev && ({ ...prev, date: e.target.value }))}
-                    className="h-9 text-sm"
+                    className="h-9 text-base md:text-sm"
                   />
                 </div>
               )}
@@ -2710,7 +2710,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                       type="date"
                       value={blockModal.startDate}
                       onChange={e => setBlockModal(prev => prev && ({ ...prev, startDate: e.target.value }))}
-                      className="h-9 text-sm"
+                      className="h-9 text-base md:text-sm"
                     />
                   </div>
                   <div className="space-y-1.5">
@@ -2719,7 +2719,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                       type="date"
                       value={blockModal.endDate}
                       onChange={e => setBlockModal(prev => prev && ({ ...prev, endDate: e.target.value }))}
-                      className="h-9 text-sm"
+                      className="h-9 text-base md:text-sm"
                     />
                   </div>
                 </div>
@@ -2732,7 +2732,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                   value={blockModal.reason}
                   onChange={e => setBlockModal(prev => prev && ({ ...prev, reason: e.target.value }))}
                   placeholder="Ej: Vacaciones, cita personal, almuerzo..."
-                  className="h-9 text-sm"
+                  className="h-9 text-base md:text-sm"
                 />
               </div>
             </div>

@@ -141,18 +141,18 @@ function DraftVariantBasicsCard({ variant, onChange, onRemove }: {
     <div className="bg-secondary/20 border rounded-xl p-3 space-y-2.5">
       <div className="flex items-center gap-2">
         <Input value={variant.name} onChange={e => onChange({ ...variant, name: e.target.value })}
-          placeholder="Ej: Talla L, Color Rojo" className="h-8 text-sm flex-1" />
+          placeholder="Ej: Talla L, Color Rojo" className="h-8 text-base md:text-sm flex-1" />
         <button onClick={onRemove} className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
           <Trash2 size={13} />
         </button>
       </div>
       <textarea value={variant.description} onChange={e => onChange({ ...variant, description: e.target.value })}
         placeholder="Descripción de esta variante (opcional)" rows={2}
-        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-xs resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
       <div className="w-32">
         <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Stock</label>
         <Input type="number" min={0} value={variant.stock} onChange={e => onChange({ ...variant, stock: e.target.value })}
-          placeholder="0" className="h-8 text-sm" />
+          placeholder="0" className="h-8 text-base md:text-sm" />
       </div>
       <FaqEditor value={variant.faqs} onChange={faqs => onChange({ ...variant, faqs })} />
     </div>
@@ -181,13 +181,13 @@ function DraftVariantPricesCard({ variant, onChange, baseCurrency }: {
         <div className="space-y-1">
           <span className="text-[10px] text-muted-foreground/70">Precio *</span>
           <Input type="number" min={0} value={variant.price} onChange={e => onChange({ ...variant, price: e.target.value })}
-            placeholder="0" className="h-8 text-sm" />
+            placeholder="0" className="h-8 text-base md:text-sm" />
         </div>
         <div className="space-y-1">
           <span className="text-[10px] text-muted-foreground/70">Descuento %</span>
           <Input type="number" min={0} max={99} value={variant.discountPct || ""}
             onChange={e => onChange({ ...variant, discountPct: Math.min(99, Math.max(0, parseFloat(e.target.value) || 0)) })}
-            placeholder="0" className="h-8 text-sm" />
+            placeholder="0" className="h-8 text-base md:text-sm" />
         </div>
       </div>
       {variant.discountPct > 0 && variant.price !== "" && (
@@ -281,13 +281,13 @@ function VariantBasicsRow({ variant, productId, onDeleted }: {
 
   return (
     <div className="space-y-2.5 bg-secondary/20 border rounded-xl p-3">
-      <Input value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Talla L, Color Rojo" className="h-8 text-sm" />
+      <Input value={name} onChange={e => setName(e.target.value)} placeholder="Ej: Talla L, Color Rojo" className="h-8 text-base md:text-sm" />
       <textarea value={description} onChange={e => setDescription(e.target.value)} rows={2}
         placeholder="Descripción de esta variante (opcional)"
-        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-xs resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
       <div className="w-32">
         <label className="text-[10px] font-medium text-muted-foreground uppercase tracking-wider">Stock</label>
-        <Input type="number" min={0} value={stock} onChange={e => setStock(e.target.value)} placeholder="0" className="h-8 text-sm" />
+        <Input type="number" min={0} value={stock} onChange={e => setStock(e.target.value)} placeholder="0" className="h-8 text-base md:text-sm" />
       </div>
       <FaqEditor value={faqs} onChange={handleFaqsChange} />
       <div className="flex items-center gap-2">
@@ -362,12 +362,12 @@ function VariantPricesRow({ variant, productId, baseCurrency }: { variant: CrmPr
       <div className="grid grid-cols-2 gap-3">
         <div className="space-y-1">
           <span className="text-[10px] text-muted-foreground/70">Precio *</span>
-          <Input type="number" min={0} value={price} onChange={e => setPrice(e.target.value)} placeholder="0" className="h-8 text-sm" />
+          <Input type="number" min={0} value={price} onChange={e => setPrice(e.target.value)} placeholder="0" className="h-8 text-base md:text-sm" />
         </div>
         <div className="space-y-1">
           <span className="text-[10px] text-muted-foreground/70">Descuento %</span>
           <Input type="number" min={0} max={99} value={discountPct || ""}
-            onChange={e => setDiscountPct(Math.min(99, Math.max(0, parseFloat(e.target.value) || 0)))} placeholder="0" className="h-8 text-sm" />
+            onChange={e => setDiscountPct(Math.min(99, Math.max(0, parseFloat(e.target.value) || 0)))} placeholder="0" className="h-8 text-base md:text-sm" />
         </div>
       </div>
       {discountPct > 0 && price !== "" && (
@@ -415,18 +415,18 @@ function DraftSecondaryPriceCard({ sp, onChange, onRemove, baseCurrency }: {
     <div className="bg-secondary/20 border rounded-xl p-3 space-y-2.5">
       <div className="flex items-center gap-2">
         <Input value={sp.title} onChange={e => onChange({ ...sp, title: e.target.value })}
-          placeholder="Ej: Precio mayorista" className="h-8 text-sm flex-1" />
+          placeholder="Ej: Precio mayorista" className="h-8 text-base md:text-sm flex-1" />
         <button onClick={onRemove} className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
           <Trash2 size={13} />
         </button>
       </div>
       <textarea value={sp.description} onChange={e => onChange({ ...sp, description: e.target.value })}
         placeholder="Cuándo debe usarlo la IA — ej: para compras de 10 unidades o más" rows={2}
-        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-xs resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
       <div className="w-40 space-y-1">
         <span className="text-[10px] text-muted-foreground/70">Precio ({baseCurrency}) *</span>
         <Input type="number" min={0} value={sp.price} onChange={e => onChange({ ...sp, price: e.target.value })}
-          placeholder="0" className="h-8 text-sm" />
+          placeholder="0" className="h-8 text-base md:text-sm" />
       </div>
       <p className="text-[10px] text-muted-foreground/60 italic">Su método de pago se configura en la pestaña "Métodos de pago".</p>
     </div>
@@ -470,7 +470,7 @@ function SecondaryPriceRow({ sp, productId, onDeleted, baseCurrency }: {
     <div className="bg-secondary/20 border rounded-xl p-3 space-y-2.5">
       <div className="flex items-center gap-2">
         <Input value={title} onChange={e => setTitle(e.target.value)}
-          placeholder="Ej: Precio mayorista" className="h-8 text-sm flex-1" />
+          placeholder="Ej: Precio mayorista" className="h-8 text-base md:text-sm flex-1" />
         <button onClick={() => setConfirmDelete(true)} className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
           <Trash2 size={13} />
         </button>
@@ -479,10 +479,10 @@ function SecondaryPriceRow({ sp, productId, onDeleted, baseCurrency }: {
       </div>
       <textarea value={description} onChange={e => setDescription(e.target.value)}
         placeholder="Cuándo debe usarlo la IA — ej: para compras de 10 unidades o más" rows={2}
-        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-xs resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+        className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-xs resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
       <div className="w-40 space-y-1">
         <span className="text-[10px] text-muted-foreground/70">Precio ({baseCurrency}) *</span>
-        <Input type="number" min={0} value={price} onChange={e => setPrice(e.target.value)} placeholder="0" className="h-8 text-sm" />
+        <Input type="number" min={0} value={price} onChange={e => setPrice(e.target.value)} placeholder="0" className="h-8 text-base md:text-sm" />
       </div>
       <p className="text-[10px] text-muted-foreground/60 italic">Su método de pago se configura en la pestaña "Métodos de pago".</p>
     </div>
@@ -764,17 +764,17 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
     <div className="space-y-4">
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Nombre del producto</label>
-        <Input value={name} onChange={e => setName(e.target.value)} className="h-10 text-sm" placeholder="Ej: Pantalón de mezclilla" />
+        <Input value={name} onChange={e => setName(e.target.value)} className="h-10 text-base md:text-sm" placeholder="Ej: Pantalón de mezclilla" />
       </div>
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Descripción</label>
         <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} placeholder="Describe tu producto..."
-          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+          className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
       </div>
       <FaqEditor value={faqs} onChange={handleFaqsChange} />
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">SKU <span className="text-muted-foreground/50">(opcional)</span></label>
-        <Input value={sku} onChange={e => setSku(e.target.value)} placeholder="SKU-001" className="h-9 text-sm font-mono" />
+        <Input value={sku} onChange={e => setSku(e.target.value)} placeholder="SKU-001" className="h-9 text-base md:text-sm font-mono" />
       </div>
       <label className="flex items-center gap-2.5 cursor-pointer pt-1">
         <Toggle value={isActive} onChange={() => setIsActive(!isActive)} />
@@ -798,7 +798,7 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
           {stockEnabled && (
             <div className="space-y-1.5 pl-11">
               <label className="text-xs font-medium text-muted-foreground">Unidades disponibles</label>
-              <Input type="number" value={stockVal} onChange={e => setStockVal(e.target.value)} placeholder="0" className="h-9 text-sm w-32" />
+              <Input type="number" value={stockVal} onChange={e => setStockVal(e.target.value)} placeholder="0" className="h-9 text-base md:text-sm w-32" />
             </div>
           )}
         </div>
@@ -861,18 +861,18 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><DollarSign size={12} /> Precio base</label>
-              <Input type="number" value={price} onChange={e => setPrice(Number(e.target.value))} className="h-10 text-sm" min={0} />
+              <Input type="number" value={price} onChange={e => setPrice(Number(e.target.value))} className="h-10 text-base md:text-sm" min={0} />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Moneda</label>
               <select value={currency} onChange={e => setCurrency(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
                 {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code} — {c.name.split(" (")[0]}</option>)}
               </select>
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5"><Tag size={12} /> Descuento (%)</label>
-              <Input type="number" value={discountPct} onChange={e => setDiscountPct(Math.max(0, Math.min(100, Number(e.target.value))))} className="h-10 text-sm" min={0} max={100} placeholder="0" />
+              <Input type="number" value={discountPct} onChange={e => setDiscountPct(Math.max(0, Math.min(100, Number(e.target.value))))} className="h-10 text-base md:text-sm" min={0} max={100} placeholder="0" />
             </div>
           </div>
           {discountPct > 0 && (
@@ -920,7 +920,7 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
         <div className="space-y-1.5">
           <label className="text-xs font-medium text-muted-foreground">Moneda</label>
           <select value={currency} onChange={e => setCurrency(e.target.value)}
-            className="flex h-10 max-w-xs rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+            className="flex h-10 max-w-xs rounded-md border border-input bg-background px-3 text-base md:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {CURRENCIES.map(c => <option key={c.code} value={c.code}>{c.flag} {c.code} — {c.name.split(" (")[0]}</option>)}
           </select>
           <p className="text-[11px] text-muted-foreground/60">Moneda base para el precio de cada variante.</p>

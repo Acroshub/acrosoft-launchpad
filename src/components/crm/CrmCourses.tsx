@@ -247,11 +247,11 @@ function NewCourseWizard({ onCancel, onCreated }: { onCancel: () => void; onCrea
             <CoverUploader url={thumbnailUrl} onChange={setThumbnailUrl} draftId={draftId} />
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Nombre del curso *</label>
-              <Input value={title} onChange={e => handleTitleChange(e.target.value)} placeholder="Ej: Marketing Digital desde Cero" className="h-9 text-sm" autoFocus />
+              <Input value={title} onChange={e => handleTitleChange(e.target.value)} placeholder="Ej: Marketing Digital desde Cero" className="h-9 text-base md:text-sm" autoFocus />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Descripción <span className="text-[10px]">(opcional)</span></label>
-              <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Breve descripción del curso" className="h-9 text-sm" />
+              <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Breve descripción del curso" className="h-9 text-base md:text-sm" />
             </div>
 
             <div className="pt-1 border-t border-border/50">
@@ -269,7 +269,7 @@ function NewCourseWizard({ onCancel, onCreated }: { onCancel: () => void; onCrea
                       value={slug}
                       onChange={e => { slugEdited.current = true; setSlug(slugify(e.target.value)); }}
                       placeholder={slugify(title) || "marketing-digital"}
-                      className="h-9 text-sm font-mono"
+                      className="h-9 text-base md:text-sm font-mono"
                     />
                   </div>
                   <p className="text-[10px] text-muted-foreground/40">Se genera automáticamente a partir del nombre. Solo cámbialo si necesitas una URL específica.</p>
@@ -702,11 +702,11 @@ function CourseDetail({
             <PortadaSection />
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Nombre del curso</label>
-              <Input value={name} onChange={e => setName(e.target.value)} className="h-9 text-sm" placeholder="Ej: Marketing Digital desde Cero" />
+              <Input value={name} onChange={e => setName(e.target.value)} className="h-9 text-base md:text-sm" placeholder="Ej: Marketing Digital desde Cero" />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-muted-foreground">Descripción <span className="text-[10px]">(opcional)</span></label>
-              <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Breve descripción del curso" className="h-9 text-sm" />
+              <Input value={description} onChange={e => setDescription(e.target.value)} placeholder="Breve descripción del curso" className="h-9 text-base md:text-sm" />
             </div>
 
             <div className="pt-1 border-t border-border/50">
@@ -720,7 +720,7 @@ function CourseDetail({
                   <label className="text-xs font-medium text-muted-foreground">Slug (URL)</label>
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-muted-foreground/60 shrink-0">/curso/</span>
-                    <Input value={slug} onChange={e => setSlug(slugify(e.target.value))} className="h-9 text-sm font-mono" />
+                    <Input value={slug} onChange={e => setSlug(slugify(e.target.value))} className="h-9 text-base md:text-sm font-mono" />
                   </div>
                   <p className="text-[10px] text-muted-foreground/40">Cambiarlo invalida los links que ya compartiste con tus alumnos.</p>
                 </div>
@@ -1355,14 +1355,14 @@ function LessonEditor({
 
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Título *</label>
-        <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Ej: Introducción al módulo" className="h-9 text-sm" autoFocus />
+        <Input value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))} placeholder="Ej: Introducción al módulo" className="h-9 text-base md:text-sm" autoFocus />
       </div>
 
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">Descripción</label>
         <textarea value={form.content} onChange={e => setForm(f => ({ ...f, content: e.target.value }))} rows={3}
           placeholder="Descripción de la lección..."
-          className="w-full rounded-xl border border-border bg-background text-sm px-3 py-2.5 resize-none outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
+          className="w-full rounded-xl border border-border bg-background text-base md:text-sm px-3 py-2.5 resize-none outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
       </div>
 
       {current && (
@@ -1561,7 +1561,7 @@ function ModuleSection({
         </button>
         {editingTitle ? (
           <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Input value={modTitle} onChange={e => setModTitle(e.target.value)} className="h-7 text-xs flex-1"
+            <Input value={modTitle} onChange={e => setModTitle(e.target.value)} className="h-7 text-base md:text-xs flex-1"
               onKeyDown={e => { if (e.key === "Enter") handleSaveTitle(); if (e.key === "Escape") setEditingTitle(false); }} autoFocus />
             <button onClick={handleSaveTitle} disabled={savingTitle} className="text-primary hover:text-primary/80 transition-colors shrink-0">
               {savingTitle ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
@@ -1706,7 +1706,7 @@ function LessonsTab({ course }: { course: CrmCourse }) {
       {addingModule && (
         <div className="rounded-2xl border bg-card p-4 space-y-3">
           <p className="text-xs font-semibold text-muted-foreground">Nuevo módulo</p>
-          <Input value={newModTitle} onChange={e => setNewModTitle(e.target.value)} placeholder="Ej: Introducción al curso" className="h-9 text-sm" autoFocus
+          <Input value={newModTitle} onChange={e => setNewModTitle(e.target.value)} placeholder="Ej: Introducción al curso" className="h-9 text-base md:text-sm" autoFocus
             onKeyDown={e => { if (e.key === "Enter") handleAddModule(); if (e.key === "Escape") setAddingModule(false); }} />
           <div className="flex gap-2">
             <Button variant="outline" size="sm" onClick={() => setAddingModule(false)} className="flex-1">Cancelar</Button>
@@ -1894,7 +1894,7 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
                 <DollarSign size={11} /> Plan <span className="text-[10px] text-muted-foreground/60">(opcional)</span>
               </label>
               <select value={selectedPlanId} onChange={e => handlePlanSelect(e.target.value)}
-                className="h-9 w-full rounded-xl border border-border bg-background text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
+                className="h-9 w-full rounded-xl border border-border bg-background text-base md:text-xs px-2 outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all">
                 <option value="">Sin plan — no registrar venta</option>
                 {plans.map(p => (
                   <option key={p.id} value={p.id}>
@@ -1916,7 +1916,7 @@ function AlumnosTab({ course }: { course: CrmCourse }) {
               <Calendar size={11} /> Vencimiento <span className="text-[10px] text-muted-foreground/60">{selectedPlan?.is_recurring ? "(sugerido según el plan)" : "(opcional)"}</span>
             </label>
             <Input type="date" value={newExpiry} onChange={e => setNewExpiry(e.target.value)}
-              className="h-9 text-sm" min={new Date().toISOString().split("T")[0]} />
+              className="h-9 text-base md:text-sm" min={new Date().toISOString().split("T")[0]} />
           </div>
 
           <div className="flex gap-2">
