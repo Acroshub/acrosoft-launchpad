@@ -2,9 +2,9 @@ export const translations = {
   es: {
     nav: {
       services: "Servicios",
-      howItWorks: "Cómo funciona",
-      plans: "Planes",
-      cta: "Agendar Llamada",
+      about: "Nosotros",
+      contact: "Contacto",
+      cta: "Escríbenos",
     },
     hero: {
       badge: "+50 negocios latinos atendidos en EE.UU.",
@@ -67,9 +67,9 @@ export const translations = {
   en: {
     nav: {
       services: "Services",
-      howItWorks: "How It Works",
-      plans: "Plans",
-      cta: "Book a Call",
+      about: "About",
+      contact: "Contact",
+      cta: "Contact Us",
     },
     hero: {
       badge: "#1 Agency for Latino Businesses in the USA",

@@ -15,6 +15,8 @@ export default {
     extend: {
       fontFamily: {
         sans: ['IBM Plex Sans', 'system-ui', 'sans-serif'],
+        poppins: ['Poppins', 'system-ui', 'sans-serif'],
+        opensans: ['Open Sans', 'system-ui', 'sans-serif'],
       },
       colors: {
         border: "hsl(var(--border))",

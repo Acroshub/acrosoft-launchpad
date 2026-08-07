@@ -1,54 +1,67 @@
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Menu, X } from "lucide-react";
 import { useState } from "react";
-import { Button } from "@/components/ui/button";
 import AcrosoftLogo from "./shared/AcrosoftLogo";
 import { translations } from "@/i18n/landing";
 
+const INK    = "#14161F";
+const ACCENT = "#0F766E";
+
 const Navbar = () => {
   const [open, setOpen] = useState(false);
-  const location = useLocation();
   const T = translations.es.nav;
 
-  const isActive = (path: string) => location.pathname === path;
+  const navLinks = [
+    { href: "/#servicios", label: T.services },
+    { href: "/#nosotros",  label: T.about },
+    { href: "/#contacto",  label: T.contact },
+  ];
 
   return (
-    <nav className="sticky top-0 z-50 bg-background/60 backdrop-blur-xl border-b border-border/40">
+    <nav className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl border-b" style={{ borderColor: "rgba(20,22,31,0.08)" }}>
       <div className="container mx-auto flex items-center justify-between h-20 px-4 md:px-8">
-        <Link to="/" className="hover:scale-105 transition-transform">
+        <Link to="/" className="hover:opacity-80 transition-opacity">
           <AcrosoftLogo size="sm" />
         </Link>
 
         {/* Desktop Menu */}
-        <div className="hidden lg:flex items-center gap-8">
-          <Link
-            to="/"
-            className={`text-sm font-bold tracking-tight transition-all hover:text-primary ${isActive("/") ? "text-primary" : "text-muted-foreground/80"}`}
-          >
-            {T.services}
-          </Link>
-          <a
-            href="/#como-funciona"
-            className="text-sm font-bold tracking-tight text-muted-foreground/80 hover:text-primary transition-all underline-offset-8 hover:underline"
-          >
-            {T.howItWorks}
-          </a>
-          <a
-            href="/#planes"
-            className="text-sm font-bold tracking-tight text-muted-foreground/80 hover:text-primary transition-all underline-offset-8 hover:underline"
-          >
-            {T.plans}
-          </a>
+        <div className="hidden lg:flex items-center gap-9">
+          {navLinks.map(link => (
+            <a
+              key={link.href}
+              href={link.href}
+              className="text-sm font-semibold font-opensans tracking-tight transition-colors"
+              style={{ color: "rgba(20,22,31,0.65)" }}
+              onMouseEnter={e => (e.currentTarget.style.color = INK)}
+              onMouseLeave={e => (e.currentTarget.style.color = "rgba(20,22,31,0.65)")}
+            >
+              {link.label}
+            </a>
+          ))}
 
-          <Button asChild className="rounded-2xl font-black h-11 px-6 shadow-md hover:scale-105 transition-all" style={{ background: "#F59E0B" }}>
-            <a href="/#agendar" style={{ color: "#1C1917" }}>{T.cta}</a>
-          </Button>
+          <div className="flex items-center gap-3 pl-2">
+            <Link
+              to="/login"
+              className="text-sm font-semibold font-opensans px-4 py-2.5 rounded-xl transition-colors hover:bg-[#14161F]/[0.05]"
+              style={{ color: INK }}
+            >
+              Iniciar sesión
+            </Link>
+            <a
+              href="/#contacto"
+              className="text-sm font-bold font-opensans px-6 py-2.5 rounded-xl text-white transition-opacity hover:opacity-90"
+              style={{ background: ACCENT }}
+            >
+              {T.cta}
+            </a>
+          </div>
         </div>
 
         {/* Mobile toggle */}
         <div className="lg:hidden flex items-center gap-3">
           <button
-            className="p-2 rounded-xl bg-secondary/50 text-foreground hover:bg-secondary transition-all"
+            className="p-2 rounded-xl transition-colors"
+            style={{ background: "rgba(20,22,31,0.05)", color: INK }}
             onClick={() => setOpen(!open)}
             aria-label="Menu"
           >
@@ -59,23 +72,38 @@ const Navbar = () => {
 
       {/* Mobile menu */}
       {open && (
-        <div className="lg:hidden bg-background/95 backdrop-blur-2xl border-b px-6 pt-4 pb-10 space-y-6 animate-in slide-in-from-top-4 duration-300">
-          <div className="flex flex-col gap-4">
-            <Link to="/" className="text-lg font-bold py-2 border-b border-border/40" onClick={() => setOpen(false)}>
-              {T.services}
+        <div className="lg:hidden bg-white border-b px-6 pt-4 pb-8 space-y-6 animate-in slide-in-from-top-4 duration-300" style={{ borderColor: "rgba(20,22,31,0.08)" }}>
+          <div className="flex flex-col gap-1">
+            {navLinks.map(link => (
+              <a
+                key={link.href}
+                href={link.href}
+                className="text-base font-semibold font-opensans py-3 border-b"
+                style={{ color: INK, borderColor: "rgba(20,22,31,0.08)" }}
+                onClick={() => setOpen(false)}
+              >
+                {link.label}
+              </a>
+            ))}
+          </div>
+          <div className="flex flex-col gap-3">
+            <Link
+              to="/login"
+              className="w-full h-12 rounded-xl font-semibold font-opensans flex items-center justify-center border"
+              style={{ color: INK, borderColor: "rgba(20,22,31,0.15)" }}
+              onClick={() => setOpen(false)}
+            >
+              Iniciar sesión
             </Link>
-            <a href="/#como-funciona" className="text-lg font-bold py-2 border-b border-border/40" onClick={() => setOpen(false)}>
-              {T.howItWorks}
-            </a>
-            <a href="/#planes" className="text-lg font-bold py-2 border-b border-border/40" onClick={() => setOpen(false)}>
-              {T.plans}
+            <a
+              href="/#contacto"
+              className="w-full h-12 rounded-xl font-bold font-opensans flex items-center justify-center text-white"
+              style={{ background: ACCENT }}
+              onClick={() => setOpen(false)}
+            >
+              {T.cta}
             </a>
           </div>
-          <Button asChild className="w-full h-14 rounded-2xl font-black text-lg shadow-md" style={{ background: "#F59E0B" }}>
-            <a href="/#agendar" onClick={() => setOpen(false)} style={{ color: "#1C1917" }}>
-              {T.cta} →
-            </a>
-          </Button>
         </div>
       )}
     </nav>
