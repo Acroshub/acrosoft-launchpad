@@ -68,6 +68,33 @@ const emojiDataPromise = () => import("@emoji-mart/data").then(m => m.default ??
 // ─── Constants ────────────────────────────────────────────────────────────────
 const WEBHOOK_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/whatsapp-webhook`;
 
+// Meta solo acepta imágenes JPG/PNG de hasta 8 bit/canal (WebP estático).
+// Capturas de iPhone en 16-bit/Display P3, CMYK o GIF animado llegan a
+// "send-wa-message" y Meta las rechaza async (error 131053) sin que se note
+// en el momento del envío. Redibujar en un canvas fuerza 8-bit sRGB estático.
+async function normalizeImageForWhatsApp(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  try {
+    const bitmap = await createImageBitmap(file);
+    const canvas = document.createElement("canvas");
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+    const outputType = file.type === "image/png" ? "image/png" : "image/jpeg";
+    const quality = outputType === "image/jpeg" ? 0.92 : undefined;
+    const blob: Blob | null = await new Promise(resolve => canvas.toBlob(resolve, outputType, quality));
+    if (!blob) return file;
+    const ext = outputType === "image/png" ? "png" : "jpg";
+    const baseName = file.name.replace(/\.[^./]+$/, "");
+    return new File([blob], `${baseName}.${ext}`, { type: outputType });
+  } catch {
+    return file;
+  }
+}
+
 const DEFAULT_SCHEDULE: WeeklySchedule = {
   "Lun": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
   "Mar": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
@@ -2276,15 +2303,16 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     if (!user?.id) return;
     setUploading(true);
     try {
-      const ext = file.name.split(".").pop() ?? "bin";
+      const uploadFile = await normalizeImageForWhatsApp(file);
+      const ext = uploadFile.name.split(".").pop() ?? "bin";
       const path = `${user.id}/quick-replies/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error: uploadErr } = await supabase.storage.from("chat-attachments").upload(path, file);
+      const { error: uploadErr } = await supabase.storage.from("chat-attachments").upload(path, uploadFile);
       if (uploadErr) { toast.error("Error al subir el archivo"); return; }
       const { data: urlData } = supabase.storage.from("chat-attachments").getPublicUrl(path);
-      const mediaType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "document";
+      const mediaType = uploadFile.type.startsWith("image/") ? "image" : uploadFile.type.startsWith("video/") ? "video" : "document";
       setUrl(urlData.publicUrl);
       setType(mediaType);
-      setFilename(file.name);
+      setFilename(uploadFile.name);
     } catch { toast.error("Error al subir el archivo"); }
     finally { setUploading(false); }
   };
@@ -5535,14 +5563,15 @@ const ChatPanel = ({
     setUploadingMedia(true);
     setWindowError(false);
     try {
-      const ext = file.name.split(".").pop() ?? "bin";
+      const uploadFile = await normalizeImageForWhatsApp(file);
+      const ext = uploadFile.name.split(".").pop() ?? "bin";
       const path = `${conv.user_id}/${conv.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error: uploadErr } = await supabase.storage.from("chat-attachments").upload(path, file);
+      const { error: uploadErr } = await supabase.storage.from("chat-attachments").upload(path, uploadFile);
       if (uploadErr) { toast.error("Error al subir el archivo"); return; }
 
       const { data: urlData } = supabase.storage.from("chat-attachments").getPublicUrl(path);
       const mediaUrl = urlData.publicUrl;
-      const mediaType = file.type.startsWith("image/") ? "image" : file.type.startsWith("video/") ? "video" : "document";
+      const mediaType = uploadFile.type.startsWith("image/") ? "image" : uploadFile.type.startsWith("video/") ? "video" : "document";
       const caption = text.trim() || undefined;
 
       const { data, error } = await supabase.functions.invoke("send-wa-message", {
@@ -5550,7 +5579,7 @@ const ChatPanel = ({
           conversation_id: conv.id,
           media_url: mediaUrl,
           media_type: mediaType,
-          media_filename: file.name,
+          media_filename: uploadFile.name,
           ...(caption ? { text: caption } : {}),
           ...(replyTo ? { reply_to_id: replyTo.id } : {}),
         },
