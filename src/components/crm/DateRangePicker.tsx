@@ -121,19 +121,19 @@ const DateRangePicker = ({ value, onChange }: { value: DateRange; onChange: (r: 
 
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={cancel} />
-          <div className="absolute right-0 top-full mt-2 z-50 bg-card border rounded-2xl shadow-lg overflow-hidden flex w-[min(640px,90vw)]">
-            {/* Presets */}
-            <div className="w-40 shrink-0 border-r py-2 max-h-[420px] overflow-y-auto">
+          <div className="fixed inset-0 z-40 bg-black/30 sm:bg-transparent" onClick={cancel} />
+          <div className="fixed inset-x-3 top-1/2 -translate-y-1/2 sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:translate-y-0 sm:mt-2 z-50 bg-card border rounded-2xl shadow-lg overflow-hidden flex flex-col sm:flex-row max-h-[85vh] sm:max-h-none sm:w-[min(640px,90vw)]">
+            {/* Presets: franja horizontal con scroll en mobile, columna lateral en desktop */}
+            <div className="flex sm:flex-col sm:w-40 sm:shrink-0 border-b sm:border-b-0 sm:border-r overflow-x-auto sm:overflow-x-visible sm:overflow-y-auto sm:max-h-[420px] py-1.5 sm:py-2 px-1.5 sm:px-0 gap-1 sm:gap-0">
               {presets.map(p => (
                 <button
                   key={p.label}
                   onClick={() => setDraft(p.range())}
-                  className={`w-full flex items-center gap-2 px-3.5 py-2 text-xs text-left hover:bg-secondary/70 transition-colors ${
-                    matchingPreset === p.label ? "font-semibold text-primary" : ""
+                  className={`shrink-0 sm:w-full flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-1.5 sm:py-2 rounded-full sm:rounded-none text-xs whitespace-nowrap sm:whitespace-normal text-left hover:bg-secondary/70 transition-colors ${
+                    matchingPreset === p.label ? "font-semibold text-primary bg-primary/10 sm:bg-transparent" : ""
                   }`}
                 >
-                  <span className={`w-3.5 h-3.5 rounded-full border shrink-0 flex items-center justify-center ${
+                  <span className={`w-3.5 h-3.5 rounded-full border shrink-0 hidden sm:flex items-center justify-center ${
                     matchingPreset === p.label ? "border-primary" : "border-muted-foreground/40"
                   }`}>
                     {matchingPreset === p.label && <span className="w-1.5 h-1.5 rounded-full bg-primary" />}
@@ -144,7 +144,7 @@ const DateRangePicker = ({ value, onChange }: { value: DateRange; onChange: (r: 
             </div>
 
             {/* Calendario + acciones */}
-            <div className="flex-1 flex flex-col">
+            <div className="flex-1 flex flex-col overflow-y-auto sm:overflow-visible">
               <div className="flex items-center justify-between px-4 pt-3">
                 <button onClick={goPrevMonth} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-secondary/70">
                   <ChevronLeft size={15} />
