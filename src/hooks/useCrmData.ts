@@ -3814,3 +3814,64 @@ export const useSupportedCountries = () => {
     },
   });
 };
+
+// ─── Notificaciones Push (panel admin) ────────────────────────────────────────
+import type { CrmPushNotificationLog, PushTargetType } from "@/lib/supabase";
+
+export const usePushSubscriptionsCount = () => {
+  return useQuery({
+    queryKey: ["admin_push_subscriptions_count"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("admin_push_subscriptions_count");
+      if (error) throw error;
+      return data as number;
+    },
+  });
+};
+
+export type AdminPushTenantCount = { client_user_id: string; client_email: string; subscriber_count: number };
+
+/** Negocios (Dueños de Negocio) con al menos un dispositivo suscrito a push (ellos o su Staff). */
+export const useAdminPushTenantCounts = () => {
+  return useQuery({
+    queryKey: ["admin_push_tenant_subscription_counts"],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("admin_push_tenant_subscription_counts");
+      if (error) throw error;
+      return data as AdminPushTenantCount[];
+    },
+  });
+};
+
+export const usePushNotificationLog = () => {
+  return useQuery({
+    queryKey: ["crm_push_notification_log"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_push_notification_log")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) throw error;
+      return data as CrmPushNotificationLog[];
+    },
+  });
+};
+
+export const useSendPushNotification = () => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      title: string; body: string; url?: string; target_type: PushTargetType; target_id?: string;
+    }) => {
+      const { data, error } = await supabase.functions.invoke("send-push-notification", { body: payload });
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+      return data as { success: true; recipients: number; successCount: number; failureCount: number };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["crm_push_notification_log"] });
+      qc.invalidateQueries({ queryKey: ["admin_push_subscriptions_count"] });
+    },
+  });
+};

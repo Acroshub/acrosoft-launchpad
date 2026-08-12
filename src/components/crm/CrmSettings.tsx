@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import DateRangePicker, { type DateRange } from "@/components/crm/DateRangePicker";
+import { usePushSubscriptionStatus, useSubscribeToPush, useUnsubscribeFromPush, isPushSupported } from "@/hooks/usePushNotifications";
 
 // ─── Logs Tab ─────────────────────────────────────────────────────────────────
 
@@ -1494,7 +1495,64 @@ const IACostosTab = () => {
   );
 };
 
-type TabId = "logs" | "staff" | "reminders" | "saas" | "ia_costos";
+// ─── Notificaciones Tab ─────────────────────────────────────────────────────────
+
+const NotificationsTab = () => {
+  const { permission, hasSubscription, checked } = usePushSubscriptionStatus();
+  const subscribe = useSubscribeToPush();
+  const unsubscribe = useUnsubscribeFromPush();
+
+  const isOn = hasSubscription;
+  const isDenied = permission === "denied";
+  const isUnsupported = !isPushSupported() || permission === "unsupported";
+  const pending = subscribe.isPending || unsubscribe.isPending;
+
+  const handleToggle = () => {
+    if (isOn) {
+      unsubscribe.mutate(undefined, {
+        onError: () => toast.error("No se pudieron desactivar las notificaciones"),
+        onSuccess: () => toast.success("Notificaciones desactivadas en este dispositivo"),
+      });
+    } else {
+      subscribe.mutate(undefined, {
+        onError: (err) => toast.error(err instanceof Error ? err.message : "No se pudieron activar las notificaciones"),
+        onSuccess: () => toast.success("Notificaciones activadas en este dispositivo"),
+      });
+    }
+  };
+
+  return (
+    <div className="rounded-2xl border bg-card p-5 flex items-center justify-between gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-semibold flex items-center gap-1.5">
+          Notificaciones push en este dispositivo
+          <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-secondary text-secondary-foreground">Beta</span>
+        </p>
+        <p className="text-xs text-muted-foreground mt-1">
+          {isUnsupported
+            ? "Este navegador no soporta notificaciones push."
+            : isDenied
+            ? "Están bloqueadas desde el navegador. Para reactivarlas, cambiá el permiso de notificaciones de este sitio en la configuración de tu navegador."
+            : "Solo aplica a este dispositivo/navegador — si usás el CRM en el celular y en la compu, activalo en cada uno por separado."}
+        </p>
+      </div>
+      <button
+        onClick={handleToggle}
+        disabled={!checked || pending || isUnsupported || isDenied}
+        title={isOn ? "Desactivar notificaciones" : "Activar notificaciones"}
+        className="shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+      >
+        {pending
+          ? <Loader2 size={24} className="animate-spin text-muted-foreground" />
+          : isOn
+          ? <ToggleRight size={26} className="text-emerald-600" />
+          : <ToggleLeft size={26} className="text-muted-foreground" />}
+      </button>
+    </div>
+  );
+};
+
+type TabId = "logs" | "staff" | "reminders" | "saas" | "ia_costos" | "notificaciones";
 
 type TabDef = {
   id: TabId;
@@ -1508,10 +1566,11 @@ type TabDef = {
 };
 
 const ALL_TABS: TabDef[] = [
-  { id: "staff",        label: "Staff",             description: "Equipo y permisos",          icon: Users,         group: "General",      adminOnly: true,  saasClientVisible: true,   Component: StaffTab            },
-  { id: "reminders",    label: "Historial de Comunicaciones", description: "Email y WhatsApp", icon: Bell,          group: "Comunicación",                                             Component: RemindersTab        },
-  { id: "logs",         label: "Logs",              description: "Historial de actividad",     icon: Activity,      group: "Sistema",      adminOnly: true,  saasClientVisible: true,   Component: LogsTab             },
-  { id: "ia_costos",    label: "Costos IA",         description: "Uso y costo del agente IA",  icon: Bot,           group: "Sistema",      adminOnly: true,                           Component: IACostosTab         },
+  { id: "staff",         label: "Staff",             description: "Equipo y permisos",          icon: Users,         group: "General",      adminOnly: true,  saasClientVisible: true,   Component: StaffTab            },
+  { id: "notificaciones",label: "Notificaciones",    description: "Permiso de notificaciones push", icon: Bell,      group: "General",                                                  Component: NotificationsTab    },
+  { id: "reminders",     label: "Historial de Comunicaciones", description: "Email y WhatsApp", icon: Mail,          group: "Comunicación",                                             Component: RemindersTab        },
+  { id: "logs",          label: "Logs",              description: "Historial de actividad",     icon: Activity,      group: "Sistema",      adminOnly: true,  saasClientVisible: true,   Component: LogsTab             },
+  { id: "ia_costos",     label: "Costos IA",         description: "Uso y costo del agente IA",  icon: Bot,           group: "Sistema",      adminOnly: true,                           Component: IACostosTab         },
 ];
 
 const SETTINGS_GROUPS = ["General", "Comunicación", "Sistema"];

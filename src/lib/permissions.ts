@@ -114,7 +114,7 @@ export function canAccessItem(
  */
 export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   if (!staffRecord) {
-    return new Set(["overview", "servicios", "productos_fisicos", "productos_digitales", "business", "calendar", "forms", "contacts", "ventas_reporte", "ventas_registrar", "ventas_historial", "ventas_renovaciones", "ventas_stripe", "settings", "soporte", "tutoriales", "agente_ia", "comunicaciones"]);
+    return new Set(["overview", "servicios", "productos_fisicos", "productos_digitales", "business", "calendar", "forms", "contacts", "ventas_reporte", "ventas_registrar", "ventas_historial", "ventas_renovaciones", "ventas_stripe", "settings", "soporte", "tutoriales", "agente_ia", "comunicaciones", "push_notificaciones"]);
   }
 
   const can = buildPermChecker(staffRecord);
@@ -136,7 +136,7 @@ export function visibleNavItems(staffRecord: CrmStaff | null): Set<string> {
   // Soporte es visible para todo el staff (sin permiso específico requerido)
   visible.add("soporte");
   // Videos: solo el principal lo ve (filtrado adicional en Crm.tsx por isSaasClient)
-  // Comunicaciones y Stripe: solo el admin de Acrosoft (filtrado adicional en Crm.tsx) — staff no accede
+  // Comunicaciones, Stripe y Notificaciones Push: solo el admin de Acrosoft (filtrado adicional en Crm.tsx) — staff no accede
 
   return visible;
 }

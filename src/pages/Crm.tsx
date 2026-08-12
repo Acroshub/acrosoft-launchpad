@@ -4,7 +4,7 @@ import {
   LayoutDashboard, CalendarDays, Users, LogOut, ClipboardList, User,
   Store, Settings, DollarSign, ShieldOff, Loader2, MessageCircle,
   PlayCircle, Bot, Sparkles, GraduationCap, Menu, X, ChevronRight, ShoppingBag, BookOpen, Briefcase, Video,
-  TrendingUp, Plus, History, RefreshCcw, Mail, CreditCard,
+  TrendingUp, Plus, History, RefreshCcw, Mail, CreditCard, Bell,
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
@@ -26,11 +26,12 @@ import CrmStripe from "@/components/crm/CrmStripe";
 import CrmServices from "@/components/crm/CrmServices";
 import CrmProductos from "@/components/crm/CrmProductos";
 import CrmProductosDigitales from "@/components/crm/CrmProductosDigitales";
+import CrmPushNotifications from "@/components/crm/CrmPushNotifications";
 import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount, useSales, useAiPendingSales } from "@/hooks/useCrmData";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
-export type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts" | "ventas_reporte" | "ventas_registrar" | "ventas_historial" | "ventas_renovaciones" | "ventas_stripe" | "settings" | "soporte" | "tutoriales" | "agente_ia" | "comunicaciones";
+export type View = "overview" | "mi_cuenta" | "business" | "servicios" | "productos_fisicos" | "productos_digitales" | "calendar" | "forms" | "contacts" | "ventas_reporte" | "ventas_registrar" | "ventas_historial" | "ventas_renovaciones" | "ventas_stripe" | "settings" | "soporte" | "tutoriales" | "agente_ia" | "comunicaciones" | "push_notificaciones";
 
 type NavChild = { id: View; label: string; icon: React.ElementType };
 type NavItem = { id: string; label: string; icon: React.ElementType; group: string; children?: NavChild[] };
@@ -57,10 +58,11 @@ const VENTAS_CHILDREN: NavChild[] = [
 ];
 
 const CRM_CHILDREN: NavChild[] = [
-  { id: "contacts",        label: "Contactos",       icon: Users         },
-  { id: "calendar",        label: "Calendarios",     icon: CalendarDays  },
-  { id: "forms",           label: "Formularios",     icon: ClipboardList },
-  { id: "comunicaciones",  label: "Comunicaciones",  icon: Mail          },
+  { id: "contacts",             label: "Contactos",           icon: Users         },
+  { id: "calendar",             label: "Calendarios",         icon: CalendarDays  },
+  { id: "forms",                label: "Formularios",         icon: ClipboardList },
+  { id: "comunicaciones",       label: "Comunicaciones",      icon: Mail          },
+  { id: "push_notificaciones",  label: "Notificaciones Push", icon: Bell          },
 ];
 
 const IA_CHILDREN: NavChild[] = [
@@ -87,6 +89,7 @@ const EXTRA_CHILD_VISIBILITY: Partial<Record<View, (ctx: { effectiveIsAdmin: boo
   // En desarrollo — visible solo para el admin de Acrosoft, no para clientes SaaS ni staff.
   comunicaciones: ({ effectiveIsAdmin }) => effectiveIsAdmin,
   ventas_stripe: ({ effectiveIsAdmin }) => effectiveIsAdmin,
+  push_notificaciones: ({ effectiveIsAdmin }) => effectiveIsAdmin,
 };
 
 const flatNavItems: NavChild[] = navItems.flatMap(n => (n.children ?? [n]) as NavChild[]);
@@ -111,7 +114,7 @@ const Crm = () => {
   const brandLogo    = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
 
-  const VALID_VIEWS: View[] = ["overview","mi_cuenta","business","servicios","productos_fisicos","productos_digitales","calendar","forms","contacts","ventas_reporte","ventas_registrar","ventas_historial","ventas_renovaciones","ventas_stripe","settings","soporte","tutoriales","agente_ia","comunicaciones"];
+  const VALID_VIEWS: View[] = ["overview","mi_cuenta","business","servicios","productos_fisicos","productos_digitales","calendar","forms","contacts","ventas_reporte","ventas_registrar","ventas_historial","ventas_renovaciones","ventas_stripe","settings","soporte","tutoriales","agente_ia","comunicaciones","push_notificaciones"];
   const [view, setViewRaw]                         = useState<View>(() => {
     const saved = localStorage.getItem("crm_view") as View | null;
     return saved && VALID_VIEWS.includes(saved) ? saved : "overview";
@@ -254,6 +257,7 @@ const Crm = () => {
         ownerUserId={isStaff ? ownerUserId : null}
       />;
       case "comunicaciones": return effectiveIsAdmin ? <CrmComunicaciones /> : null;
+      case "push_notificaciones": return effectiveIsAdmin ? <CrmPushNotifications /> : null;
     }
   };
 

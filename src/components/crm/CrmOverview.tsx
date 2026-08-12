@@ -1,5 +1,6 @@
 import { CalendarDays, Check, Settings2, RefreshCcw, ChevronRight, ShieldAlert, X } from "lucide-react";
 import OnboardingWizard from "@/components/crm/OnboardingWizard";
+import PushNotificationBanner from "@/components/crm/PushNotificationBanner";
 import SalesTrendCard from "@/components/crm/SalesTrendCard";
 import { getOverdueRenewals, getUpcomingRenewals } from "@/components/crm/RenewalsPanel";
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -161,6 +162,9 @@ const CrmOverview = ({ onNavigate, isSuperAdmin }: {
           <ChevronRight size={16} className="text-amber-600 shrink-0" />
         </button>
       )}
+
+      {/* ── Notificaciones push ── */}
+      <PushNotificationBanner />
 
       {/* ── Onboarding ── */}
       {onNavigate && (

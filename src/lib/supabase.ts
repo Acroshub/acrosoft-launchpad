@@ -978,3 +978,31 @@ export type CrmQuickReply = {
   created_at: string
 }
 
+export type CrmPushSubscription = {
+  id: string
+  user_id: string
+  endpoint: string
+  p256dh: string
+  auth_key: string
+  device_type: string | null
+  user_agent: string | null
+  created_at: string
+  last_seen_at: string
+}
+
+export type PushTargetType = 'all' | 'tenant' | 'user'
+
+export type CrmPushNotificationLog = {
+  id: string
+  sent_by: string
+  title: string
+  body: string
+  url: string | null
+  target_type: PushTargetType
+  target_id: string | null
+  recipients_count: number
+  success_count: number
+  failure_count: number
+  created_at: string
+}
+
