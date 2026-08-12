@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { crypto } from "https://deno.land/std@0.208.0/crypto/mod.ts";
 import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
 import { encodeBase64 } from "https://deno.land/std@0.208.0/encoding/base64.ts";
+import { sendPushToUsers } from "../_shared/push.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -262,7 +263,7 @@ async function handleIncomingMessage(
     });
     await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
-    await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {});
+    await maybeInvokeAgent(conv, tenantUserId, phone, isActive, { preview: transcription ?? "[Mensaje de voz]", contact_name: contactName });
     return;
   }
 
@@ -283,7 +284,7 @@ async function handleIncomingMessage(
     });
     await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
-    await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {});
+    await maybeInvokeAgent(conv, tenantUserId, phone, isActive, { preview: text, contact_name: contactName });
     return;
   }
 
@@ -329,6 +330,8 @@ async function handleIncomingMessage(
       media_base64: mediaBase64,
       media_mime_type: mediaMimeType,
       media_type: "image",
+      preview: caption || "[Imagen]",
+      contact_name: contactName,
     });
     return;
   }
@@ -376,6 +379,8 @@ async function handleIncomingMessage(
       media_base64: mediaBase64,
       media_mime_type: "application/pdf",
       media_type: "document",
+      preview: `[PDF: ${filename}]`,
+      contact_name: contactName,
     });
     return;
   }
@@ -401,6 +406,8 @@ async function handleIncomingMessage(
     await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
     await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {
       button_reply_id: buttonReply?.id,
+      preview: text,
+      contact_name: contactName,
     });
     return;
   }
@@ -537,6 +544,31 @@ async function invokeAgentWithRetry(
  */
 const DEBOUNCE_MS = 25_000;
 
+const waitUntilFn = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil;
+
+/** Push al negocio (dueño + staff activo) por cada mensaje que le llega al Agente IA. */
+async function notifyNewMessage(tenantUserId: string, phone: string, contactName: string | null, preview: string) {
+  const { data: config } = await supabase
+    .from("crm_ai_agent_config")
+    .select("notify_on_new_message")
+    .eq("user_id", tenantUserId)
+    .maybeSingle();
+  if (config?.notify_on_new_message === false) return; // default true — solo se salta si se apagó explícitamente
+
+  const { data: staff } = await supabase
+    .from("crm_staff")
+    .select("staff_user_id")
+    .eq("owner_user_id", tenantUserId)
+    .eq("status", "active");
+  const userIds = [tenantUserId, ...(staff ?? []).map((s) => s.staff_user_id as string)];
+
+  await sendPushToUsers(supabase, userIds, {
+    title: contactName ? `${contactName} (${phone})` : phone,
+    body: preview.slice(0, 120),
+    url: "/crm",
+  });
+}
+
 async function maybeInvokeAgent(
   conv: { id: string; mode: string },
   tenantUserId: string,
@@ -547,11 +579,17 @@ async function maybeInvokeAgent(
     media_mime_type?: string | null;
     media_type?: string;
     button_reply_id?: string;
+    preview?: string;
+    contact_name?: string | null;
   },
 ) {
   if (!isActive) return;
   const { data: freshConv } = await supabase.from("crm_wa_conversations").select("mode").eq("id", conv.id).single();
   if (freshConv?.mode !== "AI" && freshConv?.mode !== "FLOW") return;
+
+  const notifyPromise = notifyNewMessage(tenantUserId, phone, extra.contact_name ?? null, extra.preview ?? "Nuevo mensaje")
+    .catch((err) => console.error("[webhook] error notificando nuevo mensaje:", err));
+  if (waitUntilFn) waitUntilFn(notifyPromise);
 
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;

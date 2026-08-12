@@ -1,23 +1,12 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import webpush from "npm:web-push@3.6.7";
 import { getCorsHeaders } from "../_shared/cors.ts";
+import { sendPushToUsers } from "../_shared/push.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 
 const supabase = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
-// Cuántas suscripciones se envían en paralelo por tanda (evita saturar CPU/memoria de la
-// función o el rate limit del push service en broadcasts grandes con target_type: 'all').
-const SEND_BATCH_SIZE = 25;
-
-const VAPID_PUBLIC_KEY = Deno.env.get("VAPID_PUBLIC_KEY")!;
-const VAPID_PRIVATE_KEY = Deno.env.get("VAPID_PRIVATE_KEY")!;
-const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:soporte@acrossoftware.com";
-
-webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, VAPID_PRIVATE_KEY);
-
 type TargetType = "all" | "tenant" | "user";
-type Subscription = { id: string; endpoint: string; p256dh: string; auth_key: string };
 
 /**
  * POST /functions/v1/send-push-notification
@@ -79,40 +68,11 @@ Deno.serve(async (req) => {
       userIds = [target_id!, ...(staff ?? []).map((s) => s.staff_user_id as string)];
     }
 
-    let query = supabase.from("crm_push_subscriptions").select("id, endpoint, p256dh, auth_key");
-    if (userIds) query = query.in("user_id", userIds);
-    const { data: subscriptions, error: subsErr } = await query;
-    if (subsErr) throw subsErr;
-
-    const payload = JSON.stringify({ title: title.trim(), body: message.trim(), url: url?.trim() || undefined });
-
-    let successCount = 0;
-    let failureCount = 0;
-    const expiredIds: string[] = [];
-    const allSubscriptions = (subscriptions ?? []) as Subscription[];
-
-    const sendOne = async (sub: Subscription) => {
-      try {
-        await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
-          payload,
-        );
-        successCount++;
-      } catch (err) {
-        failureCount++;
-        const statusCode = (err as { statusCode?: number })?.statusCode;
-        if (statusCode === 404 || statusCode === 410) expiredIds.push(sub.id);
-      }
-    };
-
-    for (let i = 0; i < allSubscriptions.length; i += SEND_BATCH_SIZE) {
-      const batch = allSubscriptions.slice(i, i + SEND_BATCH_SIZE);
-      await Promise.all(batch.map(sendOne));
-    }
-
-    if (expiredIds.length > 0) {
-      await supabase.from("crm_push_subscriptions").delete().in("id", expiredIds);
-    }
+    const { recipients, successCount, failureCount } = await sendPushToUsers(supabase, userIds, {
+      title: title.trim(),
+      body: message.trim(),
+      url: url?.trim() || undefined,
+    });
 
     const { error: logErr } = await supabase.from("crm_push_notification_log").insert({
       sent_by: caller.id,
@@ -121,7 +81,7 @@ Deno.serve(async (req) => {
       url: url?.trim() || null,
       target_type,
       target_id: target_type === "all" ? null : target_id,
-      recipients_count: subscriptions?.length ?? 0,
+      recipients_count: recipients,
       success_count: successCount,
       failure_count: failureCount,
     });
@@ -129,7 +89,7 @@ Deno.serve(async (req) => {
     // en un 500 que le haga creer al admin que el envío completo falló.
     if (logErr) console.error("Error guardando log de notificación:", logErr);
 
-    return respond({ success: true, recipients: subscriptions?.length ?? 0, successCount, failureCount });
+    return respond({ success: true, recipients, successCount, failureCount });
   } catch (err) {
     console.error("send-push-notification error:", err);
     return respond({ error: "Error interno del servidor" }, 500);

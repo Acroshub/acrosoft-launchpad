@@ -2015,6 +2015,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [paymentEmailSP, setPaymentEmailSP]             = useState("");
   const [editingPaymentEmail, setEditingPaymentEmail]   = useState(false);
   const [notifyOnTransfer, setNotifyOnTransfer]       = useState(false);
+  const [notifyOnNewMessage, setNotifyOnNewMessage]   = useState(true);
   const [spProductsMode, setSpProductsMode]           = useState<"all"|"selected"|"none">("all");
   const [spSelectedProductIds, setSpSelectedProductIds] = useState<string[]>([]);
   const [spServicesMode, setSpServicesMode]           = useState<"all"|"selected"|"none">("all");
@@ -2335,6 +2336,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setPaymentNotifySP(!!(config.payment_notify_email));
     setPaymentEmailSP(config.payment_notify_email ?? "");
     setNotifyOnTransfer(config.notify_on_transfer ?? false);
+    setNotifyOnNewMessage(config.notify_on_new_message ?? true);
     setSpProductsMode(config.products_mode ?? "all");
     setSpSelectedProductIds(config.selected_product_ids ?? []);
     setSpServicesMode(config.services_mode ?? "all");
@@ -2474,6 +2476,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         payment_notify_email: paymentNotifySP ? (paymentEmailSP.trim() || null) : null,
         notify_on_transfer: notifyOnTransfer,
         notify_email: notifyOnTransfer ? (notifyEmail.trim() || null) : null,
+        notify_on_new_message: notifyOnNewMessage,
         products_mode: spProductsMode,
         selected_product_ids: spProductsMode === "selected" ? spSelectedProductIds : [],
         services_mode: spServicesMode,
@@ -3186,6 +3189,22 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     )}
                   </div>
                 )}
+              </div>
+              {/* Notificación push por cada mensaje nuevo */}
+              <div className="flex items-center justify-between py-3 border-t">
+                <div>
+                  <p className="text-sm font-medium flex items-center gap-1.5">
+                    Notificación push por mensaje nuevo
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-secondary text-secondary-foreground">Beta</span>
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Te avisa en tu dispositivo cada vez que llega un mensaje al Agente IA. Se activa sola si ya activaste las notificaciones push — podés apagarla solo para esto.
+                  </p>
+                </div>
+                <button onClick={() => setNotifyOnNewMessage(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
+                  <span className={`absolute inset-0 rounded-full transition-colors ${notifyOnNewMessage ? "bg-primary" : "bg-secondary border"}`} />
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${notifyOnNewMessage ? "left-[22px]" : "left-0.5"}`} />
+                </button>
               </div>
               {/* Detectar pagos con IA */}
               <div className="py-3">

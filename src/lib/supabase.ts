@@ -579,6 +579,7 @@ export type CrmAIAgentConfig = {
   schedule: Record<string, { open: boolean; slots: { from: string; to: string }[] }> | null
   notify_on_transfer: boolean
   notify_email: string | null
+  notify_on_new_message: boolean
   created_at: string
   updated_at: string
   // Selección de catálogo y detección de pagos
