@@ -42,10 +42,23 @@ const PushNotificationBanner = () => {
     }
   }, [checked, permission, hasSubscription]);
 
-  if (!checked || dismissed || !isPushSupported()) return null;
-  if (permission === "denied" || permission === "granted" || hasSubscription) return null;
-
   const needsHomeScreenInstall = isIos() && !isStandalonePwa();
+
+  // En Safari de iPhone/iPad sin instalar como app, Notification/PushManager ni siquiera
+  // existen todavía (isPushSupported() da false) — por eso este caso se resuelve ANTES de
+  // filtrar por soporte/permiso: no hay nada que chequear en el navegador hasta que se
+  // agregue a la pantalla de inicio, pero igual hay que mostrar el tutorial para llegar ahí.
+  if (dismissed) return null;
+  if (!needsHomeScreenInstall && (!checked || !isPushSupported() || permission === "denied" || permission === "granted" || hasSubscription)) {
+    return null;
+  }
+
+  const heading = (
+    <p className="text-sm font-semibold text-teal-900 flex items-center gap-1.5 flex-wrap">
+      Permitir Notificaciones en este Dispositivo
+      <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-teal-700 text-white shrink-0">Beta</span>
+    </p>
+  );
 
   return (
     <div className="w-full flex items-start gap-3 px-5 py-3.5 rounded-2xl border border-teal-200 bg-teal-50">
@@ -55,20 +68,34 @@ const PushNotificationBanner = () => {
       <div className="flex-1 min-w-0">
         {needsHomeScreenInstall ? (
           <>
-            <p className="text-sm font-semibold text-teal-900 flex items-center gap-1.5 flex-wrap">
-              Permitir Notificaciones en este Dispositivo
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-teal-700 text-white shrink-0">Beta</span>
+            {heading}
+            <p className="text-xs text-teal-700 mt-0.5">
+              Safari no permite activar notificaciones directamente — agregá el CRM a tu pantalla de inicio primero:
             </p>
-            <p className="text-xs text-teal-700 mt-0.5 flex items-center gap-1 flex-wrap">
-              Tocá <Share size={12} className="inline shrink-0" /> "Compartir" y luego "Agregar a Inicio" — después abrí el CRM desde ese ícono para activar las notificaciones.
-            </p>
+            <div className="mt-2.5 space-y-2">
+              <div className="flex items-start gap-2.5">
+                <span className="w-5 h-5 rounded-full bg-teal-700 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
+                <p className="text-xs text-teal-800 flex items-center gap-1 flex-wrap">
+                  Tocá el ícono <Share size={12} className="inline shrink-0" /> "Compartir" en la barra de Safari
+                </p>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <span className="w-5 h-5 rounded-full bg-teal-700 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
+                <p className="text-xs text-teal-800">
+                  Elegí <span className="font-semibold">"Agregar a Inicio"</span> en el menú
+                </p>
+              </div>
+              <div className="flex items-start gap-2.5">
+                <span className="w-5 h-5 rounded-full bg-teal-700 text-white text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
+                <p className="text-xs text-teal-800">
+                  Abrí el CRM desde el ícono nuevo en tu pantalla de inicio (no desde Safari) y ahí vas a poder activar las notificaciones
+                </p>
+              </div>
+            </div>
           </>
         ) : (
           <>
-            <p className="text-sm font-semibold text-teal-900 flex items-center gap-1.5 flex-wrap">
-              Permitir Notificaciones en este Dispositivo
-              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-teal-700 text-white shrink-0">Beta</span>
-            </p>
+            {heading}
             <p className="text-xs text-teal-700 mt-0.5">Cada dispositivo pide permiso por separado — si usás el CRM en el celular y en la compu, activalo en cada uno.</p>
             <button
               onClick={handleActivate}
