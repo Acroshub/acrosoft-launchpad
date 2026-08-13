@@ -547,7 +547,7 @@ const DEBOUNCE_MS = 25_000;
 const waitUntilFn = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil;
 
 /** Push al negocio (dueño + staff activo) por cada mensaje que le llega al Agente IA. */
-async function notifyNewMessage(tenantUserId: string, phone: string, contactName: string | null, preview: string) {
+async function notifyNewMessage(tenantUserId: string, phone: string, contactName: string | null, preview: string, mode: string) {
   const { data: config } = await supabase
     .from("crm_ai_agent_config")
     .select("notify_on_new_message")
@@ -562,8 +562,12 @@ async function notifyNewMessage(tenantUserId: string, phone: string, contactName
     .eq("status", "active");
   const userIds = [tenantUserId, ...(staff ?? []).map((s) => s.staff_user_id as string)];
 
+  // 🤖 = responde la IA (modo AI/FLOW) — 🧑 = modo Manual, necesita respuesta humana.
+  const modeEmoji = mode === "AI" || mode === "FLOW" ? "🤖" : "🧑";
+  const contactLabel = contactName ? `${contactName} (${phone})` : phone;
+
   await sendPushToUsers(supabase, userIds, {
-    title: contactName ? `${contactName} (${phone})` : phone,
+    title: `${modeEmoji} ${contactLabel}`,
     body: preview.slice(0, 120),
     url: "/crm",
   });
@@ -585,15 +589,17 @@ async function maybeInvokeAgent(
 ) {
   if (!isActive) return;
 
+  const { data: freshConv } = await supabase.from("crm_wa_conversations").select("mode").eq("id", conv.id).single();
+  const mode = freshConv?.mode ?? conv.mode;
+
   // La notificación va sin importar el modo de la conversación — si está en modo Manual
   // (asignada a un humano) el negocio necesita enterarse todavía más, ya que ahí la IA
   // no está respondiendo automáticamente por él.
-  const notifyPromise = notifyNewMessage(tenantUserId, phone, extra.contact_name ?? null, extra.preview ?? "Nuevo mensaje")
+  const notifyPromise = notifyNewMessage(tenantUserId, phone, extra.contact_name ?? null, extra.preview ?? "Nuevo mensaje", mode)
     .catch((err) => console.error("[webhook] error notificando nuevo mensaje:", err));
   if (waitUntilFn) waitUntilFn(notifyPromise);
 
-  const { data: freshConv } = await supabase.from("crm_wa_conversations").select("mode").eq("id", conv.id).single();
-  if (freshConv?.mode !== "AI" && freshConv?.mode !== "FLOW") return;
+  if (mode !== "AI" && mode !== "FLOW") return;
 
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
