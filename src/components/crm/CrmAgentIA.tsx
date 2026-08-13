@@ -559,6 +559,12 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
               <p className="text-xs text-muted-foreground mt-0.5">Define la personalidad, el estilo y lo que puede hacer tu asistente.</p>
             </div>
 
+            {/* Sección: Personalidad */}
+            <div className="flex items-center gap-2">
+              <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Personalidad</p>
+              <div className="flex-1 h-px bg-border" />
+            </div>
+
             {/* Personalidad */}
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Personalidad / Tono</label>
@@ -596,6 +602,12 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                   </button>
                 ))}
               </div>
+            </div>
+
+            {/* Sección: Capacidades */}
+            <div className="flex items-center gap-2 pt-2">
+              <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Capacidades</p>
+              <div className="flex-1 h-px bg-border" />
             </div>
 
             <div className="divide-y">
@@ -849,16 +861,6 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
               <label className="text-xs font-medium text-muted-foreground">Prompt - Instrucciones Adicionales <span className="text-[10px] text-muted-foreground">(opcional — se añaden al final)</span></label>
               <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4}
                 className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
-            </div>
-
-            {/* Info media */}
-            <div className="rounded-xl border border-border bg-secondary/30 px-4 py-3 space-y-1.5">
-              <p className="text-xs font-semibold">Capacidades con archivos</p>
-              <div className="space-y-1 text-xs text-muted-foreground">
-                <p>✅ <strong>Imágenes</strong> — puede verlas y analizarlas (comprobantes, fotos, etc.)</p>
-                <p>✅ <strong>PDFs</strong> — puede leer documentos PDF</p>
-                <p>✅ <strong>Audios</strong> — transcribe la nota de voz y responde al contenido</p>
-              </div>
             </div>
 
             <div className="flex gap-2 pt-2">
@@ -2693,6 +2695,12 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
           {section === "agente" && (
             <div className="space-y-6">
+              {/* Sección: Personalidad */}
+              <div className="flex items-center gap-2">
+                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Personalidad</p>
+                <div className="flex-1 h-px bg-border" />
+              </div>
+
               {/* Personalidad */}
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">Personalidad / Tono</label>
@@ -2730,6 +2738,12 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     ))}
                   </div>
                 </div>
+              </div>
+
+              {/* Sección: Capacidades */}
+              <div className="flex items-center gap-2 pt-2">
+                <p className="text-[11px] font-bold text-primary uppercase tracking-wider">Capacidades</p>
+                <div className="flex-1 h-px bg-border" />
               </div>
 
               <div className="divide-y">
