@@ -584,12 +584,16 @@ async function maybeInvokeAgent(
   },
 ) {
   if (!isActive) return;
-  const { data: freshConv } = await supabase.from("crm_wa_conversations").select("mode").eq("id", conv.id).single();
-  if (freshConv?.mode !== "AI" && freshConv?.mode !== "FLOW") return;
 
+  // La notificación va sin importar el modo de la conversación — si está en modo Manual
+  // (asignada a un humano) el negocio necesita enterarse todavía más, ya que ahí la IA
+  // no está respondiendo automáticamente por él.
   const notifyPromise = notifyNewMessage(tenantUserId, phone, extra.contact_name ?? null, extra.preview ?? "Nuevo mensaje")
     .catch((err) => console.error("[webhook] error notificando nuevo mensaje:", err));
   if (waitUntilFn) waitUntilFn(notifyPromise);
+
+  const { data: freshConv } = await supabase.from("crm_wa_conversations").select("mode").eq("id", conv.id).single();
+  if (freshConv?.mode !== "AI" && freshConv?.mode !== "FLOW") return;
 
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
