@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAiUsage } from "../_shared/ai-usage.ts";
+import { sendPushToUsers } from "../_shared/push.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -28,6 +29,8 @@ interface AgentConfig {
   agent_name: string;
   system_prompt: string | null;
   model: string;
+  // No viene de la columna propia — se sobreescribe con crm_business_profile.timezone
+  // justo después de cargar la config (ver más abajo). El agente no tiene timezone propio.
   timezone: string;
   off_hours_message: string | null;
   schedule: Record<string, { open: boolean; slots: { from: string; to: string }[] }> | null;
@@ -36,17 +39,14 @@ interface AgentConfig {
   can_create_contacts: boolean;
   can_book_appointments: boolean;
   scheduling_calendar_id: string | null;
-  notify_on_transfer: boolean;
-  notify_email: string | null;
-  products_mode: "all" | "selected";
+  physical_products_mode: "all" | "selected" | "none";
+  digital_products_mode: "all" | "selected" | "none";
   selected_product_ids: string[];
-  services_mode: "all" | "selected";
+  services_mode: "all" | "selected" | "none";
   selected_service_ids: string[];
   courses_mode: "all" | "selected" | "none";
   selected_course_ids: string[];
   auto_detect_payments: boolean;
-  payment_notify_email: string | null;
-  products_with_images: string[];
   // Configuración estratégica B15-1
   agent_objectives: string[] | null;
   agent_personality: string | null;
@@ -226,7 +226,7 @@ function formatSlotLabel(dateKey: string, hour: number, minute: number, timezone
 }
 
 interface AvailableSlot { date: string; hour: number; minute: number; label: string }
-interface SlotsResult { slots: AvailableSlot[]; scheduleDesc: string; minAdvHours: number }
+interface SlotsResult { slots: AvailableSlot[]; scheduleDesc: string; minAdvHours: number; timezone: string }
 
 // Construye la descripción de horario para que Claude pueda razonar sobre fechas adicionales
 function buildScheduleDesc(avail: Record<string, any> | null, slotStep: number, minAdvHours: number, maxFutureDays: number): string {
@@ -255,9 +255,9 @@ async function getAvailableSlots(calendarId: string, fromDateStr?: string): Prom
     .eq("id", calendarId)
     .single();
 
-  if (!cal) return { slots: [], scheduleDesc: "", minAdvHours: 1 };
+  if (!cal) return { slots: [], scheduleDesc: "", minAdvHours: 1, timezone: "America/La_Paz" };
 
-  const timezone        = (cal.timezone          as string) ?? "America/Mexico_City";
+  const timezone        = (cal.timezone          as string) ?? "America/La_Paz";
   const durationMin     = (cal.duration_min       as number) ?? 60;
   // schedule_interval = paso entre inicio de slots (ej. cada 30 min aunque la cita dure 60)
   // Si no está definido, usar duration_min como fallback
@@ -340,7 +340,7 @@ async function getAvailableSlots(calendarId: string, fromDateStr?: string): Prom
     }
   }
 
-  return { slots, scheduleDesc: buildScheduleDesc(avail, slotStep, minAdvHours, maxFutureDays), minAdvHours };
+  return { slots, scheduleDesc: buildScheduleDesc(avail, slotStep, minAdvHours, maxFutureDays), minAdvHours, timezone };
 }
 
 // ─── Validar que un slot pedido por el cliente realmente está disponible ───────
@@ -361,7 +361,7 @@ async function validateSlot(
 
   if (!cal) return { valid: false, reason: "calendar_not_found" };
 
-  const timezone      = (cal.timezone as string) ?? "UTC";
+  const timezone      = (cal.timezone as string) ?? "America/La_Paz";
   const slotStep      = (cal.duration_min    as number) ?? 30;
   const bufferMin     = (cal.buffer_min      as number) ?? 0;
   const minAdvHours   = (cal.min_advance_hours as number) ?? 1;
@@ -1307,20 +1307,23 @@ async function sendWhatsAppImage(phone: string, imageUrl: string, caption: strin
 
 // ─── Cargar catálogo de productos con variantes y métodos de pago ─────────────
 async function buildProductsCatalog(config: AgentConfig, contactCurrency: string | null = null): Promise<string> {
-  if (config.products_mode === "none") return "";
+  if (config.physical_products_mode === "none" && config.digital_products_mode === "none") return "";
 
-  let productsQuery = supabase
+  const { data: rawProducts } = await supabase
     .from("crm_products")
     .select("id, name, price, discount_pct, currency, description, has_variants, product_kind, deliverable_type, stock_enabled, stock")
     .eq("user_id", config.user_id)
     .order("name");
 
-  if (config.products_mode === "selected" && config.selected_product_ids?.length) {
-    productsQuery = productsQuery.in("id", config.selected_product_ids);
-  }
-
-  const { data: allProducts } = await productsQuery;
-  if (!allProducts?.length) return "";
+  // Físicos y digitales tienen su propio modo (all/selected/none) — selected_product_ids es compartido,
+  // cada producto solo puede ser de un kind, así que no hay ambigüedad al filtrar por él.
+  const allProducts = (rawProducts ?? []).filter(p => {
+    const mode = p.product_kind === "archivo" ? config.digital_products_mode : config.physical_products_mode;
+    if (mode === "none") return false;
+    if (mode === "selected") return config.selected_product_ids?.includes(p.id) ?? false;
+    return true;
+  });
+  if (!allProducts.length) return "";
 
   const allProductIds = allProducts.map(p => p.id);
 
@@ -2025,11 +2028,8 @@ function buildStrategicInstructions(config: AgentConfig, businessFaqs: Array<{ q
 
 // ─── Instrucción de fotos de productos para el agente ─────────────────────────
 // Construye el bloque de instrucción con los marcadores [SEND_PRODUCT_IMAGES] disponibles.
-// Solo incluye productos que el operador habilitó (products_with_images) y que tienen imágenes.
+// Envío de fotos siempre activo — incluye cualquier producto del tenant que tenga imágenes.
 async function buildProductImagesInstruction(config: AgentConfig): Promise<string> {
-  const enabledIds = config.products_with_images ?? [];
-
-  // Si hay productos habilitados, cargar sus imágenes (y las de variantes)
   let entries: Array<{
     productId: string;
     productName: string;
@@ -2037,42 +2037,39 @@ async function buildProductImagesInstruction(config: AgentConfig): Promise<strin
     variants: Array<{ id: string; name: string }>;
   }> = [];
 
-  if (enabledIds.length > 0) {
-    const { data: products } = await supabase
-      .from("crm_products")
-      .select("id, name, images, has_variants")
-      .in("id", enabledIds)
-      .eq("user_id", config.user_id);
+  const { data: products } = await supabase
+    .from("crm_products")
+    .select("id, name, images, has_variants")
+    .eq("user_id", config.user_id);
 
-    if (products?.length) {
-      const variantIds = products.filter(p => p.has_variants).map(p => p.id);
-      const variantsByProduct = new Map<string, Array<{ id: string; name: string }>>();
+  if (products?.length) {
+    const variantIds = products.filter(p => p.has_variants).map(p => p.id);
+    const variantsByProduct = new Map<string, Array<{ id: string; name: string }>>();
 
-      if (variantIds.length > 0) {
-        const { data: variants } = await supabase
-          .from("crm_product_variants")
-          .select("id, product_id, name, images")
-          .in("product_id", variantIds);
+    if (variantIds.length > 0) {
+      const { data: variants } = await supabase
+        .from("crm_product_variants")
+        .select("id, product_id, name, images")
+        .in("product_id", variantIds);
 
-        for (const v of variants ?? []) {
-          const imgs = (v.images as string[]) ?? [];
-          if (imgs.length === 0) continue;
-          if (!variantsByProduct.has(v.product_id)) variantsByProduct.set(v.product_id, []);
-          variantsByProduct.get(v.product_id)!.push({ id: v.id, name: v.name });
-        }
+      for (const v of variants ?? []) {
+        const imgs = (v.images as string[]) ?? [];
+        if (imgs.length === 0) continue;
+        if (!variantsByProduct.has(v.product_id)) variantsByProduct.set(v.product_id, []);
+        variantsByProduct.get(v.product_id)!.push({ id: v.id, name: v.name });
       }
+    }
 
-      for (const p of products) {
-        const productImages = (p.images as string[]) ?? [];
-        const variants = variantsByProduct.get(p.id) ?? [];
-        if (productImages.length === 0 && variants.length === 0) continue;
-        entries.push({
-          productId: p.id,
-          productName: p.name,
-          hasProductImages: productImages.length > 0,
-          variants,
-        });
-      }
+    for (const p of products) {
+      const productImages = (p.images as string[]) ?? [];
+      const variants = variantsByProduct.get(p.id) ?? [];
+      if (productImages.length === 0 && variants.length === 0) continue;
+      entries.push({
+        productId: p.id,
+        productName: p.name,
+        hasProductImages: productImages.length > 0,
+        variants,
+      });
     }
   }
 
@@ -2213,10 +2210,10 @@ async function buildSystemPrompt(
   canTransfer = false,
   conversationId?: string,
   hasMedia = false,
-): Promise<{ stable: string; volatile: string; contactId: string | null; contactName: string | null; availableSlots: AvailableSlot[] }> {
+): Promise<{ stable: string; volatile: string; contactId: string | null; contactName: string | null; availableSlots: AvailableSlot[]; calendarTimezone: string }> {
   const canSchedule = !!(config.can_book_appointments && config.scheduling_calendar_id);
 
-  const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: config.timezone ?? "UTC" }).format(new Date());
+  const todayKey = new Intl.DateTimeFormat("en-CA", { timeZone: config.timezone }).format(new Date());
 
   const contactCurrency = getCurrencyFromPhone(phone);
 
@@ -2228,7 +2225,7 @@ async function buildSystemPrompt(
     buildProductsCatalog(config, contactCurrency),
     buildServicesCatalog(config, contactCurrency),
     buildCoursesCatalog(config, contactCurrency),
-    canSchedule ? getAvailableSlots(config.scheduling_calendar_id!) : Promise.resolve({ slots: [], scheduleDesc: "", minAdvHours: 1 } as SlotsResult),
+    canSchedule ? getAvailableSlots(config.scheduling_calendar_id!) : Promise.resolve({ slots: [], scheduleDesc: "", minAdvHours: 1, timezone: config.timezone } as SlotsResult),
     buildProductImagesInstruction(config),
   ]);
 
@@ -2244,6 +2241,8 @@ async function buildSystemPrompt(
   const contactId = conv?.contact_id ?? null;
   const slotsRes = slotsResult as SlotsResult;
   const availableSlots = slotsRes.slots;
+  // Timezone del calendario vinculado (default de "Mi Negocio", pero puede sobreescribirse por calendario)
+  const calendarTimezone = slotsRes.timezone;
 
   // Citas próximas del contacto — en paralelo con slots (ya tenemos contact_id del batch anterior)
   let existingAppts: Array<{ id: string; date: string; hour: number; minute: number; notes: string | null }> = [];
@@ -2298,7 +2297,7 @@ async function buildSystemPrompt(
     for (const c of calendarsRes.data ?? []) calendarMap[c.id] = c.name;
 
     const fmtDate = (iso: string) => new Date(iso).toLocaleString("es-ES", {
-      timeZone: config.timezone ?? "UTC", day: "2-digit", month: "2-digit", year: "numeric",
+      timeZone: config.timezone, day: "2-digit", month: "2-digit", year: "numeric",
       hour: "2-digit", minute: "2-digit",
     });
 
@@ -2316,7 +2315,7 @@ async function buildSystemPrompt(
       const dt = new Date(Date.UTC(
         Number(a.date.slice(0,4)), Number(a.date.slice(5,7))-1, Number(a.date.slice(8,10)),
         a.hour, a.minute,
-      )).toLocaleString("es-ES", { timeZone: config.timezone ?? "UTC", day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+      )).toLocaleString("es-ES", { timeZone: config.timezone, day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
       eventLines.push(`[Cita agendada] ${fmtDate(a.created_at)} — Calendario: "${calName}" — Fecha de cita: ${dt} — Servicio: ${a.service ?? "—"} — Estado: ${a.status}`);
     }
 
@@ -2489,7 +2488,7 @@ Si el requisito NO se cumple (la imagen no es un comprobante real):
       let existingSection = "";
       if (existingAppts.length > 0) {
         const lines = existingAppts.map(a => {
-          const lbl = formatSlotLabel(a.date, a.hour, a.minute, config.timezone);
+          const lbl = formatSlotLabel(a.date, a.hour, a.minute, calendarTimezone);
           return `- ${lbl}${a.notes ? ` — ${a.notes}` : ""} [appointment_id:${a.id}]`;
         }).join("\n");
         existingSection = `\n\nCITAS YA AGENDADAS DE ESTE CLIENTE:\n${lines}`;
@@ -2575,7 +2574,7 @@ REGLAS:
     TOTAL_volatil: volatile.length,
   }));
 
-  return { stable, volatile, contactId, contactName, availableSlots };
+  return { stable, volatile, contactId, contactName, availableSlots, calendarTimezone };
 }
 
 // ─── Enviar mensaje de texto por Graph API ────────────────────────────────────
@@ -2635,6 +2634,21 @@ async function sendTypingIndicator(phone: string, config: AgentConfig): Promise<
   } catch { /* non-critical, no bloqueamos el flujo */ }
 }
 
+// ─── Notificación push al dueño + staff activo (reemplaza el email — siempre activa, sin toggle) ──
+async function notifyOwnerPush(userId: string, title: string, body: string): Promise<void> {
+  try {
+    const { data: staff } = await supabase
+      .from("crm_staff")
+      .select("staff_user_id")
+      .eq("owner_user_id", userId)
+      .eq("status", "active");
+    const userIds = [userId, ...(staff ?? []).map(s => s.staff_user_id as string)];
+    await sendPushToUsers(supabase, userIds, { title, body: body.slice(0, 120), url: "/crm" });
+  } catch (e) {
+    console.error("[ai-agent] error enviando push de notificación:", e);
+  }
+}
+
 // ─── Transferir conversación a HUMAN y notificar al owner ─────────────────────
 async function transferToHuman(
   config: AgentConfig,
@@ -2656,46 +2670,13 @@ async function transferToHuman(
     .update({ mode: "HUMAN", last_message_at: new Date().toISOString() })
     .eq("id", conversation_id);
 
-  if (config.notify_on_transfer && config.notify_email) {
-    const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-    const RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
-    if (RESEND_API_KEY) {
-      const { data: conv } = await supabase
-        .from("crm_wa_conversations")
-        .select("contact_name, phone")
-        .eq("id", conversation_id)
-        .single();
-      const contactLabel = conv?.contact_name ?? conv?.phone ?? phone;
-      const crmUrl = Deno.env.get("SITE_URL") ?? "https://app.acrosoftlabs.com";
-      const html = `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/></head>
-<body style="margin:0;padding:0;background:#f4f4f5;font-family:system-ui,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f4f5;padding:40px 20px;"><tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:12px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.1);">
-<tr><td style="background:#18181b;padding:24px 32px;"><p style="margin:0;color:#ffffff;font-size:18px;font-weight:600;">Acrosoft</p></td></tr>
-<tr><td style="padding:32px;">
-  <p style="margin:0 0 8px;font-size:16px;font-weight:600;color:#18181b;">Chat requiere tu atención</p>
-  <p style="margin:0 0 20px;font-size:14px;color:#52525b;line-height:1.6;">
-    ${notifyBody.replace(/\n/g, "<br/>")}
-  </p>
-  <a href="${crmUrl}/crm" style="display:inline-block;background:#18181b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:500;">
-    Ir al CRM &rarr; Agente IA
-  </a>
-  <p style="margin:24px 0 0;font-size:12px;color:#a1a1aa;">Mensaje automático de Acrosoft.</p>
-</td></tr>
-</table></td></tr></table>
-</body></html>`;
-      fetch("https://api.resend.com/emails", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          from: RESEND_FROM,
-          to: [config.notify_email],
-          subject: notifySubject,
-          html,
-        }),
-      }).catch(() => {});
-    }
-  }
+  const { data: conv } = await supabase
+    .from("crm_wa_conversations")
+    .select("contact_name, phone")
+    .eq("id", conversation_id)
+    .single();
+  const contactLabel = conv?.contact_name ?? conv?.phone ?? phone;
+  await notifyOwnerPush(config.user_id, notifySubject, `${contactLabel} — ${notifyBody}`);
 }
 
 /**
@@ -3012,23 +2993,25 @@ Deno.serve(async (req: Request) => {
     // Indicar que la IA está procesando (B19-7)
     await supabase.from("crm_wa_conversations").update({ ai_typing: true }).eq("id", conversation_id);
 
-    // 1. Cargar config del tenant
-    const { data: config, error: configErr } = await supabase
-      .from("crm_ai_agent_config")
-      .select("*")
-      .eq("user_id", tenant_user_id)
-      .single();
+    // 1. Cargar config del tenant + timezone global del negocio ("Mi Negocio")
+    const [{ data: config, error: configErr }, { data: bizProfile }] = await Promise.all([
+      supabase.from("crm_ai_agent_config").select("*").eq("user_id", tenant_user_id).single(),
+      supabase.from("crm_business_profile").select("timezone").eq("user_id", tenant_user_id).maybeSingle(),
+    ]);
 
     if (configErr || !config) {
       console.error("[ai-agent] config no encontrada para:", tenant_user_id);
       return new Response("config not found", { status: 404 });
     }
 
+    // El agente no tiene timezone propio — usa siempre el global del negocio
+    config.timezone = bizProfile?.timezone ?? "America/La_Paz";
+
     // Enviar indicador nativo de escritura al contacto (B19-7) — fire and forget
     sendTypingIndicator(phone, config);
 
     // 2. Verificar horario usando schedule JSONB
-    if (!isWithinSchedule(config.schedule, config.timezone ?? "America/Mexico_City")) {
+    if (!isWithinSchedule(config.schedule, config.timezone)) {
       const offMsg = toWhatsAppFormat(config.off_hours_message?.trim() ||
         "Gracias por escribirnos. En este momento estamos fuera del horario de atención. Te responderemos a la brevedad.");
       console.log(`[ai-agent] fuera de horario para ${phone}, enviando mensaje off-hours`);
@@ -3309,7 +3292,7 @@ Deno.serve(async (req: Request) => {
 
     // 4. Construir system prompt con catálogo, variables y etiquetas
     const t0 = Date.now();
-    const { stable: systemStable, volatile: systemVolatile, contactId: convContactId, contactName: convContactName, availableSlots: preloadedSlots } =
+    const { stable: systemStable, volatile: systemVolatile, contactId: convContactId, contactName: convContactName, availableSlots: preloadedSlots, calendarTimezone } =
       await buildSystemPrompt(config as AgentConfig, phone, config.can_transfer_human ?? false, conversation_id, !!media);
 
     // 5. Llamar a Claude — con tool use para agendamiento, sin tools para el resto
@@ -3324,7 +3307,7 @@ Deno.serve(async (req: Request) => {
       // contactId ya viene del buildSystemPrompt — no hay query duplicada
       const toolExecutor = makeSchedulingToolExecutor(
         config.scheduling_calendar_id!, tenant_user_id, conversation_id,
-        phone, convContactId, config.timezone ?? "UTC",
+        phone, convContactId, calendarTimezone,
         preloadedSlots, convContactName,
       );
       ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cacheWrite5m, cacheWrite1h } =
@@ -3781,38 +3764,15 @@ Deno.serve(async (req: Request) => {
             const amountFormatted = formatPrice(payment.amount, itemInfo.currency ?? null);
 
             const isConfirmed = saleStatus === "confirmed";
-            const emailSubject = isConfirmed
-              ? `Venta confirmada por Agente IA: ${itemName}`
-              : `Acción requerida: pago pendiente de confirmación – ${itemName}`;
-            const emailHtml = isConfirmed
-              ? `<p>El agente IA confirmó una venta de <strong>${itemName}</strong> por <strong>${amountFormatted}</strong>.</p><p>El entregable (si aplica) ya fue enviado al cliente por WhatsApp.</p>`
-              : `<p>El agente IA recibió un comprobante de pago para <strong>${itemName}</strong> por <strong>${amountFormatted}</strong>.</p><p>Entra al CRM y revisa los chats del Agente IA para confirmar o rechazar este pago.</p>`;
+            const pushTitle = isConfirmed
+              ? `✅ Venta confirmada: ${itemName}`
+              : `⚠️ Pago pendiente de confirmación: ${itemName}`;
+            const pushBody = isConfirmed
+              ? `${amountFormatted} — el entregable (si aplica) ya fue enviado al cliente por WhatsApp.`
+              : `${amountFormatted} — revisa los chats del Agente IA para confirmar o rechazar este pago.`;
 
-            // Query fresca y explícita para email — bypassa cualquier problema de schema cache
-            const { data: emailRow } = await supabase
-              .from("crm_ai_agent_config")
-              .select("payment_notify_email, notify_email")
-              .eq("user_id", config.user_id)
-              .single();
-            const saleToEmail: string | null =
-              (emailRow as any)?.payment_notify_email ||
-              (emailRow as any)?.notify_email ||
-              null;
-            console.log(`[ai-agent] saleToEmail=${saleToEmail}`);
-
-            // Email fire-and-forget ANTES de Promise.allSettled — mismo patrón que notificaciones de transferencia
-            // El fetch (~800ms) completa durante los ~1001ms que tarda send-deliverable en paralelo
-            const _RESEND_KEY = Deno.env.get("RESEND_API_KEY");
-            const _RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
-            if (_RESEND_KEY && saleToEmail) {
-              fetch("https://api.resend.com/emails", {
-                method: "POST",
-                headers: { Authorization: `Bearer ${_RESEND_KEY}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ from: _RESEND_FROM, to: [saleToEmail], subject: emailSubject, html: emailHtml }),
-              }).then(async r => console.log(`[ai-agent] sale email sent: ${r.status} ${(await r.text()).slice(0,60)}`)).catch(e => console.error("[ai-agent] sale email error:", e.message));
-            } else {
-              console.warn(`[ai-agent] sale email omitido — key:${!!_RESEND_KEY} to:${saleToEmail}`);
-            }
+            // Push fire-and-forget ANTES de Promise.allSettled — corre en paralelo con send-deliverable
+            notifyOwnerPush(config.user_id, pushTitle, pushBody);
 
             // Aprendizaje de patrón de ventas — fire-and-forget, solo con ventas confirmadas
             if (isConfirmed) {
@@ -3857,23 +3817,8 @@ Deno.serve(async (req: Request) => {
         .from("crm_wa_conversations")
         .update({ mode: "HUMAN", last_message_at: new Date().toISOString() })
         .eq("id", conversation_id);
-      if (config.notify_on_transfer && config.notify_email) {
-        const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-        const RESEND_FROM = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
-        if (RESEND_API_KEY) {
-          const crmUrl = Deno.env.get("SITE_URL") ?? "https://app.acrosoftlabs.com";
-          fetch("https://api.resend.com/emails", {
-            method: "POST",
-            headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({
-              from: RESEND_FROM,
-              to: [config.notify_email],
-              subject: `💳 Cliente quiere comprar — envíale los métodos de pago`,
-              html: `<p>Un cliente en WhatsApp quiere comprar pero no hay métodos de pago configurados para ese producto/servicio.</p><p><a href="${crmUrl}/crm">Ir al CRM para enviarle los datos →</a></p>`,
-            }),
-          }).catch(() => {});
-        }
-      }
+      await notifyOwnerPush(config.user_id, "💳 Cliente quiere comprar",
+        `${phone} — sin métodos de pago configurados, envíale los datos`);
       return new Response(JSON.stringify({ ok: true, reason: "no_payment" }), { status: 200 });
     }
 

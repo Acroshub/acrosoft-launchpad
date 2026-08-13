@@ -20,8 +20,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import WeeklySchedulePicker from "@/components/shared/WeeklySchedulePicker";
-import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
+import { usePushSubscriptionStatus, useSubscribeToPush, isPushSupported } from "@/hooks/usePushNotifications";
 import {
   useAIAgentConfig, useUpsertAIAgentConfig,
   useWaConversations, useWaMessages,
@@ -95,26 +94,6 @@ async function normalizeImageForWhatsApp(file: File): Promise<File> {
   }
 }
 
-const DEFAULT_SCHEDULE: WeeklySchedule = {
-  "Lun": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
-  "Mar": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
-  "Mié": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
-  "Jue": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
-  "Vie": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
-  "Sáb": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
-  "Dom": { open: true, slots: [{ from: "12:00 AM", to: "11:59 PM" }] },
-};
-
-const TIMEZONES = [
-  "America/Mexico_City", "America/Monterrey", "America/Cancun",
-  "America/Bogota", "America/Lima", "America/Santiago",
-  "America/Argentina/Buenos_Aires", "America/Caracas",
-  "America/Guayaquil", "America/La_Paz", "America/Asuncion",
-  "America/Montevideo", "America/Panama", "America/Guatemala",
-  "America/El_Salvador", "America/Santo_Domingo",
-  "Europe/Madrid", "America/New_York", "America/Los_Angeles",
-];
-
 const PROMPT_VARIABLES = [
   { label: "{{negocio.nombre}}", desc: "Nombre del negocio" },
   { label: "{{negocio.servicios}}", desc: "Lista de servicios y precios" },
@@ -123,21 +102,17 @@ const PROMPT_VARIABLES = [
   { label: "{{fecha.hoy}}", desc: "Fecha actual" },
 ];
 
-const AGENT_OBJECTIVES = [
-  "Agendar citas", "Vender productos", "Responder dudas",
-  "Capturar leads", "Dar soporte postventa", "Calificar prospectos",
-];
-
 const AGENT_PERSONALITIES = [
-  "Profesional y formal", "Amigable y cercano", "Entusiasta y dinámico",
-  "Empático y tranquilizador", "Directo y conciso",
+  "Profesional y formal", "Amigable y cercano",
 ];
 
-const AGENT_PROACTIVITIES = [
-  { val: "reactivo", label: "Reactivo", sub: "Solo responde a lo que pregunta el cliente" },
-  { val: "moderado", label: "Moderado", sub: "Sugiere cuando hay una oportunidad clara" },
-  { val: "proactivo", label: "Proactivo", sub: "Siempre orienta la conversación al objetivo" },
-];
+// Objetivos fijos por defecto para todos los usuarios SaaS (ya no configurables):
+// si hay un calendario vinculado en Capacidades, el objetivo principal pasa a ser agendar citas.
+function computeAgentObjectives(hasCalendar: boolean): string[] {
+  return hasCalendar
+    ? ["Agendar citas", "Vender productos", "Responder dudas"]
+    : ["Vender productos", "Responder dudas"];
+}
 
 const RESPONSE_LENGTHS = [
   { val: "short", label: "Cortas" },
@@ -151,11 +126,6 @@ const EMOJI_LEVELS = [
   { val: "medio", label: "Medio" },
   { val: "mucho", label: "Mucho" },
 ] as const;
-
-const DATA_COLLECT_OPTIONS = [
-  "Nombre", "Teléfono", "Email", "Presupuesto",
-  "Necesidad específica", "Zona/ciudad", "Tamaño de empresa", "Fecha preferida",
-];
 
 const DEFAULT_PROMPT = `Eres un asistente de {{negocio.nombre}}, una empresa dedicada a brindar el mejor servicio a sus clientes.
 
@@ -253,6 +223,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const { user: wizardUser } = useCurrentUser();
   const { data: existingConfig, isLoading: configLoading } = useAIAgentConfig();
   const { data: businessProfile } = useBusinessProfile();
+  const { permission: pushPermission, hasSubscription: pushHasSubscription, checked: pushChecked } = usePushSubscriptionStatus();
+  const subscribePush = useSubscribeToPush();
   const { data: allProducts = [] } = useProducts();
   const { data: allServices = [] } = useServices();
   const { data: catalogs = [] } = useCatalogs();
@@ -284,42 +256,23 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const promptRef = useRef<HTMLTextAreaElement>(null);
 
   // Step 2 — Config estratégica B15-1
-  const [agentObjectives, setAgentObjectives]     = useState<string[]>(existingConfig?.agent_objectives ?? []);
   const [agentPersonality, setAgentPersonality]   = useState(existingConfig?.agent_personality ?? "");
-  const [agentProactivity, setAgentProactivity]   = useState(existingConfig?.agent_proactivity ?? "");
   const [responseLengthWiz, setResponseLengthWiz] = useState(existingConfig?.response_length ?? "normal");
   const [emojiLevelWiz, setEmojiLevelWiz]         = useState(existingConfig?.emoji_level ?? "poco");
-  const [agentFaqWiz, setAgentFaqWiz]             = useState<{ q: string; a: string }[]>(existingConfig?.agent_faq ?? []);
-  const [useBusinessFaqWiz, setUseBusinessFaqWiz] = useState(existingConfig?.use_business_faq ?? true);
-  const [agentDataCollectWiz, setAgentDataCollectWiz] = useState<string[]>(existingConfig?.agent_data_collect ?? []);
-  const [customDataFieldWiz, setCustomDataFieldWiz]   = useState("");
 
   // Step 3 — Capacidades
   const [schedulingCalendarIdWiz, setSchedulingCalendarIdWiz] = useState<string>(existingConfig?.scheduling_calendar_id ?? "");
-  const [canContacts, setCanContacts]               = useState(existingConfig?.can_create_contacts ?? true);
   const [canServices, setCanServices]         = useState(existingConfig?.can_answer_services ?? true);
   const [canTransfer, setCanTransfer]         = useState(existingConfig?.can_transfer_human ?? false);
   const [autoDetectPayments, setAutoDetectPayments] = useState(existingConfig?.auto_detect_payments ?? false);
-  const [wizPaymentNotify, setWizPaymentNotify]       = useState(!!(existingConfig?.payment_notify_email));
-  const [wizPaymentEmail, setWizPaymentEmail]         = useState(existingConfig?.payment_notify_email ?? "");
-  const [wizNotifyOnTransfer, setWizNotifyOnTransfer] = useState(existingConfig?.notify_on_transfer ?? false);
-  const [wizNotifyEmail, setWizNotifyEmail]           = useState(existingConfig?.notify_email ?? "");
   // Catálogo IA
-  const [productsMode, setProductsMode]               = useState<"all"|"selected"|"none">(existingConfig?.products_mode ?? "all");
+  const [physicalProductsModeWiz, setPhysicalProductsModeWiz] = useState<"all"|"selected"|"none">(existingConfig?.physical_products_mode ?? "none");
+  const [digitalProductsModeWiz, setDigitalProductsModeWiz]   = useState<"all"|"selected"|"none">(existingConfig?.digital_products_mode ?? "none");
   const [selectedProductIds, setSelectedProductIds]   = useState<string[]>(existingConfig?.selected_product_ids ?? []);
-  const [servicesMode, setServicesMode]               = useState<"all"|"selected"|"none">(existingConfig?.services_mode ?? "all");
+  const [servicesMode, setServicesMode]               = useState<"all"|"selected"|"none">(existingConfig?.services_mode ?? "none");
   const [selectedServiceIds, setSelectedServiceIds]   = useState<string[]>(existingConfig?.selected_service_ids ?? []);
   const [coursesMode, setCoursesMode]                 = useState<"all"|"selected"|"none">(existingConfig?.courses_mode ?? "none");
   const [selectedCourseIds, setSelectedCourseIds]     = useState<string[]>(existingConfig?.selected_course_ids ?? []);
-  const [wizProductsWithImages, setWizProductsWithImages] = useState<string[]>(existingConfig?.products_with_images ?? []);
-
-  // Step 4 — Horario
-  const [schedule, setSchedule]     = useState<WeeklySchedule>(
-    (existingConfig?.schedule as WeeklySchedule | null) ?? DEFAULT_SCHEDULE
-  );
-  const [timezone, setTimezone]     = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const [offHoursMsg, setOffHoursMsg] = useState(existingConfig?.off_hours_message ?? "");
-  const timezoneInitialized         = useRef(false);
 
   // Step 5 — Perfil WA
   const [bio, setBio]                   = useState("");
@@ -337,17 +290,6 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
     }
   }, [configLoading, existingConfig, wizardUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Auto-detect timezone from existing config or business profile
-  useEffect(() => {
-    if (timezoneInitialized.current) return;
-    const tz = existingConfig?.timezone ?? businessProfile?.timezone;
-    if (tz) {
-      setTimezone(tz);
-      timezoneInitialized.current = true;
-    } else if (existingConfig !== undefined && businessProfile !== undefined) {
-      timezoneInitialized.current = true;
-    }
-  }, [existingConfig, businessProfile]);
 
   const handleTestConnection = async () => {
     if (!phoneNumberId || !accessToken) { toast.error("Ingresa el Phone Number ID y el Access Token"); return; }
@@ -362,7 +304,10 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
       const json = await res.json();
       setTestResult({ phone: json.display_phone_number, name: json.verified_name });
       setVerified(true);
-      await upsert.mutateAsync({ verified_phone: json.display_phone_number ?? null }).catch(() => {});
+      await upsert.mutateAsync({
+        verified_phone: json.display_phone_number ?? null,
+        verified_business_name: json.verified_name ?? null,
+      }).catch(() => {});
 
       // 2. Registrar número en Cloud API (paso oculto que Meta no muestra en el portal)
       await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/register`, {
@@ -390,64 +335,45 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
       }).catch(() => {}); // No bloqueamos si falla
     }
 
+    // Cargar perfil actual de Meta al avanzar al paso de Perfil WA (siguiente paso)
+    fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/whatsapp_business_profile?fields=about,profile_picture_url`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    }).then(r => r.json()).then(d => {
+      if (d.data?.[0]) {
+        setBio(d.data[0].about ?? "");
+        // Solo cargar foto de Meta si no hay URL guardado en DB (Supabase Storage es fuente de verdad)
+        if (!profilePicUrl) setProfilePicUrl(d.data[0].profile_picture_url ?? null);
+      }
+    }).catch(() => {});
+
     setStep(2);
   };
 
-  const handleSaveStep2 = async () => {
+  const handleSaveStep3 = async () => {
     await upsert.mutateAsync({
       can_book_appointments: !!schedulingCalendarIdWiz,
       scheduling_calendar_id: schedulingCalendarIdWiz || null,
-      can_create_contacts: canContacts,
+      can_create_contacts: true,
       can_answer_services: canServices,
       can_transfer_human: canTransfer,
       auto_detect_payments: autoDetectPayments,
-      payment_notify_email: wizPaymentNotify ? (wizPaymentEmail.trim() || null) : null,
-      notify_on_transfer: wizNotifyOnTransfer,
-      notify_email: wizNotifyOnTransfer ? (wizNotifyEmail.trim() || null) : null,
-      products_mode: productsMode,
-      selected_product_ids: productsMode === "selected" ? selectedProductIds : [],
+      physical_products_mode: physicalProductsModeWiz,
+      digital_products_mode: digitalProductsModeWiz,
+      selected_product_ids: (physicalProductsModeWiz === "selected" || digitalProductsModeWiz === "selected") ? selectedProductIds : [],
       services_mode: servicesMode,
       selected_service_ids: servicesMode === "selected" ? selectedServiceIds : [],
       courses_mode: coursesMode,
       selected_course_ids: coursesMode === "selected" ? selectedCourseIds : [],
-      products_with_images: wizProductsWithImages,
-      agent_data_collect: agentDataCollectWiz,
-    });
-    setStep(3);
-  };
-
-  const handleSaveStep3 = async () => {
-    if (!agentName.trim()) { toast.error("El nombre del agente es obligatorio"); return; }
-    await upsert.mutateAsync({
-      agent_name: agentName.trim(),
       model: "claude-haiku-4-5-20251001",
       system_prompt: systemPrompt || null,
-      agent_objectives: agentObjectives,
+      agent_objectives: computeAgentObjectives(!!schedulingCalendarIdWiz),
       agent_personality: agentPersonality || null,
-      agent_proactivity: agentProactivity || null,
+      agent_proactivity: "proactivo",
       response_length: responseLengthWiz as "short" | "normal" | "detailed",
       emoji_level: emojiLevelWiz as "none" | "poco" | "medio" | "mucho",
-      agent_faq: agentFaqWiz.length > 0 ? agentFaqWiz : null,
-      use_business_faq: useBusinessFaqWiz,
+      use_business_faq: true,
     });
     setStep(4);
-  };
-
-  const handleSaveStep5 = async () => {
-    await upsert.mutateAsync({ schedule, timezone, off_hours_message: offHoursMsg || null });
-    // Cargar perfil actual al avanzar al paso 6
-    if (phoneNumberId && accessToken) {
-      fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/whatsapp_business_profile?fields=about,profile_picture_url`, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      }).then(r => r.json()).then(d => {
-        if (d.data?.[0]) {
-          setBio(d.data[0].about ?? "");
-          // Solo cargar foto de Meta si no hay URL guardado en DB (Supabase Storage es fuente de verdad)
-          if (!profilePicUrl) setProfilePicUrl(d.data[0].profile_picture_url ?? null);
-        }
-      }).catch(() => {});
-    }
-    setStep(6);
   };
 
   const handleWizardPhotoUpload = async (file: File) => {
@@ -492,7 +418,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   };
 
   const handleSaveStep6Bio = async () => {
-    if (!phoneNumberId || !accessToken || !bio.trim()) { setStep(7); return; }
+    await upsert.mutateAsync({ agent_name: agentName.trim() || "Asistente" }).catch(() => {});
+    if (!phoneNumberId || !accessToken || !bio.trim()) { setStep(3); return; }
     setSavingBio(true);
     try {
       const res = await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/whatsapp_business_profile`, {
@@ -505,7 +432,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
     } catch (e: any) {
       toast.error(e.message?.slice(0, 100) ?? "Error al guardar bio");
     }
-    finally { setSavingBio(false); setStep(7); }
+    finally { setSavingBio(false); setStep(3); }
   };
 
   const handleActivar = async () => {
@@ -527,7 +454,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
     setTimeout(() => { el.focus(); el.setSelectionRange(start + variable.length, start + variable.length); }, 0);
   };
 
-  const STEP_LABELS = ["Conexión", "Capacidades", "Agente IA", "Flujos", "Horario", "Perfil WA", "Activar"];
+  const STEP_LABELS = ["Conexión", "Perfil WA", "Agente IA", "Flujos", "Activar"];
 
   return (
     <div className="h-full overflow-y-auto">
@@ -539,10 +466,10 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             <Bot size={24} className="text-primary" />
           </div>
           <h1 className="text-lg font-semibold">Configura tu Agente IA</h1>
-          <p className="text-sm text-muted-foreground">{STEP_LABELS[step - 1]} — Paso {step} de 7</p>
+          <p className="text-sm text-muted-foreground">{STEP_LABELS[step - 1]} — Paso {step} de {STEP_LABELS.length}</p>
         </div>
 
-        <StepIndicator current={step} total={7} />
+        <StepIndicator current={step} total={STEP_LABELS.length} />
 
         {/* ── Step 1: Conexión ── */}
         {step === 1 && (
@@ -623,41 +550,13 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
 
-        {/* ── Step 3: Agente IA ── */}
+        {/* ── Step 4: Agente IA ── */}
+        {/* ── Step 3: Agente IA (Personalidad + Capacidades) ── */}
         {step === 3 && (
           <div className="bg-card border rounded-2xl p-6 space-y-6">
             <div>
               <h2 className="text-sm font-semibold flex items-center gap-2"><Sparkles size={14} />Agente IA</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">Define la estrategia y personalidad de tu asistente.</p>
-            </div>
-
-            {/* Nombre */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Nombre del agente</label>
-              <Input value={agentName} onChange={e => setAgentName(e.target.value)} placeholder="Sofi, Asistente..." className="h-9 text-base md:text-sm" />
-            </div>
-
-            {/* Objetivos */}
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">Objetivos <span className="text-[10px] text-primary">(el primero es el principal)</span></label>
-              <div className="flex flex-wrap gap-1.5">
-                {AGENT_OBJECTIVES.map(obj => {
-                  const selected = agentObjectives.includes(obj);
-                  const idx = agentObjectives.indexOf(obj);
-                  return (
-                    <button key={obj} onClick={() => {
-                      if (selected) setAgentObjectives(agentObjectives.filter(o => o !== obj));
-                      else setAgentObjectives([...agentObjectives, obj]);
-                    }} className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${selected ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/50"}`}>
-                      {selected && idx === 0 && <span className="mr-1 text-[10px] opacity-75">★</span>}
-                      {obj}
-                    </button>
-                  );
-                })}
-              </div>
-              {agentObjectives.length > 0 && (
-                <p className="text-[10px] text-muted-foreground">Objetivo principal (CTA): <span className="font-medium text-foreground">{agentObjectives[0]}</span></p>
-              )}
+              <p className="text-xs text-muted-foreground mt-0.5">Define la personalidad, el estilo y lo que puede hacer tu asistente.</p>
             </div>
 
             {/* Personalidad */}
@@ -673,27 +572,13 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
               </div>
             </div>
 
-            {/* Proactividad */}
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">Nivel de proactividad</label>
-              <div className="space-y-1.5">
-                {AGENT_PROACTIVITIES.map(p => (
-                  <button key={p.val} onClick={() => setAgentProactivity(agentProactivity === p.val ? "" : p.val)}
-                    className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${agentProactivity === p.val ? "bg-primary/10 border-primary" : "border-border hover:border-primary/40"}`}>
-                    <p className={`text-xs font-medium ${agentProactivity === p.val ? "text-primary" : ""}`}>{p.label}</p>
-                    <p className="text-[11px] text-muted-foreground">{p.sub}</p>
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Longitud de respuestas */}
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Longitud de respuestas</label>
-              <div className="flex gap-2">
+              <div className="grid grid-cols-1 gap-1.5">
                 {RESPONSE_LENGTHS.map(r => (
                   <button key={r.val} onClick={() => setResponseLengthWiz(r.val)}
-                    className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${responseLengthWiz === r.val ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/40"}`}>
+                    className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${responseLengthWiz === r.val ? "bg-primary/10 border-primary text-primary font-medium" : "border-border hover:border-primary/40"}`}>
                     {r.label}
                   </button>
                 ))}
@@ -703,159 +588,36 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             {/* Emojis */}
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Uso de emojis</label>
-              <div className="flex gap-2">
+              <div className="grid grid-cols-1 gap-1.5">
                 {EMOJI_LEVELS.map(e => (
                   <button key={e.val} onClick={() => setEmojiLevelWiz(e.val)}
-                    className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${emojiLevelWiz === e.val ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/40"}`}>
+                    className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${emojiLevelWiz === e.val ? "bg-primary/10 border-primary text-primary font-medium" : "border-border hover:border-primary/40"}`}>
                     {e.label}
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* FAQ */}
-            <div className="space-y-2">
-              <label className="text-xs font-medium text-muted-foreground">Preguntas frecuentes</label>
-
-              {/* Toggle: usar FAQs del negocio */}
-              <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2.5">
-                <div>
-                  <p className="text-xs font-medium">Usar FAQs de Mi Negocio</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                    {businessProfile?.agent_faq?.length
-                      ? `${businessProfile.agent_faq.length} pregunta${businessProfile.agent_faq.length !== 1 ? "s" : ""} registrada${businessProfile.agent_faq.length !== 1 ? "s" : ""} en el perfil del negocio`
-                      : "Configúralas en Mi Negocio → Negocio"}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setUseBusinessFaqWiz(v => !v)}
-                  className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${useBusinessFaqWiz ? "bg-primary" : "bg-muted-foreground/30"}`}
-                >
-                  <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${useBusinessFaqWiz ? "translate-x-4" : "translate-x-0"}`} />
-                </button>
-              </div>
-
-              {/* FAQs específicas del agente */}
-              <div className="space-y-2 pt-1">
-                <p className="text-[10px] text-muted-foreground">Preguntas adicionales — solo para este agente de WhatsApp</p>
-                {agentFaqWiz.map((pair, i) => (
-                  <div key={i} className="rounded-lg border p-2.5 space-y-1.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[10px] text-muted-foreground font-medium">Pregunta {i + 1}</span>
-                      <button onClick={() => setAgentFaqWiz(agentFaqWiz.filter((_, j) => j !== i))} className="text-destructive hover:opacity-70">
-                        <X size={12} />
-                      </button>
-                    </div>
-                    <Input value={pair.q} onChange={e => setAgentFaqWiz(agentFaqWiz.map((p, j) => j === i ? { ...p, q: e.target.value } : p))}
-                      placeholder="¿Cuál es el horario de atención?" className="h-7 text-base md:text-xs" />
-                    <Textarea value={pair.a} onChange={e => setAgentFaqWiz(agentFaqWiz.map((p, j) => j === i ? { ...p, a: e.target.value } : p))}
-                      placeholder="Atendemos de lunes a viernes de 9am a 6pm." rows={2} className="text-base md:text-xs resize-none" />
-                  </div>
-                ))}
-                <button onClick={() => setAgentFaqWiz([...agentFaqWiz, { q: "", a: "" }])}
-                  className="w-full text-xs border border-dashed rounded-lg py-2 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors flex items-center justify-center gap-1.5">
-                  <Plus size={12} /> Añadir pregunta
-                </button>
-              </div>
-            </div>
-
-            {/* Prompt adicional libre */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Instrucciones adicionales <span className="text-[10px] text-muted-foreground">(opcional — se añaden al final)</span></label>
-              <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4}
-                className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
-            </div>
-
-            {/* Info media */}
-            <div className="rounded-xl border border-border bg-secondary/30 px-4 py-3 space-y-1.5">
-              <p className="text-xs font-semibold">Capacidades con archivos</p>
-              <div className="space-y-1 text-xs text-muted-foreground">
-                <p>✅ <strong>Imágenes</strong> — puede verlas y analizarlas (comprobantes, fotos, etc.)</p>
-                <p>✅ <strong>PDFs</strong> — puede leer documentos PDF</p>
-                <p>✅ <strong>Audios</strong> — transcribe la nota de voz y responde al contenido</p>
-              </div>
-            </div>
-
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(2)} className="h-9 text-xs">Atrás</Button>
-              <Button onClick={handleSaveStep3} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
-                {upsert.isPending && <Loader2 size={13} className="animate-spin" />}
-                Continuar <ChevronRight size={14} />
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 2: Capacidades ── */}
-        {step === 2 && (
-          <div className="bg-card border rounded-2xl p-6 space-y-4">
-            <div>
-              <h2 className="text-sm font-semibold flex items-center gap-2"><Zap size={14} />Capacidades</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">¿Qué puede hacer el agente además de responder preguntas?</p>
-            </div>
             <div className="divide-y">
-              {/* Agendar citas */}
-              <div className="py-3 space-y-2">
-                <div>
-                  <p className="text-sm font-medium">Agendar citas</p>
-                  <p className="text-xs text-muted-foreground">Detecta intención de agendar y crea citas en el calendario</p>
-                </div>
-                <select
-                  value={schedulingCalendarIdWiz}
-                  onChange={e => setSchedulingCalendarIdWiz(e.target.value)}
-                  className="w-full text-base md:text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
-                >
-                  <option value="">Ninguno</option>
-                  {calendars.map(cal => (
-                    <option key={cal.id} value={cal.id}>{cal.name ?? cal.slug ?? cal.id}</option>
-                  ))}
-                </select>
-              </div>
-              {/* Crear contactos + datos a recopilar */}
-              <div className="py-3">
-                <div className="flex items-center justify-between gap-4">
+              {/* Agendar citas — solo si hay al menos un calendario creado */}
+              {calendars.length > 0 && (
+                <div className="py-3 space-y-2">
                   <div>
-                    <p className="text-sm font-medium">Crear contactos automáticamente</p>
-                    <p className="text-xs text-muted-foreground">Guarda nuevos leads al recibir mensajes</p>
+                    <p className="text-sm font-medium">Agendar citas</p>
+                    <p className="text-xs text-muted-foreground">Detecta intención de agendar y crea citas en el calendario</p>
                   </div>
-                  <button onClick={() => setCanContacts(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                    <span className={`absolute inset-0 rounded-full transition-colors ${canContacts ? "bg-primary" : "bg-secondary border"}`} />
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${canContacts ? "left-[22px]" : "left-0.5"}`} />
-                  </button>
+                  <select
+                    value={schedulingCalendarIdWiz}
+                    onChange={e => setSchedulingCalendarIdWiz(e.target.value)}
+                    className="w-full text-base md:text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
+                  >
+                    <option value="">Ningún Calendario Seleccionado</option>
+                    {calendars.map(cal => (
+                      <option key={cal.id} value={cal.id}>{cal.name ?? cal.slug ?? cal.id}</option>
+                    ))}
+                  </select>
                 </div>
-                {canContacts && (
-                  <div className="mt-3 pl-3 border-l-2 border-primary/20 space-y-2">
-                    <p className="text-xs text-muted-foreground font-medium">Datos a recopilar del prospecto</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {DATA_COLLECT_OPTIONS.map(opt => {
-                        const sel = agentDataCollectWiz.includes(opt);
-                        return (
-                          <button key={opt} onClick={() => setAgentDataCollectWiz(sel ? agentDataCollectWiz.filter(o => o !== opt) : [...agentDataCollectWiz, opt])}
-                            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${sel ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/50"}`}>
-                            {opt}
-                          </button>
-                        );
-                      })}
-                      {agentDataCollectWiz.filter(o => !DATA_COLLECT_OPTIONS.includes(o)).map(custom => (
-                        <span key={custom} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border bg-primary text-primary-foreground border-primary">
-                          {custom}
-                          <button onClick={() => setAgentDataCollectWiz(agentDataCollectWiz.filter(o => o !== custom))} className="hover:opacity-70"><X size={10} /></button>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="flex gap-1.5">
-                      <Input value={customDataFieldWiz} onChange={e => setCustomDataFieldWiz(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter" && customDataFieldWiz.trim()) { setAgentDataCollectWiz(prev => [...new Set([...prev, customDataFieldWiz.trim()])]); setCustomDataFieldWiz(""); } }}
-                        placeholder="Personalizado (ej: Empresa, RFC...)" className="h-7 text-base md:text-xs flex-1" />
-                      <button onClick={() => { if (customDataFieldWiz.trim()) { setAgentDataCollectWiz(prev => [...new Set([...prev, customDataFieldWiz.trim()])]); setCustomDataFieldWiz(""); } }}
-                        className="text-xs px-2.5 py-1 rounded-lg border border-primary text-primary hover:bg-primary/10 transition-colors shrink-0">
-                        + Añadir
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              )}
               {/* Transferir a humano + notificación */}
               <div className="py-3">
                 <div className="flex items-center justify-between gap-4">
@@ -868,35 +630,28 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${canTransfer ? "left-[22px]" : "left-0.5"}`} />
                   </button>
                 </div>
-                {canTransfer && (
-                  <div className="mt-3 pl-3 border-l-2 border-primary/20 space-y-2.5">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-medium">Notificación por email</p>
-                        <p className="text-xs text-muted-foreground">Recibe un correo cuando se transfiere a modo Manual</p>
-                      </div>
-                      <button onClick={() => setWizNotifyOnTransfer(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                        <span className={`absolute inset-0 rounded-full transition-colors ${wizNotifyOnTransfer ? "bg-primary" : "bg-secondary border"}`} />
-                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${wizNotifyOnTransfer ? "left-[22px]" : "left-0.5"}`} />
-                      </button>
-                    </div>
-                    {wizNotifyOnTransfer && (
-                      <Input
-                        type="email"
-                        value={wizNotifyEmail}
-                        onChange={e => setWizNotifyEmail(e.target.value)}
-                        placeholder="tu@correo.com"
-                        className="h-8 text-base md:text-xs"
-                      />
-                    )}
+                {canTransfer && pushChecked && isPushSupported() && pushPermission !== "denied" && !pushHasSubscription && (
+                  <div className="mt-3 pl-3 border-l-2 border-primary/20">
+                    <p className="text-xs text-muted-foreground mb-2">Activa las notificaciones para saber cuando se transfiere un chat</p>
+                    <button
+                      onClick={() => subscribePush.mutate(undefined, {
+                        onError: err => toast.error(err instanceof Error ? err.message : "No se pudo activar las notificaciones"),
+                        onSuccess: () => toast.success("¡Notificaciones activadas!"),
+                      })}
+                      disabled={subscribePush.isPending}
+                      className="h-8 px-3 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors inline-flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      {subscribePush.isPending ? <Loader2 size={12} className="animate-spin" /> : <Bell size={12} />}
+                      Activar Notificaciones
+                    </button>
                   </div>
                 )}
               </div>
-              {/* Detectar pagos con IA */}
+              {/* Registrar Ventas Automáticas */}
               <div className="py-3">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm font-medium">Detectar pagos con IA</p>
+                    <p className="text-sm font-medium">Registrar Ventas Automáticas</p>
                     <p className="text-xs text-muted-foreground">La IA analiza comprobantes de pago enviados por WhatsApp y registra ventas automáticamente. Si lo desactivas, el comprobante detectado queda pendiente de tu confirmación manual en el CRM.</p>
                   </div>
                   <button onClick={() => setAutoDetectPayments(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
@@ -904,39 +659,34 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${autoDetectPayments ? "left-[22px]" : "left-0.5"}`} />
                   </button>
                 </div>
-                <div className="mt-3 pl-3 border-l-2 border-primary/20 space-y-2.5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium">Notificación por email</p>
-                      <p className="text-xs text-muted-foreground">Recibe un correo cuando se registre una venta o cuando haya un pago pendiente de tu confirmación</p>
-                    </div>
-                    <button onClick={() => setWizPaymentNotify(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                      <span className={`absolute inset-0 rounded-full transition-colors ${wizPaymentNotify ? "bg-primary" : "bg-secondary border"}`} />
-                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${wizPaymentNotify ? "left-[22px]" : "left-0.5"}`} />
+                {pushChecked && isPushSupported() && pushPermission !== "denied" && !pushHasSubscription && (
+                  <div className="mt-3 pl-3 border-l-2 border-primary/20">
+                    <p className="text-xs text-muted-foreground mb-2">Activa las notificaciones para saber cuando se registra una venta o hay un pago pendiente</p>
+                    <button
+                      onClick={() => subscribePush.mutate(undefined, {
+                        onError: err => toast.error(err instanceof Error ? err.message : "No se pudo activar las notificaciones"),
+                        onSuccess: () => toast.success("¡Notificaciones activadas!"),
+                      })}
+                      disabled={subscribePush.isPending}
+                      className="h-8 px-3 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors inline-flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      {subscribePush.isPending ? <Loader2 size={12} className="animate-spin" /> : <Bell size={12} />}
+                      Activar Notificaciones
                     </button>
                   </div>
-                  {wizPaymentNotify && (
-                    <Input
-                      type="email"
-                      value={wizPaymentEmail}
-                      onChange={e => setWizPaymentEmail(e.target.value)}
-                      placeholder="tu@correo.com"
-                      className="h-8 text-base md:text-xs"
-                    />
-                  )}
-                </div>
+                )}
               </div>
             </div>
 
-            {/* Información disponible para el agente */}
+            {/* El agente podrá vender: */}
             <div className="border rounded-xl p-4 space-y-4 bg-secondary/20 mt-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Información disponible para el agente</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">El agente podrá vender:</p>
 
               {/* Servicios */}
               <div className="space-y-2">
                 <p className="text-sm font-medium">Servicios</p>
                 <div className="flex gap-3">
-                  {(["all", "selected", "none"] as const).map(mode => (
+                  {(["none", "selected", "all"] as const).map(mode => (
                     <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
                       <input type="radio" name="wiz-services-mode" checked={servicesMode === mode} onChange={() => setServicesMode(mode)} className="accent-primary" />
                       <span className="text-sm">{mode === "all" ? "Todos" : mode === "selected" ? "Solo seleccionados" : "Ninguno"}</span>
@@ -960,22 +710,22 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 )}
               </div>
 
-              {/* Productos */}
+              {/* Productos Físicos */}
               <div className="space-y-2">
-                <p className="text-sm font-medium">Productos</p>
+                <p className="text-sm font-medium">Productos Físicos</p>
                 <div className="flex gap-3">
-                  {(["all", "selected", "none"] as const).map(mode => (
+                  {(["none", "selected", "all"] as const).map(mode => (
                     <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
-                      <input type="radio" name="wiz-products-mode" checked={productsMode === mode} onChange={() => setProductsMode(mode)} className="accent-primary" />
+                      <input type="radio" name="wiz-physical-products-mode" checked={physicalProductsModeWiz === mode} onChange={() => setPhysicalProductsModeWiz(mode)} className="accent-primary" />
                       <span className="text-sm">{mode === "all" ? "Todos" : mode === "selected" ? "Solo seleccionados" : "Ninguno"}</span>
                     </label>
                   ))}
                 </div>
-                {productsMode === "selected" && (
+                {physicalProductsModeWiz === "selected" && (
                   <div className="mt-1 border rounded-lg divide-y bg-background max-h-52 overflow-y-auto">
                     {catalogs.map(cat => {
                       const catProductIds = catalogProductsMap.get(cat.id) ?? [];
-                      const catProducts = allProducts.filter(p => catProductIds.includes(p.id));
+                      const catProducts = allProducts.filter(p => catProductIds.includes(p.id) && p.product_kind === "fisico");
                       if (catProducts.length === 0) return null;
                       const allSelected = catProducts.every(p => selectedProductIds.includes(p.id));
                       const someSelected = catProducts.some(p => selectedProductIds.includes(p.id));
@@ -999,24 +749,15 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                                   className="accent-primary shrink-0" />
                                 <span className="text-sm truncate">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
                               </label>
-                              {p.images?.length > 0 && (
-                                <button type="button"
-                                  title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
-                                  onClick={() => setWizProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
-                                  className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${wizProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
-                                  {wizProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
-                                  <span>{wizProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
-                                </button>
-                              )}
                             </div>
                           ))}
                         </div>
                       );
                     })}
-                    {/* Productos sin catálogo */}
+                    {/* Productos físicos sin catálogo */}
                     {(() => {
                       const allCatProductIds = new Set(Array.from(catalogProductsMap.values()).flat());
-                      const orphans = allProducts.filter(p => !allCatProductIds.has(p.id));
+                      const orphans = allProducts.filter(p => !allCatProductIds.has(p.id) && p.product_kind === "fisico");
                       if (orphans.length === 0) return null;
                       return (
                         <div>
@@ -1031,54 +772,53 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                                   className="accent-primary shrink-0" />
                                 <span className="text-sm truncate">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
                               </label>
-                              {p.images?.length > 0 && (
-                                <button type="button"
-                                  title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
-                                  onClick={() => setWizProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
-                                  className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${wizProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
-                                  {wizProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
-                                  <span>{wizProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
-                                </button>
-                              )}
                             </div>
                           ))}
                         </div>
                       );
                     })()}
-                    {catalogs.length === 0 && allProducts.length === 0 && (
-                      <p className="px-3 py-2 text-xs text-muted-foreground">No hay productos</p>
+                    {allProducts.filter(p => p.product_kind === "fisico").length === 0 && (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">No hay productos físicos</p>
                     )}
                   </div>
                 )}
-                {/* Modo "Todos": mostrar toggles de imágenes por producto */}
-                {productsMode === "all" && (() => {
-                  const prodsWithImgs = allProducts.filter(p => p.images?.length > 0);
-                  if (prodsWithImgs.length === 0) return null;
-                  return (
-                    <div className="mt-1 border rounded-lg divide-y bg-background max-h-52 overflow-y-auto">
-                      {prodsWithImgs.map(p => (
-                        <div key={p.id} className="flex items-center gap-2 px-3 py-2 hover:bg-secondary/40 transition-colors">
-                          {p.images[0] && <img src={p.images[0]} alt="" className="w-6 h-6 rounded object-cover shrink-0" />}
-                          <span className="text-sm flex-1 truncate">{p.name}</span>
-                          <button type="button"
-                            title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
-                            onClick={() => setWizProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
-                            className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${wizProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
-                            {wizProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
-                            <span>{wizProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
+              </div>
+
+              {/* Productos Digitales */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Productos Digitales</p>
+                <div className="flex gap-3">
+                  {(["none", "selected", "all"] as const).map(mode => (
+                    <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="wiz-digital-products-mode" checked={digitalProductsModeWiz === mode} onChange={() => setDigitalProductsModeWiz(mode)} className="accent-primary" />
+                      <span className="text-sm">{mode === "all" ? "Todos" : mode === "selected" ? "Solo seleccionados" : "Ninguno"}</span>
+                    </label>
+                  ))}
+                </div>
+                {digitalProductsModeWiz === "selected" && (
+                  <div className="mt-1 border rounded-lg divide-y bg-background max-h-52 overflow-y-auto">
+                    {allProducts.filter(p => p.product_kind === "archivo").length === 0
+                      ? <p className="px-3 py-2 text-xs text-muted-foreground">No hay productos digitales</p>
+                      : allProducts.filter(p => p.product_kind === "archivo").map(p => (
+                          <div key={p.id} className="flex items-center gap-2 px-3 py-2 hover:bg-secondary/40 transition-colors">
+                            <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                              <input type="checkbox" checked={selectedProductIds.includes(p.id)}
+                                onChange={e => setSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
+                                className="accent-primary shrink-0" />
+                              <span className="text-sm truncate">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
+                            </label>
+                          </div>
+                        ))
+                    }
+                  </div>
+                )}
               </div>
 
               {/* Cursos */}
               <div className="space-y-2">
                 <p className="text-sm font-medium">Cursos</p>
                 <div className="flex gap-3">
-                  {(["all", "selected", "none"] as const).map(mode => (
+                  {(["none", "selected", "all"] as const).map(mode => (
                     <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
                       <input type="radio" name="wiz-courses-mode" checked={coursesMode === mode} onChange={() => setCoursesMode(mode)} className="accent-primary" />
                       <span className="text-sm">{mode === "all" ? "Todos" : mode === "selected" ? "Solo seleccionados" : "Ninguno"}</span>
@@ -1104,9 +844,26 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 
             </div>
 
+            {/* Prompt adicional libre */}
+            <div className="space-y-1.5">
+              <label className="text-xs font-medium text-muted-foreground">Prompt - Instrucciones Adicionales <span className="text-[10px] text-muted-foreground">(opcional — se añaden al final)</span></label>
+              <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4}
+                className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
+            </div>
+
+            {/* Info media */}
+            <div className="rounded-xl border border-border bg-secondary/30 px-4 py-3 space-y-1.5">
+              <p className="text-xs font-semibold">Capacidades con archivos</p>
+              <div className="space-y-1 text-xs text-muted-foreground">
+                <p>✅ <strong>Imágenes</strong> — puede verlas y analizarlas (comprobantes, fotos, etc.)</p>
+                <p>✅ <strong>PDFs</strong> — puede leer documentos PDF</p>
+                <p>✅ <strong>Audios</strong> — transcribe la nota de voz y responde al contenido</p>
+              </div>
+            </div>
+
             <div className="flex gap-2 pt-2">
-              <Button variant="outline" onClick={() => setStep(1)} className="h-9 text-xs">Atrás</Button>
-              <Button onClick={handleSaveStep2} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
+              <Button variant="outline" onClick={() => setStep(2)} className="h-9 text-xs">Atrás</Button>
+              <Button onClick={handleSaveStep3} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
                 {upsert.isPending && <Loader2 size={13} className="animate-spin" />}
                 Continuar <ChevronRight size={14} />
               </Button>
@@ -1151,42 +908,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
 
-        {/* ── Step 5: Horario ── */}
-        {step === 5 && (
-          <div className="bg-card border rounded-2xl p-6 space-y-5">
-            <div>
-              <h2 className="text-sm font-semibold flex items-center gap-2"><Clock size={14} />Horario del Asistente Virtual</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Este horario controla <strong>cuándo el asistente virtual responde automáticamente</strong> por WhatsApp.
-                No es el horario de atención de tu negocio — es solo para el bot.
-                Fuera de este horario, el asistente enviará el mensaje de "fuera de horario" en lugar de responder con IA.
-                Por defecto está configurado 24/7.
-              </p>
-            </div>
-            <WeeklySchedulePicker value={schedule} onChange={setSchedule} interval={30} />
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Zona horaria</label>
-              <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                {(TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES]).map(tz => <option key={tz} value={tz}>{tz}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Mensaje fuera de horario</label>
-              <Textarea value={offHoursMsg} onChange={e => setOffHoursMsg(e.target.value)} rows={2} className="text-base md:text-sm resize-none"
-                placeholder="Ej: ¡Hola! Estamos fuera de horario. Nuestro equipo te atenderá pronto." />
-            </div>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(4)} className="h-9 text-xs">Atrás</Button>
-              <Button onClick={handleSaveStep5} disabled={upsert.isPending} className="flex-1 h-9 gap-1.5">
-                {upsert.isPending && <Loader2 size={13} className="animate-spin" />}
-                Continuar <ChevronRight size={14} />
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* ── Step 6: Perfil WA ── */}
-        {step === 6 && (
+        {/* ── Step 2: Perfil WA ── */}
+        {step === 2 && (
           <div className="bg-card border rounded-2xl p-6 space-y-5">
             <div>
               <h2 className="text-sm font-semibold flex items-center gap-2"><User size={14} />Perfil de WhatsApp</h2>
@@ -1233,6 +956,30 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
               </div>
             </div>
 
+            {/* Nombre del Negocio + Nombre del Agente */}
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                  Nombre del Negocio <Lock size={10} />
+                </label>
+                <p className="text-sm text-muted-foreground/70 truncate py-1.5">
+                  {existingConfig?.verified_business_name || <span className="italic text-muted-foreground/50">Sin verificar</span>}
+                </p>
+                <a
+                  href="https://business.facebook.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[10px] text-primary hover:underline inline-flex items-center gap-0.5"
+                >
+                  Cambia el nombre desde Meta <ExternalLink size={10} />
+                </a>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Nombre del Agente</label>
+                <Input value={agentName} onChange={e => setAgentName(e.target.value)} placeholder="Sofi, Asistente..." className="h-9 text-base md:text-sm" />
+              </div>
+            </div>
+
             {/* Bio */}
             <div className="space-y-2">
               <label className="text-xs font-medium text-muted-foreground">Bio / Descripción</label>
@@ -1249,8 +996,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(5)} className="h-9 text-xs shrink-0">Atrás</Button>
-              <Button variant="outline" onClick={() => setStep(7)} className="h-9 text-xs shrink-0">Omitir</Button>
+              <Button variant="outline" onClick={() => setStep(1)} className="h-9 text-xs shrink-0">Atrás</Button>
+              <Button variant="outline" onClick={() => { upsert.mutateAsync({ agent_name: agentName.trim() || "Asistente" }).catch(() => {}); setStep(3); }} className="h-9 text-xs shrink-0">Omitir</Button>
               <Button onClick={handleSaveStep6Bio} disabled={savingBio} className="flex-1 h-9 gap-1.5">
                 {savingBio ? <Loader2 size={13} className="animate-spin" /> : <ChevronRight size={14} />}
                 Guardar y continuar
@@ -1259,8 +1006,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
 
-        {/* ── Step 7: Resumen + Activar ── */}
-        {step === 7 && (
+        {/* ── Step 5: Resumen + Activar ── */}
+        {step === 5 && (
           <div className="bg-card border rounded-2xl p-6 space-y-6">
             <div>
               <h2 className="text-sm font-semibold flex items-center gap-2"><CheckCircle2 size={14} />Todo listo para activar</h2>
@@ -1273,8 +1020,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
                 { label: "Número de WhatsApp", value: testResult?.phone ?? existingConfig?.phone_number_id ?? "—" },
                 { label: "Nombre del asistente", value: agentName },
                 { label: "Modelo", value: "Claude Haiku" },
-                { label: "Capacidades", value: [!!schedulingCalendarIdWiz && "Citas", canContacts && "Contactos", canServices && "Servicios", canTransfer && "Transfer"].filter(Boolean).join(" · ") || "Solo responder preguntas" },
-                { label: "Zona horaria", value: timezone },
+                { label: "Capacidades", value: [!!schedulingCalendarIdWiz && "Citas", "Contactos", canServices && "Servicios", canTransfer && "Transfer"].filter(Boolean).join(" · ") },
+                { label: "Zona horaria", value: businessProfile?.timezone ?? "—" },
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-start justify-between gap-4 py-2 border-b last:border-0">
                   <span className="text-xs text-muted-foreground shrink-0">{label}</span>
@@ -1284,7 +1031,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(6)} className="h-9 text-xs shrink-0">Atrás</Button>
+              <Button variant="outline" onClick={() => setStep(4)} className="h-9 text-xs shrink-0">Atrás</Button>
               <Button
                 onClick={handleActivar}
                 disabled={saving}
@@ -1921,6 +1668,8 @@ const LABEL_COLORS = [
 const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisconnect: () => void }) => {
   const { data: config } = useAIAgentConfig();
   const { data: businessProfile } = useBusinessProfile();
+  const { permission: pushPermission, hasSubscription: pushHasSubscription, checked: pushChecked } = usePushSubscriptionStatus();
+  const subscribePush = useSubscribeToPush();
   const { user } = useCurrentUser();
   const { data: labels = [] }       = useWaLabels();
   const upsertLabel                 = useUpsertWaLabel();
@@ -2007,38 +1756,23 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [systemPrompt, setSystemPrompt]   = useState("");
   const [isActive, setIsActive]           = useState(false);
   const [schedulingCalendarId, setSchedulingCalendarId] = useState("");
-  const [canContacts, setCanContacts]                 = useState(true);
   const [canServices, setCanServices]                 = useState(true);
   const [canTransfer, setCanTransfer]                 = useState(false);
   const [autoDetectPaymentsSP, setAutoDetectPaymentsSP] = useState(false);
-  const [paymentNotifySP, setPaymentNotifySP]           = useState(false);
-  const [paymentEmailSP, setPaymentEmailSP]             = useState("");
-  const [editingPaymentEmail, setEditingPaymentEmail]   = useState(false);
-  const [notifyOnTransfer, setNotifyOnTransfer]       = useState(false);
-  const [notifyOnNewMessage, setNotifyOnNewMessage]   = useState(true);
-  const [spProductsMode, setSpProductsMode]           = useState<"all"|"selected"|"none">("all");
+  const [physicalProductsModeSP, setPhysicalProductsModeSP] = useState<"all"|"selected"|"none">("none");
+  const [digitalProductsModeSP, setDigitalProductsModeSP]   = useState<"all"|"selected"|"none">("none");
   const [spSelectedProductIds, setSpSelectedProductIds] = useState<string[]>([]);
-  const [spServicesMode, setSpServicesMode]           = useState<"all"|"selected"|"none">("all");
+  const [spServicesMode, setSpServicesMode]           = useState<"all"|"selected"|"none">("none");
   const [spSelectedServiceIds, setSpSelectedServiceIds] = useState<string[]>([]);
   const [spCoursesMode, setSpCoursesMode]             = useState<"all"|"selected"|"none">("none");
   const [spSelectedCourseIds, setSpSelectedCourseIds] = useState<string[]>([]);
-  const [spProductsWithImages, setSpProductsWithImages] = useState<string[]>([]);
   // Config estratégica B15-1
-  const [agentObjectivesSP, setAgentObjectivesSP]     = useState<string[]>([]);
   const [agentPersonalitySP, setAgentPersonalitySP]   = useState("");
-  const [agentProactivitySP, setAgentProactivitySP]   = useState("");
   const [responseLengthSP, setResponseLengthSP]       = useState("normal");
   const [emojiLevelSP, setEmojiLevelSP]               = useState("poco");
-  const [agentFaqSP, setAgentFaqSP]                   = useState<{ q: string; a: string }[]>([]);
-  const [useBusinessFaqSP, setUseBusinessFaqSP]       = useState(true);
   const [showCatalogOnAsk, setShowCatalogOnAsk]       = useState(true);
   const [doUpsell, setDoUpsell]                       = useState(false);
-  const [confirmSummary, setConfirmSummary]           = useState(true);
   const [applyDiscounts, setApplyDiscounts]           = useState(true);
-  const [agentDataCollect, setAgentDataCollect]       = useState<string[]>([]);
-  const [customDataField, setCustomDataField]         = useState("");
-  const [notifyEmail, setNotifyEmail]             = useState("");
-  const [editingNotifyEmail, setEditingNotifyEmail] = useState(false);
   // Label form state
   const [newLabelName, setNewLabelName]         = useState("");
   const [newLabelColor, setNewLabelColor]       = useState(LABEL_COLORS[0]);
@@ -2059,10 +1793,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [improvingHintEdit, setImprovingHintEdit]     = useState(false);
   const [improvingRemoveNew, setImprovingRemoveNew]   = useState(false);
   const [improvingRemoveEdit, setImprovingRemoveEdit] = useState(false);
-  const [schedule, setSchedule]           = useState<WeeklySchedule>(DEFAULT_SCHEDULE);
-  const [timezone, setTimezone]           = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
-  const [offHoursMsg, setOffHoursMsg]     = useState("");
-  const [section, setSection]             = useState<"conexion"|"agente"|"capacidades"|"horario"|"perfil"|"etiquetas"|"respuestas"|"flujos"|"plantillas"|"campanias">("conexion");
+  const [section, setSection]             = useState<"conexion"|"agente"|"perfil"|"etiquetas"|"respuestas"|"flujos"|"plantillas"|"campanias">("conexion");
   const [mobileShowSection, setMobileShowSection] = useState(false);
   const initialized                       = useRef(false);
 
@@ -2288,9 +2019,11 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
   // Perfil de WhatsApp
   const [bio, setBio]                     = useState("");
+  const [savedBio, setSavedBio]           = useState("");
   const [profilePicUrl, setProfilePicUrl] = useState<string | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [savingBio, setSavingBio]         = useState(false);
+  const [savedAgentName, setSavedAgentName] = useState("");
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const photoInputRef                     = useRef<HTMLInputElement>(null);
 
@@ -2326,51 +2059,30 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setWabaId(config.waba_id ?? "");
     setAppSecret(config.app_secret ?? "");
     setAgentName(config.agent_name ?? "Asistente");
+    setSavedAgentName((config.agent_name ?? "Asistente").trim());
     setSystemPrompt(config.system_prompt ?? "");
     setIsActive(config.is_active ?? false);
     setSchedulingCalendarId(config.scheduling_calendar_id ?? "");
-    setCanContacts(config.can_create_contacts ?? true);
     setCanServices(config.can_answer_services ?? true);
     setCanTransfer(config.can_transfer_human ?? false);
     setAutoDetectPaymentsSP(config.auto_detect_payments ?? false);
-    setPaymentNotifySP(!!(config.payment_notify_email));
-    setPaymentEmailSP(config.payment_notify_email ?? "");
-    setNotifyOnTransfer(config.notify_on_transfer ?? false);
-    setNotifyOnNewMessage(config.notify_on_new_message ?? true);
-    setSpProductsMode(config.products_mode ?? "all");
+    setPhysicalProductsModeSP(config.physical_products_mode ?? "none");
+    setDigitalProductsModeSP(config.digital_products_mode ?? "none");
     setSpSelectedProductIds(config.selected_product_ids ?? []);
-    setSpServicesMode(config.services_mode ?? "all");
+    setSpServicesMode(config.services_mode ?? "none");
     setSpSelectedServiceIds(config.selected_service_ids ?? []);
     setSpCoursesMode(config.courses_mode ?? "none");
     setSpSelectedCourseIds(config.selected_course_ids ?? []);
-    setSpProductsWithImages(config.products_with_images ?? []);
 
-    setNotifyEmail(config.notify_email ?? "");
-    setSchedule((config.schedule as WeeklySchedule | null) ?? DEFAULT_SCHEDULE);
-    setTimezone(config.timezone ?? businessProfile?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone);
-    setOffHoursMsg(config.off_hours_message ?? "");
-    setAgentObjectivesSP(config.agent_objectives ?? []);
     setAgentPersonalitySP(config.agent_personality ?? "");
-    setAgentProactivitySP(config.agent_proactivity ?? "");
     setResponseLengthSP(config.response_length ?? "normal");
     setEmojiLevelSP(config.emoji_level ?? "poco");
-    setAgentFaqSP(config.agent_faq ?? []);
-    setUseBusinessFaqSP(config.use_business_faq ?? true);
     setShowCatalogOnAsk(config.show_catalog_on_ask ?? true);
     setDoUpsell(config.do_upsell ?? false);
-    setConfirmSummary(config.confirm_summary ?? true);
     setApplyDiscounts(config.apply_discounts ?? true);
-    setAgentDataCollect(config.agent_data_collect ?? []);
     setProfilePicUrl(config.profile_picture_url ?? null);
     if (config.agent_about) setBio(config.agent_about);
   }, [config]);
-
-  // Rellenar emails de notificación con el del perfil si no hay uno guardado
-  useEffect(() => {
-    const fallback = businessProfile?.contact_email ?? user?.email ?? "";
-    if (!notifyEmail && fallback) setNotifyEmail(fallback);
-    if (!paymentEmailSP && fallback) { setPaymentEmailSP(fallback); }
-  }, [businessProfile?.contact_email, user?.email]);
 
   // Clasifica el trigger localmente — instantáneo, sin API.
   // Solo bloquea lo que confundiría al usuario (tiempo, llamadas):
@@ -2455,6 +2167,18 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     finally { setVerifying(false); setDisconnecting(false); }
   };
 
+  const handleToggleActive = async () => {
+    const next = !isActive;
+    setIsActive(next);
+    try {
+      await upsert.mutateAsync({ is_active: next });
+      toast.success(next ? "Asistente activado" : "Asistente desactivado");
+    } catch {
+      setIsActive(!next);
+      toast.error("Error al actualizar el estado del asistente");
+    }
+  };
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -2469,36 +2193,27 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         is_active: isActive,
         can_book_appointments: !!schedulingCalendarId,
         scheduling_calendar_id: schedulingCalendarId || null,
-        can_create_contacts: canContacts,
+        can_create_contacts: true,
         can_answer_services: canServices,
         can_transfer_human: canTransfer,
         auto_detect_payments: autoDetectPaymentsSP,
-        payment_notify_email: paymentNotifySP ? (paymentEmailSP.trim() || null) : null,
-        notify_on_transfer: notifyOnTransfer,
-        notify_email: notifyOnTransfer ? (notifyEmail.trim() || null) : null,
-        notify_on_new_message: notifyOnNewMessage,
-        products_mode: spProductsMode,
-        selected_product_ids: spProductsMode === "selected" ? spSelectedProductIds : [],
+        physical_products_mode: physicalProductsModeSP,
+        digital_products_mode: digitalProductsModeSP,
+        selected_product_ids: (physicalProductsModeSP === "selected" || digitalProductsModeSP === "selected") ? spSelectedProductIds : [],
         services_mode: spServicesMode,
         selected_service_ids: spServicesMode === "selected" ? spSelectedServiceIds : [],
         courses_mode: spCoursesMode,
         selected_course_ids: spCoursesMode === "selected" ? spSelectedCourseIds : [],
-        products_with_images: spProductsWithImages,
-        schedule,
-        timezone,
-        off_hours_message: offHoursMsg || null,
-        agent_objectives: agentObjectivesSP,
+        agent_objectives: computeAgentObjectives(!!schedulingCalendarId),
         agent_personality: agentPersonalitySP || null,
-        agent_proactivity: agentProactivitySP || null,
+        agent_proactivity: "proactivo",
         response_length: responseLengthSP as "short" | "normal" | "detailed",
         emoji_level: emojiLevelSP as "none" | "poco" | "medio" | "mucho",
-        agent_faq: agentFaqSP.length > 0 ? agentFaqSP : null,
-        use_business_faq: useBusinessFaqSP,
+        use_business_faq: true,
         show_catalog_on_ask: showCatalogOnAsk,
         do_upsell: doUpsell,
-        confirm_summary: confirmSummary,
+        confirm_summary: true,
         apply_discounts: applyDiscounts,
-        agent_data_collect: agentDataCollect,
       });
 
       // Re-suscribir al WABA si hay credenciales completas
@@ -2529,7 +2244,9 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         const d = json.data?.[0] ?? {};
         // Bio: Meta es la fuente de verdad; guardar en DB como backup
         const metaBio: string = d.about ?? "";
-        setBio(metaBio || config?.agent_about || "");
+        const resolvedBio = metaBio || config?.agent_about || "";
+        setBio(resolvedBio);
+        setSavedBio(resolvedBio);
         if (metaBio && metaBio !== config?.agent_about) {
           upsert.mutateAsync({ agent_about: metaBio }).catch(() => {});
         }
@@ -2540,25 +2257,49 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
       })
       .catch(() => {})
       .finally(() => setLoadingProfile(false));
+
+    // Nombre del negocio verificado en Meta: se refresca en segundo plano, sin bloquear el resto del perfil
+    fetch(`https://graph.facebook.com/v21.0/${pid}?fields=verified_name`, {
+      headers: { Authorization: `Bearer ${tok}` },
+    })
+      .then(r => r.json())
+      .then(json => {
+        if (json.verified_name && json.verified_name !== config?.verified_business_name) {
+          upsert.mutateAsync({ verified_business_name: json.verified_name }).catch(() => {});
+        }
+      })
+      .catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [section, config?.phone_number_id, config?.access_token]);
 
-  const handleSaveBio = async () => {
-    const pid = config?.phone_number_id;
-    const tok = config?.access_token;
-    if (!pid || !tok) return;
+  const handleSaveProfile = async () => {
     setSavingBio(true);
     try {
-      const res = await fetch(`https://graph.facebook.com/v21.0/${pid}/whatsapp_business_profile`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ messaging_product: "whatsapp", about: bio }),
-      });
-      if (!res.ok) throw new Error(await res.text());
-      // Guardar también en DB para persistencia local
-      await upsert.mutateAsync({ agent_about: bio });
-      toast.success("Bio actualizada en WhatsApp Business");
-    } catch (err: any) { toast.error(err.message?.slice(0, 100)); }
+      const trimmedName = agentName.trim() || "Asistente";
+      if (trimmedName !== savedAgentName) {
+        await upsert.mutateAsync({ agent_name: trimmedName });
+        setAgentName(trimmedName);
+        setSavedAgentName(trimmedName);
+      }
+
+      if (bio !== savedBio) {
+        const pid = config?.phone_number_id;
+        const tok = config?.access_token;
+        if (pid && tok) {
+          const res = await fetch(`https://graph.facebook.com/v21.0/${pid}/whatsapp_business_profile`, {
+            method: "POST",
+            headers: { Authorization: `Bearer ${tok}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ messaging_product: "whatsapp", about: bio }),
+          });
+          if (!res.ok) throw new Error(await res.text());
+          // Guardar también en DB para persistencia local
+          await upsert.mutateAsync({ agent_about: bio });
+          setSavedBio(bio);
+        }
+      }
+
+      toast.success("Cambios guardados");
+    } catch (err: any) { toast.error(err.message?.slice(0, 100) ?? "Error al guardar"); }
     finally { setSavingBio(false); }
   };
 
@@ -2617,7 +2358,10 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
       const json = await res.json();
       const label = `${json.verified_name} · ${json.display_phone_number}`;
       setTestResult(label);
-      await upsert.mutateAsync({ verified_phone: json.display_phone_number ?? null }).catch(() => {});
+      await upsert.mutateAsync({
+        verified_phone: json.display_phone_number ?? null,
+        verified_business_name: json.verified_name ?? null,
+      }).catch(() => {});
 
       // 1. Re-registrar el número (restaura la entrega de mensajes con 2 checks)
       await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/register`, {
@@ -2652,11 +2396,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
   const SECTIONS = [
     { id: "conexion" as const,    label: "Conexión",    icon: Wifi,      desc: "Meta Cloud API" },
-    { id: "capacidades" as const, label: "Capacidades", icon: Zap,       desc: "Herramientas del agente" },
-    { id: "agente" as const,      label: "Agente IA",   icon: Sparkles,  desc: "Nombre, prompt, idioma" },
+    { id: "agente" as const,      label: "Agente IA",   icon: Sparkles,  desc: "Personalidad, capacidades y prompt" },
     { id: "flujos" as const,      label: "Flujos",      icon: GitBranch, desc: "Secuencias y Flujos" },
-    { id: "horario" as const,     label: "Horario",     icon: Clock,     desc: "Disponibilidad y timezone" },
-    { id: "perfil" as const,      label: "Perfil WA",   icon: User,      desc: "Foto y bio de WhatsApp" },
     { id: "etiquetas" as const,   label: "Etiquetas",   icon: Tag,       desc: "Gestionar etiquetas" },
     { id: "respuestas" as const,  label: "Respuestas",  icon: Zap,       desc: "/ atajos de respuesta rápida" },
     { id: "plantillas" as const,  label: "Plantillas",  icon: Megaphone, desc: "Remarketing fuera de 24h" },
@@ -2680,7 +2421,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         description="Se eliminará el flujo de automatización permanentemente."
       />
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative z-10 w-full sm:max-w-xl bg-card h-full flex shadow-2xl border-l overflow-hidden">
+      <div className="relative z-10 w-full sm:max-w-lg bg-card h-full flex shadow-2xl border-l overflow-hidden">
 
         {/* Password prompt modal */}
         {pwdPrompt && (
@@ -2729,42 +2470,64 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
           </div>
         )}
 
-        {/* Nav column — full width on mobile (home), sidebar on sm+ */}
-        <div className={`flex-col bg-card border-r sm:w-52 sm:shrink-0 sm:flex
+        {/* Nav column — lista de opciones (home). Un solo panel visible a la vez, en cualquier tamaño de pantalla */}
+        <div className={`flex-col bg-card border-r
           ${mobileShowSection ? "hidden" : "flex w-full"}
         `}>
-          {/* Agent profile header */}
-          <div className="px-4 py-4 border-b shrink-0">
+          {/* Header: cerrar (X) + asistente activo (toggle) + editar perfil de WhatsApp (Lápiz) */}
+          <div className="px-4 py-3 shrink-0 flex items-center justify-between">
+            <button onClick={onClose} className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl hover:bg-secondary transition-colors shrink-0">
+              <X size={16} className="text-muted-foreground" />
+            </button>
             <div className="flex items-center gap-3">
-              <div className="relative shrink-0">
-                <div className="w-11 h-11 rounded-full overflow-hidden bg-[#1877F2] flex items-center justify-center text-white">
-                  {config?.profile_picture_url ? (
-                    <img src={config.profile_picture_url} alt={agentName || "Agente"} className="w-full h-full object-cover"
-                      onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
-                  ) : (
-                    <Bot size={20} />
-                  )}
-                </div>
-                <div className="absolute -bottom-0.5 -right-0.5 flex items-center gap-0.5 bg-[#00a884] rounded-full px-1 py-0.5 border border-background">
-                  <Bot size={8} className="text-white" />
-                  <span className="text-[7px] font-bold text-white leading-none">IA</span>
-                </div>
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold truncate">{agentName || "Asistente"}</p>
-                <div className="flex items-center gap-1.5 mt-0.5">
-                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
-                  <p className="text-[11px] text-muted-foreground">{config?.is_active ? "Activo" : "Inactivo"}</p>
-                </div>
-              </div>
-              <button onClick={onClose} className="min-w-[36px] min-h-[36px] flex items-center justify-center rounded-xl hover:bg-secondary transition-colors shrink-0">
-                <X size={16} className="text-muted-foreground" />
+              <button onClick={handleToggleActive} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
+                <span className={`absolute inset-0 rounded-full transition-colors ${isActive ? "bg-emerald-500" : "bg-secondary border"}`} />
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${isActive ? "left-[22px]" : "left-0.5"}`} />
+              </button>
+              <button
+                onClick={() => { setSection("perfil"); setMobileShowSection(true); }}
+                className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl hover:bg-secondary transition-colors shrink-0"
+              >
+                <Pencil size={16} className="text-muted-foreground" />
               </button>
             </div>
           </div>
 
-          {/* Section list */}
+          {/* Sección scrolleable: foto de perfil (no sticky) + lista de opciones */}
           <div className="flex-1 overflow-y-auto py-2">
+            {/* Agent profile info */}
+            <div className="px-4 pb-4 border-b">
+              <div className="flex flex-col items-center gap-2">
+                <div className="relative shrink-0">
+                  <div className="w-28 h-28 rounded-full overflow-hidden bg-[#1877F2] flex items-center justify-center text-white">
+                    {config?.profile_picture_url ? (
+                      <img src={config.profile_picture_url} alt={agentName || "Agente"} className="w-full h-full object-cover"
+                        onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }} />
+                    ) : (
+                      <Bot size={40} />
+                    )}
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 flex items-center gap-1 bg-[#00a884] rounded-full px-2 py-1 border-2 border-background">
+                    <Bot size={13} className="text-white" />
+                    <span className="text-[11px] font-bold text-white leading-none">IA</span>
+                  </div>
+                </div>
+                <div className="text-center min-w-0">
+                  <p className="text-sm truncate">
+                    <span className="font-semibold">{agentName || "Asistente"}</span>
+                    {config?.verified_business_name && (
+                      <span className="text-[11px] font-normal text-muted-foreground"> de {config.verified_business_name}</span>
+                    )}
+                  </p>
+                  <div className="flex items-center justify-center gap-1.5 mt-0.5">
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                    <p className="text-[11px] text-muted-foreground">{config?.is_active ? "Activo" : "Inactivo"}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Section list */}
             {SECTIONS.map(s => {
               const Icon = s.icon;
               const isActive = section === s.id;
@@ -2785,31 +2548,28 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     <p className={`text-sm font-medium leading-tight ${isActive ? "text-[#1877F2]" : "text-foreground"}`}>{s.label}</p>
                     <p className="text-[11px] text-muted-foreground truncate mt-0.5">{s.desc}</p>
                   </div>
-                  <ChevronRight size={14} className={`shrink-0 sm:hidden ${isActive ? "text-[#1877F2]" : "text-muted-foreground/30"}`} />
+                  <ChevronRight size={14} className={`shrink-0 ${isActive ? "text-[#1877F2]" : "text-muted-foreground/30"}`} />
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Content column */}
-        <div className={`flex-col flex-1 min-w-0 sm:flex
+        {/* Content column — se muestra en lugar de la nav (drill-down), en cualquier tamaño de pantalla */}
+        <div className={`flex-col flex-1 min-w-0
           ${mobileShowSection ? "flex" : "hidden"}
         `}>
           {/* Section header */}
           <div className="px-4 py-3 border-b flex items-center gap-1 shrink-0">
             <button
               onClick={() => setMobileShowSection(false)}
-              className="sm:hidden min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl hover:bg-secondary transition-colors -ml-1.5"
+              className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl hover:bg-secondary transition-colors -ml-1.5"
             >
               <ChevronLeft size={18} className="text-muted-foreground" />
             </button>
             <h2 className="text-sm font-semibold flex-1 truncate">
-              {SECTIONS.find(s => s.id === section)?.label ?? "Configuración"}
+              {section === "perfil" ? "Perfil WhatsApp" : SECTIONS.find(s => s.id === section)?.label ?? "Configuración"}
             </h2>
-            <button onClick={onClose} className="hidden sm:flex min-w-[36px] min-h-[36px] items-center justify-center rounded-xl hover:bg-secondary transition-colors">
-              <X size={16} className="text-muted-foreground" />
-            </button>
           </div>
 
           {/* Content */}
@@ -2933,46 +2693,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
           {section === "agente" && (
             <div className="space-y-6">
-              <div className="flex items-center justify-between py-3 border-b">
-                <div>
-                  <p className="text-sm font-medium">Asistente activo</p>
-                  <p className="text-xs text-muted-foreground">Cuando está inactivo, no responde mensajes de WhatsApp.</p>
-                </div>
-                <button onClick={() => setIsActive(!isActive)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                  <span className={`absolute inset-0 rounded-full transition-colors ${isActive ? "bg-emerald-500" : "bg-secondary border"}`} />
-                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${isActive ? "left-[22px]" : "left-0.5"}`} />
-                </button>
-              </div>
-
-              {/* Nombre */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Nombre del agente</label>
-                <Input value={agentName} onChange={e => setAgentName(e.target.value)} className="h-9 text-base md:text-sm" />
-              </div>
-
-              {/* Objetivos */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">Objetivos <span className="text-[10px] text-primary">(el primero es el principal)</span></label>
-                <div className="flex flex-wrap gap-1.5">
-                  {AGENT_OBJECTIVES.map(obj => {
-                    const selected = agentObjectivesSP.includes(obj);
-                    const idx = agentObjectivesSP.indexOf(obj);
-                    return (
-                      <button key={obj} onClick={() => {
-                        if (selected) setAgentObjectivesSP(agentObjectivesSP.filter(o => o !== obj));
-                        else setAgentObjectivesSP([...agentObjectivesSP, obj]);
-                      }} className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${selected ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/50"}`}>
-                        {selected && idx === 0 && <span className="mr-1 text-[10px] opacity-75">★</span>}
-                        {obj}
-                      </button>
-                    );
-                  })}
-                </div>
-                {agentObjectivesSP.length > 0 && (
-                  <p className="text-[10px] text-muted-foreground">Objetivo principal (CTA): <span className="font-medium text-foreground">{agentObjectivesSP[0]}</span></p>
-                )}
-              </div>
-
               {/* Personalidad */}
               <div className="space-y-2">
                 <label className="text-xs font-medium text-muted-foreground">Personalidad / Tono</label>
@@ -2986,28 +2706,14 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 </div>
               </div>
 
-              {/* Proactividad */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">Nivel de proactividad</label>
-                <div className="space-y-1.5">
-                  {AGENT_PROACTIVITIES.map(p => (
-                    <button key={p.val} onClick={() => setAgentProactivitySP(agentProactivitySP === p.val ? "" : p.val)}
-                      className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${agentProactivitySP === p.val ? "bg-primary/10 border-primary" : "border-border hover:border-primary/40"}`}>
-                      <p className={`text-xs font-medium ${agentProactivitySP === p.val ? "text-primary" : ""}`}>{p.label}</p>
-                      <p className="text-[11px] text-muted-foreground">{p.sub}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
               {/* Longitud + Emojis en la misma fila */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <label className="text-xs font-medium text-muted-foreground">Longitud de respuestas</label>
-                  <div className="flex gap-1.5">
+                  <div className="grid grid-cols-1 gap-1.5">
                     {RESPONSE_LENGTHS.map(r => (
                       <button key={r.val} onClick={() => setResponseLengthSP(r.val)}
-                        className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${responseLengthSP === r.val ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/40"}`}>
+                        className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${responseLengthSP === r.val ? "bg-primary/10 border-primary text-primary font-medium" : "border-border hover:border-primary/40"}`}>
                         {r.label}
                       </button>
                     ))}
@@ -3015,10 +2721,10 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-medium text-muted-foreground">Uso de emojis</label>
-                  <div className="flex gap-1.5">
+                  <div className="grid grid-cols-1 gap-1.5">
                     {EMOJI_LEVELS.map(e => (
                       <button key={e.val} onClick={() => setEmojiLevelSP(e.val)}
-                        className={`flex-1 text-xs py-1.5 rounded-lg border transition-colors ${emojiLevelSP === e.val ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/40"}`}>
+                        className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${emojiLevelSP === e.val ? "bg-primary/10 border-primary text-primary font-medium" : "border-border hover:border-primary/40"}`}>
                         {e.label}
                       </button>
                     ))}
@@ -3026,127 +2732,26 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 </div>
               </div>
 
-              {/* FAQ */}
-              <div className="space-y-2">
-                <label className="text-xs font-medium text-muted-foreground">Preguntas frecuentes</label>
-
-                {/* Toggle: usar FAQs del negocio */}
-                <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-3 py-2.5">
+              <div className="divide-y">
+              {/* Agendar citas — solo si hay al menos un calendario creado */}
+              {calendars.length > 0 && (
+                <div className="py-3 space-y-2">
                   <div>
-                    <p className="text-xs font-medium">Usar FAQs de Mi Negocio</p>
-                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                      {businessProfile?.agent_faq?.length
-                        ? `${businessProfile.agent_faq.length} pregunta${businessProfile.agent_faq.length !== 1 ? "s" : ""} registrada${businessProfile.agent_faq.length !== 1 ? "s" : ""} en el perfil del negocio`
-                        : "Configúralas en Mi Negocio → Negocio"}
-                    </p>
+                    <p className="text-sm font-medium">Agendar citas</p>
+                    <p className="text-xs text-muted-foreground">Detecta intención de agendar y crea citas en el calendario</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => setUseBusinessFaqSP(v => !v)}
-                    className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${useBusinessFaqSP ? "bg-primary" : "bg-muted-foreground/30"}`}
+                  <select
+                    value={schedulingCalendarId}
+                    onChange={e => setSchedulingCalendarId(e.target.value)}
+                    className="w-full text-base md:text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
                   >
-                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${useBusinessFaqSP ? "translate-x-4" : "translate-x-0"}`} />
-                  </button>
+                    <option value="">Ningún Calendario Seleccionado</option>
+                    {calendars.map(cal => (
+                      <option key={cal.id} value={cal.id}>{cal.name ?? cal.slug ?? cal.id}</option>
+                    ))}
+                  </select>
                 </div>
-
-                {/* FAQs específicas del agente */}
-                <div className="space-y-2 pt-1">
-                  <p className="text-[10px] text-muted-foreground">Preguntas adicionales — solo para este agente de WhatsApp</p>
-                  {agentFaqSP.map((pair, i) => (
-                    <div key={i} className="rounded-lg border p-2.5 space-y-1.5">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] text-muted-foreground font-medium">Pregunta {i + 1}</span>
-                        <button onClick={() => setAgentFaqSP(agentFaqSP.filter((_, j) => j !== i))} className="text-destructive hover:opacity-70">
-                          <X size={12} />
-                        </button>
-                      </div>
-                      <Input value={pair.q} onChange={e => setAgentFaqSP(agentFaqSP.map((p, j) => j === i ? { ...p, q: e.target.value } : p))}
-                        placeholder="¿Cuál es el horario de atención?" className="h-7 text-base md:text-xs" />
-                      <Textarea value={pair.a} onChange={e => setAgentFaqSP(agentFaqSP.map((p, j) => j === i ? { ...p, a: e.target.value } : p))}
-                        placeholder="Atendemos de lunes a viernes de 9am a 6pm." rows={2} className="text-base md:text-xs resize-none" />
-                    </div>
-                  ))}
-                  <button onClick={() => setAgentFaqSP([...agentFaqSP, { q: "", a: "" }])}
-                    className="w-full text-xs border border-dashed rounded-lg py-2 text-muted-foreground hover:text-foreground hover:border-primary/40 transition-colors flex items-center justify-center gap-1.5">
-                    <Plus size={12} /> Añadir pregunta
-                  </button>
-                </div>
-              </div>
-
-              {/* Instrucciones adicionales */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Instrucciones adicionales <span className="text-[10px] text-muted-foreground">(opcional)</span></label>
-                <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
-              </div>
-
-
-            </div>
-          )}
-
-          {section === "capacidades" && (
-            <>
-            <div className="divide-y">
-              {/* Agendar citas */}
-              <div className="py-3 space-y-2">
-                <div>
-                  <p className="text-sm font-medium">Agendar citas</p>
-                  <p className="text-xs text-muted-foreground">Detecta intención de agendar y crea citas en el calendario</p>
-                </div>
-                <select
-                  value={schedulingCalendarId}
-                  onChange={e => setSchedulingCalendarId(e.target.value)}
-                  className="w-full text-base md:text-xs h-8 rounded-lg border border-input bg-background px-2 focus:outline-none focus:ring-1 focus:ring-ring"
-                >
-                  <option value="">Ninguno</option>
-                  {calendars.map(cal => (
-                    <option key={cal.id} value={cal.id}>{cal.name ?? cal.slug ?? cal.id}</option>
-                  ))}
-                </select>
-              </div>
-              {/* Crear contactos + datos a recopilar */}
-              <div className="py-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm font-medium">Crear contactos</p>
-                    <p className="text-xs text-muted-foreground">Guarda nuevos leads automáticamente</p>
-                  </div>
-                  <button onClick={() => setCanContacts(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                    <span className={`absolute inset-0 rounded-full transition-colors ${canContacts ? "bg-primary" : "bg-secondary border"}`} />
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${canContacts ? "left-[22px]" : "left-0.5"}`} />
-                  </button>
-                </div>
-                {canContacts && (
-                  <div className="mt-3 pl-3 border-l-2 border-primary/20 space-y-2">
-                    <p className="text-xs text-muted-foreground font-medium">Datos a recopilar del prospecto</p>
-                    <div className="flex flex-wrap gap-1.5">
-                      {DATA_COLLECT_OPTIONS.map(opt => {
-                        const sel = agentDataCollect.includes(opt);
-                        return (
-                          <button key={opt} onClick={() => setAgentDataCollect(sel ? agentDataCollect.filter(o => o !== opt) : [...agentDataCollect, opt])}
-                            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${sel ? "bg-primary text-primary-foreground border-primary" : "border-border hover:border-primary/50"}`}>
-                            {opt}
-                          </button>
-                        );
-                      })}
-                      {agentDataCollect.filter(o => !DATA_COLLECT_OPTIONS.includes(o)).map(custom => (
-                        <span key={custom} className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-full border bg-primary text-primary-foreground border-primary">
-                          {custom}
-                          <button onClick={() => setAgentDataCollect(agentDataCollect.filter(o => o !== custom))} className="hover:opacity-70"><X size={10} /></button>
-                        </span>
-                      ))}
-                    </div>
-                    <div className="flex gap-1.5">
-                      <Input value={customDataField} onChange={e => setCustomDataField(e.target.value)}
-                        onKeyDown={e => { if (e.key === "Enter" && customDataField.trim()) { setAgentDataCollect(prev => [...new Set([...prev, customDataField.trim()])]); setCustomDataField(""); } }}
-                        placeholder="Personalizado (ej: Empresa, RFC...)" className="h-7 text-base md:text-xs flex-1" />
-                      <button onClick={() => { if (customDataField.trim()) { setAgentDataCollect(prev => [...new Set([...prev, customDataField.trim()])]); setCustomDataField(""); } }}
-                        className="text-xs px-2.5 py-1 rounded-lg border border-primary text-primary hover:bg-primary/10 transition-colors shrink-0">
-                        + Añadir
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              )}
               {/* Transferir a humano + notificación inline */}
               <div className="py-3">
                 <div className="flex items-center justify-between">
@@ -3159,58 +2764,28 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${canTransfer ? "left-[22px]" : "left-0.5"}`} />
                   </button>
                 </div>
-                {canTransfer && (
-                  <div className="mt-3 pl-3 border-l-2 border-primary/20 space-y-2.5">
-                    <div className="flex items-center justify-between gap-4">
-                      <div>
-                        <p className="text-sm font-medium">Notificación por email</p>
-                        <p className="text-xs text-muted-foreground">Recibe un correo cuando se transfiere a modo Manual</p>
-                      </div>
-                      <button onClick={() => setNotifyOnTransfer(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                        <span className={`absolute inset-0 rounded-full transition-colors ${notifyOnTransfer ? "bg-primary" : "bg-secondary border"}`} />
-                        <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${notifyOnTransfer ? "left-[22px]" : "left-0.5"}`} />
-                      </button>
-                    </div>
-                    {notifyOnTransfer && (
-                      <div className="space-y-1">
-                        <p className="text-xs text-muted-foreground">Correo de destino</p>
-                        {editingNotifyEmail ? (
-                          <div className="flex gap-2">
-                            <Input type="email" value={notifyEmail} onChange={e => setNotifyEmail(e.target.value)} placeholder="tu@correo.com" className="h-8 text-base md:text-xs flex-1" autoFocus />
-                            <button type="button" onClick={() => setEditingNotifyEmail(false)} className="text-xs text-primary font-medium hover:underline shrink-0">Listo</button>
-                          </div>
-                        ) : (
-                          <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-background border border-border/60">
-                            <span className="text-xs text-foreground truncate">{notifyEmail || "Sin correo configurado"}</span>
-                            <button type="button" onClick={() => setEditingNotifyEmail(true)} className="text-[11px] text-primary font-medium hover:underline shrink-0">Cambiar</button>
-                          </div>
-                        )}
-                      </div>
-                    )}
+                {canTransfer && pushChecked && isPushSupported() && pushPermission !== "denied" && !pushHasSubscription && (
+                  <div className="mt-3 pl-3 border-l-2 border-primary/20">
+                    <p className="text-xs text-muted-foreground mb-2">Activa las notificaciones para saber cuando se transfiere un chat</p>
+                    <button
+                      onClick={() => subscribePush.mutate(undefined, {
+                        onError: err => toast.error(err instanceof Error ? err.message : "No se pudo activar las notificaciones"),
+                        onSuccess: () => toast.success("¡Notificaciones activadas!"),
+                      })}
+                      disabled={subscribePush.isPending}
+                      className="h-8 px-3 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors inline-flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      {subscribePush.isPending ? <Loader2 size={12} className="animate-spin" /> : <Bell size={12} />}
+                      Activar Notificaciones
+                    </button>
                   </div>
                 )}
               </div>
-              {/* Notificación push por cada mensaje nuevo */}
-              <div className="flex items-center justify-between py-3 border-t">
-                <div>
-                  <p className="text-sm font-medium flex items-center gap-1.5">
-                    Notificación push por mensaje nuevo
-                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase tracking-wide bg-secondary text-secondary-foreground">Beta</span>
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Te avisa en tu dispositivo cada vez que llega un mensaje al Agente IA. Se activa sola si ya activaste las notificaciones push — podés apagarla solo para esto.
-                  </p>
-                </div>
-                <button onClick={() => setNotifyOnNewMessage(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                  <span className={`absolute inset-0 rounded-full transition-colors ${notifyOnNewMessage ? "bg-primary" : "bg-secondary border"}`} />
-                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${notifyOnNewMessage ? "left-[22px]" : "left-0.5"}`} />
-                </button>
-              </div>
-              {/* Detectar pagos con IA */}
+              {/* Registrar Ventas Automáticas */}
               <div className="py-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-sm font-medium">Detectar pagos con IA</p>
+                    <p className="text-sm font-medium">Registrar Ventas Automáticas</p>
                     <p className="text-xs text-muted-foreground">La IA analiza comprobantes de pago y registra ventas automáticamente. Si lo desactivas, el comprobante detectado queda pendiente de tu confirmación manual en el CRM.</p>
                   </div>
                   <button onClick={() => setAutoDetectPaymentsSP(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
@@ -3218,53 +2793,31 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${autoDetectPaymentsSP ? "left-[22px]" : "left-0.5"}`} />
                   </button>
                 </div>
-                <div className="mt-3 pl-3 border-l-2 border-primary/20 space-y-2.5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-sm font-medium">Notificación por email</p>
-                      <p className="text-xs text-muted-foreground">Recibe un correo cuando se registre una venta o cuando haya un pago pendiente de tu confirmación</p>
-                    </div>
-                    <button onClick={() => setPaymentNotifySP(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                      <span className={`absolute inset-0 rounded-full transition-colors ${paymentNotifySP ? "bg-primary" : "bg-secondary border"}`} />
-                      <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${paymentNotifySP ? "left-[22px]" : "left-0.5"}`} />
+                {pushChecked && isPushSupported() && pushPermission !== "denied" && !pushHasSubscription && (
+                  <div className="mt-3 pl-3 border-l-2 border-primary/20">
+                    <p className="text-xs text-muted-foreground mb-2">Activa las notificaciones para saber cuando se registra una venta o hay un pago pendiente</p>
+                    <button
+                      onClick={() => subscribePush.mutate(undefined, {
+                        onError: err => toast.error(err instanceof Error ? err.message : "No se pudo activar las notificaciones"),
+                        onSuccess: () => toast.success("¡Notificaciones activadas!"),
+                      })}
+                      disabled={subscribePush.isPending}
+                      className="h-8 px-3 rounded-lg text-xs font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors inline-flex items-center gap-1.5 disabled:opacity-60"
+                    >
+                      {subscribePush.isPending ? <Loader2 size={12} className="animate-spin" /> : <Bell size={12} />}
+                      Activar Notificaciones
                     </button>
                   </div>
-                  {paymentNotifySP && (
-                    <div className="space-y-1">
-                      <p className="text-xs text-muted-foreground">Correo de destino</p>
-                      {editingPaymentEmail ? (
-                        <div className="flex gap-2">
-                          <Input type="email" value={paymentEmailSP} onChange={e => setPaymentEmailSP(e.target.value)} placeholder="tu@correo.com" className="h-8 text-base md:text-xs flex-1" autoFocus />
-                          <button type="button" onClick={() => setEditingPaymentEmail(false)} className="text-xs text-primary font-medium hover:underline shrink-0">Listo</button>
-                        </div>
-                      ) : (
-                        <div className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-background border border-border/60">
-                          <span className="text-xs text-foreground truncate">{paymentEmailSP || "Sin correo configurado"}</span>
-                          <button type="button" onClick={() => setEditingPaymentEmail(true)} className="text-[11px] text-primary font-medium hover:underline shrink-0">Cambiar</button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
+                )}
               </div>
               <div className="flex items-center justify-between py-3 border-t">
                 <div>
-                  <p className="text-sm font-medium">Hacer upsell / cross-sell</p>
+                  <p className="text-sm font-medium">Sugerir Productos Complementarios</p>
                   <p className="text-xs text-muted-foreground">Sugiere productos complementarios cuando sea relevante</p>
                 </div>
                 <button onClick={() => setDoUpsell(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
                   <span className={`absolute inset-0 rounded-full transition-colors ${doUpsell ? "bg-primary" : "bg-secondary border"}`} />
                   <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${doUpsell ? "left-[22px]" : "left-0.5"}`} />
-                </button>
-              </div>
-              <div className="flex items-center justify-between py-3 border-t">
-                <div>
-                  <p className="text-sm font-medium">Resumen de confirmación</p>
-                  <p className="text-xs text-muted-foreground">Antes de cerrar una venta, resume lo acordado para confirmación del cliente</p>
-                </div>
-                <button onClick={() => setConfirmSummary(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                  <span className={`absolute inset-0 rounded-full transition-colors ${confirmSummary ? "bg-primary" : "bg-secondary border"}`} />
-                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${confirmSummary ? "left-[22px]" : "left-0.5"}`} />
                 </button>
               </div>
               <div className="flex items-center justify-between py-3 border-t">
@@ -3279,15 +2832,15 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
               </div>
             </div>
 
-            {/* Información disponible para el agente */}
+            {/* El agente podrá vender: */}
             <div className="border rounded-xl p-4 space-y-4 bg-secondary/20 mt-2">
-              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Información disponible para el agente</p>
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">El agente podrá vender:</p>
 
               {/* Servicios */}
               <div className="space-y-2">
                 <p className="text-sm font-medium">Servicios</p>
                 <div className="flex gap-3">
-                  {(["all", "selected", "none"] as const).map(mode => (
+                  {(["none", "selected", "all"] as const).map(mode => (
                     <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
                       <input type="radio" name="sp-services-mode" checked={spServicesMode === mode} onChange={() => setSpServicesMode(mode)} className="accent-primary" />
                       <span className="text-sm">{mode === "all" ? "Todos" : mode === "selected" ? "Solo seleccionados" : "Ninguno"}</span>
@@ -3311,22 +2864,22 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 )}
               </div>
 
-              {/* Productos */}
+              {/* Productos Físicos */}
               <div className="space-y-2">
-                <p className="text-sm font-medium">Productos</p>
+                <p className="text-sm font-medium">Productos Físicos</p>
                 <div className="flex gap-3">
-                  {(["all", "selected", "none"] as const).map(mode => (
+                  {(["none", "selected", "all"] as const).map(mode => (
                     <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
-                      <input type="radio" name="sp-products-mode" checked={spProductsMode === mode} onChange={() => setSpProductsMode(mode)} className="accent-primary" />
+                      <input type="radio" name="sp-physical-products-mode" checked={physicalProductsModeSP === mode} onChange={() => setPhysicalProductsModeSP(mode)} className="accent-primary" />
                       <span className="text-sm">{mode === "all" ? "Todos" : mode === "selected" ? "Solo seleccionados" : "Ninguno"}</span>
                     </label>
                   ))}
                 </div>
-                {spProductsMode === "selected" && (
+                {physicalProductsModeSP === "selected" && (
                   <div className="mt-1 border rounded-lg divide-y bg-background max-h-52 overflow-y-auto">
                     {catalogs.map(cat => {
                       const catProductIds = catalogProductsMap.get(cat.id) ?? [];
-                      const catProducts = allProducts.filter(p => catProductIds.includes(p.id));
+                      const catProducts = allProducts.filter(p => catProductIds.includes(p.id) && p.product_kind === "fisico");
                       if (catProducts.length === 0) return null;
                       const allSelected = catProducts.every(p => spSelectedProductIds.includes(p.id));
                       const someSelected = catProducts.some(p => spSelectedProductIds.includes(p.id));
@@ -3350,24 +2903,15 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                                   className="accent-primary shrink-0" />
                                 <span className="text-sm truncate">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
                               </label>
-                              {p.images?.length > 0 && (
-                                <button type="button"
-                                  title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
-                                  onClick={() => setSpProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
-                                  className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${spProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
-                                  {spProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
-                                  <span>{spProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
-                                </button>
-                              )}
                             </div>
                           ))}
                         </div>
                       );
                     })}
-                    {/* Productos sin catálogo */}
+                    {/* Productos físicos sin catálogo */}
                     {(() => {
                       const allCatProductIds = new Set(Array.from(catalogProductsMap.values()).flat());
-                      const orphans = allProducts.filter(p => !allCatProductIds.has(p.id));
+                      const orphans = allProducts.filter(p => !allCatProductIds.has(p.id) && p.product_kind === "fisico");
                       if (orphans.length === 0) return null;
                       return (
                         <div>
@@ -3382,54 +2926,53 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                                   className="accent-primary shrink-0" />
                                 <span className="text-sm truncate">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
                               </label>
-                              {p.images?.length > 0 && (
-                                <button type="button"
-                                  title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
-                                  onClick={() => setSpProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
-                                  className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${spProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
-                                  {spProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
-                                  <span>{spProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
-                                </button>
-                              )}
                             </div>
                           ))}
                         </div>
                       );
                     })()}
-                    {catalogs.length === 0 && allProducts.length === 0 && (
-                      <p className="px-3 py-2 text-xs text-muted-foreground">No hay productos</p>
+                    {allProducts.filter(p => p.product_kind === "fisico").length === 0 && (
+                      <p className="px-3 py-2 text-xs text-muted-foreground">No hay productos físicos</p>
                     )}
                   </div>
                 )}
-                {/* Modo "Todos": mostrar toggles de imágenes por producto dentro de esta misma sección */}
-                {spProductsMode === "all" && (() => {
-                  const prodsWithImgs = allProducts.filter(p => p.images?.length > 0);
-                  if (prodsWithImgs.length === 0) return null;
-                  return (
-                    <div className="mt-1 border rounded-lg divide-y bg-background max-h-52 overflow-y-auto">
-                      {prodsWithImgs.map(p => (
-                        <div key={p.id} className="flex items-center gap-2 px-3 py-2 hover:bg-secondary/40 transition-colors">
-                          {p.images[0] && <img src={p.images[0]} alt="" className="w-6 h-6 rounded object-cover shrink-0" />}
-                          <span className="text-sm flex-1 truncate">{p.name}</span>
-                          <button type="button"
-                            title="Activa para que el agente pueda enviar las fotos de este producto cuando el cliente las pida"
-                            onClick={() => setSpProductsWithImages(prev => prev.includes(p.id) ? prev.filter(id => id !== p.id) : [...prev, p.id])}
-                            className={`flex items-center gap-1 text-[10px] rounded-full px-2 py-0.5 transition-all shrink-0 ${spProductsWithImages.includes(p.id) ? "bg-primary/15 text-primary border border-primary/30 font-medium" : "border border-dashed border-muted-foreground/25 text-muted-foreground/45 hover:text-muted-foreground/70 hover:border-muted-foreground/45"}`}>
-                            {spProductsWithImages.includes(p.id) ? <Check size={9} className="shrink-0" /> : <ImageIcon size={9} className="shrink-0" />}
-                            <span>{spProductsWithImages.includes(p.id) ? "Envía fotos" : "Enviar fotos"}</span>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                })()}
+              </div>
+
+              {/* Productos Digitales */}
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Productos Digitales</p>
+                <div className="flex gap-3">
+                  {(["none", "selected", "all"] as const).map(mode => (
+                    <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
+                      <input type="radio" name="sp-digital-products-mode" checked={digitalProductsModeSP === mode} onChange={() => setDigitalProductsModeSP(mode)} className="accent-primary" />
+                      <span className="text-sm">{mode === "all" ? "Todos" : mode === "selected" ? "Solo seleccionados" : "Ninguno"}</span>
+                    </label>
+                  ))}
+                </div>
+                {digitalProductsModeSP === "selected" && (
+                  <div className="mt-1 border rounded-lg divide-y bg-background max-h-52 overflow-y-auto">
+                    {allProducts.filter(p => p.product_kind === "archivo").length === 0
+                      ? <p className="px-3 py-2 text-xs text-muted-foreground">No hay productos digitales</p>
+                      : allProducts.filter(p => p.product_kind === "archivo").map(p => (
+                          <div key={p.id} className="flex items-center gap-2 px-3 py-2 hover:bg-secondary/40 transition-colors">
+                            <label className="flex items-center gap-2 cursor-pointer flex-1 min-w-0">
+                              <input type="checkbox" checked={spSelectedProductIds.includes(p.id)}
+                                onChange={e => setSpSelectedProductIds(prev => e.target.checked ? [...prev, p.id] : prev.filter(id => id !== p.id))}
+                                className="accent-primary shrink-0" />
+                              <span className="text-sm truncate">{p.name}{!p.is_active && <span className="ml-1.5 text-[10px] text-muted-foreground/60">(privado)</span>}</span>
+                            </label>
+                          </div>
+                        ))
+                    }
+                  </div>
+                )}
               </div>
 
               {/* Cursos */}
               <div className="space-y-2">
                 <p className="text-sm font-medium">Cursos</p>
                 <div className="flex gap-3">
-                  {(["all", "selected", "none"] as const).map(mode => (
+                  {(["none", "selected", "all"] as const).map(mode => (
                     <label key={mode} className="flex items-center gap-1.5 cursor-pointer">
                       <input type="radio" name="sp-courses-mode" checked={spCoursesMode === mode} onChange={() => setSpCoursesMode(mode)} className="accent-primary" />
                       <span className="text-sm">{mode === "all" ? "Todos" : mode === "selected" ? "Solo seleccionados" : "Ninguno"}</span>
@@ -3453,29 +2996,12 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 )}
               </div>
 
-            </div>
-            </>
-          )}
+              </div>
 
-          {section === "horario" && (
-            <div className="space-y-4">
-              <div className="bg-secondary/40 rounded-xl px-4 py-3 space-y-1">
-                <p className="text-xs font-medium">Horario del Asistente Virtual</p>
-                <p className="text-xs text-muted-foreground">
-                  Este horario controla <strong>cuándo el bot responde automáticamente</strong> por WhatsApp. No es el horario de atención de tu negocio. Por defecto 24/7.
-                </p>
-              </div>
-              <WeeklySchedulePicker value={schedule} onChange={setSchedule} interval={30} />
+              {/* Instrucciones adicionales */}
               <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Zona horaria</label>
-                <select value={timezone} onChange={e => setTimezone(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-background px-3 text-base md:text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                  {(TIMEZONES.includes(timezone) ? TIMEZONES : [timezone, ...TIMEZONES]).map(tz => <option key={tz} value={tz}>{tz}</option>)}
-                </select>
-              </div>
-              <div className="space-y-1.5">
-                <label className="text-xs text-muted-foreground">Mensaje fuera de horario</label>
-                <Textarea value={offHoursMsg} onChange={e => setOffHoursMsg(e.target.value)} rows={3} className="text-base md:text-sm resize-none"
-                  placeholder="Ej: ¡Hola! Estamos fuera de horario. Te atenderemos pronto." />
+                <label className="text-xs font-medium text-muted-foreground">Prompt - Instrucciones Adicionales <span className="text-[10px] text-muted-foreground">(opcional)</span></label>
+                <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
               </div>
             </div>
           )}
@@ -3489,48 +3015,66 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
               ) : (
                 <>
                   {/* Foto de perfil */}
-                  <div className="space-y-3">
-                    <label className="text-xs font-medium text-muted-foreground">Foto de perfil</label>
-                    <div className="flex items-center gap-4">
-                      <div className="relative w-16 h-16 shrink-0">
-                        <div className="w-16 h-16 rounded-full overflow-hidden bg-secondary flex items-center justify-center border">
-                          {profilePicUrl ? (
-                            <img src={profilePicUrl} alt="Perfil WA" className={`w-full h-full object-cover transition-opacity duration-300 ${uploadingPhoto ? "opacity-40" : "opacity-100"}`} />
-                          ) : (
-                            <User size={26} className="text-muted-foreground" />
-                          )}
-                        </div>
-                        {uploadingPhoto && (
-                          <div className="absolute inset-0 rounded-full flex items-center justify-center bg-background/60">
-                            <Loader2 size={20} className="animate-spin text-primary" />
-                          </div>
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="relative w-28 h-28 shrink-0">
+                      <div className="w-28 h-28 rounded-full overflow-hidden bg-secondary flex items-center justify-center border">
+                        {profilePicUrl ? (
+                          <img src={profilePicUrl} alt="Perfil WA" className={`w-full h-full object-cover transition-opacity duration-300 ${uploadingPhoto ? "opacity-40" : "opacity-100"}`} />
+                        ) : (
+                          <User size={40} className="text-muted-foreground" />
                         )}
                       </div>
-                      <div className="space-y-1.5">
-                        <input
-                          ref={photoInputRef}
-                          type="file"
-                          accept="image/jpeg,image/png"
-                          className="hidden"
-                          onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f); e.target.value = ""; }}
-                        />
-                        <Button
-                          variant="outline" size="sm"
-                          onClick={() => photoInputRef.current?.click()}
-                          disabled={uploadingPhoto || !config?.phone_number_id}
-                          className="h-8 text-xs gap-1.5"
-                        >
-                          {uploadingPhoto ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
-                          {uploadingPhoto ? "Subiendo..." : "Cambiar foto"}
-                        </Button>
-                        <p className="text-[10px] text-muted-foreground">JPG o PNG · Imagen cuadrada recomendada</p>
-                      </div>
+                      {uploadingPhoto && (
+                        <div className="absolute inset-0 rounded-full flex items-center justify-center bg-background/60">
+                          <Loader2 size={24} className="animate-spin text-primary" />
+                        </div>
+                      )}
+                    </div>
+                    <input
+                      ref={photoInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png"
+                      className="hidden"
+                      onChange={e => { const f = e.target.files?.[0]; if (f) handlePhotoUpload(f); e.target.value = ""; }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => photoInputRef.current?.click()}
+                      disabled={uploadingPhoto || !config?.phone_number_id}
+                      className="text-sm font-bold text-primary hover:underline disabled:opacity-50 disabled:pointer-events-none"
+                    >
+                      {uploadingPhoto ? "Subiendo..." : "Editar Foto"}
+                    </button>
+                    <p className="text-[10px] text-muted-foreground">JPG o PNG · Imagen cuadrada recomendada</p>
+                  </div>
+
+                  {/* Nombre del Negocio + Nombre del Agente */}
+                  <div className="space-y-4">
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground flex items-center gap-1">
+                        Nombre del Negocio <Lock size={10} />
+                      </label>
+                      <p className="text-sm text-muted-foreground/70 truncate py-1.5">
+                        {config?.verified_business_name || <span className="italic text-muted-foreground/50">Sin verificar</span>}
+                      </p>
+                      <a
+                        href="https://business.facebook.com/"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-primary hover:underline inline-flex items-center gap-0.5"
+                      >
+                        Cambia el nombre desde Meta <ExternalLink size={10} />
+                      </a>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-xs font-medium text-muted-foreground">Nombre del Agente</label>
+                      <Input value={agentName} onChange={e => setAgentName(e.target.value)} className="h-9 text-base md:text-sm" />
                     </div>
                   </div>
 
                   {/* Bio */}
                   <div className="space-y-2">
-                    <label className="text-xs font-medium text-muted-foreground">Bio / Descripción</label>
+                    <label className="text-xs font-medium text-muted-foreground">Biografía / Descripción</label>
                     <Textarea
                       value={bio}
                       onChange={e => setBio(e.target.value.slice(0, 139))}
@@ -3542,9 +3086,15 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                       <span className={`text-[10px] ${bio.length >= 130 ? "text-amber-500" : "text-muted-foreground"}`}>
                         {bio.length}/139
                       </span>
-                      <Button size="sm" onClick={handleSaveBio} disabled={savingBio || !config?.phone_number_id} className="h-7 text-xs gap-1.5">
+                      <Button
+                        size="sm"
+                        variant={(bio === savedBio && agentName.trim() === savedAgentName) ? "secondary" : "default"}
+                        onClick={handleSaveProfile}
+                        disabled={savingBio || (bio === savedBio && agentName.trim() === savedAgentName)}
+                        className="h-7 text-xs gap-1.5"
+                      >
                         {savingBio && <Loader2 size={11} className="animate-spin" />}
-                        Guardar bio
+                        Guardar Cambios
                       </Button>
                     </div>
                   </div>
@@ -6652,13 +6202,24 @@ const CrmAgentIA = ({
               </div>
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold truncate">{config?.agent_name ?? "Agente IA"}</p>
-              <div className="flex items-center gap-1.5">
-                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-[#00a884] animate-pulse" : "bg-muted-foreground/40"}`} />
-                <span className="text-[11px] text-muted-foreground">{config?.is_active ? "Conectado" : "Inactivo"}</span>
-                {config?.verified_phone && (
-                  <span className="text-[11px] text-muted-foreground truncate hidden sm:inline">· {config.verified_phone}</span>
+              <p className="text-sm truncate">
+                <span className="font-semibold">{config?.agent_name ?? "Agente IA"}</span>
+                {config?.verified_business_name && (
+                  <span className="text-[11px] font-normal text-muted-foreground"> de {config.verified_business_name}</span>
                 )}
+              </p>
+              <div className="flex items-center gap-2 flex-wrap">
+                {config?.verified_phone && (
+                  <span className="text-[11px] text-muted-foreground truncate">{config.verified_phone}</span>
+                )}
+                <span className="flex items-center gap-1 shrink-0">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.verified_phone ? "bg-[#00a884]" : "bg-muted-foreground/40"}`} />
+                  <span className="text-[11px] text-muted-foreground">{config?.verified_phone ? "Conectado a API" : "Desconectado"}</span>
+                </span>
+                <span className="flex items-center gap-1 shrink-0">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-[#00a884] animate-pulse" : "bg-muted-foreground/40"}`} />
+                  <span className="text-[11px] text-muted-foreground">{config?.is_active ? "Activo" : "Apagado"}</span>
+                </span>
               </div>
             </div>
           </div>

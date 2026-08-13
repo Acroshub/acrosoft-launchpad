@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
-import DateRangePicker, { type DateRange } from "@/components/crm/DateRangePicker";
+import DateRangePicker, { type DateRange, getMaxDateRange, toDateKey } from "@/components/crm/DateRangePicker";
 import { usePushSubscriptionStatus, useSubscribeToPush, useUnsubscribeFromPush, isPushSupported } from "@/hooks/usePushNotifications";
 
 // ─── Logs Tab ─────────────────────────────────────────────────────────────────
@@ -158,16 +158,22 @@ const LogsTab = () => {
   const [actionFilter, setActionFilter] = useState<"all" | "create" | "update" | "delete">("all");
   const [actorFilter, setActorFilter]   = useState<"all" | "owner" | "staff">("all");
   const [search, setSearch] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo]   = useState("");
+  const [dateRange, setDateRange] = useState<DateRange>(getMaxDateRange);
   const [page, setPage] = useState(1);
+
+  const isDefaultDateRange = (r: DateRange) => {
+    const max = getMaxDateRange();
+    return r.from.getTime() === max.from.getTime() && r.to.getTime() === max.to.getTime();
+  };
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
+    const dateFrom = toDateKey(dateRange.from);
+    const dateTo   = toDateKey(dateRange.to);
     return logs.filter((l) => {
       if (actionFilter !== "all" && l.action !== actionFilter) return false;
-      if (dateFrom && l.created_at < dateFrom) return false;
-      if (dateTo   && l.created_at.slice(0, 10) > dateTo) return false;
+      if (l.created_at < dateFrom) return false;
+      if (l.created_at.slice(0, 10) > dateTo) return false;
       if (actorFilter === "owner") {
         if (l.performed_by_user_id && l.performed_by_user_id !== ownerUserId) return false;
       }
@@ -180,14 +186,14 @@ const LogsTab = () => {
       }
       return true;
     });
-  }, [logs, actionFilter, actorFilter, ownerUserId, search, dateFrom, dateTo]);
+  }, [logs, actionFilter, actorFilter, ownerUserId, search, dateRange]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / LOGS_PER_PAGE));
   const safePage   = Math.min(page, totalPages);
   const visible    = filtered.slice((safePage - 1) * LOGS_PER_PAGE, safePage * LOGS_PER_PAGE);
 
-  const resetFilters = () => { setSearch(""); setDateFrom(""); setDateTo(""); setActionFilter("all"); setActorFilter("all"); setPage(1); };
-  const hasFilters = search || dateFrom || dateTo || actionFilter !== "all" || actorFilter !== "all";
+  const resetFilters = () => { setSearch(""); setDateRange(getMaxDateRange()); setActionFilter("all"); setActorFilter("all"); setPage(1); };
+  const hasFilters = search || !isDefaultDateRange(dateRange) || actionFilter !== "all" || actorFilter !== "all";
 
   return (
     <div className="space-y-5">
@@ -250,21 +256,7 @@ const LogsTab = () => {
           ))}
 
           <div className="flex items-center gap-1.5 ml-auto">
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-              className="h-7 text-base md:text-xs border rounded-lg px-2 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              title="Desde"
-            />
-            <span className="text-muted-foreground text-xs">—</span>
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-              className="h-7 text-base md:text-xs border rounded-lg px-2 bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              title="Hasta"
-            />
+            <DateRangePicker value={dateRange} onChange={(r) => { setDateRange(r); setPage(1); }} />
             {hasFilters && (
               <button onClick={resetFilters}
                 className="text-xs text-muted-foreground hover:text-foreground underline ml-1">

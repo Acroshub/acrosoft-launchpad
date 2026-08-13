@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, type CSSProperties } from "react";
 import { Calendar, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 
 export type DateRange = { from: Date; to: Date };
@@ -13,6 +13,15 @@ const DOW_ES = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
 
 const fmtShort = (d: Date) => `${d.getDate()} ${MONTHS_ES[d.getMonth()].slice(0, 3)} ${d.getFullYear()}`;
 
+export const toDateKey = (d: Date) => {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+export const getMaxDateRange = (): DateRange => ({ from: new Date(2020, 0, 1), to: endOfDay(new Date()) });
+
 type Preset = { label: string; range: () => DateRange };
 
 function buildPresets(): Preset[] {
@@ -22,8 +31,6 @@ function buildPresets(): Preset[] {
     { label: "Hoy", range: () => ({ from: today, to: endOfDay(today) }) },
     { label: "Ayer", range: () => ({ from: back(1), to: endOfDay(back(1)) }) },
     { label: "Últimos 7 días", range: () => ({ from: back(6), to: endOfDay(today) }) },
-    { label: "Últimos 14 días", range: () => ({ from: back(13), to: endOfDay(today) }) },
-    { label: "Últimos 28 días", range: () => ({ from: back(27), to: endOfDay(today) }) },
     { label: "Últimos 30 días", range: () => ({ from: back(29), to: endOfDay(today) }) },
     { label: "Esta semana", range: () => {
       const dow = (today.getDay() + 6) % 7; // 0=lunes
@@ -62,6 +69,11 @@ const DateRangePicker = ({ value, onChange }: { value: DateRange; onChange: (r: 
   const [viewMonth, setViewMonth] = useState(() => value.to.getMonth());
   const [viewYear, setViewYear] = useState(() => value.to.getFullYear());
   const containerRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  // Posición del popover en escritorio, calculada en JS y anclada al viewport (position: fixed)
+  // en vez de al contenedor más cercano — así nunca queda recortado por un `overflow-hidden`/
+  // `overflow-auto` ancestro (tarjetas angostas, paneles con scroll propio, etc.).
+  const [desktopStyle, setDesktopStyle] = useState<CSSProperties | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -71,6 +83,22 @@ const DateRangePicker = ({ value, onChange }: { value: DateRange; onChange: (r: 
     setViewMonth(value.to.getMonth());
     setViewYear(value.to.getFullYear());
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  useLayoutEffect(() => {
+    if (!open) { setDesktopStyle(null); return; }
+    const compute = () => {
+      if (window.innerWidth < 640 || !buttonRef.current) { setDesktopStyle(null); return; }
+      const rect = buttonRef.current.getBoundingClientRect();
+      const margin = 12;
+      const width = Math.min(640, window.innerWidth * 0.9);
+      const left = Math.max(margin, Math.min(rect.right - width, window.innerWidth - width - margin));
+      const top = Math.min(rect.bottom + 8, window.innerHeight - margin);
+      setDesktopStyle({ position: "fixed", top, left, width, right: "auto", bottom: "auto", transform: "none" });
+    };
+    compute();
+    window.addEventListener("resize", compute);
+    return () => window.removeEventListener("resize", compute);
+  }, [open]);
 
   const presets = buildPresets();
 
@@ -111,10 +139,11 @@ const DateRangePicker = ({ value, onChange }: { value: DateRange; onChange: (r: 
   return (
     <div className="relative" ref={containerRef}>
       <button
+        ref={buttonRef}
         onClick={() => setOpen(o => !o)}
-        className="flex items-center gap-2 border rounded-md px-3 py-1.5 text-sm bg-background hover:bg-muted/50 transition-colors"
+        className="flex items-center gap-2 border rounded-md px-3 py-1.5 text-sm bg-background hover:bg-muted/50 transition-colors whitespace-nowrap"
       >
-        <Calendar size={14} className="text-muted-foreground" />
+        <Calendar size={14} className="text-muted-foreground shrink-0" />
         <span className="font-medium">{fmtShort(value.from)} – {fmtShort(value.to)}</span>
         <ChevronDown size={14} className="text-muted-foreground" />
       </button>
@@ -122,7 +151,10 @@ const DateRangePicker = ({ value, onChange }: { value: DateRange; onChange: (r: 
       {open && (
         <>
           <div className="fixed inset-0 z-40 bg-black/30 sm:bg-transparent" onClick={cancel} />
-          <div className="fixed inset-x-3 top-1/2 -translate-y-1/2 sm:absolute sm:inset-x-auto sm:top-full sm:right-0 sm:translate-y-0 sm:mt-2 z-50 bg-card border rounded-2xl shadow-lg overflow-hidden flex flex-col sm:flex-row max-h-[85vh] sm:max-h-none sm:w-[min(640px,90vw)]">
+          <div
+            className="fixed inset-x-3 top-1/2 -translate-y-1/2 z-50 bg-card border rounded-2xl shadow-lg overflow-hidden flex flex-col sm:flex-row max-h-[85vh] sm:max-h-none"
+            style={desktopStyle ?? undefined}
+          >
             {/* Presets: franja horizontal con scroll en mobile, columna lateral en desktop */}
             <div className="flex sm:flex-col sm:w-40 sm:shrink-0 border-b sm:border-b-0 sm:border-r overflow-x-auto sm:overflow-x-visible sm:overflow-y-auto sm:max-h-[420px] py-1.5 sm:py-2 px-1.5 sm:px-0 gap-1 sm:gap-0">
               {presets.map(p => (

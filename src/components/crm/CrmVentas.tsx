@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import SalesTable from "@/components/crm/SalesTable";
 import SalesTrendCard from "@/components/crm/SalesTrendCard";
 import ContactPicker from "@/components/crm/ContactPicker";
+import DateRangePicker, { type DateRange, getMaxDateRange, toDateKey } from "@/components/crm/DateRangePicker";
 import RenewalsPanel, { getOverdueRenewals, getUpcomingRenewals } from "@/components/crm/RenewalsPanel";
 import { planFinalPrice, planFinalRecurringPrice, addInterval } from "@/components/crm/PlanEditor";
 
@@ -581,16 +582,20 @@ const CrmVentas = ({ section, onNavigate }: { section: VentasSection; onNavigate
   };
 
   // ─── Filters ──────────────────────────────────────────────────────────────
-  const [filterDateFrom, setFilterDateFrom] = useState("");
-  const [filterDateTo,   setFilterDateTo]   = useState("");
+  const [filterDateRange, setFilterDateRange] = useState<DateRange>(getMaxDateRange);
   const [filterProduct,  setFilterProduct]  = useState("");
   const [filterContact,  setFilterContact]  = useState("");
   const [filterCurrency, setFilterCurrency] = useState("");
 
-  const hasFilters = !!(filterDateFrom || filterDateTo || filterProduct || filterContact || filterCurrency);
+  const isDefaultDateRange = (r: DateRange) => {
+    const max = getMaxDateRange();
+    return r.from.getTime() === max.from.getTime() && r.to.getTime() === max.to.getTime();
+  };
+
+  const hasFilters = !!(!isDefaultDateRange(filterDateRange) || filterProduct || filterContact || filterCurrency);
 
   const clearFilters = () => {
-    setFilterDateFrom(""); setFilterDateTo(""); setFilterProduct("");
+    setFilterDateRange(getMaxDateRange()); setFilterProduct("");
     setFilterContact(""); setFilterCurrency("");
   };
 
@@ -661,6 +666,9 @@ const CrmVentas = ({ section, onNavigate }: { section: VentasSection; onNavigate
     amount:      s.amount, notes: s.notes ?? "",
     contactId:   s.contact_id ?? "",
   })), [salesData, contacts]);
+
+  const filterDateFrom = toDateKey(filterDateRange.from);
+  const filterDateTo   = toDateKey(filterDateRange.to);
 
   const filteredSales = useMemo(
     () => applyHistoryFilters(allSales, filterDateFrom, filterDateTo, filterProduct, filterContact, filterCurrency),
@@ -1103,15 +1111,14 @@ const CrmVentas = ({ section, onNavigate }: { section: VentasSection; onNavigate
           )}
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Desde</label>
-            <input type="date" className={F_INPUT} value={filterDateFrom} onChange={(e) => setFilterDateFrom(e.target.value)} />
+        <div className="space-y-1">
+          <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Fecha</label>
+          <div>
+            <DateRangePicker value={filterDateRange} onChange={setFilterDateRange} />
           </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Hasta</label>
-            <input type="date" className={F_INPUT} value={filterDateTo} onChange={(e) => setFilterDateTo(e.target.value)} />
-          </div>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
           <div className="space-y-1">
             <label className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/60">Producto</label>
             <div className="relative">

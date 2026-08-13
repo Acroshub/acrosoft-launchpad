@@ -3,17 +3,18 @@ import { CheckCircle, DollarSign, Filter, TrendingUp } from "lucide-react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { formatAmount, getCurrencyFlag } from "@/lib/currencies";
 import type { CrmSale } from "@/lib/supabase";
+import DateRangePicker, { type DateRange } from "@/components/crm/DateRangePicker";
 
 const fmtSaleAmt = formatAmount;
 
-type Period = "7d" | "15d" | "30d" | "month" | "total";
+const fmtRangeLabel = (r: DateRange) => {
+  const opts: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+  return `${r.from.toLocaleDateString("es-ES", opts)} – ${r.to.toLocaleDateString("es-ES", opts)}`;
+};
 
-const PERIOD_LABELS: Record<Period, string> = {
-  "7d":    "Últimos 7 días",
-  "15d":   "Últimos 15 días",
-  "30d":   "Últimos 30 días",
-  "month": "Mes actual",
-  "total": "Total",
+const getDefaultSalesRange = (): DateRange => {
+  const to = new Date(); to.setHours(23, 59, 59, 999);
+  return { from: new Date(to.getFullYear(), to.getMonth(), 1), to };
 };
 
 const CURRENCY_LINE_COLORS = ["#1877F2", "#00a884", "#E67E22", "#9B59B6", "#E91E63", "#3498DB"];
@@ -81,7 +82,7 @@ const FilterSelect = ({ value, onChange, children }: {
 const SalesTrendCard = ({ sales, className = "" }: { sales: CrmSale[]; className?: string }) => {
   const [filterProduct, setFilterProduct] = useState("all");
   const [filterCurrency, setFilterCurrency] = useState("all");
-  const [filterPeriod, setFilterPeriod] = useState<Period>("month");
+  const [filterRange, setFilterRange] = useState<DateRange>(getDefaultSalesRange);
 
   const confirmedSales = useMemo(
     () => sales.filter(s => s.status !== "pending_review" && s.status !== "rejected"),
@@ -100,12 +101,9 @@ const SalesTrendCard = ({ sales, className = "" }: { sales: CrmSale[]; className
   );
 
   const filteredSales = useMemo(() => {
-    const now = new Date();
-    const periodStart = filterPeriod === "total" ? null
-      : filterPeriod === "month" ? new Date(now.getFullYear(), now.getMonth(), 1)
-      : new Date(now.getFullYear(), now.getMonth(), now.getDate() - ({ "7d": 7, "15d": 15, "30d": 30 }[filterPeriod] as number) + 1);
     return confirmedSales.filter(s => {
-      if (periodStart && new Date(s.created_at) < periodStart) return false;
+      const created = new Date(s.created_at);
+      if (created < filterRange.from || created > filterRange.to) return false;
       if (filterCurrency !== "all" && (s.currency ?? "USD") !== filterCurrency) return false;
       if (filterProduct !== "all") {
         const label = s.course_name ?? s.service_name ?? s.product_name ?? "Venta";
@@ -113,7 +111,7 @@ const SalesTrendCard = ({ sales, className = "" }: { sales: CrmSale[]; className
       }
       return true;
     });
-  }, [confirmedSales, filterPeriod, filterCurrency, filterProduct]);
+  }, [confirmedSales, filterRange, filterCurrency, filterProduct]);
 
   const totalPorMoneda = useMemo(() => {
     const map = new Map<string, number>();
@@ -148,7 +146,7 @@ const SalesTrendCard = ({ sales, className = "" }: { sales: CrmSale[]; className
   }, [filteredSales]);
 
   return (
-    <div className={`bg-card border rounded-2xl overflow-hidden ${className}`}>
+    <div className={`bg-card border rounded-2xl ${className}`}>
       <div className="px-5 py-4 border-b flex items-center gap-2.5">
         <div className="w-7 h-7 rounded-lg bg-primary/10 flex items-center justify-center">
           <TrendingUp size={13} className="text-primary" />
@@ -177,15 +175,9 @@ const SalesTrendCard = ({ sales, className = "" }: { sales: CrmSale[]; className
               {currencyOptions.map(c => <option key={c} value={c}>{c}</option>)}
             </FilterSelect>
           </div>
-          <div className="min-w-[130px] flex-1">
+          <div className="min-w-[230px] flex-1">
             <p className="text-[10px] text-muted-foreground/60 mb-1">Periodo</p>
-            <FilterSelect value={filterPeriod} onChange={(v) => setFilterPeriod(v as Period)}>
-              <option value="7d">Últimos 7 días</option>
-              <option value="15d">Últimos 15 días</option>
-              <option value="30d">Últimos 30 días</option>
-              <option value="month">Mes actual</option>
-              <option value="total">Total</option>
-            </FilterSelect>
+            <DateRangePicker value={filterRange} onChange={setFilterRange} />
           </div>
         </div>
       </div>
@@ -199,7 +191,7 @@ const SalesTrendCard = ({ sales, className = "" }: { sales: CrmSale[]; className
               <CheckCircle size={13} className="text-primary" />
             </div>
             <p className="text-xl font-bold text-foreground leading-tight">{filteredSales.length}</p>
-            <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">Ventas · {PERIOD_LABELS[filterPeriod]}</p>
+            <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">Ventas · {fmtRangeLabel(filterRange)}</p>
           </div>
 
           {(totalPorMoneda.length > 0 ? totalPorMoneda : ([["USD", 0]] as [string, number][])).map(([cur, total]) => (
@@ -211,7 +203,7 @@ const SalesTrendCard = ({ sales, className = "" }: { sales: CrmSale[]; className
                 <span className="text-sm leading-none">{getCurrencyFlag(cur)}</span>
                 <p className="text-xl font-bold text-foreground leading-tight">{fmtSaleAmt(total, cur, 0)}</p>
               </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">Total {cur} · {PERIOD_LABELS[filterPeriod]}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 leading-tight">Total {cur} · {fmtRangeLabel(filterRange)}</p>
             </div>
           ))}
         </div>

@@ -560,6 +560,7 @@ export type CrmAIAgentConfig = {
   waba_id: string | null
   app_secret: string | null
   verified_phone: string | null
+  verified_business_name: string | null
   webhook_verify_token: string
   agent_name: string
   system_prompt: string | null
@@ -584,6 +585,8 @@ export type CrmAIAgentConfig = {
   updated_at: string
   // Selección de catálogo y detección de pagos
   products_mode: 'all' | 'selected' | 'none'
+  physical_products_mode: 'all' | 'selected' | 'none'
+  digital_products_mode: 'all' | 'selected' | 'none'
   selected_product_ids: string[]
   services_mode: 'all' | 'selected' | 'none'
   selected_service_ids: string[]

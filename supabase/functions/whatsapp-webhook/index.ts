@@ -546,15 +546,8 @@ const DEBOUNCE_MS = 25_000;
 
 const waitUntilFn = (globalThis as { EdgeRuntime?: { waitUntil?: (p: Promise<unknown>) => void } }).EdgeRuntime?.waitUntil;
 
-/** Push al negocio (dueño + staff activo) por cada mensaje que le llega al Agente IA. */
+/** Push al negocio (dueño + staff activo) por cada mensaje que le llega al Agente IA. Siempre activo, sin toggle. */
 async function notifyNewMessage(tenantUserId: string, phone: string, contactName: string | null, preview: string, mode: string) {
-  const { data: config } = await supabase
-    .from("crm_ai_agent_config")
-    .select("notify_on_new_message")
-    .eq("user_id", tenantUserId)
-    .maybeSingle();
-  if (config?.notify_on_new_message === false) return; // default true — solo se salta si se apagó explícitamente
-
   const { data: staff } = await supabase
     .from("crm_staff")
     .select("staff_user_id")

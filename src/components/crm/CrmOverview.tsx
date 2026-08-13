@@ -1,6 +1,5 @@
 import { CalendarDays, Check, Settings2, RefreshCcw, ChevronRight, ShieldAlert, X } from "lucide-react";
 import OnboardingWizard from "@/components/crm/OnboardingWizard";
-import PushNotificationBanner from "@/components/crm/PushNotificationBanner";
 import SalesTrendCard from "@/components/crm/SalesTrendCard";
 import { getOverdueRenewals, getUpcomingRenewals } from "@/components/crm/RenewalsPanel";
 import { useState, useMemo, useEffect, useRef } from "react";
@@ -163,10 +162,7 @@ const CrmOverview = ({ onNavigate, isSuperAdmin }: {
         </button>
       )}
 
-      {/* ── Notificaciones push ── */}
-      <PushNotificationBanner />
-
-      {/* ── Onboarding ── */}
+      {/* ── Onboarding (incluye activar notificaciones push) ── */}
       {onNavigate && (
         <OnboardingWizard onNavigate={onNavigate} />
       )}
