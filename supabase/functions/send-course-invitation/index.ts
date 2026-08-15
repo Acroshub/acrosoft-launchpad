@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders } from "../_shared/cors.ts";
+import { requireInternalOrUser } from "../_shared/internal-auth.ts";
 
 const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -18,6 +19,10 @@ function generateToken(): string {
 Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Envía email vía Resend — exige service key o JWT del dueño del curso
+  const { caller, error: authError } = await requireInternalOrUser(req, supabase);
+  if (authError) return authError;
 
   try {
     const { email, course_id } = await req.json() as { email: string; course_id: string };
@@ -38,6 +43,13 @@ Deno.serve(async (req) => {
     if (!course) {
       return new Response(JSON.stringify({ error: "Curso no encontrado" }), {
         status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Solo el dueño del curso puede mandar invitaciones a su curso
+    if (caller.kind === "user" && course.user_id !== caller.userId) {
+      return new Response(JSON.stringify({ error: "No autorizado" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 

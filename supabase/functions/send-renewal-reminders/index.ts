@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireInternal } from "../_shared/internal-auth.ts";
 
 // Función invocada solo por pg_cron (server-to-server) — sin llamadas desde el navegador,
 // por eso no necesita manejo de CORS como las funciones que sí exponen a clientes.
@@ -81,8 +82,12 @@ async function sendEmail(to: string, subject: string, html: string): Promise<boo
   return r.ok;
 }
 
-Deno.serve(async (_req: Request) => {
+Deno.serve(async (req: Request) => {
   const jsonHeaders = { "Content-Type": "application/json" };
+
+  // Solo invocación interna (pg_cron diario) — envía emails de renovación
+  const unauthorized = requireInternal(req);
+  if (unauthorized) return unauthorized;
 
   try {
     const { data: sales, error } = await supabase

@@ -461,12 +461,16 @@ export default function CoursePlayer() {
               )}
 
               {/* ── Lesson content ── */}
+              {/* El contenido se edita en un textarea plano (CrmCourses), así que el
+                  único formato real son los saltos de línea. Se renderiza como texto
+                  con white-space: pre-wrap en vez de inyectarlo como HTML: así React
+                  lo escapa y una lección no puede ejecutar scripts en el navegador de
+                  los alumnos. */}
               {activeLesson.content && (
                 <div className="rounded-2xl p-6 bg-card border border-border">
-                  <div
-                    className="prose prose-sm max-w-none text-foreground/80 leading-relaxed"
-                    dangerouslySetInnerHTML={{ __html: activeLesson.content.replace(/\n/g, "<br />") }}
-                  />
+                  <div className="prose prose-sm max-w-none text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                    {activeLesson.content}
+                  </div>
                 </div>
               )}
 

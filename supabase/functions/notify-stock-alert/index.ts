@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireInternal } from "../_shared/internal-auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -20,6 +21,10 @@ async function sendEmail(to: string, subject: string, html: string) {
 
 Deno.serve(async (req: Request) => {
   if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
+
+  // Solo invocación interna (trigger trigger_notify_stock_alert) — envía email
+  const unauthorized = requireInternal(req);
+  if (unauthorized) return unauthorized;
 
   const { product_id, variant_id, user_id } = await req.json();
   if (!product_id || !user_id) return new Response("missing fields", { status: 400 });

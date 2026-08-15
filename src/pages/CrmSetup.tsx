@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Eye, EyeOff, CheckCircle2, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { checkPasswordPwned } from "@/lib/password-security";
 
 /**
  * /crm-setup
@@ -45,6 +46,21 @@ const CrmSetup = () => {
     setLoading(true);
 
     try {
+      // 0. Rechazar contraseñas que ya aparecieron en filtraciones conocidas.
+      //    Equivale a la protección que Supabase ofrece solo desde el plan Pro.
+      //    Si HIBP no responde (unavailable) se deja pasar: más vale una contraseña
+      //    sin verificar que un usuario que no puede entrar a su cuenta.
+      const pwned = await checkPasswordPwned(password);
+      if (pwned.pwned) {
+        setError(
+          `Esta contraseña ya apareció ${pwned.count.toLocaleString("es")} veces en filtraciones de ` +
+          `datos públicas. Aunque parezca segura, está en las listas que los atacantes prueban ` +
+          `primero. Elige otra distinta.`,
+        );
+        setLoading(false);
+        return;
+      }
+
       // 1. Set the new password
       const { error: pwErr } = await supabase.auth.updateUser({ password });
       if (pwErr) throw pwErr;

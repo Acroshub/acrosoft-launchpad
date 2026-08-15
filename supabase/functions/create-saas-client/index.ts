@@ -9,9 +9,12 @@ const supabase = createClient(
 /**
  * POST /functions/v1/create-saas-client
  *
+ * Auth: JWT del admin que vende el servicio (header Authorization).
+ *
  * Body:
  *   contact_id    string   — ID del contacto en crm_contacts
- *   admin_user_id string   — ID del admin Acrosoft que vende el servicio
+ *   admin_user_id string   — opcional; si viene debe coincidir con el JWT.
+ *                            El valor efectivo siempre sale del token, nunca del body.
  *
  * Flow:
  *   1. Load contact from crm_contacts
@@ -31,11 +34,29 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   try {
-    const { contact_id, admin_user_id } = await req.json();
+    // ── 0. Autenticar al llamador ────────────────────────────────────────────
+    // verify_jwt solo comprueba la firma, y la anon key es un JWT válido — así
+    // que el tenant tiene que salir del token, no del body. Sin esto cualquiera
+    // podría crear cuentas SaaS e invitar por email a contactos de otro tenant.
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) return respond({ error: "No autorizado" }, 401);
 
-    if (!contact_id || !admin_user_id) {
-      return respond({ error: "contact_id and admin_user_id are required" }, 400);
+    const { data: { user: caller }, error: authErr } = await supabase.auth.getUser(
+      authHeader.replace("Bearer ", ""),
+    );
+    if (authErr || !caller) return respond({ error: "No autorizado" }, 401);
+
+    const { contact_id, admin_user_id: bodyAdminId } = await req.json();
+
+    if (!contact_id) {
+      return respond({ error: "contact_id is required" }, 400);
     }
+
+    if (bodyAdminId && bodyAdminId !== caller.id) {
+      return respond({ error: "No autorizado" }, 403);
+    }
+
+    const admin_user_id = caller.id;
 
     // ── 1. Load contact ──────────────────────────────────────────────────────
     const { data: contact, error: contactErr } = await supabase

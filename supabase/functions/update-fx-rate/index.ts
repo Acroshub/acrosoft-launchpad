@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireInternal } from "../_shared/internal-auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -39,7 +40,11 @@ async function fetchLatestVenta(year: number, month1to12: number): Promise<{ rat
   return best;
 }
 
-Deno.serve(async () => {
+Deno.serve(async (req: Request) => {
+  // Solo invocación interna (pg_cron diario) — escribe el tipo de cambio global
+  const unauthorized = requireInternal(req);
+  if (unauthorized) return unauthorized;
+
   try {
     // Fecha de Bolivia (UTC-4) — determina de qué mes/año leer la tabla.
     const bolivia = new Date(Date.now() - 4 * 60 * 60 * 1000);

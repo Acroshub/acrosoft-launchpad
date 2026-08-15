@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireInternalOrUser } from "../_shared/internal-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -46,6 +47,10 @@ function toGoogleDateTime(date: string, hour: number, minute: number, timezone: 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
+  // Interno (crm-calendar-book, ai-agent) o usuario autenticado del CRM
+  const { caller, error: authError } = await requireInternalOrUser(req, supabase);
+  if (authError) return authError;
+
   try {
     const { appointment_id, action } = await req.json() as {
       appointment_id: string;
@@ -57,6 +62,20 @@ Deno.serve(async (req) => {
     const { data: appt, error: apptErr } = await supabase
       .from("crm_appointments").select("*").eq("id", appointment_id).single();
     if (apptErr || !appt) return respond({ error: "Appointment not found" }, 404);
+
+    // Un usuario solo puede sincronizar citas de su propio tenant (o del dueño
+    // para el que trabaja como staff activo). Las llamadas internas ya vienen
+    // con el tenant resuelto por la función que las origina.
+    if (caller.kind === "user" && appt.user_id !== caller.userId) {
+      const { data: staffRow } = await supabase
+        .from("crm_staff")
+        .select("id")
+        .eq("staff_user_id", caller.userId)
+        .eq("owner_user_id", appt.user_id)
+        .eq("status", "active")
+        .maybeSingle();
+      if (!staffRow) return respond({ error: "No autorizado" }, 403);
+    }
 
     const { data: calendar, error: calErr } = await supabase
       .from("crm_calendar_config").select("*").eq("id", appt.calendar_id).single();

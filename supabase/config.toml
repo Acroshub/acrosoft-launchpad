@@ -21,3 +21,62 @@ verify_jwt = false
 [functions.process-wa-automations]
 # verify_jwt false — invocado por pg_cron, no lleva JWT de usuario
 verify_jwt = false
+
+# ── verify_jwt = false + autenticación propia ────────────────────────────────
+# Estas funciones ya estaban en false en el dashboard, pero no figuraban aquí: un
+# deploy desde el CLI las habría puesto en true y roto la invocación interna.
+# Todas validan internamente con requireInternal/requireInternalOrUser
+# (_shared/internal-auth.ts) contra SUPABASE_SERVICE_ROLE_KEY, que es lo que
+# realmente las protege — verify_jwt no sirve aquí porque la anon key también es
+# un JWT válido.
+
+[functions.analyze-sales-pattern]
+# Interna (ai-agent, confirm-ai-sale) — gasta tokens de Anthropic
+verify_jwt = false
+
+[functions.send-reminders]
+# Interna (cron-queue-reminders, crm-calendar-book, crm-form-public, ai-agent)
+verify_jwt = false
+
+[functions.cron-queue-reminders]
+# Interna (pg_cron cada 5 min)
+verify_jwt = false
+
+[functions.send-renewal-reminders]
+# Interna (pg_cron diario)
+verify_jwt = false
+
+[functions.update-fx-rate]
+# Interna (pg_cron diario)
+verify_jwt = false
+
+[functions.notify-stock-alert]
+# Interna (trigger trigger_notify_stock_alert)
+verify_jwt = false
+
+[functions.notify-course-url-change]
+# Interna — recorre todos los tenants
+verify_jwt = false
+
+[functions.sync-to-google]
+# Interna (crm-calendar-book, ai-agent) o usuario del CRM con ownership de la cita
+verify_jwt = false
+
+[functions.sync-google-calendar]
+# Webhook de Google (autenticado por google_channel_id), pg_cron, o usuario dueño
+verify_jwt = false
+
+[functions.send-course-invitation]
+# Interna o usuario dueño del curso
+verify_jwt = false
+
+# ── Widgets públicos embebibles ─────────────────────────────────────────────
+# Los visitantes anónimos no mandan Authorization, solo apikey. Con verify_jwt =
+# true responden UNAUTHORIZED_NO_AUTH_HEADER y el formulario/calendario queda en
+# blanco. Ambas validan y limitan por IP internamente (check_rate_limit).
+
+[functions.crm-form-public]
+verify_jwt = false
+
+[functions.crm-calendar-book]
+verify_jwt = false

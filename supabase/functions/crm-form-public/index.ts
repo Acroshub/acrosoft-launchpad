@@ -302,14 +302,25 @@ async function handleLogoField(
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: PUBLIC_CORS_HEADERS });
 
-  // ── Rate limiting: 10 submissions per IP per hour ────────────────────────────
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return respond({ error: "JSON inválido" }, 400);
+  }
+
+  const isConfigRequest = body?.action === "get_config";
+
+  // ── Rate limiting por IP ────────────────────────────────────────────────────
+  // Cargar el formulario es una lectura barata y ocurre en cada visita, así que
+  // tiene un límite más holgado que el envío.
   const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
     ?? req.headers.get("x-real-ip")
     ?? "unknown";
   const { data: allowed, error: rlErr } = await supabase.rpc("check_rate_limit", {
-    p_key: `crm-form-public:${clientIp}`,
+    p_key: isConfigRequest ? `crm-form-config:${clientIp}` : `crm-form-public:${clientIp}`,
     p_window_seconds: 3600,
-    p_max_count: 10,
+    p_max_count: isConfigRequest ? 120 : 10,
   });
   if (rlErr) console.error("rate_limit check error (non-blocking):", rlErr);
   if (allowed === false) {
@@ -319,8 +330,42 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ── Configuración pública del formulario ────────────────────────────────────
+  // Antes el navegador leía crm_forms, crm_business_profile y crm_services con la
+  // anon key. Esas políticas no podían distinguir "el formulario que estoy
+  // abriendo" de "todos los formularios de todos los tenants", así que permitían
+  // enumerar la base entera. Ahora se sirve solo lo del form_id pedido, y con las
+  // columnas justas: nada de contact_email, contact_phone o datos del dueño.
+  if (isConfigRequest) {
+    const { form_id } = body;
+    if (!isValidUUID(form_id)) return respond({ error: "form_id inválido" }, 400);
+
+    const { data: form, error: formErr } = await supabase
+      .from("crm_forms")
+      .select("id, user_id, name, fields, sections, submit_label, success_action, success_message, success_image, redirect_url, slug, multi_page, show_confirmation_step, confirmation_message, facebook_pixel_id, is_basic_form, language")
+      .eq("id", form_id)
+      .single();
+
+    if (formErr || !form) return respond({ error: "Formulario no encontrado" }, 404);
+
+    const [{ data: profile }, { data: services }] = await Promise.all([
+      supabase
+        .from("crm_business_profile")
+        .select("logo_url, color_primary, theme")
+        .eq("user_id", form.user_id)
+        .maybeSingle(),
+      supabase
+        .from("crm_services")
+        .select("id, name, description, price, currency, is_recurring, recurring_price, recurring_interval, recurring_label, recurring_currency, delivery_time, benefits, is_recommended, sort_order, discount_pct, recurring_discount_pct, images, active")
+        .eq("user_id", form.user_id)
+        .eq("active", true)
+        .order("sort_order", { ascending: true }),
+    ]);
+
+    return respond({ form, profile: profile ?? null, services: services ?? [] });
+  }
+
   try {
-    const body = await req.json();
     const { form_id, data, terms_accepted_at } = body;
 
     if (!isValidUUID(form_id)) return respond({ error: "form_id inválido" }, 400);

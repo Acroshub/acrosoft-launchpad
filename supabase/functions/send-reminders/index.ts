@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireInternal } from "../_shared/internal-auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -145,6 +146,11 @@ async function getWabaConfig(userId: string) {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Solo invocación interna (cron-queue-reminders, crm-calendar-book,
+  // crm-form-public, ai-agent) — envía WhatsApp y email a contactos reales
+  const unauthorized = requireInternal(req);
+  if (unauthorized) return unauthorized;
 
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
   const RESEND_FROM    = `Acrosoft <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;

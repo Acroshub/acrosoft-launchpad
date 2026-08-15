@@ -53,55 +53,58 @@ interface PublicField {
 
 // ─── Public Data Hooks (no auth required) ────────────────────────────────────
 
-const usePublicForm = (formId: string) =>
+/**
+ * Toda la configuración pública del formulario en una sola llamada.
+ *
+ * Antes cada hook leía su tabla (crm_forms, crm_business_profile, crm_services)
+ * con la anon key. Como RLS no puede distinguir "el formulario que estoy
+ * abriendo" de "todos los formularios de todos los tenants", esas políticas
+ * dejaban enumerar la base entera — incluidos el email y el teléfono de contacto
+ * de cada dueño de negocio. Ahora lo sirve la Edge Function con service role,
+ * acotado al form_id pedido y con las columnas justas.
+ */
+type PublicFormConfig = {
+  form: CrmForm;
+  profile: { logo_url: string | null; color_primary: string; theme: string } | null;
+  services: CrmService[];
+};
+
+const usePublicFormConfig = (formId?: string | null) =>
   useQuery({
-    queryKey: ["public_form", formId],
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from("crm_forms")
-        .select("*")
-        .eq("id", formId)
-        .single();
-      if (error) throw error;
-      return data as CrmForm;
+    queryKey: ["public_form_config", formId],
+    queryFn: async (): Promise<PublicFormConfig> => {
+      const dbUrl = import.meta.env.VITE_SUPABASE_URL;
+      const res = await fetch(`${dbUrl}/functions/v1/crm-form-public`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
+        },
+        body: JSON.stringify({ action: "get_config", form_id: formId }),
+      });
+      if (!res.ok) throw new Error("No se pudo cargar el formulario");
+      return res.json();
     },
     enabled: !!formId,
+    staleTime: 5 * 60 * 1000,
   });
 
-const usePublicBusinessProfile = (userId?: string | null) =>
-  useQuery({
-    queryKey: ["public_business_profile", userId],
-    queryFn: async () => {
-      if (!userId) return null;
-      const { data, error } = await supabase
-        .from("crm_business_profile")
-        .select("logo_url, color_primary, theme")
-        .eq("user_id", userId)
-        .maybeSingle();
-      if (error) throw error;
-      return data as { logo_url: string | null; color_primary: string; theme: string } | null;
-    },
-    enabled: !!userId,
-  });
+const usePublicForm = (formId: string) => {
+  const q = usePublicFormConfig(formId);
+  return { ...q, data: q.data?.form };
+};
 
-const usePublicServices = (userId?: string | null, allowedIds?: string[]) =>
-  useQuery({
-    queryKey: ["public_services", userId, allowedIds?.join(",")],
-    queryFn: async () => {
-      if (!userId) return [];
-      const { data, error } = await supabase
-        .from("crm_services")
-        .select("*")
-        .eq("user_id", userId)
-        .eq("active", true)
-        .order("sort_order", { ascending: true });
-      if (error) throw error;
-      const all = data as CrmService[];
-      if (allowedIds?.length) return all.filter(s => allowedIds.includes(s.id));
-      return all;
-    },
-    enabled: !!userId,
-  });
+const usePublicBusinessProfile = (formId?: string | null) => {
+  const q = usePublicFormConfig(formId);
+  return { ...q, data: q.data?.profile ?? null };
+};
+
+const usePublicServices = (formId?: string | null, allowedIds?: string[]) => {
+  const q = usePublicFormConfig(formId);
+  const all = q.data?.services ?? [];
+  const data = allowedIds?.length ? all.filter(s => allowedIds.includes(s.id)) : all;
+  return { ...q, data };
+};
 
 // ─── Facebook Pixel helpers ───────────────────────────────────────────────────
 
@@ -204,17 +207,17 @@ const ServicesField = ({
   field,
   value,
   onChange,
-  formUserId,
+  formId,
   error,
 }: {
   field: PublicField;
   value: string | null;
   onChange: (v: string) => void;
-  formUserId: string | null;
+  formId: string;
   error?: string;
 }) => {
   const { data: services = [], isLoading } = usePublicServices(
-    formUserId,
+    formId,
     field.allowedServiceIds
   );
 
@@ -548,7 +551,7 @@ const FieldRenderer = ({
   value,
   onChange,
   onBlur,
-  formUserId,
+  formId,
   error,
   lang = "es",
 }: {
@@ -556,7 +559,7 @@ const FieldRenderer = ({
   value: any;
   onChange: (v: any) => void;
   onBlur?: () => void;
-  formUserId: string | null;
+  formId: string;
   error?: string;
   lang?: WidgetLang;
 }) => {
@@ -575,7 +578,7 @@ const FieldRenderer = ({
         field={field}
         value={value ?? null}
         onChange={onChange}
-        formUserId={formUserId}
+        formId={formId}
         error={error}
       />
     );
@@ -871,8 +874,7 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
           ? !f.sectionId
           : f.sectionId === currentSection?.id
       );
-  const formUserId = (form as any)?.user_id ?? null;
-  const { data: branding } = usePublicBusinessProfile(formUserId);
+  const { data: branding } = usePublicBusinessProfile(formId);
   const isBranded = branding?.theme === "branded";
   const brandPrimary = isBranded ? (branding?.color_primary ?? null) : null;
   const brandLogo = isBranded ? (branding?.logo_url ?? null) : null;
@@ -883,7 +885,7 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
     return sf?.allowedServiceIds;
   }, [fields]);
   const { data: servicesForConfirm = [] } = usePublicServices(
-    hasServicesField && confirmSection ? formUserId : null,
+    hasServicesField && confirmSection ? formId : null,
     servicesFieldAllowedIds
   );
   const serviceMap = useMemo(
@@ -1126,7 +1128,7 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
                     field={field}
                     value={formValues[field.id]}
                     error={errors[field.id]}
-                    formUserId={formUserId}
+                    formId={formId}
                     lang={lang}
                     onBlur={() => handleBlur(field.id)}
                     onChange={val => {

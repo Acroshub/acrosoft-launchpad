@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { getCorsHeaders } from "../_shared/cors.ts";
+import { requireInternal } from "../_shared/internal-auth.ts";
 
 const SUPABASE_URL     = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -18,6 +19,10 @@ function generateToken(): string {
 Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  // Solo invocación interna — recorre todos los tenants y envía emails masivos
+  const unauthorized = requireInternal(req);
+  if (unauthorized) return unauthorized;
 
   try {
     // Obtener todos los cursos publicados (todos los tenants — migración global)

@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireInternalOrUser } from "../_shared/internal-auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -181,6 +182,12 @@ Deno.serve(async (req) => {
   }
 
   // ── Manual / cron invocation ───────────────────────────────────────────────
+  // El path de arriba se autentica con el channel_id (UUID secreto que generamos
+  // nosotros y solo conoce Google). Este no tiene ese secreto, así que exige
+  // service role key (pg_cron) o JWT de un usuario del CRM.
+  const { caller, error: authError } = await requireInternalOrUser(req, supabase);
+  if (authError) return authError;
+
   let targetId: string | null = null;
   let registerWatchFlag = false;
 
@@ -188,6 +195,25 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     targetId = body.calendar_config_id ?? null;
     registerWatchFlag = body.register_watch ?? false;
+  }
+
+  // Un usuario solo sincroniza sus propios calendarios; el barrido global de
+  // todos los tenants queda reservado al cron.
+  if (caller.kind === "user") {
+    if (!targetId) return new Response(JSON.stringify({ error: "calendar_config_id requerido" }), {
+      status: 400, headers: { "Content-Type": "application/json" },
+    });
+
+    const { data: owned } = await supabase
+      .from("crm_calendar_config")
+      .select("id")
+      .eq("id", targetId)
+      .eq("user_id", caller.userId)
+      .maybeSingle();
+
+    if (!owned) return new Response(JSON.stringify({ error: "No autorizado" }), {
+      status: 403, headers: { "Content-Type": "application/json" },
+    });
   }
 
   const query = supabase

@@ -6,6 +6,7 @@
  */
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { requireInternal } from "../_shared/internal-auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -270,7 +271,11 @@ async function processModeB(campaign: any, agentConfig: any) {
 
 // ── Main handler ───────────────────────────────────────────────────────────────
 
-Deno.serve(async (_req: Request) => {
+Deno.serve(async (req: Request) => {
+  // Solo invocación interna (pg_cron cada minuto) — dispara campañas de WhatsApp
+  const unauthorized = requireInternal(req);
+  if (unauthorized) return unauthorized;
+
   try {
     const now = new Date().toISOString();
 

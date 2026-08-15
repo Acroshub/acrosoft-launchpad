@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAiUsage } from "../_shared/ai-usage.ts";
+import { requireInternal } from "../_shared/internal-auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -23,6 +24,10 @@ const corsHeaders = {
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: corsHeaders });
+
+  // Solo invocación interna (ai-agent, confirm-ai-sale) — gasta tokens de Anthropic
+  const unauthorized = requireInternal(req);
+  if (unauthorized) return unauthorized;
 
   let body: { user_id?: string };
   try {

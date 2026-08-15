@@ -148,30 +148,37 @@ function useABTest() {
       setChosen(picked);
 
       try {
+        // El id se genera aquí en vez de pedirlo con Prefer: return=representation.
+        // Así el visitante anónimo no necesita permiso de SELECT sobre ab_sessions,
+        // que era lo que permitía a cualquiera volcar todas las sesiones del test.
+        const sid = crypto.randomUUID();
         const r = await fetch(`${SUPABASE_URL}/rest/v1/ab_sessions`, {
           method: "POST",
-          headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json", Prefer: "return=representation" },
-          body: JSON.stringify({ variants: picked, max_screen: 0 }),
+          headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ id: sid, variants: picked, max_screen: 0 }),
         });
-        if (r.ok) { const [s] = await r.json(); sessionRef.current = s.id; }
+        if (r.ok) sessionRef.current = sid;
       } catch { /* non-critical */ }
     })();
   }, []);
 
-  const patch = async (body: Record<string, unknown>) => {
+  // Va por RPC en vez de PATCH directo: la tabla ya no es legible ni escribible por
+  // anon, y ab_track solo deja tocar max_screen/converted de la propia sesión
+  // mientras siga siendo reciente.
+  const patch = async (args: { p_max_screen?: number; p_converted?: boolean }) => {
     const sid = sessionRef.current;
     if (!sid) return;
     try {
-      await fetch(`${SUPABASE_URL}/rest/v1/ab_sessions?id=eq.${sid}`, {
-        method: "PATCH",
+      await fetch(`${SUPABASE_URL}/rest/v1/rpc/ab_track`, {
+        method: "POST",
         headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ p_id: sid, ...args }),
       });
     } catch { /* non-critical */ }
   };
 
-  const trackScreen    = (n: number) => patch({ max_screen: n });
-  const recordConversion = () => patch({ converted: true, converted_at: new Date().toISOString() });
+  const trackScreen    = (n: number) => patch({ p_max_screen: n });
+  const recordConversion = () => patch({ p_converted: true });
 
   const resolve = (c: Chosen): { s1: S1Copy; s2: S2Copy; s3: S3Copy; s4: S4Copy; s5: S5Copy } => ({
     s1: { title: VARIANTS.s1_title[c.s1_title], cta: VARIANTS.s1_cta[c.s1_cta] },
