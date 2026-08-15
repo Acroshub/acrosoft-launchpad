@@ -104,6 +104,54 @@ function getCurrencyFromPhone(phone: string): string | null {
   return null;
 }
 
+// Países soportados para "Flujos" (secuencia por país) — mismo set que ALL_COUNTRY_OPTIONS
+// en src/lib/countries.ts (duplicado aquí porque las edge functions no comparten bundle con el frontend).
+// "+1" es ambiguo entre EE.UU. y Canadá (mismo código de país) — sin parsear el area code (NANP)
+// no se puede distinguir, así que por defecto se resuelve a "US" (mercado predominante de este SaaS).
+// Ordenado de prefijo más largo a más corto para que el matching sea siempre correcto.
+// ⚠️ Debe coincidir EXACTAMENTE con FLOW_COUNTRY_OPTIONS de `src/lib/countries.ts`: ahí el usuario
+// elige a qué países enruta cada secuencia y se guarda este `code`; acá se resuelve el país del
+// teléfono para compararlo. Un país en una lista y no en la otra = flujo que nunca se dispara.
+// ORDEN IMPORTANTE: prefijos más largos primero, si no "+1" se comería a "+1xx" y "+5" a "+59x".
+const COUNTRY_PREFIX_MAP: [string, string][] = [
+  // 3 dígitos
+  ["+591", "BO"], ["+593", "EC"], ["+595", "PY"], ["+598", "UY"],
+  ["+502", "GT"], ["+503", "SV"], ["+504", "HN"], ["+505", "NI"],
+  ["+506", "CR"], ["+507", "PA"], ["+351", "PT"], ["+971", "AE"],
+  ["+972", "IL"], ["+966", "SA"], ["+234", "NG"],
+  // 2 dígitos
+  ["+52", "MX"], ["+57", "CO"], ["+54", "AR"], ["+56", "CL"],
+  ["+51", "PE"], ["+58", "VE"], ["+55", "BR"], ["+53", "CU"],
+  ["+34", "ES"], ["+44", "GB"], ["+33", "FR"], ["+49", "DE"],
+  ["+39", "IT"], ["+31", "NL"], ["+61", "AU"], ["+64", "NZ"],
+  ["+81", "JP"], ["+82", "KR"], ["+86", "CN"], ["+91", "IN"],
+  ["+20", "EG"], ["+27", "ZA"],
+  // 1 dígito — siempre al final
+  ["+1", "US"],
+];
+
+function getCountryCodeFromPhone(phone: string): string | null {
+  const cleaned = phone.replace(/[\s\-().]/g, "");
+  for (const [prefix, countryCode] of COUNTRY_PREFIX_MAP) {
+    if (cleaned.startsWith(prefix)) return countryCode;
+  }
+  return null;
+}
+
+// Dado un flujo con secuencia por defecto + variantes por país, resuelve cuál sequence_id
+// usar según el teléfono del contacto. Si no hay variante para su país, cae a la default.
+function resolveFlowSequenceId(
+  flow: { sequence_id: string | null; country_sequences?: { country_code: string; sequence_id: string }[] | null },
+  phone: string,
+): string | null {
+  const countryCode = getCountryCodeFromPhone(phone);
+  if (countryCode && flow.country_sequences?.length) {
+    const match = flow.country_sequences.find(cs => cs.country_code === countryCode);
+    if (match?.sequence_id) return match.sequence_id;
+  }
+  return flow.sequence_id;
+}
+
 // ─── Verificación de horario con schedule JSONB ───────────────────────────────
 const DAY_NAMES = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
@@ -868,7 +916,9 @@ interface FlowStep {
   id: string;
   type: "message" | "question" | "image" | "video" | "audio" | "file" | "link";
   text?: string;
-  options?: { label: string; next_step_id: string | null }[];
+  // Cada botón es una arista saliente de la pregunta (no un paso): su next_step_id dice a qué paso
+  // lleva esa respuesta, null = esa rama termina ahí.
+  options?: { id?: string; label: string; next_step_id: string | null }[];
   media?: { url: string; name: string; mime_type?: string }[];
   link_url?: string;
   link_label?: string;
@@ -1155,7 +1205,6 @@ async function executeFlowSteps(
     const options = (questionStep.options ?? []).filter(o => o.label.trim());
     const answer = incomingMsg.trim();
     let chosenNextStepId: string | null = null;
-    let fallbackIdx = idx + 1;
 
     // Routing prioritario: button ID (opt_0, opt_1…) → índice directo sin ambigüedad
     // IMPORTANTE: validar que el label del botón coincide con la opción de ESTA pregunta.
@@ -1215,11 +1264,15 @@ async function executeFlowSteps(
       }
     }
 
+    // La secuencia es un grafo de aristas explícitas por id: la respuesta solo puede llevar a donde
+    // apunte el botón elegido. Antes, si el botón no tenía destino (o apuntaba a un paso borrado),
+    // se avanzaba a steps[idx + 1] — "el siguiente del arreglo", que no tiene ninguna relación con
+    // esta pregunta y mandaba al contacto a una rama ajena. Ahora esa rama simplemente termina.
     if (chosenNextStepId) {
       const target = steps.findIndex(s => s.id === chosenNextStepId);
-      idx = target >= 0 ? target : fallbackIdx;
+      idx = target >= 0 ? target : steps.length;
     } else {
-      idx = fallbackIdx;
+      idx = steps.length;
     }
   }
 
@@ -3049,7 +3102,7 @@ Deno.serve(async (req: Request) => {
     // ── B18-6: Cargar estado de conversación (mode, active_flow_id, flow_step) ──
     const { data: convState } = await supabase
       .from("crm_wa_conversations")
-      .select("mode, active_flow_id, flow_step, triggered_flow_ids")
+      .select("mode, active_flow_id, flow_step, triggered_flow_ids, active_sequence_id")
       .eq("id", conversation_id)
       .single();
 
@@ -3063,22 +3116,27 @@ Deno.serve(async (req: Request) => {
     // independientemente de si mode quedó desincronizado como "AI" en algún edge case
     if (activeFlowId) {
       const [{ data: flow }, ] = await Promise.all([
-        supabase.from("crm_wa_flows").select("id, sequence_id, final_action").eq("id", activeFlowId).eq("is_active", true).single(),
+        supabase.from("crm_wa_flows").select("id, sequence_id, final_action").eq("id", activeFlowId).eq("is_active", true).eq("status", "published").single(),
       ]);
 
-      if (!flow || !flow.sequence_id) {
+      // active_sequence_id ya fue resuelto por país al disparar el flujo — se usa tal cual para
+      // que la conversación siga con la MISMA secuencia durante toda su ejecución. Fallback a
+      // flow.sequence_id solo para conversaciones viejas de antes de esta columna.
+      const effectiveSequenceId = convState?.active_sequence_id ?? flow?.sequence_id ?? null;
+
+      if (!flow || !effectiveSequenceId) {
         await supabase.from("crm_wa_conversations")
-          .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+          .update({ mode: "AI", active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
           .eq("id", conversation_id);
       } else {
         const { data: seq } = await supabase
-          .from("crm_wa_sequences").select("steps").eq("id", flow.sequence_id).single();
+          .from("crm_wa_sequences").select("steps").eq("id", effectiveSequenceId).single();
         const steps: FlowStep[] = (seq?.steps as FlowStep[]) ?? [];
 
         if (steps.length === 0 || currentFlowStep >= steps.length) {
           await executeFinalAction(flow, phone, conversation_id, config as AgentConfig);
           await supabase.from("crm_wa_conversations")
-            .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+            .update({ mode: "AI", active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
             .eq("id", conversation_id);
         } else {
           console.log(`[flow] activeFlowId=${activeFlowId} step=${currentFlowStep} effectiveBtnId=${effectiveButtonReplyId}`);
@@ -3089,7 +3147,7 @@ Deno.serve(async (req: Request) => {
             if (completed) {
               await executeFinalAction(flow, phone, conversation_id, config as AgentConfig);
               await supabase.from("crm_wa_conversations")
-                .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+                .update({ mode: "AI", active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
                 .eq("id", conversation_id);
             } else {
               await supabase.from("crm_wa_conversations")
@@ -3125,14 +3183,16 @@ Deno.serve(async (req: Request) => {
       if (lastAssistantContent) {
         const { data: recoveryFlows } = await supabase
           .from("crm_wa_flows")
-          .select("id, sequence_id, final_action")
+          .select("id, sequence_id, final_action, country_sequences")
           .eq("user_id", tenant_user_id)
-          .eq("is_active", true);
+          .eq("is_active", true)
+          .eq("status", "published");
 
         for (const flow of recoveryFlows ?? []) {
-          if (!flow.sequence_id) continue;
+          const effectiveSequenceId = resolveFlowSequenceId(flow, phone);
+          if (!effectiveSequenceId) continue;
           const { data: seq } = await supabase
-            .from("crm_wa_sequences").select("steps").eq("id", flow.sequence_id).single();
+            .from("crm_wa_sequences").select("steps").eq("id", effectiveSequenceId).single();
           const steps = (seq?.steps as FlowStep[]) ?? [];
           const questionStepIdx = steps.findIndex(s =>
             s.type === "question" && (
@@ -3149,17 +3209,17 @@ Deno.serve(async (req: Request) => {
               if (completed) {
                 await executeFinalAction(flow as ActiveFlowRow, phone, conversation_id, config as AgentConfig);
                 await supabase.from("crm_wa_conversations")
-                  .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+                  .update({ mode: "AI", active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
                   .eq("id", conversation_id);
               } else {
                 await supabase.from("crm_wa_conversations")
-                  .update({ active_flow_id: flow.id, flow_step: newStep, last_message_at: new Date().toISOString() })
+                  .update({ active_flow_id: flow.id, flow_step: newStep, active_sequence_id: effectiveSequenceId, last_message_at: new Date().toISOString() })
                   .eq("id", conversation_id);
               }
             } catch (flowErr) {
               console.error("[flow_recovery] error ejecutando pasos:", flowErr);
               await supabase.from("crm_wa_conversations")
-                .update({ active_flow_id: flow.id, flow_step: questionStepIdx, last_message_at: new Date().toISOString() })
+                .update({ active_flow_id: flow.id, flow_step: questionStepIdx, active_sequence_id: effectiveSequenceId, last_message_at: new Date().toISOString() })
                 .eq("id", conversation_id);
             }
             return new Response(JSON.stringify({ ok: true, reason: "flow_recovered" }), { status: 200 });
@@ -3172,18 +3232,20 @@ Deno.serve(async (req: Request) => {
     if (convMode === "AI" && lastUserMsg) {
       const { data: activeFlows } = await supabase
         .from("crm_wa_flows")
-        .select("id, sequence_id, final_action, trigger_text, trigger_once, flow_trigger_type")
+        .select("id, sequence_id, final_action, trigger_text, trigger_once, flow_trigger_type, country_sequences")
         .eq("user_id", tenant_user_id)
-        .eq("is_active", true);
+        .eq("is_active", true)
+        .eq("status", "published");
 
       if (activeFlows && activeFlows.length > 0) {
         const isFirstMessage = history.length === 1;
 
         // Helper para ejecutar un flujo encontrado
         async function triggerFlow(matched: typeof activeFlows[0], markOnce: boolean) {
-          if (!matched.sequence_id) return false;
+          const effectiveSequenceId = resolveFlowSequenceId(matched, phone);
+          if (!effectiveSequenceId) return false;
           const { data: seq } = await supabase
-            .from("crm_wa_sequences").select("steps").eq("id", matched.sequence_id).single();
+            .from("crm_wa_sequences").select("steps").eq("id", effectiveSequenceId).single();
           const steps: FlowStep[] = (seq?.steps as FlowStep[]) ?? [];
           if (!steps.length) return false;
 
@@ -3191,7 +3253,7 @@ Deno.serve(async (req: Request) => {
             ? [...new Set([...triggeredFlowIds, matched.id])]
             : triggeredFlowIds;
           await supabase.from("crm_wa_conversations")
-            .update({ active_flow_id: matched.id, flow_step: 0, triggered_flow_ids: newTriggeredIds })
+            .update({ active_flow_id: matched.id, flow_step: 0, active_sequence_id: effectiveSequenceId, triggered_flow_ids: newTriggeredIds })
             .eq("id", conversation_id);
           try {
             const { newStep, completed } = await executeFlowSteps(
@@ -3200,7 +3262,7 @@ Deno.serve(async (req: Request) => {
             if (completed) {
               await executeFinalAction(matched, phone, conversation_id, config as AgentConfig);
               await supabase.from("crm_wa_conversations")
-                .update({ mode: "AI", active_flow_id: null, flow_step: 0, last_message_at: new Date().toISOString() })
+                .update({ mode: "AI", active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
                 .eq("id", conversation_id);
             } else {
               await supabase.from("crm_wa_conversations")

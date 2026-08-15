@@ -30,6 +30,64 @@ export const ALL_COUNTRY_OPTIONS: CountryOption[] = [
   { currency: "USD", code: "EC", dial: "+593", dialRaw: "593", flag: "🇪🇨", name: "Ecuador" },
 ]
 
+// ─── Países para enrutar flujos por el teléfono del contacto ─────────────────
+// Lista aparte de ALL_COUNTRY_OPTIONS a propósito: esa se filtra por las monedas en las que el
+// usuario cobra (útil para precios), pero a QUIÉN le habla un flujo no tiene nada que ver con eso
+// — un negocio que cobra solo en COP igual recibe mensajes de México o España.
+//
+// ⚠️ `code` y `dialRaw` deben coincidir EXACTAMENTE con COUNTRY_PREFIX_MAP de
+// `supabase/functions/ai-agent/index.ts`: `code` es lo que se guarda en
+// `crm_wa_flows.country_sequences` y lo que el runtime compara contra el teléfono del contacto.
+// Si se agrega un país acá y no allá, el flujo nunca se dispara para ese país (y al revés).
+export type RoutingCountry = { code: string; dialRaw: string; flag: string; name: string }
+
+export const FLOW_COUNTRY_OPTIONS: RoutingCountry[] = [
+  // Latinoamérica y España primero: es de donde viene la mayoría de los contactos
+  { code: "MX", dialRaw: "52",  flag: "🇲🇽", name: "México" },
+  { code: "CO", dialRaw: "57",  flag: "🇨🇴", name: "Colombia" },
+  { code: "AR", dialRaw: "54",  flag: "🇦🇷", name: "Argentina" },
+  { code: "CL", dialRaw: "56",  flag: "🇨🇱", name: "Chile" },
+  { code: "PE", dialRaw: "51",  flag: "🇵🇪", name: "Perú" },
+  { code: "EC", dialRaw: "593", flag: "🇪🇨", name: "Ecuador" },
+  { code: "BO", dialRaw: "591", flag: "🇧🇴", name: "Bolivia" },
+  { code: "VE", dialRaw: "58",  flag: "🇻🇪", name: "Venezuela" },
+  { code: "UY", dialRaw: "598", flag: "🇺🇾", name: "Uruguay" },
+  { code: "PY", dialRaw: "595", flag: "🇵🇾", name: "Paraguay" },
+  { code: "BR", dialRaw: "55",  flag: "🇧🇷", name: "Brasil" },
+  { code: "GT", dialRaw: "502", flag: "🇬🇹", name: "Guatemala" },
+  { code: "SV", dialRaw: "503", flag: "🇸🇻", name: "El Salvador" },
+  { code: "HN", dialRaw: "504", flag: "🇭🇳", name: "Honduras" },
+  { code: "NI", dialRaw: "505", flag: "🇳🇮", name: "Nicaragua" },
+  { code: "CR", dialRaw: "506", flag: "🇨🇷", name: "Costa Rica" },
+  { code: "PA", dialRaw: "507", flag: "🇵🇦", name: "Panamá" },
+  { code: "CU", dialRaw: "53",  flag: "🇨🇺", name: "Cuba" },
+  { code: "ES", dialRaw: "34",  flag: "🇪🇸", name: "España" },
+  { code: "US", dialRaw: "1",   flag: "🇺🇸", name: "USA / Canadá" },
+  // Resto del mundo
+  { code: "GB", dialRaw: "44",  flag: "🇬🇧", name: "Reino Unido" },
+  { code: "PT", dialRaw: "351", flag: "🇵🇹", name: "Portugal" },
+  { code: "FR", dialRaw: "33",  flag: "🇫🇷", name: "Francia" },
+  { code: "DE", dialRaw: "49",  flag: "🇩🇪", name: "Alemania" },
+  { code: "IT", dialRaw: "39",  flag: "🇮🇹", name: "Italia" },
+  { code: "NL", dialRaw: "31",  flag: "🇳🇱", name: "Países Bajos" },
+  { code: "AU", dialRaw: "61",  flag: "🇦🇺", name: "Australia" },
+  { code: "NZ", dialRaw: "64",  flag: "🇳🇿", name: "Nueva Zelanda" },
+  { code: "JP", dialRaw: "81",  flag: "🇯🇵", name: "Japón" },
+  { code: "KR", dialRaw: "82",  flag: "🇰🇷", name: "Corea del Sur" },
+  { code: "CN", dialRaw: "86",  flag: "🇨🇳", name: "China" },
+  { code: "IN", dialRaw: "91",  flag: "🇮🇳", name: "India" },
+  { code: "AE", dialRaw: "971", flag: "🇦🇪", name: "Emiratos Árabes" },
+  { code: "IL", dialRaw: "972", flag: "🇮🇱", name: "Israel" },
+  { code: "SA", dialRaw: "966", flag: "🇸🇦", name: "Arabia Saudita" },
+  { code: "EG", dialRaw: "20",  flag: "🇪🇬", name: "Egipto" },
+  { code: "ZA", dialRaw: "27",  flag: "🇿🇦", name: "Sudáfrica" },
+  { code: "NG", dialRaw: "234", flag: "🇳🇬", name: "Nigeria" },
+]
+
+export const FLOW_COUNTRY_BY_CODE: Record<string, RoutingCountry> = Object.fromEntries(
+  FLOW_COUNTRY_OPTIONS.map(c => [c.code, c])
+)
+
 // Lookups rápidos
 export const COUNTRY_BY_CODE: Record<string, CountryOption> = Object.fromEntries(
   ALL_COUNTRY_OPTIONS.map(c => [c.code, c])

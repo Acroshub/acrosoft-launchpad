@@ -32,6 +32,7 @@ import type {
   CrmWaLabel,
   CrmWaSequence,
   SequenceStep,
+  WaLastMessage,
   CrmWaFlow,
   CrmWaFlowFinalAction,
   CrmPaymentMethod,
@@ -1899,6 +1900,31 @@ export const useWaConversations = (userId?: string) => {
   });
 };
 
+// Preview del último mensaje de cada conversación, para la lista de chats. Una sola consulta a la
+// vista `crm_wa_conversation_last_message` (un renglón por conversación) en vez de una por chat.
+// Refresca más lento que la lista de conversaciones: el preview puede llegar un segundo tarde sin
+// que se note, pero el orden y los no leídos no.
+export const useWaLastMessages = (userId?: string) => {
+  const { user } = useCurrentUser();
+  const effectiveId = userId ?? user?.id;
+  return useQuery({
+    queryKey: ["wa_last_messages", effectiveId],
+    queryFn: async () => {
+      // Sin filtro por usuario a propósito: la vista es security_invoker, así que las políticas RLS
+      // de crm_wa_messages (dueño + staff con permiso) ya acotan las filas visibles.
+      const { data, error } = await supabase
+        .from("crm_wa_conversation_last_message")
+        .select("conversation_id, role, media_type, content");
+      if (error) throw error;
+      const byConversation: Record<string, WaLastMessage> = {};
+      for (const row of (data ?? []) as WaLastMessage[]) byConversation[row.conversation_id] = row;
+      return byConversation;
+    },
+    enabled: !!effectiveId,
+    refetchInterval: 5000,
+  });
+};
+
 export const useArchivedWaConversations = (userId?: string) => {
   const { user } = useCurrentUser();
   const effectiveId = userId ?? user?.id;
@@ -2762,8 +2788,19 @@ export const useUpsertWaSequence = () => {
   const { user } = useCurrentUser();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (seq: { id?: string; name: string; product_id: string | null; entity_type: string | null; currency: string | null; steps: SequenceStep[] }) => {
-      const fields = { name: seq.name, product_id: seq.product_id, entity_type: seq.entity_type, currency: seq.currency, steps: seq.steps };
+    // `steps` solo se escribe al PUBLICAR; el autoguardado escribe `draft_steps`, así que la versión
+    // que corre en las conversaciones reales nunca queda a medio editar. Se mandan únicamente los
+    // campos presentes: un autoguardado no debe tocar `steps` ni `status`.
+    mutationFn: async (seq: {
+      id?: string; name: string;
+      steps?: SequenceStep[];
+      draft_steps?: SequenceStep[] | null;
+      status?: "draft" | "published";
+    }) => {
+      const fields: Record<string, unknown> = { name: seq.name };
+      if (seq.steps !== undefined) fields.steps = seq.steps;
+      if (seq.draft_steps !== undefined) fields.draft_steps = seq.draft_steps;
+      if (seq.status !== undefined) fields.status = seq.status;
       if (seq.id) {
         const { data, error } = await supabase
           .from("crm_wa_sequences")
@@ -2837,6 +2874,8 @@ export const useUpsertWaFlow = () => {
       trigger_once: boolean
       flow_trigger_type: "new_conversation" | "intent"
       country_sequences: { country_code: string; sequence_id: string }[]
+      status: "draft" | "published"
+      draft_step: number
     }) => {
       const fields = {
         name: flow.name,
@@ -2847,6 +2886,8 @@ export const useUpsertWaFlow = () => {
         trigger_once: flow.trigger_once,
         flow_trigger_type: flow.flow_trigger_type,
         country_sequences: flow.country_sequences,
+        status: flow.status,
+        draft_step: flow.draft_step,
       };
       if (flow.id) {
         const { data, error } = await supabase

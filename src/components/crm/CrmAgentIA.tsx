@@ -5,25 +5,18 @@ import {
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
-  GripVertical, GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star, Archive, LayoutGrid, ExternalLink, Reply,
-  Image as ImageIcon, FileVideo,
+  GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star, Archive, LayoutGrid, ExternalLink, Reply,
+  Image as ImageIcon, FileVideo, Music2, Globe,
+  type LucideIcon,
 } from "lucide-react";
-import {
-  DndContext, closestCenter, KeyboardSensor, PointerSensor,
-  useSensor, useSensors, type DragEndEvent,
-} from "@dnd-kit/core";
-import {
-  SortableContext, sortableKeyboardCoordinates, useSortable,
-  verticalListSortingStrategy, arrayMove,
-} from "@dnd-kit/sortable";
-import { CSS } from "@dnd-kit/utilities";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { usePushSubscriptionStatus, useSubscribeToPush, isPushSupported } from "@/hooks/usePushNotifications";
 import {
   useAIAgentConfig, useUpsertAIAgentConfig,
-  useWaConversations, useWaMessages,
+  useWaConversations, useWaLastMessages, useWaMessages,
   useWaLabels, useUpsertWaLabel, useDeleteWaLabel,
   useAllConversationLabels, useConversationLabels, useToggleConversationLabel,
   useSetWaConversationMode, useDeleteWaConversation,
@@ -47,15 +40,13 @@ import {
   useQuickReplies,
   useUpsertQuickReply,
   useDeleteQuickReply,
-  usePricesByEntity,
-  useSupportedCountries,
 } from "@/hooks/useCrmData";
-import { COUNTRY_BY_CODE } from "@/lib/countries";
+import { FLOW_COUNTRY_OPTIONS, FLOW_COUNTRY_BY_CODE } from "@/lib/countries";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import CrmWaTemplates from "@/components/crm/CrmWaTemplates";
 import CrmWaCampaigns from "@/components/crm/CrmWaCampaigns";
 import { supabase } from "@/lib/supabase";
-import type { CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale, CrmAppointment, CrmContact, CrmWaSequence, SequenceStep, SequenceStepOption, SequenceStepMedia, CrmWaFlow, CrmWaFlowFinalAction, CrmQuickReply } from "@/lib/supabase";
+import type { WaLastMessage, CrmWaFlowCountrySequence, CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale, CrmAppointment, CrmContact, CrmWaSequence, SequenceStep, SequenceStepOption, SequenceStepMedia, CrmWaFlow, CrmWaFlowFinalAction, CrmQuickReply } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { formatAmount } from "@/lib/currencies";
@@ -454,7 +445,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
     setTimeout(() => { el.focus(); el.setSelectionRange(start + variable.length, start + variable.length); }, 0);
   };
 
-  const STEP_LABELS = ["Conexión", "Perfil WA", "Agente IA", "Flujos", "Activar"];
+  const STEP_LABELS = ["Conexión", "Perfil WA", "Agente IA", "Activar"];
 
   return (
     <div className="h-full overflow-y-auto">
@@ -873,43 +864,6 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
 
-        {/* ── Step 4: Flujos ── */}
-        {step === 4 && (
-          <div className="bg-card border rounded-2xl p-6 space-y-5">
-            <div>
-              <h2 className="text-sm font-semibold flex items-center gap-2"><GitBranch size={14} />Flujos de WhatsApp</h2>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                Los flujos automatizan respuestas según la intención del mensaje: cuando el agente IA detecta que el contacto
-                tiene una intención específica, envía automáticamente una secuencia de mensajes y ejecuta una acción al finalizar.
-              </p>
-            </div>
-            <div className="bg-secondary/40 rounded-xl p-4 space-y-3">
-              <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">¿Cómo funcionan?</p>
-              <div className="space-y-2 text-xs text-muted-foreground">
-                <div className="flex items-start gap-2">
-                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">1</span>
-                  <span><strong>Disparador:</strong> El agente IA detecta la intención del mensaje (ej. "cuando el cliente pregunte por precios o quiera cotizar")</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">2</span>
-                  <span><strong>Secuencia:</strong> El asistente envía automáticamente una serie de mensajes predefinidos</span>
-                </div>
-                <div className="flex items-start gap-2">
-                  <span className="w-5 h-5 rounded-full bg-primary/10 text-primary text-[10px] font-bold flex items-center justify-center shrink-0 mt-0.5">3</span>
-                  <span><strong>Acción final:</strong> Continúa la conversación, transfiere a un humano o agenda una cita</span>
-                </div>
-              </div>
-            </div>
-            <p className="text-xs text-muted-foreground">Puedes crear y gestionar tus flujos desde <strong>Configuración → Flujos</strong> después de la activación.</p>
-            <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(3)} className="h-9 text-xs">Atrás</Button>
-              <Button onClick={() => setStep(5)} className="flex-1 h-9 gap-1.5">
-                Continuar <ChevronRight size={14} />
-              </Button>
-            </div>
-          </div>
-        )}
-
         {/* ── Step 2: Perfil WA ── */}
         {step === 2 && (
           <div className="bg-card border rounded-2xl p-6 space-y-5">
@@ -1008,8 +962,8 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
           </div>
         )}
 
-        {/* ── Step 5: Resumen + Activar ── */}
-        {step === 5 && (
+        {/* ── Step 4: Resumen + Activar ── */}
+        {step === 4 && (
           <div className="bg-card border rounded-2xl p-6 space-y-6">
             <div>
               <h2 className="text-sm font-semibold flex items-center gap-2"><CheckCircle2 size={14} />Todo listo para activar</h2>
@@ -1019,11 +973,9 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             {/* Resumen */}
             <div className="space-y-3">
               {[
+                { label: "Nombre del Negocio en Meta", value: existingConfig?.verified_business_name || testResult?.name || "—" },
                 { label: "Número de WhatsApp", value: testResult?.phone ?? existingConfig?.phone_number_id ?? "—" },
                 { label: "Nombre del asistente", value: agentName },
-                { label: "Modelo", value: "Claude Haiku" },
-                { label: "Capacidades", value: [!!schedulingCalendarIdWiz && "Citas", "Contactos", canServices && "Servicios", canTransfer && "Transfer"].filter(Boolean).join(" · ") },
-                { label: "Zona horaria", value: businessProfile?.timezone ?? "—" },
               ].map(({ label, value }) => (
                 <div key={label} className="flex items-start justify-between gap-4 py-2 border-b last:border-0">
                   <span className="text-xs text-muted-foreground shrink-0">{label}</span>
@@ -1033,7 +985,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             </div>
 
             <div className="flex gap-2">
-              <Button variant="outline" onClick={() => setStep(4)} className="h-9 text-xs shrink-0">Atrás</Button>
+              <Button variant="outline" onClick={() => setStep(3)} className="h-9 text-xs shrink-0">Atrás</Button>
               <Button
                 onClick={handleActivar}
                 disabled={saving}
@@ -1053,9 +1005,14 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 
 // ─── Sequence + Flow Builder helpers ─────────────────────────────────────────
 
-type DraftSequence = { id?: string; name: string; product_id: string | null; entity_type: 'product' | 'service' | 'course' | null; currency: string | null; steps: SequenceStep[] };
+type DraftSequence = { id?: string; name: string; steps: SequenceStep[]; status?: "draft" | "published" };
 
-type StepBranchInfo = { label: string; branchIdx: number; pos: number; total: number };
+// Abre una secuencia guardada para editarla: se edita SIEMPRE el borrador si existe (draft_steps),
+// que es el trabajo autoguardado más reciente; `steps` es la versión publicada que sigue corriendo
+// en las conversaciones reales mientras tanto.
+function toDraftSequence(seq: CrmWaSequence): DraftSequence {
+  return { id: seq.id, name: seq.name, steps: seq.draft_steps ?? seq.steps, status: seq.status };
+}
 
 const BRANCH_COLORS = [
   { bar: "bg-emerald-400", pill: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20", border: "border-emerald-400/30", bg: "bg-emerald-500/5", text: "text-emerald-600 dark:text-emerald-400", hex: "#34d399" },
@@ -1064,6 +1021,17 @@ const BRANCH_COLORS = [
   { bar: "bg-amber-400",   pill: "bg-amber-400/10 text-amber-600 dark:text-amber-400 border-amber-400/20",         border: "border-amber-400/30",   bg: "bg-amber-400/5",   text: "text-amber-600 dark:text-amber-400",   hex: "#fbbf24" },
   { bar: "bg-purple-400",  pill: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",     border: "border-purple-400/30",  bg: "bg-purple-400/5",  text: "text-purple-600 dark:text-purple-400", hex: "#c084fc" },
 ];
+
+// Geometría del árbol horizontal de la secuencia
+const SEQ_TREE_NODE_W = 148;
+const SEQ_TREE_NODE_H = 40; // caja "cabecera" (índice + tipo + preview) — igual para todos los nodos
+const SEQ_TREE_COL_PITCH = 190;
+// Preview de botones debajo de los nodos Pregunta (mockup del mensaje interactivo final de WhatsApp)
+const SEQ_TREE_PILL_H = 16;
+const SEQ_TREE_MAX_PILLS = 3; // igual al máximo de botones reales que admite una pregunta
+// Alto de fila: cabecera + hasta 3 pills de botón + margen — así ningún nodo Pregunta se superpone
+// con el carril de abajo, sin importar cuántos botones tenga.
+const SEQ_TREE_ROW_PITCH = SEQ_TREE_NODE_H + SEQ_TREE_MAX_PILLS * SEQ_TREE_PILL_H + 12;
 
 type DraftFlow = {
   id?: string
@@ -1075,15 +1043,67 @@ type DraftFlow = {
   trigger_once: boolean
   flow_trigger_type: "new_conversation" | "intent"
   country_sequences: { country_code: string; sequence_id: string }[]
+  status: "draft" | "published"
+  draft_step: number
 };
+
+// Preview del último mensaje en la lista de chats. El prefijo dice QUIÉN habló último — sin él no
+// se distingue "el cliente preguntó algo y espera" de "ya le respondimos", que es justo lo que se
+// mira al recorrer la lista.
+const WA_MEDIA_PREVIEW: Record<string, string> = {
+  image: "📷 Foto",
+  audio: "🎤 Audio",
+  video: "🎥 Video",
+  document: "📄 Archivo",
+  interactive_question: "❓ Pregunta con botones",
+};
+
+function lastMessagePreview(msg: WaLastMessage | undefined): string | null {
+  if (!msg) return null;
+  const body = msg.content?.trim() || (msg.media_type ? WA_MEDIA_PREVIEW[msg.media_type] ?? "📎 Adjunto" : "");
+  if (!body) return null;
+  const prefix = msg.role === "user" ? "" : msg.role === "assistant" ? "IA: " : "Tú: ";
+  return `${prefix}${body.replace(/\s+/g, " ")}`;
+}
 
 const FLOW_FINAL_ACTION_LABELS: Record<CrmWaFlowFinalAction, string> = {
   nothing:       "Continuar con IA",
   human_handoff: "Continuar con Humano",
 } as const;
 
+type CountryRow = { country_codes: string[]; sequence_id: string };
+
+// La base guarda pares país→secuencia (es lo que compara el runtime); el editor agrupa por
+// secuencia para poder asignarle varios países de una. Estas dos funciones son el puente.
+function groupCountrySequences(pairs: CrmWaFlowCountrySequence[]): CountryRow[] {
+  const bySequence = new Map<string, string[]>();
+  for (const { country_code, sequence_id } of pairs) {
+    if (!sequence_id || !country_code) continue;
+    bySequence.set(sequence_id, [...(bySequence.get(sequence_id) ?? []), country_code]);
+  }
+  return [...bySequence].map(([sequence_id, country_codes]) => ({ sequence_id, country_codes }));
+}
+
+function flattenCountryRows(rows: CountryRow[]): CrmWaFlowCountrySequence[] {
+  return rows.flatMap(row =>
+    row.sequence_id ? row.country_codes.map(country_code => ({ country_code, sequence_id: row.sequence_id })) : [],
+  );
+}
+
+const FLOW_FINAL_ACTION_DESCRIPTIONS: Record<CrmWaFlowFinalAction, string> = {
+  nothing:       "El agente sigue atendiendo la conversación solo",
+  human_handoff: "La conversación pasa a tu equipo y el agente deja de responder",
+} as const;
+
+// El ícono es lo que hace distinguibles las 2 opciones de un vistazo, sin leerlas: el mismo robot
+// que identifica al agente en el resto del panel, y una persona para el traspaso a tu equipo.
+const FLOW_FINAL_ACTION_ICONS: Record<CrmWaFlowFinalAction, LucideIcon> = {
+  nothing:       Bot,
+  human_handoff: UserPlus,
+} as const;
+
 function newDraftFlow(): DraftFlow {
-  return { name: "", trigger_text: "", sequence_id: null, final_action: "nothing", is_active: true, trigger_once: true, flow_trigger_type: "new_conversation", country_sequences: [] };
+  return { name: "", trigger_text: "", sequence_id: null, final_action: "nothing", is_active: true, trigger_once: true, flow_trigger_type: "new_conversation", country_sequences: [], status: "draft", draft_step: 1 };
 }
 
 // COUNTRY_OPTIONS es ahora dinámico vía useSupportedCountries() — ver hook abajo
@@ -1092,6 +1112,14 @@ const STEP_TYPE_LABELS = {
   message: "Texto", question: "Pregunta",
   image: "Imagen", video: "Video", audio: "Audio", file: "Archivo", link: "Link",
 } as const;
+
+const STEP_TYPE_ICONS = {
+  message: MessageSquare, question: GitBranch, link: ExternalLink,
+  image: ImageIcon, video: FileVideo, audio: Music2, file: Paperclip,
+} as const;
+
+// Orden en el que se muestran los tipos al crear un paso nuevo o cambiar el tipo de uno existente.
+const STEP_TYPE_ORDER = ["message", "question", "link", "image", "video", "audio", "file"] as const;
 
 // WhatsApp Cloud API soporta estos formatos solamente
 const STEP_ACCEPT = {
@@ -1154,9 +1182,67 @@ function newStep(type: SequenceStep["type"]): SequenceStep {
     id: crypto.randomUUID(),
     type,
     text: "",
-    options: type === "question" ? [{ label: "", next_step_id: null }] : undefined,
+    // Sin botones por defecto — en el modelo árbol-primero, los botones de una pregunta se crean
+    // desde el "+" del lienzo (así siempre hay una rama visible detrás de cada opción del editor).
+    options: type === "question" ? [] : undefined,
     media: MEDIA_TYPES.has(type) ? [] : undefined,
+    // Arista saliente explícita desde el minuto cero (null = todavía no lleva a ningún lado): una
+    // pregunta no la usa, cualquier otro paso siempre la tiene guardada, nunca deducida.
+    next_step_id: null,
   };
+}
+
+// ─── Modelo de datos de una secuencia: DAG explícito ─────────────────────────
+// Una secuencia es UNA LISTA DE NODOS + ARISTAS GUARDADAS POR ID, y nada más:
+//
+//   · cada paso tiene un `id` (UUID) que nace con él y muere con él — nunca se recicla ni se
+//     reasigna, así que una conexión vieja jamás puede "caer" sobre un paso nuevo;
+//   · un paso normal tiene UNA arista saliente: `next_step_id` (id del siguiente, o null = fin
+//     de esta rama). Siempre está guardada: no se deduce de nada;
+//   · un paso Pregunta NO usa `next_step_id`: tiene una arista por botón (`options[].next_step_id`).
+//     El botón es la ETIQUETA de la arista, no un nodo — una pregunta con 3 botones es 1 nodo con
+//     3 salidas, no 4 nodos. (Un botón sin destino se dibuja como un recuadro punteado "+ crear
+//     paso", pero eso es solo el hueco de una arista sin terminar, no un nodo guardado.);
+//   · varios padres pueden apuntar al mismo id (reconvergencia): por eso es un DAG y no un árbol.
+//     Lo único prohibido es cerrar un ciclo, y de eso se encarga `canConnectForward`;
+//   · la raíz es `steps[0]`. El orden del arreglo NO significa nada más: los pasos nuevos se
+//     agregan SIEMPRE al final y nunca se reordenan. Gracias a eso el número visible de un paso
+//     ("Paso 5") no cambia porque se haya creado otro en cualquier otra rama, y el índice que el
+//     backend guarda en `crm_wa_conversations.flow_step` sigue apuntando al mismo paso mientras
+//     una conversación está en curso.
+//
+// Antes, las conexiones de los pasos normales NO se guardaban: se recalculaban en cada cambio a
+// partir de la posición en el arreglo y de rangos de "ramas" inferidos por índice. Esa derivación
+// era la causa raíz de que crear, conectar o borrar un paso reescribiera en silencio conexiones
+// de OTRAS ramas. Ya no existe: lo que está guardado es el grafo.
+
+// Único punto donde se toca data legada: se ejecuta UNA vez, al abrir la secuencia.
+//   · rellena el `id` de botones guardados antes de que ese campo existiera (toda la lógica
+//     identifica botones por id, nunca por texto ni por posición);
+//   · materializa como arista explícita el enlace de los pasos legados que no la tenían (el
+//     runtime viejo avanzaba al siguiente del arreglo: se guarda exactamente eso);
+//   · limpia referencias colgantes — un id que apunta a un paso que ya no existe pasa a null,
+//     nunca queda una conexión "fantasma" a un paso borrado;
+//   · descarta los marcadores del modelo viejo (`shared`, `next_step_pinned`), que ya no se leen.
+function normalizeSequenceSteps(rawSteps: SequenceStep[]): SequenceStep[] {
+  const ids = new Set(rawSteps.map(s => s.id));
+  const resolve = (id: string | null | undefined): string | null => (id && ids.has(id) ? id : null);
+  return rawSteps.map((s, i) => {
+    const step: SequenceStep = { ...s };
+    delete step.shared;
+    delete step.next_step_pinned;
+    if (step.options) {
+      step.options = step.options.map(o => ({ ...o, id: o.id || crypto.randomUUID(), next_step_id: resolve(o.next_step_id) }));
+    }
+    if (step.type === "question") {
+      step.next_step_id = null; // una pregunta navega por sus botones: su arista propia no se usa
+    } else {
+      step.next_step_id = step.next_step_id === undefined
+        ? (rawSteps[i + 1]?.id ?? null) // legado sin enlace explícito: el runtime avanzaba por índice
+        : resolve(step.next_step_id);
+    }
+    return step;
+  });
 }
 
 function getStepPreview(s: SequenceStep, maxLen: number): string | null {
@@ -1165,116 +1251,440 @@ function getStepPreview(s: SequenceStep, maxLen: number): string | null {
   return s.media?.[0]?.name?.slice(0, maxLen) || null;
 }
 
-// Recalcula next_step_id en todos los pasos no-pregunta según la estructura de ramas actual.
-// Reglas: pasos en preludio/shared → cadena secuencial; pasos en rama → apuntan al siguiente
-// de su misma rama o al primer paso compartido; fin de rama → null.
-function computeNextStepIds(steps: SequenceStep[]): SequenceStep[] {
-  // 1. Construir ramas activas (igual que el useMemo activeBranches pero standalone)
-  type Branch = { targetIdx: number; insertBeforeIdx: number | null };
-  const branches: Branch[] = [];
-  for (const s of steps) {
-    if (s.type !== "question") continue;
-    const targets = (s.options ?? [])
-      .filter(o => o.label.trim() && o.next_step_id)
-      .map(o => ({ idx: steps.findIndex(st => st.id === o.next_step_id) }))
-      .filter(t => t.idx >= 0)
-      .sort((a, b) => a.idx - b.idx);
-    const deduped = targets.filter((t, i, arr) => arr.findIndex(x => x.idx === t.idx) === i);
-    for (let i = 0; i < deduped.length; i++) {
-      branches.push({ targetIdx: deduped[i].idx, insertBeforeIdx: deduped[i + 1]?.idx ?? null });
-    }
-  }
-
-  // 2. Asignar rama a cada paso no-compartido (mayor targetIdx gana = rama más interna)
-  const branchMap = new Map<string, number>(); // stepId → branchIdx
-  for (let i = 0; i < steps.length; i++) {
-    const step = steps[i];
-    if (step.shared) continue;
-    let bestBi = -1, bestStart = -1;
-    for (let bi = 0; bi < branches.length; bi++) {
-      const start = branches[bi].targetIdx;
-      const end = branches[bi].insertBeforeIdx ?? steps.length;
-      if (i >= start && i < end && start > bestStart) { bestBi = bi; bestStart = start; }
-    }
-    if (bestBi >= 0) branchMap.set(step.id, bestBi);
-  }
-
-  // 3. Calcular next_step_id para cada paso no-pregunta
-  return steps.map((step, i) => {
-    if (step.type === "question") return step; // la pregunta navega mediante opciones
-    const nextStep = steps[i + 1];
-
-    if (step.shared) {
-      return { ...step, next_step_id: nextStep?.id ?? null };
-    }
-
-    const myBranchIdx = branchMap.get(step.id);
-
-    // Preludio (antes de cualquier rama): cadena secuencial
-    if (myBranchIdx === undefined) {
-      return { ...step, next_step_id: nextStep?.id ?? null };
-    }
-
-    if (!nextStep) return { ...step, next_step_id: null };
-    if (nextStep.shared) return { ...step, next_step_id: nextStep.id };
-
-    // Paso siguiente no-compartido: mismo branchIdx → continuar; distinto → fin de rama
-    const nextBranchIdx = branchMap.get(nextStep.id);
-    if (nextBranchIdx === myBranchIdx) {
-      return { ...step, next_step_id: nextStep.id };
-    }
-
-    // Pregunta anidada dentro del mismo rango de rama
-    if (nextStep.type === "question") {
-      const br = branches[myBranchIdx];
-      if (i + 1 < (br.insertBeforeIdx ?? steps.length)) {
-        return { ...step, next_step_id: nextStep.id };
+// Ids de pasos alcanzables desde la raíz (steps[0]) siguiendo las aristas reales — mismo criterio
+// de "hijos" que usa buildSequenceGraph (opciones de pregunta / next_step_id). Se usa para detectar
+// si una reconexión o un borrado dejaría contenido sin conexión ("rama suelta").
+function getReachableStepIds(steps: SequenceStep[]): Set<string> {
+  const seen = new Set<string>();
+  if (steps.length === 0) return seen;
+  const byId = new Map(steps.map(s => [s.id, s]));
+  const stack = [steps[0].id];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const s = byId.get(id);
+    if (!s) continue;
+    if (s.type === "question") {
+      for (const o of s.options ?? []) {
+        if (o.label.trim() && o.next_step_id && byId.has(o.next_step_id)) stack.push(o.next_step_id);
       }
+    } else if (s.next_step_id && byId.has(s.next_step_id)) {
+      stack.push(s.next_step_id);
     }
+  }
+  return seen;
+}
 
-    // Fin de rama: saltar al primer paso compartido, o null
-    const firstShared = steps.slice(i + 1).find(s => s.shared);
-    return { ...step, next_step_id: firstShared?.id ?? null };
+// Devuelve `steps` con el botón `optionId` de `questionId` reapuntado a `newTargetId` (o
+// desenlazado si es null) — identidad por el id propio del botón, nunca por posición ni por
+// texto (2 botones pueden compartir texto, y borrar uno del medio corre los índices).
+function stepsWithRewiredOption(steps: SequenceStep[], questionId: string, optionId: string, newTargetId: string | null): SequenceStep[] {
+  return steps.map(s => s.id !== questionId ? s : {
+    ...s,
+    options: s.options?.map(o => o.id === optionId ? { ...o, next_step_id: newTargetId } : o),
   });
 }
 
-function SortableSequenceStep({
-  step, index, allSteps, onChange, onRemove, userId, branchInfo, isShared, isHighlighted,
-  availableBranches, onMoveToBranch,
-}: {
-  step: SequenceStep; index: number; allSteps: SequenceStep[];
-  onChange: (s: SequenceStep) => void; onRemove: () => void; userId: string;
-  branchInfo?: StepBranchInfo; isShared?: boolean; isHighlighted?: boolean;
-  availableBranches?: Array<{ label: string; branchIdx: number }>;
-  onMoveToBranch?: (target: number | "shared") => void;
+// Identidad de UNA arista concreta del grafo — la de un botón de pregunta, o la única saliente de
+// un paso normal. Se usa tanto para crearla la primera vez como para cambiar su destino o quitarla
+// después, siempre desde el mismo lugar (tocar el círculo al final de la línea), nunca arrastrando
+// — más simple y funciona igual en mobile.
+type EdgeManageSource =
+  | { kind: "option"; questionId: string; optionId: string }
+  | { kind: "step"; stepId: string };
+
+// Devuelve `steps` con la arista `source` apuntando a `newTargetId` (o desconectada si es null).
+// No toca ninguna otra arista: reapuntar una conexión nunca puede robarle un padre a un paso, así
+// que un destino con 2+ padres (reconvergencia) simplemente suma o pierde uno.
+function stepsWithEdgeTarget(steps: SequenceStep[], source: EdgeManageSource, newTargetId: string | null): SequenceStep[] {
+  return source.kind === "option"
+    ? stepsWithRewiredOption(steps, source.questionId, source.optionId, newTargetId)
+    : steps.map(s => s.id === source.stepId ? { ...s, next_step_id: newTargetId } : s);
+}
+
+// Quita `removeIds` del grafo y borra TODA referencia a ellos desde cualquier padre (aristas de
+// botones y aristas normales por igual): un id borrado se reemplaza por su reemplazo en `redirect`
+// si lo tiene, o pasa a null. Nunca queda un padre apuntando a un paso que ya no existe.
+function stepsWithoutIds(steps: SequenceStep[], removeIds: Set<string>, redirect?: Map<string, string | null>): SequenceStep[] {
+  const resolve = (id: string | null | undefined): string | null => {
+    if (!id) return null;
+    if (!removeIds.has(id)) return id;
+    return redirect?.get(id) ?? null;
+  };
+  return steps.filter(s => !removeIds.has(s.id)).map(s => ({
+    ...s,
+    options: s.options?.map(o => ({ ...o, next_step_id: resolve(o.next_step_id) })),
+    next_step_id: resolve(s.next_step_id),
+  }));
+}
+
+// Borra `stepId` junto con los `discardedIds` que se pierden con él, y reconecta hacia
+// `successorId` (o desconecta, si es null) todo lo que apuntaba al paso borrado. Si el borrado era
+// la raíz, `successorId` pasa a ocupar su lugar como nuevo primer paso.
+function stepsAfterDeleting(steps: SequenceStep[], stepId: string, discardedIds: string[], successorId: string | null): SequenceStep[] {
+  const removeIds = new Set([stepId, ...discardedIds]);
+  if (successorId) removeIds.delete(successorId); // el paso que se conserva nunca se borra
+  const wasRoot = steps[0]?.id === stepId;
+  const cleaned = stepsWithoutIds(steps, removeIds, new Map([[stepId, successorId]]));
+  return wasRoot ? stepsWithRoot(cleaned, successorId) : cleaned;
+}
+
+// Deja a `rootId` en la posición 0 sin alterar el orden relativo del resto — la raíz de la
+// secuencia es, por convención, `steps[0]` (es donde arranca el runtime, con flow_step = 0). Solo
+// hace falta al borrar el primer paso: en cualquier otro caso el arreglo nunca se reordena.
+function stepsWithRoot(steps: SequenceStep[], rootId: string | null): SequenceStep[] {
+  if (!rootId) return steps;
+  const idx = steps.findIndex(s => s.id === rootId);
+  if (idx <= 0) return steps;
+  return [steps[idx], ...steps.slice(0, idx), ...steps.slice(idx + 1)];
+}
+
+// ¿Se puede conectar sourceId → targetId? Solo si targetId ya está en un nivel ESTRICTAMENTE más
+// profundo que sourceId en el árbol actual — nunca el mismo nivel, nunca uno anterior. Esto solo
+// alcanza para garantizar que nunca se forme un ciclo: un ancestro real siempre tiene un nivel
+// menor que su descendiente (cada conexión suma +1 de profundidad), así que cualquier candidato
+// que pudiera cerrar un ciclo queda automáticamente descartado por este único chequeo.
+function canConnectForward(nodes: SeqGraphNode[], sourceId: string, targetId: string): boolean {
+  if (sourceId === targetId) return false;
+  const source = nodes.find(n => n.id === sourceId);
+  const target = nodes.find(n => n.id === targetId);
+  if (!source || !target) return false;
+  return target.depth > source.depth;
+}
+
+// ─── Árbol visual de la secuencia como grafo ─────────────────────────────────
+// Construido siguiendo los enlaces reales (next_step_id / options[].next_step_id) en vez de
+// cortar el arreglo por índices — así un paso de reconvergencia (con varios "padres") se
+// dibuja UNA sola vez con varias líneas entrando, sin duplicarse nunca en el árbol.
+type SeqGraphNode = {
+  id: string;
+  step: SequenceStep | null; // null = placeholder de botón sin enlazar
+  depth: number;
+  lane: number;
+  pending?: boolean;
+  pendingLabel?: string;
+  pendingOptionId?: string; // id propio del botón origen — identidad estable para crear/enlazar,
+  // nunca la posición ni el texto del botón (pueden cambiar o repetirse)
+  mergeCount: number; // cuántas conexiones entrantes tiene (>1 = punto de reconvergencia)
+};
+// colorIdx: posición entre los botones con texto — solo para asignar color/orden visual al pill,
+// NUNCA para identidad (2+ botones pueden compartir label y su índice cambia al borrar otro).
+// optionId: id propio del botón origen (solo en aristas que salen de una pregunta) — identidad
+// real para crear/enlazar/arrastrar.
+type SeqGraphEdge = { fromId: string; toId: string; label?: string; colorIdx?: number; optionId?: string };
+
+// Cuántos botones (labeled) muestra el mockup de un nodo Pregunta en el lienzo — al menos 1
+// (una fila "Sin botones" cuando todavía no tiene ninguno), acotado a SEQ_TREE_MAX_PILLS.
+function nodeQuestionPillCount(node: SeqGraphNode): number {
+  if (node.pending || !node.step || node.step.type !== "question") return 0;
+  const labeled = (node.step.options ?? []).filter(o => o.label.trim()).length;
+  return Math.min(Math.max(labeled, 1), SEQ_TREE_MAX_PILLS);
+}
+
+// Alto real de la caja de un nodo en el lienzo — la cabecera sola para pasos normales y
+// placeholders, o cabecera + preview de botones para preguntas. Compartido entre el render y el
+// hit-test del arrastre de conexiones para que nunca queden desincronizados.
+function nodeBoxHeight(node: SeqGraphNode): number {
+  const pills = nodeQuestionPillCount(node);
+  return pills === 0 ? SEQ_TREE_NODE_H : SEQ_TREE_NODE_H + pills * SEQ_TREE_PILL_H;
+}
+
+// Punto vertical de donde sale una línea: si el origen es una pregunta y la arista es una de sus
+// opciones (colorIdx definido), sale del pill de ESE botón específico en el mockup — no del
+// centro genérico del nodo — para que se vea de qué botón exacto sale cada conexión.
+function edgeSourceY(from: SeqGraphNode, colorIdx: number | undefined): number {
+  const base = from.lane * SEQ_TREE_ROW_PITCH;
+  const pills = nodeQuestionPillCount(from);
+  if (colorIdx === undefined || pills === 0) return base + SEQ_TREE_NODE_H / 2;
+  const pillIdx = Math.min(colorIdx, pills - 1);
+  return base + SEQ_TREE_NODE_H + pillIdx * SEQ_TREE_PILL_H + SEQ_TREE_PILL_H / 2;
+}
+
+// ¿Esta arista del grafo es la que identifica `source`? Un paso normal tiene una sola saliente;
+// una pregunta tiene una por botón, y ahí lo que la distingue es el id del botón.
+function edgeMatchesSource(edge: SeqGraphEdge, source: EdgeManageSource): boolean {
+  return source.kind === "option"
+    ? edge.fromId === source.questionId && edge.optionId === source.optionId
+    : edge.fromId === source.stepId && edge.optionId === undefined;
+}
+
+// Conexiones que llegan a un mismo paso, ordenadas de ARRIBA hacia ABAJO por la altura real desde
+// la que sale cada una en el lienzo. Este orden es la única referencia que tiene el usuario para
+// saber "cuál es cuál" cuando 2+ ramas terminan en el mismo paso, así que se calcula UNA vez acá y
+// lo usan por igual el lienzo (para repartir los puntos de llegada) y el diálogo de gestión (para
+// listar los caminos): si los dos no coincidieran exactamente, sería posible borrar el camino
+// equivocado creyendo que se borra otro.
+function incomingEdgesInVisualOrder(
+  graph: { nodes: SeqGraphNode[]; edges: SeqGraphEdge[] },
+  targetId: string,
+): { edge: SeqGraphEdge; index: number }[] {
+  const sourceY = (e: SeqGraphEdge): number => {
+    const from = graph.nodes.find(n => n.id === e.fromId);
+    return from ? edgeSourceY(from, e.colorIdx) : 0;
+  };
+  return graph.edges
+    .map((edge, index) => ({ edge, index }))
+    .filter(e => e.edge.toId === targetId)
+    .sort((a, b) => sourceY(a.edge) - sourceY(b.edge) || a.index - b.index);
+}
+
+// Separación vertical entre los puntos de llegada de varias conexiones a un mismo paso — se achica
+// si son muchas, para que todas sigan cayendo dentro de la caja del nodo destino.
+function edgePortGap(count: number): number {
+  // 16 = un poco más que el diámetro del círculo (r=7), para que no se toquen entre sí; 40 = alto
+  // de la cabecera del nodo, para que ni el primero ni el último se salgan de la caja.
+  return Math.min(16, 40 / Math.max(count - 1, 1));
+}
+
+// Mini-mapa de las conexiones que llegan a un paso, con la que se está por cambiar o borrar
+// resaltada y las demás atenuadas. Va en el diálogo de gestión: leer "Paso 2 · botón X → Paso 6"
+// obliga a reconstruir mentalmente el dibujo, y con varias ramas cayendo en el mismo paso es
+// justo donde es fácil borrar la equivocada. El orden de las filas es el MISMO de arriba hacia
+// abajo que el de los círculos en el lienzo.
+function EdgeTargetPreview({ steps, graph, source }: {
+  steps: SequenceStep[];
+  graph: { nodes: SeqGraphNode[]; edges: SeqGraphEdge[] };
+  source: EdgeManageSource;
 }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: step.id });
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.4 : 1 };
+  const targetId = graph.edges.find(e => edgeMatchesSource(e, source))?.toId;
+  const target = targetId ? steps.find(s => s.id === targetId) : null;
+  if (!targetId || !target) return null;
+
+  const incoming = incomingEdgesInVisualOrder(graph, targetId);
+  const ROW_H = 52;
+  const height = Math.max(incoming.length * ROW_H, ROW_H);
+  const targetPreview = getStepPreview(target, 22);
+  const targetIdx = steps.findIndex(s => s.id === targetId);
+
+  const rowColor = (edge: SeqGraphEdge) =>
+    edge.colorIdx !== undefined ? BRANCH_COLORS[edge.colorIdx % BRANCH_COLORS.length].hex : "currentColor";
+
+  return (
+    <div className="rounded-lg border border-border bg-secondary/20 p-2">
+      <p className="text-[9px] text-muted-foreground/70 mb-1">
+        {incoming.length > 1
+          ? `${incoming.length} caminos terminan en este mismo paso — el resaltado es el que estás tocando`
+          : "Este es el camino que estás tocando"}
+      </p>
+      <div className="flex items-center">
+        {/* Los pasos DE DONDE viene cada camino, dibujados como las tarjetas del lienzo: ver el paso
+            padre completo (y no solo su número) es lo que hace reconocible cuál se está por tocar. */}
+        <div className="flex-1 min-w-0 flex flex-col">
+          {incoming.map(({ edge, index }) => {
+            const from = steps.find(s => s.id === edge.fromId);
+            const fromIdx = steps.findIndex(s => s.id === edge.fromId);
+            const fromPreview = from ? getStepPreview(from, 20) : null;
+            const isThisOne = edgeMatchesSource(edge, source);
+            return (
+              <div key={index} className="flex items-center min-w-0" style={{ height: ROW_H }}>
+                <div
+                  className={`w-full min-w-0 rounded-md border px-2 py-1 ${
+                    isThisOne ? "border-primary bg-primary/5" : "border-border/50 bg-background/50 opacity-45"
+                  }`}
+                >
+                  <p className="text-[9px] font-semibold truncate">
+                    Paso {fromIdx + 1} · {from ? STEP_TYPE_LABELS[from.type] : "—"}
+                  </p>
+                  {fromPreview && <p className="text-[9px] text-muted-foreground/70 truncate">{fromPreview}</p>}
+                  {edge.label && (
+                    <p className="text-[9px] font-medium truncate" style={{ color: rowColor(edge) }}>
+                      botón "{edge.label}"
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <svg width={30} height={height} className="shrink-0">
+          {incoming.map(({ edge, index }, i) => {
+            const y = i * ROW_H + ROW_H / 2;
+            const cy = height / 2;
+            const isThisOne = edgeMatchesSource(edge, source);
+            return (
+              <path
+                key={index}
+                d={`M0,${y} C15,${y} 15,${cy} 30,${cy}`}
+                fill="none"
+                stroke={rowColor(edge)}
+                strokeWidth={isThisOne ? 2 : 1}
+                strokeOpacity={isThisOne ? 1 : 0.25}
+              />
+            );
+          })}
+        </svg>
+        <div className="shrink-0 max-w-[42%] rounded-md border border-primary/50 bg-background px-2 py-1">
+          <p className="text-[9px] font-semibold truncate">Paso {targetIdx + 1} · {STEP_TYPE_LABELS[target.type]}</p>
+          {targetPreview && <p className="text-[9px] text-muted-foreground/70 truncate">{targetPreview}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Descripción de "dónde" se está creando un paso nuevo desde el árbol — se resuelve recién
+// cuando el usuario elige el tipo en el selector, en vez de crear directo con tipo "message".
+type PendingStepCreate =
+  | { kind: "first" }
+  | { kind: "after"; afterStepId: string }
+  // optionId identifica la arista exacta cuando el origen es una pregunta — 2 botones de la misma
+  // pregunta pueden apuntar al mismo destino, y solo se debe intercalar el paso en uno de ellos.
+  | { kind: "edge"; fromId: string; toId: string; optionId?: string }
+  | { kind: "option"; questionStepId: string; optionId: string };
+
+function buildSequenceGraph(steps: SequenceStep[]): { nodes: SeqGraphNode[]; edges: SeqGraphEdge[]; maxDepth: number; maxLane: number } {
+  if (steps.length === 0) return { nodes: [], edges: [], maxDepth: 0, maxLane: 0 };
+  const byId = new Map(steps.map(s => [s.id, s]));
+
+  type Child = { id: string; label?: string; colorIdx?: number; pending?: boolean; optionId?: string };
+  const children = new Map<string, Child[]>();
+  for (const s of steps) {
+    if (s.type === "question") {
+      const labeled = (s.options ?? []).filter(o => o.label.trim());
+      const list: Child[] = labeled.map((o, oi) => {
+        if (o.next_step_id && byId.has(o.next_step_id)) {
+          return { id: o.next_step_id, label: o.label, colorIdx: oi, optionId: o.id };
+        }
+        // El id sintético del placeholder usa el id REAL del botón (no su posición) — así sigue
+        // siendo el mismo nodo aunque se borre/agregue otro botón antes en la lista.
+        return { id: `__pending__${s.id}__${o.id}`, label: o.label, colorIdx: oi, pending: true, optionId: o.id };
+      });
+      if (list.length > 0) children.set(s.id, list);
+    } else if (s.next_step_id && byId.has(s.next_step_id)) {
+      children.set(s.id, [{ id: s.next_step_id }]);
+    }
+  }
+
+  const rootId = steps[0].id;
+
+  // Profundidad por relajación (tipo Bellman-Ford, acotado): correcto incluso con reconvergencias
+  // o loops (un botón que enlaza hacia un paso anterior), sin importar el orden de visita.
+  const depth = new Map<string, number>([[rootId, 0]]);
+  for (let iter = 0; iter < steps.length + 1; iter++) {
+    let changed = false;
+    for (const [fromId, kids] of children) {
+      if (!depth.has(fromId)) continue;
+      const d = depth.get(fromId)!;
+      for (const kid of kids) {
+        const nd = d + 1;
+        if (!depth.has(kid.id) || nd > depth.get(kid.id)!) { depth.set(kid.id, nd); changed = true; }
+      }
+    }
+    if (!changed) break;
+  }
+  // Pasos nunca alcanzados (huérfanos) — no deberían existir, pero por seguridad no se ocultan.
+  for (const s of steps) if (!depth.has(s.id)) depth.set(s.id, 0);
+
+  // Carriles: árbol centrado (post-orden) — cada nodo se ubica en el promedio de los carriles de
+  // los hijos que "posee" (los que solo él enlaza), así que el primer paso y cada bifurcación
+  // quedan centrados respecto a todo lo que cuelga de ellos. Un hijo ya reclamado por otra rama
+  // (reconvergencia) NO participa en el promedio de este nodo — ni siquiera con su carril ya
+  // calculado: si contara, un padre cuyo único hijo es un nodo compartido quedaría "pegado" al
+  // carril de ese nodo (y potencialmente superpuesto con el otro padre que sí lo posee), en vez
+  // de mantener su propia posición independiente y solo dibujar una línea hacia el destino
+  // compartido. Las hojas (y los nodos sin ningún hijo PROPIO) reciben carriles consecutivos en
+  // el orden de recorrido.
+  const lane = new Map<string, number>();
+  const owned = new Set<string>([rootId]);
+  const visiting = new Set<string>();
+  let nextLeafLane = 0;
+  const computeLane = (id: string): number => {
+    if (lane.has(id)) return lane.get(id)!;
+    visiting.add(id);
+    const kids = children.get(id) ?? [];
+    const ownedLanes: number[] = [];
+    for (const kid of kids) {
+      if (visiting.has(kid.id)) continue; // enlace hacia un ancestro (loop) — no se centra sobre sí mismo
+      if (owned.has(kid.id)) continue; // ya lo posee otro padre — no mueve mi propia posición
+      owned.add(kid.id);
+      ownedLanes.push(computeLane(kid.id));
+    }
+    visiting.delete(id);
+    const myLane = ownedLanes.length > 0
+      ? ownedLanes.reduce((a, b) => a + b, 0) / ownedLanes.length
+      : nextLeafLane++;
+    lane.set(id, myLane);
+    return myLane;
+  };
+  computeLane(rootId);
+  for (const s of steps) if (!lane.has(s.id)) lane.set(s.id, nextLeafLane++);
+
+  // Aristas + conteo de entrantes (para marcar puntos de reconvergencia)
+  const edges: SeqGraphEdge[] = [];
+  const incoming = new Map<string, number>();
+  for (const [fromId, kids] of children) {
+    for (const kid of kids) {
+      edges.push({ fromId, toId: kid.id, label: kid.label, colorIdx: kid.colorIdx, optionId: kid.optionId });
+      incoming.set(kid.id, (incoming.get(kid.id) ?? 0) + 1);
+    }
+  }
+
+  const nodes: SeqGraphNode[] = steps.map(s => ({
+    id: s.id, step: s, depth: depth.get(s.id) ?? 0, lane: lane.get(s.id) ?? 0,
+    mergeCount: incoming.get(s.id) ?? 0,
+  }));
+  // Placeholders de botones sin enlazar
+  for (const [, kids] of children) {
+    for (const kid of kids) {
+      if (kid.pending && !nodes.some(n => n.id === kid.id)) {
+        nodes.push({
+          id: kid.id, step: null, depth: depth.get(kid.id) ?? 0, lane: lane.get(kid.id) ?? 0,
+          pending: true, pendingLabel: kid.label, pendingOptionId: kid.optionId, mergeCount: 0,
+        });
+      }
+    }
+  }
+
+  const maxDepth = nodes.reduce((acc, n) => Math.max(acc, n.depth), 0);
+  const maxLane = nodes.reduce((acc, n) => Math.max(acc, n.lane), 0);
+  return { nodes, edges, maxDepth, maxLane };
+}
+
+// Panel de edición de un solo paso — reemplaza el antiguo item de lista arrastrable: en el modelo
+// árbol-primero no hay reordenar por drag, así que este componente es solo el contenido del paso
+// seleccionado en el árbol (sin manija de arrastre ni menú de "mover a otra rama").
+function StepEditorPanel({
+  step, allSteps, onChange, onRemove, onDeleteOption, userId,
+}: {
+  step: SequenceStep; allSteps: SequenceStep[];
+  onChange: (s: SequenceStep) => void; onRemove: () => void; onDeleteOption: (optionId: string) => void; userId: string;
+}) {
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [badgeMenuOpen, setBadgeMenuOpen] = useState(false);
-  const badgeMenuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!badgeMenuOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (badgeMenuRef.current && !badgeMenuRef.current.contains(e.target as Node)) {
-        setBadgeMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [badgeMenuOpen]);
+  const stepIdx = allSteps.findIndex(s => s.id === step.id);
 
   const isMedia = MEDIA_TYPES.has(step.type);
 
   const handleTypeChange = (newType: SequenceStep["type"]) => {
     const nowMedia = MEDIA_TYPES.has(newType);
+    const wasQuestion = step.type === "question";
+    const isQuestion = newType === "question";
+    let newOptions = isQuestion ? (step.options ?? []) : step.options;
+    let newNextStepId = step.next_step_id ?? null;
+    // Un paso normal navega por `next_step_id` y una Pregunta por sus botones: al cambiar de tipo
+    // hay que trasvasar la conexión de un lado al otro, o la rama que colgaba de este paso queda
+    // suelta en silencio.
+    if (isQuestion && !wasQuestion && (newOptions?.length ?? 0) === 0 && newNextStepId && allSteps.some(s => s.id === newNextStepId)) {
+      newOptions = [{ id: crypto.randomUUID(), label: "Opción 1", next_step_id: newNextStepId }];
+    }
+    if (isQuestion) newNextStepId = null; // una pregunta no usa su arista propia
+    if (!isQuestion && wasQuestion && !newNextStepId) {
+      // Al dejar de ser Pregunta se conserva el destino del primer botón enlazado (los botones no
+      // se borran: si vuelve a ser Pregunta, sus ramas siguen ahí intactas).
+      newNextStepId = (step.options ?? []).find(o => o.label.trim() && o.next_step_id && allSteps.some(s => s.id === o.next_step_id))?.next_step_id ?? null;
+    }
     onChange({
       ...step,
       type: newType,
-      options: newType === "question" ? (step.options?.length ? step.options : [{ label: "", next_step_id: null }]) : undefined,
-      media: nowMedia ? (step.media ?? []) : undefined,
+      next_step_id: newNextStepId,
+      // No se borran los botones al salir de "Pregunta" — quedan guardados sin usarse (el resto
+      // del código solo los lee cuando type === "question") y se restauran solos si se vuelve a
+      // "Pregunta", en vez de perder las ramas ya armadas y dejar sus pasos huérfanos en el árbol.
+      options: newOptions,
+      // Mismo criterio que options: no se pierde el archivo ya subido por pasar por otro tipo
+      // de paso y volver — solo se usa cuando el tipo actual es de medios.
+      media: nowMedia ? (step.media ?? []) : step.media,
     });
   };
 
@@ -1330,111 +1740,38 @@ function SortableSequenceStep({
     opts[i] = { ...opts[i], ...patch };
     onChange({ ...step, options: opts });
   };
-  const addOption = () => {
-    if ((step.options?.length ?? 0) >= 3) return;
-    onChange({ ...step, options: [...(step.options ?? []), { label: "", next_step_id: null }] });
-  };
 
-  const branchColor = branchInfo ? BRANCH_COLORS[branchInfo.branchIdx % BRANCH_COLORS.length] : null;
-  const hasLeftBar = branchColor || isShared;
-  const leftPad = hasLeftBar ? "pl-4 pr-3" : "px-3";
+  // "Sin enlazar" incluye next_step_id null y next_step_id colgante (apunta a un paso ya borrado).
+  const hasUnlinkedOption = step.type === "question" && (step.options ?? []).some(o => o.label.trim() && (!o.next_step_id || !allSteps.some(s => s.id === o.next_step_id)));
 
   return (
-    <div
-      id={`seq-step-${step.id}`}
-      ref={setNodeRef}
-      style={style}
-      className={`rounded-xl border bg-card transition-all duration-500 relative overflow-hidden ${
-        isHighlighted ? "border-primary ring-2 ring-primary/25 shadow-md shadow-primary/10" : "border-border"
-      }`}
-    >
-      {/* Barra lateral: coloreada para ramas, gris punteada para compartido */}
-      {branchColor && (
-        <div className={`absolute left-0 top-0 bottom-0 w-1 ${branchColor.bar} rounded-l-xl`} />
-      )}
-      {isShared && !branchColor && (
-        <div className="absolute left-0 top-0 bottom-0 w-1 bg-border rounded-l-xl" style={{ backgroundImage: "repeating-linear-gradient(to bottom, transparent 0px, transparent 4px, hsl(var(--muted-foreground)/0.3) 4px, hsl(var(--muted-foreground)/0.3) 8px)" }} />
-      )}
+    <div>
       {/* Header */}
-      <div className={`flex items-center gap-2 py-2 border-b border-border/60 ${leftPad}`}>
-        <button {...attributes} {...listeners} className="cursor-grab text-muted-foreground/65 hover:text-muted-foreground touch-none">
-          <GripVertical size={14} />
-        </button>
-        <span className="text-[11px] font-medium text-muted-foreground shrink-0">Paso {index + 1}</span>
-        {/* Badge clicable: abre menú para cambiar de rama */}
-        {(branchInfo || isShared) && onMoveToBranch ? (
-          <div ref={badgeMenuRef} className="relative shrink-0">
-            <button
-              onClick={() => setBadgeMenuOpen(v => !v)}
-              title="Cambiar de rama"
-              className={`text-[9px] px-1.5 py-0.5 rounded-full border font-semibold cursor-pointer hover:opacity-75 transition-opacity ${
-                branchInfo && branchColor
-                  ? branchColor.pill
-                  : "border-border bg-secondary/60 text-muted-foreground"
-              }`}
-            >
-              {branchInfo
-                ? `${branchInfo.label} · ${branchInfo.pos}/${branchInfo.total}`
-                : "↩ Compartido"}
-            </button>
-            {badgeMenuOpen && (
-              <div className="absolute left-0 top-full mt-1 z-50 bg-popover border border-border rounded-lg shadow-lg py-1 min-w-[140px]">
-                <p className="text-[9px] text-muted-foreground/70 px-2.5 py-1 border-b border-border/40 font-medium">Mover a:</p>
-                {availableBranches?.filter(b => b.branchIdx !== branchInfo?.branchIdx).map(b => {
-                  const c = BRANCH_COLORS[b.branchIdx % BRANCH_COLORS.length];
-                  return (
-                    <button key={b.branchIdx}
-                      onClick={() => { onMoveToBranch(b.branchIdx); setBadgeMenuOpen(false); }}
-                      className="flex items-center gap-2 w-full px-2.5 py-1.5 text-[10px] hover:bg-secondary/60 transition-colors text-left">
-                      <span className={`w-2 h-2 shrink-0 rounded-full ${c.bar}`} />
-                      <span>Rama "{b.label}"</span>
-                    </button>
-                  );
-                })}
-                {!isShared && (
-                  <button
-                    onClick={() => { onMoveToBranch("shared"); setBadgeMenuOpen(false); }}
-                    className="flex items-center gap-2 w-full px-2.5 py-1.5 text-[10px] hover:bg-secondary/60 transition-colors text-muted-foreground text-left">
-                    <span className="w-2 h-2 shrink-0 rounded-full border border-border bg-muted/50" />
-                    <span>Paso compartido</span>
-                  </button>
-                )}
-              </div>
-            )}
-          </div>
-        ) : (
-          <>
-            {branchInfo && branchColor && (
-              <span className={`text-[9px] px-1.5 py-0.5 rounded-full border shrink-0 font-semibold tabular-nums ${branchColor.pill}`}>
-                {branchInfo.label} · {branchInfo.pos}/{branchInfo.total}
-              </span>
-            )}
-            {isShared && (
-              <span className="text-[9px] px-1.5 py-0.5 rounded-full border border-border bg-secondary/60 text-muted-foreground shrink-0 font-medium">
-                ↩ Compartido
-              </span>
-            )}
-          </>
-        )}
+      <div className="flex items-center gap-2 py-2 px-3 border-b border-border/60">
+        <span className="text-[11px] font-medium text-muted-foreground shrink-0">Paso {stepIdx + 1}</span>
         <select
           value={step.type}
           onChange={e => handleTypeChange(e.target.value as SequenceStep["type"])}
           className="ml-1 h-6 px-1.5 text-base md:text-[10px] rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-primary/30"
         >
-          {(["message", "question", "link", "image", "video", "audio", "file"] as const).map(t => (
+          {STEP_TYPE_ORDER.map(t => (
             <option key={t} value={t}>{STEP_TYPE_LABELS[t]}</option>
           ))}
         </select>
-        <button onClick={onRemove} className="ml-auto p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+        {hasUnlinkedOption && (
+          <span title="Hay un botón que todavía no lleva a ningún paso" className="ml-auto w-2 h-2 rounded-full bg-amber-500 shrink-0" />
+        )}
+        <button onClick={onRemove} className={`${hasUnlinkedOption ? "" : "ml-auto"} p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors`}>
           <Trash2 size={12} />
         </button>
       </div>
 
       {/* Body */}
-      <div className={`p-3 space-y-2 ${hasLeftBar ? "pl-4" : ""}`}>
+      <div className="p-3 space-y-2">
         {/* Texto del mensaje */}
         {step.type === "message" && (
           <div className="space-y-1.5">
+            <label className="text-[10px] font-medium text-muted-foreground">Mensaje</label>
             <textarea
               value={step.text ?? ""}
               onChange={e => onChange({ ...step, text: e.target.value })}
@@ -1466,23 +1803,33 @@ function SortableSequenceStep({
 
         {/* Texto de la pregunta (sin toggle IA — el texto es estructural para el routing) */}
         {step.type === "question" && (
-          <textarea
-            value={step.text ?? ""}
-            onChange={e => onChange({ ...step, text: e.target.value })}
-            placeholder="Texto de la pregunta…"
-            rows={2}
-            className="w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-          />
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-medium text-muted-foreground">Pregunta</label>
+            <textarea
+              value={step.text ?? ""}
+              onChange={e => onChange({ ...step, text: e.target.value })}
+              placeholder="Texto de la pregunta…"
+              rows={2}
+              className="w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+            />
+          </div>
         )}
 
         {/* Opciones para pregunta */}
         {step.type === "question" && (
           <div className="space-y-1.5">
-            {(step.options ?? []).map((opt, i) => (
-              <div key={i} className="rounded-lg border border-border/50 bg-secondary/20 p-2 space-y-1.5">
+            <label className="text-[10px] font-medium text-muted-foreground">Botones</label>
+            {(step.options ?? []).map((opt, i) => {
+              // Mismo índice de color que usa el árbol (BRANCH_COLORS por posición entre las
+              // opciones CON texto) — así el color de cada fila coincide con el de su rama en el lienzo.
+              const labeledBefore = (step.options ?? []).slice(0, i).filter(o => o.label.trim()).length;
+              const branchColor = opt.label.trim() ? BRANCH_COLORS[labeledBefore % BRANCH_COLORS.length] : null;
+              return (
+              <div key={opt.id} className={`rounded-lg border p-2 space-y-1.5 ${branchColor ? `${branchColor.border} ${branchColor.bg}` : "border-border/50 bg-secondary/20"}`}>
+                <label className={`text-[10px] font-medium ${branchColor ? branchColor.text : "text-muted-foreground/70"}`}>Opción {i + 1}</label>
                 {/* Fila 1: número + input + contador + eliminar */}
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[10px] text-muted-foreground/70 w-4 shrink-0 font-medium">{i + 1}.</span>
+                  <span className={`text-[10px] w-4 shrink-0 font-medium ${branchColor ? branchColor.text : "text-muted-foreground/70"}`}>{i + 1}.</span>
                   <input
                     value={opt.label}
                     onChange={e => setOption(i, { label: e.target.value.slice(0, 20) })}
@@ -1493,43 +1840,42 @@ function SortableSequenceStep({
                   <span className={`text-[10px] tabular-nums shrink-0 ${opt.label.length >= 18 ? "text-amber-500" : "text-muted-foreground/65"}`}>
                     {opt.label.length}/20
                   </span>
-                  {(step.options ?? []).length > 1 && (
-                    <button onClick={() => onChange({ ...step, options: (step.options ?? []).filter((_, j) => j !== i) })}
-                      className="p-0.5 text-muted-foreground/65 hover:text-destructive shrink-0">
-                      <X size={11} />
-                    </button>
-                  )}
+                  <button onClick={() => onDeleteOption(opt.id)}
+                    className="p-0.5 text-muted-foreground/65 hover:text-destructive shrink-0">
+                    <X size={11} />
+                  </button>
                 </div>
-                {/* Fila 2: saltar a paso */}
+                {/* Destino — de solo lectura: el enlace se arma desde el árbol (clic en el placeholder
+                    pendiente o arrastrando la conexión), no desde este editor */}
                 <div className="flex items-center gap-1.5 pl-5">
-                  <select
-                    value={opt.next_step_id ?? ""}
-                    onChange={e => setOption(i, { next_step_id: e.target.value || null })}
-                    className={`flex-1 h-6 px-1.5 text-base md:text-[10px] rounded-md border focus:outline-none bg-background ${
-                      !opt.next_step_id ? "border-amber-400/60 text-amber-600 dark:text-amber-400" : "border-input"
-                    }`}
-                  >
-                    <option value="" disabled>⚠ Selecciona el paso de destino</option>
-                    {allSteps.filter(s => s.id !== step.id).map(s => {
-                      const idx = allSteps.indexOf(s);
-                      const preview = (s.type === "question" || s.type === "message")
-                        ? s.text?.trim().slice(0, 28)
-                        : s.type === "link" ? s.link_url?.slice(0, 28)
-                        : s.media?.[0]?.name?.slice(0, 22) ?? null;
+                  {(() => {
+                    if (!opt.next_step_id || !allSteps.some(s => s.id === opt.next_step_id)) {
                       return (
-                        <option key={s.id} value={s.id}>
-                          → Paso {idx + 1} · {STEP_TYPE_LABELS[s.type]}{preview ? `: ${preview}` : ""}
-                        </option>
+                        <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                          ⚠ Falta decir a dónde lleva — conéctala arriba
+                        </span>
                       );
-                    })}
-                  </select>
+                    }
+                    const target = allSteps.find(s => s.id === opt.next_step_id);
+                    const targetIdx = target ? allSteps.indexOf(target) : -1;
+                    const preview = target && (
+                      (target.type === "question" || target.type === "message") ? target.text?.trim().slice(0, 24)
+                      : target.type === "link" ? target.link_url?.slice(0, 24)
+                      : target.media?.[0]?.name?.slice(0, 20) ?? null
+                    );
+                    return (
+                      <span className="text-[10px] text-muted-foreground flex items-center gap-1 truncate">
+                        <ChevronRight size={10} className="shrink-0" />
+                        {target ? `Paso ${targetIdx + 1} · ${STEP_TYPE_LABELS[target.type]}${preview ? `: ${preview}` : ""}` : "Paso eliminado"}
+                      </span>
+                    );
+                  })()}
                 </div>
               </div>
-            ))}
-            {(step.options?.length ?? 0) < 3 && (
-              <button onClick={addOption} className="flex items-center gap-1 text-[10px] text-primary hover:underline">
-                <Plus size={10} /> Agregar botón
-              </button>
+              );
+            })}
+            {(step.options?.length ?? 0) === 0 && (
+              <p className="text-[10px] text-muted-foreground/50 italic">Sin botones todavía — agrégalos con el "+" amarillo de esta pregunta, arriba.</p>
             )}
             <p className="text-[10px] text-muted-foreground/65">Botones interactivos · máx. 3 · 20 caracteres c/u</p>
           </div>
@@ -1538,6 +1884,7 @@ function SortableSequenceStep({
         {/* Link con botón CTA */}
         {step.type === LINK_TYPE && (
           <div className="space-y-1.5">
+            <label className="text-[10px] font-medium text-muted-foreground">URL del link</label>
             <input
               value={step.link_url ?? ""}
               onChange={e => onChange({ ...step, link_url: e.target.value })}
@@ -1545,6 +1892,7 @@ function SortableSequenceStep({
               type="url"
               className="w-full h-7 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
+            <label className="text-[10px] font-medium text-muted-foreground">Texto del botón (CTA)</label>
             <div className="flex items-center gap-2">
               <input
                 value={step.link_label ?? ""}
@@ -1603,6 +1951,7 @@ function SortableSequenceStep({
             {/* Caption opcional (no aplica para audio) */}
             {step.type !== "audio" && (
               <div className="space-y-1.5">
+                <label className="text-[10px] font-medium text-muted-foreground">Caption (opcional)</label>
                 <Textarea
                   value={step.text ?? ""}
                   onChange={e => onChange({ ...step, text: e.target.value })}
@@ -1631,31 +1980,6 @@ function SortableSequenceStep({
           </>
         )}
 
-        {/* Indicador de siguiente paso explícito (solo pasos no-pregunta) */}
-        {step.type !== "question" && step.next_step_id !== undefined && (
-          <div className="flex items-center gap-1.5 pt-1 border-t border-border/20 mt-1">
-            {step.next_step_id === null ? (
-              <span className="text-[9px] text-muted-foreground/65 flex items-center gap-1">
-                <span className="text-[8px]">⊣</span> Fin de rama
-              </span>
-            ) : (() => {
-              const targetIdx = allSteps.findIndex(s => s.id === step.next_step_id);
-              const target = allSteps[targetIdx];
-              if (!target) return null;
-              const preview = (target.type === "message" || target.type === "question")
-                ? target.text?.trim().slice(0, 22)
-                : target.type === "link" ? target.link_url?.slice(0, 18)
-                : target.media?.[0]?.name?.slice(0, 18) ?? null;
-              return (
-                <span className="text-[9px] text-muted-foreground/65 flex items-center gap-1 truncate">
-                  <ChevronRight size={9} className="shrink-0" />
-                  <span className="shrink-0">Paso {targetIdx + 1}</span>
-                  {preview && <span className="truncate opacity-70">· {preview}</span>}
-                </span>
-              );
-            })()}
-          </div>
-        )}
       </div>
     </div>
   );
@@ -1688,50 +2012,337 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const toggleFlow                 = useToggleWaFlow();
   const [editingFlow, setEditingFlow] = useState<DraftFlow | null>(null);
   const insertLog                  = useInsertLog();
-  const [pendingDeleteSeqId, setPendingDeleteSeqId]   = useState<string | null>(null);
-  const [deletingSeq, setDeletingSeq]                 = useState(false);
   const [pendingDeleteFlowId, setPendingDeleteFlowId] = useState<string | null>(null);
   const [deletingFlow, setDeletingFlow]               = useState(false);
+  const [pendingDeleteSeqId, setPendingDeleteSeqId]   = useState<string | null>(null);
+  const [deletingSeq, setDeletingSeq]                 = useState(false);
+  // Wizard unificado de Flujos: null = lista; 1|2|3 = paso del wizard abierto
+  const [flowWizardStep, setFlowWizardStep] = useState<1 | 2 | 3 | null>(null);
+  const [flowUsageMode, setFlowUsageMode] = useState<"global" | "country">("global");
+  // Una fila = una secuencia + todos los países que la reciben. En la base se sigue guardando como
+  // pares país→secuencia (`country_sequences`), que es lo que compara el runtime: agrupar es solo
+  // para editarlo, así asignar 8 países a una misma secuencia es una fila y no ocho.
+  const [countryRows, setCountryRows] = useState<CountryRow[]>([]);
+  // Qué tarjeta tiene abierta la grilla de países (una a la vez): con 38 países desplegados en cada
+  // secuencia la lista se vuelve ilegible.
+  const [expandedCountrySeqId, setExpandedCountrySeqId] = useState<string | null>(null);
 
-  const handleDeleteSeq = async () => {
-    if (!pendingDeleteSeqId) return;
-    const seq = sequences.find(s => s.id === pendingDeleteSeqId);
-    setDeletingSeq(true);
-    try {
-      await deleteSequence.mutateAsync(pendingDeleteSeqId);
-      insertLog.mutateAsync({ action: "delete", entity: "wa_sequence", entity_id: pendingDeleteSeqId, description: `Secuencia eliminada: ${seq?.name}` }).catch(() => {});
-      setPendingDeleteSeqId(null);
-    } catch { toast.error("Error al eliminar la secuencia"); }
-    finally { setDeletingSeq(false); }
+  // En modo Por País una secuencia "está en uso" si tiene fila en countryRows — aunque todavía no
+  // tenga ningún país. Esa fila vacía es justamente lo que permite elegir primero la secuencia y
+  // recién después sus países (y lo que hace que falte algo si se deja así). Al guardar, las filas
+  // sin países no llegan a la base: `flattenCountryRows` las descarta.
+  const isSequenceInUse = (sequenceId: string): boolean =>
+    countryRows.some(r => r.sequence_id === sequenceId);
+
+  const countriesForSequence = (sequenceId: string): string[] =>
+    countryRows.find(r => r.sequence_id === sequenceId)?.country_codes ?? [];
+
+  const toggleSequenceInUse = (sequenceId: string) => {
+    const willBeInUse = !isSequenceInUse(sequenceId);
+    setCountryRows(rows => willBeInUse
+      ? [...rows, { sequence_id: sequenceId, country_codes: [] }]
+      : rows.filter(r => r.sequence_id !== sequenceId));
+    // Al elegirla se abre su lista de países, que es el paso siguiente inmediato; al quitarla no
+    // queda nada desplegado.
+    setExpandedCountrySeqId(willBeInUse ? sequenceId : null);
   };
+
+  // Asigna o quita un país de una secuencia. Un país solo puede recibir UNA secuencia dentro del
+  // mismo flujo, así que asignarlo acá lo saca automáticamente de la que lo tuviera antes — si no,
+  // el runtime encontraría dos reglas para el mismo teléfono y ganaría la que estuviera primero.
+  // La secuencia a la que se le quita NO se deselecciona: queda visible sin países, que es un
+  // estado que el usuario tiene que resolver, no algo que deba desaparecer en silencio.
+  const toggleCountryForSequence = (sequenceId: string, code: string) => {
+    setCountryRows(rows => rows.map(r => {
+      if (r.sequence_id === sequenceId) {
+        return {
+          ...r,
+          country_codes: r.country_codes.includes(code)
+            ? r.country_codes.filter(c => c !== code)
+            : [...r.country_codes, code],
+        };
+      }
+      return { ...r, country_codes: r.country_codes.filter(c => c !== code) };
+    }));
+  };
+  // null = paso 2 muestra la lista de secuencias; no-null = paso 2 muestra el editor de una secuencia.
+  // assignTo = qué hacer al publicarla: "global" la asigna como la secuencia del flujo, "country"
+  // abre su grilla de países para asignársela a alguno, null es solo editarla.
+  const [seqEditorOpen, setSeqEditorOpen] = useState<{ assignTo: "global" | "country" | null } | null>(null);
+  const [savingFlowStep, setSavingFlowStep] = useState(false);
 
   const handleDeleteFlow = async () => {
     if (!pendingDeleteFlowId) return;
     const flow = flows.find(f => f.id === pendingDeleteFlowId);
     setDeletingFlow(true);
     try {
+      // Las secuencias son objetos independientes — eliminar un flujo NO elimina las secuencias que usa.
       await deleteFlow.mutateAsync(pendingDeleteFlowId);
       insertLog.mutateAsync({ action: "delete", entity: "wa_flow", entity_id: pendingDeleteFlowId, description: `Flujo eliminado: ${flow?.name}` }).catch(() => {});
       setPendingDeleteFlowId(null);
     } catch { toast.error("Error al eliminar el flujo"); }
     finally { setDeletingFlow(false); }
   };
+
+  const handleDeleteSeq = async () => {
+    if (!pendingDeleteSeqId) return;
+    const seq = sequences.find(s => s.id === pendingDeleteSeqId);
+    setDeletingSeq(true);
+    try {
+      // `crm_wa_flows.sequence_id` tiene FK ON DELETE SET NULL, pero `country_sequences` es JSONB y
+      // no la tiene: sin esta limpieza quedan flujos apuntando a una secuencia que ya no existe, y
+      // el runtime deja de responder a los contactos de ese país sin ningún aviso.
+      const affected = flows.filter(f => (f.country_sequences ?? []).some(cs => cs.sequence_id === pendingDeleteSeqId));
+      for (const f of affected) {
+        await upsertFlow.mutateAsync({
+          id: f.id, name: f.name, trigger_text: f.trigger_text, sequence_id: f.sequence_id,
+          final_action: f.final_action, is_active: f.is_active, trigger_once: f.trigger_once ?? true,
+          flow_trigger_type: (f.flow_trigger_type === "new_conversation" ? "new_conversation" : "intent"),
+          country_sequences: (f.country_sequences ?? []).filter(cs => cs.sequence_id !== pendingDeleteSeqId),
+          status: f.status ?? "published", draft_step: f.draft_step ?? 3,
+        });
+      }
+      await deleteSequence.mutateAsync(pendingDeleteSeqId);
+      // Si la secuencia eliminada estaba asignada en el flujo que se está editando ahora mismo, se limpia la referencia.
+      setEditingFlow(f => f && f.sequence_id === pendingDeleteSeqId ? { ...f, sequence_id: null } : f);
+      setCountryRows(rows => rows.filter(r => r.sequence_id !== pendingDeleteSeqId));
+      insertLog.mutateAsync({ action: "delete", entity: "wa_sequence", entity_id: pendingDeleteSeqId, description: `Secuencia eliminada: ${seq?.name}` }).catch(() => {});
+      setPendingDeleteSeqId(null);
+    } catch { toast.error("Error al eliminar la secuencia"); }
+    finally { setDeletingSeq(false); }
+  };
+
+  const openSeqEditor = (assignTo: "global" | "country" | null, existing?: DraftSequence) => {
+    setEditingSeq(existing
+      ? { ...existing, steps: normalizeSequenceSteps(existing.steps) }
+      : { name: "", steps: [], status: "draft" });
+    setTreeSelectedStepId(null);
+    setPickingTarget(null);
+    autosaveSnapshot.current = null; // se rellena en el primer render: abrir no debe disparar un guardado
+    autosavePending.current = false;
+    setDraftSaveState("idle");
+    setSeqEditorOpen({ assignTo });
+  };
+
+  const closeSeqEditor = () => {
+    setSeqEditorOpen(null);
+    setEditingSeq(null);
+    setPickingTarget(null); // el modo conexión no debe sobrevivir a cerrar el editor
+    autosaveSnapshot.current = null;
+    autosavePending.current = false;
+    setDraftSaveState("idle");
+  };
+
+
+  const handleSaveSequence = async () => {
+    if (!editingSeq || !editingSeq.name.trim()) { toast.error("Ponle un nombre a la secuencia"); return; }
+    if (sequenceIssues.length > 0) {
+      toast.error(
+        sequenceIssues.length === 1
+          ? `Falta conectar una respuesta: ${sequenceIssues[0].text}`
+          : `Faltan ${sequenceIssues.length} respuestas por conectar:\n${sequenceIssues.map(i => `· ${i.text}`).join("\n")}`,
+        { duration: 6000 },
+      );
+      return;
+    }
+    setSavingFlowStep(true);
+    try {
+      // Publicar: recién acá el borrador pasa a ser la versión que corre en las conversaciones.
+      const saved = await upsertSequence.mutateAsync({
+        id: editingSeq.id, name: editingSeq.name,
+        steps: editingSeq.steps, draft_steps: null, status: "published",
+      });
+      if (seqEditorOpen?.assignTo === "global") {
+        setEditingFlow(f => f ? { ...f, sequence_id: saved.id } : f);
+      } else if (seqEditorOpen?.assignTo === "country") {
+        // Se abre su grilla de países: acabar de crearla y no ver dónde asignarla dejaba el
+        // trabajo a medias, sin ninguna pista de cuál era el paso siguiente.
+        setExpandedCountrySeqId(saved.id);
+      }
+      toast.success(editingSeq.status === "published" ? "Secuencia actualizada" : "Secuencia publicada");
+      closeSeqEditor();
+    } catch (e: any) {
+      toast.error(e?.message?.slice(0, 120) ?? "Error al guardar la secuencia");
+    } finally { setSavingFlowStep(false); }
+  };
+
+  const startNewFlow = () => {
+    setTriggerValidation(null);
+    setEditingFlow(newDraftFlow());
+    setFlowUsageMode("global");
+    setCountryRows([]);
+    setExpandedCountrySeqId(null);
+    setSeqEditorOpen(null);
+    setEditingSeq(null);
+    setFlowWizardStep(1);
+  };
+
+  const openFlowForEdit = (flow: CrmWaFlow) => {
+    setTriggerValidation(null);
+    setEditingFlow({
+      id: flow.id, name: flow.name, trigger_text: flow.trigger_text, sequence_id: flow.sequence_id,
+      final_action: flow.final_action, is_active: flow.is_active, trigger_once: flow.trigger_once ?? true,
+      flow_trigger_type: (flow.flow_trigger_type === "new_conversation" ? "new_conversation" : "intent") as DraftFlow["flow_trigger_type"],
+      country_sequences: flow.country_sequences ?? [],
+      status: flow.status ?? "published",
+      draft_step: flow.draft_step ?? 3,
+    });
+    setFlowUsageMode((flow.country_sequences?.length ?? 0) > 0 ? "country" : "global");
+    setCountryRows(groupCountrySequences(flow.country_sequences ?? []));
+    setExpandedCountrySeqId(null);
+    setSeqEditorOpen(null);
+    setEditingSeq(null);
+    setFlowWizardStep(flow.status === "draft" ? ((flow.draft_step as 1 | 2 | 3) || 1) : 1);
+  };
+
+  const closeFlowWizard = () => {
+    setFlowWizardStep(null);
+    setEditingFlow(null);
+    setSeqEditorOpen(null);
+    setEditingSeq(null);
+  };
+
+  const handleFlowStep1Continue = async () => {
+    if (!editingFlow) return;
+    if (!editingFlow.name.trim()) { toast.error("Ponle un nombre al flujo"); return; }
+    if (editingFlow.flow_trigger_type === "intent") {
+      if (!editingFlow.trigger_text.trim()) { toast.error("Describe cuándo se activa el flujo"); return; }
+      const validation = triggerValidation ?? classifyTrigger(editingFlow.trigger_text.trim());
+      if (!triggerValidation) setTriggerValidation(validation);
+      if (validation.severity === "invalid") { toast.error("Corrige el trigger antes de continuar."); return; }
+    }
+    setSavingFlowStep(true);
+    try {
+      const saved = await upsertFlow.mutateAsync({ ...editingFlow, draft_step: editingFlow.status === "published" ? editingFlow.draft_step : 2 });
+      setEditingFlow(f => f ? { ...f, id: saved.id, status: saved.status, draft_step: saved.draft_step } : f);
+      setFlowWizardStep(2);
+    } catch (e: any) {
+      toast.error(e?.message?.slice(0, 120) ?? "Error al guardar el flujo");
+    } finally { setSavingFlowStep(false); }
+  };
+
+  // Qué le falta al flujo para poder publicarse (null = está listo). Un solo lugar, usado tanto al
+  // pasar del paso 2 como al publicar desde el 3.
+  const flowPublishProblem = (): string | null => {
+    if (!editingFlow) return "No hay flujo para publicar";
+    if (!editingFlow.name.trim()) return "Ponle un nombre al flujo";
+    if (editingFlow.flow_trigger_type === "intent" && !editingFlow.trigger_text.trim()) {
+      return "Describe cuándo se activa el flujo";
+    }
+    if (flowUsageMode === "global") {
+      if (!editingFlow.sequence_id) return "Elige la secuencia que enviará este flujo";
+      // La secuencia pudo borrarse mientras el flujo estaba en borrador.
+      if (!sequences.some(sq => sq.id === editingFlow.sequence_id)) return "La secuencia elegida ya no existe. Elige otra.";
+    } else {
+      if (countryRows.length === 0) return "Elige al menos una secuencia para este flujo";
+      const sinPaises = countryRows.find(r => r.country_codes.length === 0);
+      if (sinPaises) {
+        const nombre = sequences.find(sq => sq.id === sinPaises.sequence_id)?.name ?? "Una secuencia elegida";
+        return `"${nombre}" no tiene países asignados. Elige sus países o quítala del flujo.`;
+      }
+      if (countryRows.some(r => !sequences.some(sq => sq.id === r.sequence_id))) {
+        return "Una de las secuencias elegidas ya no existe. Revisa la lista.";
+      }
+    }
+    return null;
+  };
+
+  const handleFlowStep2Continue = async () => {
+    if (!editingFlow?.id) return;
+    const problem = flowPublishProblem();
+    if (problem) { toast.error(problem); return; }
+    setSavingFlowStep(true);
+    try {
+      const savedFlow = await upsertFlow.mutateAsync({
+        ...editingFlow,
+        sequence_id: flowUsageMode === "global" ? editingFlow.sequence_id : null,
+        country_sequences: flowUsageMode === "country" ? flattenCountryRows(countryRows) : [],
+        draft_step: editingFlow.status === "published" ? editingFlow.draft_step : 3,
+      });
+      setEditingFlow(f => f ? {
+        ...f,
+        sequence_id: flowUsageMode === "global" ? f.sequence_id : null,
+        country_sequences: flowUsageMode === "country" ? flattenCountryRows(countryRows) : [],
+        status: savedFlow.status, draft_step: savedFlow.draft_step,
+      } : f);
+      setFlowWizardStep(3);
+    } catch (e: any) {
+      toast.error(e?.message?.slice(0, 120) ?? "Error al guardar el flujo");
+    } finally { setSavingFlowStep(false); }
+  };
+
+  const handleFlowPublish = async () => {
+    if (!editingFlow?.id) return;
+    // Se revalida acá y no solo al pasar de paso: un borrador se reanuda en el paso donde quedó, así
+    // que se puede llegar directo al paso 3 sin haber pasado nunca por la validación del paso 2. Sin
+    // esto se podía publicar un flujo activo sin secuencia, que se dispara y no envía nada.
+    const problem = flowPublishProblem();
+    if (problem) { toast.error(problem); return; }
+    setSavingFlowStep(true);
+    try {
+      await upsertFlow.mutateAsync({ ...editingFlow, status: "published", draft_step: 3 });
+      toast.success(editingFlow.status === "published" ? "Flujo actualizado" : "Flujo publicado");
+      closeFlowWizard();
+    } catch (e: any) {
+      toast.error(e?.message?.slice(0, 120) ?? "Error al guardar el flujo");
+    } finally { setSavingFlowStep(false); }
+  };
+
   const [triggerValidation, setTriggerValidation] = useState<{ severity: "valid" | "warn" | "invalid"; category: string | null; reason: string } | null>(null);
-  const [insertAtIdx, setInsertAtIdx] = useState<number | null>(null);
-  const seqSensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
-  );
   const upsert = useUpsertAIAgentConfig();
   const { data: allProducts = [] } = useProducts();
   const { data: allServices = [] } = useServices();
   const { data: allCourses  = [] } = useCourses();
-  const { data: supportedCountries = [] } = useSupportedCountries();
-  const [editingSeq, setEditingSeq] = useState<DraftSequence | null>(null); // declared early for hook below
-  const { data: seqEntityPrices = [] } = usePricesByEntity(
-    (editingSeq?.entity_type as any) ?? 'service',
-    editingSeq?.product_id ?? null,
-  );
+  const [editingSeq, setEditingSeq] = useState<DraftSequence | null>(null);
+  // Autoguardado del borrador: la instantánea es lo último que quedó guardado (o lo que había al
+  // abrir), para no reescribir en la base cada vez que el componente se vuelve a renderizar.
+  const autosaveSnapshot = useRef<string | null>(null);
+  const autosaveInFlight = useRef(false);
+  // Un cambio hecho MIENTRAS se está guardando se anota acá: sin esto se perdía hasta la siguiente
+  // edición (el guardado en curso marcaba como guardada una instantánea ya vieja y el efecto no se
+  // volvía a disparar solo). El tick fuerza esa nueva vuelta.
+  const autosavePending = useRef(false);
+  const [autosaveTick, setAutosaveTick] = useState(0);
+  const [draftSaveState, setDraftSaveState] = useState<"idle" | "saving" | "saved">("idle");
+
+  // Autoguardado en borrador: cada cambio del editor se persiste solo, con un respiro de 1,2 s para
+  // no escribir en cada tecla. Escribe SIEMPRE en `draft_steps`, nunca en `steps` — así una secuencia
+  // que un flujo activo ya está usando sigue corriendo su versión publicada mientras se la edita, y
+  // el trabajo a medio hacer (con botones sin conectar incluidos) nunca llega a un cliente real.
+  useEffect(() => {
+    if (!seqEditorOpen || !editingSeq) return;
+    const snapshot = JSON.stringify({ name: editingSeq.name, steps: editingSeq.steps });
+    if (autosaveSnapshot.current === null) { autosaveSnapshot.current = snapshot; return; }
+    if (autosaveSnapshot.current === snapshot) return;
+    // Todavía no hay nada que valga la pena guardar (secuencia recién abierta y vacía).
+    if (!editingSeq.name.trim() && editingSeq.steps.length === 0) return;
+
+    const timer = setTimeout(async () => {
+      // Dos guardados en paralelo sin id crearían DOS secuencias, y con id podrían llegar fuera de
+      // orden: se deja pasar solo uno por vez y el que quedó afuera se reintenta al terminar.
+      if (autosaveInFlight.current) { autosavePending.current = true; return; }
+      autosaveInFlight.current = true;
+      setDraftSaveState("saving");
+      try {
+        const saved = await upsertSequence.mutateAsync({
+          id: editingSeq.id,
+          name: editingSeq.name.trim() || "Secuencia sin nombre",
+          draft_steps: editingSeq.steps,
+          // Una secuencia nueva nace como borrador: no debe poder asignarse a un flujo hasta publicarse.
+          ...(editingSeq.id ? {} : { status: "draft" as const }),
+        });
+        autosaveSnapshot.current = snapshot;
+        if (!editingSeq.id) setEditingSeq(seq => seq ? { ...seq, id: saved.id, status: saved.status } : seq);
+        setDraftSaveState("saved");
+      } catch {
+        setDraftSaveState("idle"); // se reintenta con el próximo cambio
+      } finally {
+        autosaveInFlight.current = false;
+        if (autosavePending.current) { autosavePending.current = false; setAutosaveTick(t => t + 1); }
+      }
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [editingSeq, seqEditorOpen, autosaveTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const { data: catalogs = [] } = useCatalogs();
   const { data: catalogProductsMap = new Map() } = useCatalogProductsMap();
   const { data: calendars = [] } = useCalendars();
@@ -1776,11 +2387,13 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [doUpsell, setDoUpsell]                       = useState(false);
   const [applyDiscounts, setApplyDiscounts]           = useState(true);
   // Label form state
+  const [showNewLabelForm, setShowNewLabelForm] = useState(false);
   const [newLabelName, setNewLabelName]         = useState("");
   const [newLabelColor, setNewLabelColor]       = useState(LABEL_COLORS[0]);
   const [newLabelHint, setNewLabelHint]         = useState("");
   const [newLabelRemoveHint, setNewLabelRemoveHint] = useState("");
   const [editingLabel, setEditingLabel]         = useState<{ id: string; name: string; color: string; hint: string | null; remove_hint: string | null } | null>(null);
+  const [showNewQrForm, setShowNewQrForm]       = useState(false);
   const [newQrShortcut, setNewQrShortcut]       = useState("");
   const [newQrContent, setNewQrContent]         = useState("");
   const [newQrMediaUrl, setNewQrMediaUrl]       = useState<string | null>(null);
@@ -1798,226 +2411,411 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [section, setSection]             = useState<"conexion"|"agente"|"perfil"|"etiquetas"|"respuestas"|"flujos"|"plantillas"|"campanias">("conexion");
   const [mobileShowSection, setMobileShowSection] = useState(false);
   const initialized                       = useRef(false);
+  // Evita que los toggles animen "encendiéndose" al cargar la config guardada — la transición
+  // solo se habilita después de que el estado inicial ya se pintó sin cambios pendientes.
+  const [switchesReady, setSwitchesReady] = useState(false);
+  // Snapshot de los campos de "Conexión"/"Agente IA" tal como están guardados — habilita
+  // "Guardar cambios" solo cuando el estado actual difiere de este snapshot.
+  const [savedConexionAgenteSnapshot, setSavedConexionAgenteSnapshot] = useState(() => JSON.stringify({
+    phoneNumberId: "", accessToken: "", wabaId: "", appSecret: "",
+    systemPrompt: "", schedulingCalendarId: "", canServices: true, canTransfer: false,
+    autoDetectPaymentsSP: false, physicalProductsModeSP: "none", digitalProductsModeSP: "none",
+    spSelectedProductIds: [] as string[], spServicesMode: "none", spSelectedServiceIds: [] as string[],
+    spCoursesMode: "none", spSelectedCourseIds: [] as string[], agentPersonalitySP: "",
+    responseLengthSP: "normal", emojiLevelSP: "poco", doUpsell: false, applyDiscounts: true,
+  }));
 
-  const branchTargets = useMemo<Map<string, string[]>>(() => {
-    if (!editingSeq) return new Map();
-    const map = new Map<string, string[]>();
-    for (const s of editingSeq.steps) {
-      if (s.type !== "question") continue;
-      for (const opt of s.options ?? []) {
-        if (opt.next_step_id) {
-          const arr = map.get(opt.next_step_id) ?? [];
-          arr.push(opt.label || "?");
-          map.set(opt.next_step_id, arr);
-        }
-      }
-    }
-    return map;
-  }, [editingSeq]);
-
+  // Una rama = una arista saliente de una pregunta, es decir un botón con texto. `targetId` null
+  // significa que ese botón todavía no tiene destino (se dibuja como el recuadro "+ crear paso").
+  // Todo por id: ni índices del arreglo ni el texto del botón (dos botones pueden repetirlo).
   const activeBranches = useMemo(() => {
-    type Branch = { label: string; targetIdx: number; insertBeforeIdx: number | null; questionId: string; isVirtual?: boolean };
+    type Branch = { label: string; questionId: string; optionId: string; targetId: string | null };
     if (!editingSeq) return [] as Branch[];
+    const ids = new Set(editingSeq.steps.map(s => s.id));
     const result: Branch[] = [];
-
     for (const s of editingSeq.steps) {
       if (s.type !== "question") continue;
-      const opts = s.options ?? [];
-      const labeledOpts = opts.filter(o => o.label.trim());
-      if (labeledOpts.length === 0) continue;
-
-      const questionIdx = editingSeq.steps.indexOf(s);
-
-      // Ramas reales: botones con next_step_id configurado
-      const realTargets = labeledOpts
-        .filter(o => o.next_step_id)
-        .map(o => ({ label: o.label, idx: editingSeq.steps.findIndex(st => st.id === o.next_step_id) }))
-        .filter(t => t.idx >= 0 && t.idx < editingSeq.steps.length)
-        .sort((a, b) => a.idx - b.idx);
-      const dedupedReal = realTargets.filter((t, i, arr) => arr.findIndex(x => x.idx === t.idx) === i);
-      for (let i = 0; i < dedupedReal.length; i++) {
-        result.push({ label: dedupedReal[i].label, targetIdx: dedupedReal[i].idx, insertBeforeIdx: dedupedReal[i + 1]?.idx ?? null, questionId: s.id });
-      }
-
-      // Ramas pendientes: botones con etiqueta pero sin next_step_id
-      // Al agregar un paso se auto-enlaza el botón (ya no existe "Continuar al siguiente paso")
-      for (const opt of labeledOpts.filter(o => !o.next_step_id)) {
-        result.push({ label: opt.label, targetIdx: questionIdx + 1, insertBeforeIdx: null, questionId: s.id, isVirtual: true });
+      for (const o of s.options ?? []) {
+        if (!o.label.trim()) continue;
+        result.push({
+          label: o.label,
+          questionId: s.id,
+          optionId: o.id,
+          // Una referencia colgante (a un paso ya borrado) cuenta como "sin destino": mejor
+          // mostrarla como rama pendiente que como un callejón sin salida invisible.
+          targetId: o.next_step_id && ids.has(o.next_step_id) ? o.next_step_id : null,
+        });
       }
     }
     return result;
   }, [editingSeq]);
 
-  const stepBranchMap = useMemo<Map<string, StepBranchInfo>>(() => {
-    if (!editingSeq || activeBranches.length === 0) return new Map();
-    const map = new Map<string, StepBranchInfo>();
-    // Primera pasada: asignar rama a cada paso no compartido
-    for (let i = 0; i < editingSeq.steps.length; i++) {
-      const step = editingSeq.steps[i];
-      if (step.shared) continue; // pasos compartidos no pertenecen a ninguna rama
-      // Buscar la rama más específica (mayor targetIdx que cubre este paso)
-      let bestBi = -1, bestStart = -1;
-      for (let bi = 0; bi < activeBranches.length; bi++) {
-        if (activeBranches[bi].isVirtual) continue;
-        const start = activeBranches[bi].targetIdx;
-        const end = activeBranches[bi].insertBeforeIdx ?? editingSeq.steps.length;
-        if (i >= start && i < end && start > bestStart) {
-          bestBi = bi;
-          bestStart = start;
+  // Salidas de una pregunta que no llevan a ningún paso. En WhatsApp esto le deja al contacto un
+  // botón que, al tocarlo, no responde nada y corta la conversación en seco — así que bloquean el
+  // guardado en vez de publicarse rotas. Cada issue apunta al botón exacto para poder resolverlo
+  // de un toque desde el aviso.
+  const sequenceIssues = useMemo(() => {
+    if (!editingSeq) return [] as { questionId: string; optionId?: string; text: string }[];
+    const stepNumber = new Map(editingSeq.steps.map((s, i) => [s.id, i + 1]));
+    const issues: { questionId: string; optionId?: string; text: string }[] = [];
+    for (const s of editingSeq.steps) {
+      if (s.type !== "question") continue;
+      const branches = activeBranches.filter(b => b.questionId === s.id);
+      if (branches.length === 0) {
+        // Sin ningún botón con texto la pregunta no tiene salidas: el contacto responde y no pasa nada.
+        issues.push({ questionId: s.id, text: `Paso ${stepNumber.get(s.id)} · la pregunta no tiene botones` });
+        continue;
+      }
+      for (const b of branches) {
+        if (!b.targetId) {
+          issues.push({ questionId: s.id, optionId: b.optionId, text: `Paso ${stepNumber.get(s.id)} · botón "${b.label}" sin respuesta` });
         }
       }
-      if (bestBi >= 0) {
-        map.set(step.id, { label: activeBranches[bestBi].label, branchIdx: bestBi, pos: 0, total: 0 });
-      }
     }
-    // Segunda pasada: calcular posición y total reales (solo pasos no-compartidos de esa rama)
-    const branchSteps = new Map<number, string[]>();
-    for (const [id, info] of map) {
-      const list = branchSteps.get(info.branchIdx) ?? [];
-      list.push(id);
-      branchSteps.set(info.branchIdx, list);
-    }
-    for (const [bi, ids] of branchSteps) {
-      ids.forEach((id, idx) => {
-        const info = map.get(id)!;
-        map.set(id, { ...info, pos: idx + 1, total: ids.length });
-      });
-    }
-    return map;
+    return issues;
   }, [editingSeq, activeBranches]);
 
-  const [addBranchTarget, setAddBranchTarget] = useState<number | "shared">("shared");
-  const [highlightStepId, setHighlightStepId] = useState<string | null>(null);
-  const [treeOpen, setTreeOpen] = useState(false);
+  // Paso seleccionado en el árbol — su editor se muestra debajo (modelo árbol-primero: ya no
+  // hay lista lineal con drag-and-drop, el árbol ES el lienzo principal).
+  const [treeSelectedStepId, setTreeSelectedStepId] = useState<string | null>(null);
+  const flashStep = (id: string) => setTreeSelectedStepId(id);
 
-  const flashStep = (id: string) => {
-    setHighlightStepId(id);
-    setTimeout(() => {
-      document.getElementById(`seq-step-${id}`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    }, 30);
-    setTimeout(() => setHighlightStepId(null), 1800);
+  // Qué paso se está creando desde el árbol — se resuelve al elegir el tipo en el selector
+  // (ver <PendingStepCreate>), en vez de crear directo con tipo "message" por defecto.
+  const [pendingStepCreate, setPendingStepCreate] = useState<PendingStepCreate | null>(null);
+  // Punto del árbol desde el que se puede crear un paso NUEVO o CONECTAR a uno ya existente
+  // (comparte un nodo resultado con otra rama, sin duplicar contenido) — tocar un botón
+  // pendiente, o el "+" de continuar tras un nodo hoja, abren el mismo flujo de elección.
+  type ConnectFlowSource =
+    | { kind: "option"; questionStepId: string; optionId: string }
+    | { kind: "after"; afterStepId: string };
+  const [pendingConnectFlow, setPendingConnectFlow] = useState<ConnectFlowSource | null>(null);
+  // Conexión YA existente que se tocó (el círculo al final de la línea) — igual que
+  // pendingConnectFlow pero para gestionar un enlace que ya tiene destino: cambiarlo o quitarlo.
+  // Se toca en vez de arrastrar — más simple y funciona igual en mobile.
+  const [pendingEdgeManage, setPendingEdgeManage] = useState<EdgeManageSource | null>(null);
+  // "Modo conexión": elegir el paso destino tocándolo DIRECTO EN EL LIENZO en vez de buscarlo en
+  // una lista. Mientras está activo, el árbol resalta con un halo los pasos a los que sí se puede
+  // conectar, atenúa el resto y desactiva el resto de acciones — conectar es una operación
+  // espacial ("de acá hasta allá"), y verla sobre el mismo dibujo evita tener que traducir
+  // mentalmente entre "Paso 6" de una lista y el nodo del árbol.
+  // currentTargetId: destino actual al cambiar una conexión ya existente (no se ofrece de nuevo).
+  const [pickingTarget, setPickingTarget] = useState<{ source: EdgeManageSource; currentTargetId: string | null } | null>(null);
+  // Paso a eliminar cuando tiene contenido en el árbol que depende solo de él (una rama entera,
+  // o lo que sigue después de la cabeza de una rama) — se pide elegir entre borrar todo o
+  // unificar (borrar solo este paso y conectar directo lo anterior con lo siguiente).
+  // unifySuccessorId: string | null = unificar disponible, conecta a ese id (o a nada si null);
+  // undefined = unificar no está disponible (el paso tiene 2+ ramas reales, sin un único "siguiente").
+  const [pendingDeleteStep, setPendingDeleteStep] = useState<{
+    id: string; cascadeIds: string[]; unifySuccessorId: string | null | undefined;
+    branchOptions?: { label: string; successorId: string; discardedIds: string[] }[];
+  } | null>(null);
+  // Botón a eliminar cuando tiene un paso enlazado que depende solo de él.
+  const [pendingDeleteOption, setPendingDeleteOption] = useState<{ questionId: string; optionId: string; orphanIds: string[] } | null>(null);
+
+  // Crea un paso nuevo y lo enlaza al toque a un botón de pregunta que todavía no tiene
+  // destino — evita el ida-y-vuelta de crear el paso abajo y luego volver a la pregunta
+  // para enlazarlo.
+  const createLinkedStepForOption = (questionStepId: string, optionId: string, type: SequenceStep["type"]) => {
+    const inserted = newStep(type);
+    setEditingSeq(seq => seq ? {
+      ...seq,
+      // Se agrega al final (el arreglo nunca se reordena) y se enlaza por el id propio del botón,
+      // nunca por texto ni posición: 2 botones de una misma pregunta pueden tener el mismo texto.
+      steps: stepsWithRewiredOption([...seq.steps, inserted], questionStepId, optionId, inserted.id),
+    } : seq);
+    flashStep(inserted.id);
   };
 
-  const handleMoveToBranch = (stepId: string, target: number | "shared") => {
-    const branch = typeof target === "number" ? activeBranches[target] : null;
+  // Primer paso de una secuencia vacía — dispara el prompt inicial cuando aún no hay árbol.
+  const createFirstStep = (type: SequenceStep["type"]) => {
+    const inserted = newStep(type);
+    setEditingSeq(s => s ? { ...s, steps: [inserted] } : s);
+    flashStep(inserted.id);
+  };
+
+  // Agrega un paso a continuación de uno existente (nodo "hoja" del árbol, sin hijos aún): nodo
+  // nuevo al final del arreglo + arista explícita desde `afterStepId` hacia él. Nada más se toca,
+  // así que ningún otro paso cambia de número ni de conexiones.
+  const insertStepAfter = (afterStepId: string, type: SequenceStep["type"]) => {
+    const inserted = newStep(type);
+    setEditingSeq(seq => seq ? {
+      ...seq,
+      steps: [...seq.steps, inserted].map(s => s.id === afterStepId ? { ...s, next_step_id: inserted.id } : s),
+    } : seq);
+    flashStep(inserted.id);
+  };
+
+  // Aplica (crea, cambia o quita) el destino de una conexión manejable — un solo lugar usado
+  // tanto para enlazarla la primera vez (desde un botón pendiente o un paso hoja) como para
+  // cambiarla o quitarla después (tocando el círculo al final de la línea ya existente). Fijar
+  // el enlace de un paso normal (`kind: "step"`) no inserta ningún nodo de más: el paso que ya
+  // llevaba a `afterStepId`/`stepId` sigue enlazado exactamente igual, esto solo agrega o mueve
+  // la conexión saliente de este paso puntual — puede terminar con 2+ padres en el destino.
+  const applyEdgeTarget = (source: EdgeManageSource, newTargetId: string | null) => {
+    setEditingSeq(seq => seq ? { ...seq, steps: stepsWithEdgeTarget(seq.steps, source, newTargetId) } : seq);
+    if (newTargetId) flashStep(source.kind === "option" ? source.questionId : source.stepId);
+  };
+
+  // Ids que quedarían sin conexión si se cambia o quita esta conexión — mismo criterio de "rama
+  // suelta" que ya usan el borrado de pasos y de botones.
+  const computeEdgeChangeOrphans = (source: EdgeManageSource, newTargetId: string | null): string[] => {
+    if (!editingSeq) return [];
+    const before = getReachableStepIds(editingSeq.steps);
+    const after = getReachableStepIds(stepsWithEdgeTarget(editingSeq.steps, source, newTargetId));
+    return [...before].filter(id => !after.has(id));
+  };
+
+  // Describe "de cuál conexión estamos hablando" en texto plano — imprescindible cuando 2+ ramas
+  // comparten un nodo resultado, para no depender de adivinar cuál círculo es cuál en el lienzo.
+  const describeEdgeSource = (source: EdgeManageSource): { text: string; currentTargetId: string | null } | null => {
+    if (!editingSeq) return null;
+    const fromStepId = source.kind === "option" ? source.questionId : source.stepId;
+    const fromStep = editingSeq.steps.find(s => s.id === fromStepId);
+    if (!fromStep) return null;
+    const fromIdx = editingSeq.steps.indexOf(fromStep);
+    const fromPreview = getStepPreview(fromStep, 26);
+    const option = source.kind === "option" ? fromStep.options?.find(o => o.id === source.optionId) : null;
+    const currentTargetId = source.kind === "option" ? (option?.next_step_id ?? null) : (fromStep.next_step_id ?? null);
+    const toStep = currentTargetId ? editingSeq.steps.find(s => s.id === currentTargetId) : null;
+    const toIdx = toStep ? editingSeq.steps.indexOf(toStep) : -1;
+    const toPreview = toStep ? getStepPreview(toStep, 26) : null;
+    const fromLabel = `Paso ${fromIdx + 1}${option ? ` · botón "${option.label}"` : ""} (${STEP_TYPE_LABELS[fromStep.type]}${fromPreview ? `: ${fromPreview}` : ""})`;
+    const toLabel = toStep ? `Paso ${toIdx + 1} (${STEP_TYPE_LABELS[toStep.type]}${toPreview ? `: ${toPreview}` : ""})` : "todavía sin conectar";
+    return { text: `${fromLabel} → ${toLabel}`, currentTargetId };
+  };
+
+  // Intercala un paso nuevo en medio de una conexión ya existente (el "+" sobre la línea): el
+  // nodo nuevo se agrega al final del arreglo, la arista `from → to` pasa a apuntarle, y él toma
+  // `to` como destino. Si el paso intercalado es una Pregunta no puede heredar `to` por su arista
+  // propia (una pregunta navega por botones), así que nace con un botón que va a `to` — si no, todo
+  // lo que colgaba de esa conexión quedaría suelto.
+  const insertStepOnEdge = (fromId: string, toId: string, optionId: string | undefined, type: SequenceStep["type"]) => {
+    const base = newStep(type);
+    const inserted: SequenceStep = type === "question"
+      ? { ...base, options: [{ id: crypto.randomUUID(), label: "Opción 1", next_step_id: toId }] }
+      : { ...base, next_step_id: toId };
     setEditingSeq(seq => {
       if (!seq) return seq;
-      const stepIdx = seq.steps.findIndex(s => s.id === stepId);
-      if (stepIdx === -1) return seq;
-      const step = { ...seq.steps[stepIdx] };
-      const steps = seq.steps.filter((_, i) => i !== stepIdx);
-
-      if (target === "shared") {
-        const movedSteps = [...steps, { ...step, shared: true }];
-        return { ...seq, steps: computeNextStepIds(movedSteps) };
-      }
-      if (!branch) return seq;
-
-      let insertIdx: number;
-      if (branch.isVirtual && branch.questionId) {
-        const realSiblings = activeBranches.filter(b => !b.isVirtual && b.questionId === branch.questionId);
-        if (realSiblings.length > 0) {
-          const maxEnd = realSiblings.reduce((acc, b) => {
-            const end = b.insertBeforeIdx ?? steps.length + 1;
-            return end > acc ? end : acc;
-          }, 0);
-          insertIdx = maxEnd - (stepIdx < maxEnd ? 1 : 0);
-        } else {
-          const qi = steps.findIndex(s => s.id === branch.questionId);
-          insertIdx = qi >= 0 ? qi + 1 : steps.length;
-        }
-      } else if (branch.insertBeforeIdx === null) {
-        const firstShared = steps.findIndex(s => s.shared);
-        insertIdx = firstShared === -1 ? steps.length : firstShared;
-      } else {
-        insertIdx = branch.insertBeforeIdx - (stepIdx < branch.insertBeforeIdx ? 1 : 0);
-      }
-      const newSteps = [...steps];
-      newSteps.splice(insertIdx, 0, { ...step, shared: false });
-
-      if (branch.isVirtual && branch.questionId) {
-        const linked = newSteps.map(st => st.id !== branch.questionId ? st : {
-          ...st,
-          options: st.options?.map(o => o.label === branch.label && !o.next_step_id ? { ...o, next_step_id: step.id } : o),
-        });
-        return { ...seq, steps: computeNextStepIds(linked) };
-      }
-      return { ...seq, steps: computeNextStepIds(newSteps) };
+      if (!seq.steps.some(s => s.id === toId)) return seq;
+      const steps = [...seq.steps, inserted];
+      return {
+        ...seq,
+        steps: optionId
+          ? stepsWithRewiredOption(steps, fromId, optionId, inserted.id)
+          : steps.map(st => st.id === fromId && st.next_step_id === toId ? { ...st, next_step_id: inserted.id } : st),
+      };
     });
-    setTimeout(() => flashStep(stepId), 50);
+    flashStep(inserted.id);
   };
 
-  const treeData = useMemo(() => {
-    if (!editingSeq || activeBranches.length === 0) return null;
+  // Resuelve la creación pendiente una vez el usuario elige el tipo de paso en el selector.
+  const resolvePendingStepCreate = (type: SequenceStep["type"]) => {
+    const pending = pendingStepCreate;
+    if (!pending) return;
+    setPendingStepCreate(null);
+    if (pending.kind === "first") createFirstStep(type);
+    else if (pending.kind === "after") insertStepAfter(pending.afterStepId, type);
+    else if (pending.kind === "edge") insertStepOnEdge(pending.fromId, pending.toId, pending.optionId, type);
+    else if (pending.kind === "option") createLinkedStepForOption(pending.questionStepId, pending.optionId, type);
+  };
 
-    // Agrupar ramas por questionId (reales y virtuales separadas)
-    type BE = { label: string; bi: number; targetIdx: number; insertBeforeIdx: number | null; questionId: string; isVirtual?: boolean };
-    const qMap = new Map<string, { real: BE[]; virt: BE[] }>();
-    activeBranches.forEach((b, bi) => {
-      const entry = qMap.get(b.questionId) ?? { real: [], virt: [] };
-      (b.isVirtual ? entry.virt : entry.real).push({ ...b, bi });
-      qMap.set(b.questionId, entry);
+  // Calcula qué pasa si se elimina un paso:
+  // - `cascadeIds`: ids que dependen únicamente de él (todas sus ramas, si es una pregunta con
+  //   ramas reales; o lo que sigue después de él, si es la cabeza de una rama) — se pierden con
+  //   él si se elige "eliminar todo".
+  // - `unifySuccessorId`: a qué paso reconectar lo anterior si en vez de eso se elige "unificar"
+  //   (borrar SOLO este paso, sin tocar el resto): un id concreto, `null` si no tiene siguiente
+  //   (queda sin conectar), o `undefined` si no hay un único "siguiente" posible (pregunta con
+  //   2+ ramas reales — ahí no se ofrece unificar liso, sino `branchOptions`).
+  // - `branchOptions`: solo si es una pregunta con 2+ ramas reales — una opción por rama para
+  //   CONSERVARLA (reconectando lo anterior directo a ella, sin importar si es una cadena larga
+  //   sin bifurcaciones o una sub-rama con más preguntas adentro) mientras se descartan las demás.
+  const computeDeletionImpact = (stepId: string): {
+    cascadeIds: string[];
+    unifySuccessorId: string | null | undefined;
+    branchOptions?: { label: string; successorId: string; discardedIds: string[] }[];
+  } => {
+    if (!editingSeq) return { cascadeIds: [], unifySuccessorId: undefined };
+    const steps = editingSeq.steps;
+    const step = steps.find(s => s.id === stepId);
+    if (!step) return { cascadeIds: [], unifySuccessorId: undefined };
+
+    // Basado en alcanzabilidad real del grafo (mismo mecanismo que las validaciones de "rama
+    // suelta" del borrado de botones y el arrastre de conexiones) en vez de rangos de índices del
+    // arreglo — más simple y sin los casos límite de la versión anterior (que necesitó un parche
+    // especial tras un bug real donde un id que una rama elegía CONSERVAR terminaba también en su
+    // propia lista de descarte).
+    const reachableBefore = getReachableStepIds(steps);
+    // Simula "borrar este paso y reconectar lo que apuntaba a él hacia `successorId`" (o
+    // desconectarlo si es null) — sirve tanto para "eliminar todo" (successorId=null) como para
+    // calcular, por cada rama posible, qué queda huérfano si esa rama es la que se conserva.
+    const reachableIfRewiredTo = (successorId: string | null): Set<string> =>
+      getReachableStepIds(stepsAfterDeleting(steps, stepId, [], successorId));
+
+    const reachableAfterFullDelete = reachableIfRewiredTo(null);
+    const cascadeIds = [...reachableBefore].filter(id => id !== stepId && !reachableAfterFullDelete.has(id));
+
+    let unifySuccessorId: string | null | undefined;
+    let branchOptions: { label: string; successorId: string; discardedIds: string[] }[] | undefined;
+
+    if (step.type === "question") {
+      // Destinos distintos: 2 botones que llevan al mismo paso son una sola opción de "conservar".
+      const realBranches = activeBranches
+        .filter(b => b.questionId === stepId && b.targetId)
+        .filter((b, i, arr) => arr.findIndex(x => x.targetId === b.targetId) === i);
+      if (realBranches.length === 1) {
+        unifySuccessorId = realBranches[0].targetId ?? null;
+      } else if (realBranches.length > 1) {
+        unifySuccessorId = undefined;
+        branchOptions = realBranches.map(b => {
+          const successorId = b.targetId!;
+          const reachableKeepingThis = reachableIfRewiredTo(successorId);
+          const discardedIds = [...reachableBefore].filter(id => id !== stepId && id !== successorId && !reachableKeepingThis.has(id));
+          return { label: b.label, successorId, discardedIds };
+        });
+      } else {
+        unifySuccessorId = null; // pregunta sin ramas reales — no tiene "siguiente"
+      }
+    } else {
+      unifySuccessorId = step.next_step_id ?? null;
+    }
+
+    return { cascadeIds, unifySuccessorId, branchOptions };
+  };
+
+  // Elimina un paso: siempre quita `stepId` + `discardedIds` (lo que se pierde con él), y
+  // reconecta cualquier opción que apuntara a `stepId` hacia `successorId` (o la desenlaza si es
+  // `null`). Cubre los 3 casos del diálogo: "eliminar todo" (discardedIds = cascadeIds,
+  // successorId = null), "unificar" (discardedIds = [], successorId = unifySuccessorId) y
+  // "conservar esta rama" (discardedIds = las otras ramas, successorId = la rama elegida).
+  const deleteStepWithRewire = (stepId: string, discardedIds: string[], successorId: string | null) => {
+    setEditingSeq(s => s ? { ...s, steps: stepsAfterDeleting(s.steps, stepId, discardedIds, successorId) } : s);
+    setTreeSelectedStepId(successorId);
+    setPendingDeleteStep(null);
+  };
+
+  // Ids que dependen únicamente de un botón específico (no del paso Pregunta completo) — se
+  // pierden si se borra ese botón desde el editor. Mismo criterio de "rama suelta" que ya se usa
+  // al borrar un paso o al reconectar una conexión por arrastre.
+  const computeOptionDeletionOrphans = (questionId: string, optionId: string): string[] => {
+    if (!editingSeq) return [];
+    const before = getReachableStepIds(editingSeq.steps);
+    const hypothetical = editingSeq.steps.map(st => st.id !== questionId ? st : { ...st, options: (st.options ?? []).filter(o => o.id !== optionId) });
+    const after = getReachableStepIds(hypothetical);
+    return [...before].filter(id => !after.has(id));
+  };
+
+  // Quita el botón `optionId` de `questionId` y, si tenía contenido que dependía solo de él,
+  // también ese contenido — así nunca queda una rama suelta invisible en el árbol.
+  const deleteOptionWithCascade = (questionId: string, optionId: string, orphanIds: string[]) => {
+    setEditingSeq(s => {
+      if (!s) return s;
+      const withOptionRemoved = s.steps.map(st => st.id !== questionId ? st : { ...st, options: (st.options ?? []).filter(o => o.id !== optionId) });
+      return { ...s, steps: stepsWithoutIds(withOptionRemoved, new Set(orphanIds)) };
     });
+    setPendingDeleteOption(null);
+  };
 
-    // Ordenar preguntas por posición en la secuencia (solo las que tienen ramas reales)
-    const orderedQ = [...qMap.entries()]
-      .filter(([, v]) => v.real.length > 0)
-      .map(([qId, v]) => ({
-        qId,
-        qIdx: editingSeq.steps.findIndex(s => s.id === qId),
-        real: v.real.sort((a, b) => a.targetIdx - b.targetIdx),
-        virt: v.virt,
-      }))
-      .filter(q => q.qIdx >= 0)
-      .sort((a, b) => a.qIdx - b.qIdx);
+  // Agrega un botón nuevo a una pregunta directo desde el árbol (sin abrir su editor) — queda
+  // sin enlazar (aparece como placeholder pendiente) y se selecciona la pregunta para que el
+  // usuario le ponga un texto real al botón desde su panel de edición.
+  const addOptionToQuestion = (questionId: string) => {
+    setEditingSeq(seq => {
+      if (!seq) return seq;
+      const steps = seq.steps.map(s => {
+        if (s.id !== questionId) return s;
+        // Evita repetir un texto ya usado (ej. tras borrar "Opción 1" y agregar uno nuevo, el
+        // conteo simple volvería a proponer "Opción 2" si ya existe) — 2 botones con el mismo
+        // texto confunden al usuario final de WhatsApp, aunque ya no rompan el enlazado interno.
+        const existingLabels = new Set((s.options ?? []).map(o => o.label));
+        let n = (s.options?.length ?? 0) + 1;
+        while (existingLabels.has(`Opción ${n}`)) n++;
+        return { ...s, options: [...(s.options ?? []), { id: crypto.randomUUID(), label: `Opción ${n}`, next_step_id: null }] };
+      });
+      return { ...seq, steps };
+    });
+    setTreeSelectedStepId(questionId);
+  };
 
-    if (orderedQ.length === 0) return null;
+  const sequenceGraph = useMemo(() => {
+    if (!editingSeq || editingSeq.steps.length === 0) return null;
+    return buildSequenceGraph(editingSeq.steps);
+  }, [editingSeq]);
 
-    type StepNode = { step: SequenceStep; idx: number };
-    type BranchDef = { label: string; bi: number; steps: StepNode[] };
-    type Seg = { kind: "trunk"; steps: StepNode[] } | { kind: "fork"; qIdx: number; branches: BranchDef[] };
-
-    const segs: Seg[] = [];
-    let cur = 0;
-
-    for (const { qIdx, real, virt } of orderedQ) {
-      // Tronco desde cursor hasta la pregunta (inclusive)
-      const trunk: StepNode[] = editingSeq.steps
-        .slice(cur, qIdx + 1)
-        .map((s, i) => ({ step: s, idx: cur + i }));
-      if (trunk.length > 0) segs.push({ kind: "trunk", steps: trunk });
-
-      // Fin de las ramas de esta pregunta
-      const lastReal = real[real.length - 1];
-      const firstSharedAfter = editingSeq.steps.findIndex((s, i) => s.shared && i > lastReal.targetIdx);
-      const branchEnd = lastReal.insertBeforeIdx ?? (firstSharedAfter >= 0 ? firstSharedAfter : editingSeq.steps.length);
-
-      const branches: BranchDef[] = [
-        ...real.map(b => ({
-          label: b.label,
-          bi: b.bi,
-          steps: editingSeq.steps
-            .slice(b.targetIdx, b.insertBeforeIdx ?? branchEnd)
-            .map((s, i) => ({ step: s, idx: b.targetIdx + i }))
-            .filter(n => !n.step.shared),
-        })),
-        ...virt.map(b => ({ label: b.label, bi: b.bi, steps: [] as StepNode[] })),
-      ];
-
-      segs.push({ kind: "fork", qIdx, branches });
-      cur = branchEnd;
+  // Punto de llegada de cada conexión sobre la caja del paso destino: cuando varias terminan en el
+  // mismo paso se reparten en vertical, EN EL MISMO ORDEN de arriba hacia abajo en que salen sus
+  // orígenes (ver incomingEdgesInVisualOrder) — así el círculo de más arriba siempre corresponde a
+  // la rama de más arriba, y el diálogo de gestión lista los caminos en ese mismo orden.
+  const edgePorts = useMemo(() => {
+    const ports = new Map<number, number>(); // índice de arista → desplazamiento vertical
+    if (!sequenceGraph) return ports;
+    for (const targetId of new Set(sequenceGraph.edges.map(e => e.toId))) {
+      const incoming = incomingEdgesInVisualOrder(sequenceGraph, targetId);
+      if (incoming.length < 2) continue;
+      const gap = edgePortGap(incoming.length);
+      incoming.forEach(({ index }, i) => ports.set(index, (i - (incoming.length - 1) / 2) * gap));
     }
+    return ports;
+  }, [sequenceGraph]);
 
-    // Cola (pasos después de todas las ramas)
-    if (cur < editingSeq.steps.length) {
-      const tail: StepNode[] = editingSeq.steps
-        .slice(cur)
-        .map((s, i) => ({ step: s, idx: cur + i }));
-      if (tail.length > 0) segs.push({ kind: "trunk", steps: tail });
+  // Geometría de cada arista, calculada una sola vez: la usan las DOS capas del lienzo (las líneas,
+  // que van detrás de los nodos, y los controles tocables, que van siempre delante).
+  const edgeGeometry = useMemo(() => {
+    if (!sequenceGraph) return [];
+    return sequenceGraph.edges.flatMap((edge, ei) => {
+      const from = sequenceGraph.nodes.find(n => n.id === edge.fromId);
+      const to = sequenceGraph.nodes.find(n => n.id === edge.toId);
+      if (!from || !to) return [];
+      const sx = from.depth * SEQ_TREE_COL_PITCH + SEQ_TREE_NODE_W;
+      const sy = edgeSourceY(from, edge.colorIdx);
+      const tx = to.depth * SEQ_TREE_COL_PITCH;
+      // Varias conexiones pueden terminar en el mismo paso. En vez de superponerlas en un único
+      // punto (donde solo la de encima sería tocable), cada una llega a su propio punto sobre el
+      // borde del destino, repartidos de arriba hacia abajo en el orden visual de sus orígenes.
+      const py = to.lane * SEQ_TREE_ROW_PITCH + SEQ_TREE_NODE_H / 2 + (edgePorts.get(ei) ?? 0);
+      return [{
+        edge, ei, to,
+        sx, sy, tx, py,
+        midX: (sx + tx) / 2,
+        midY: (sy + py) / 2,
+        color: edge.colorIdx !== undefined ? BRANCH_COLORS[edge.colorIdx % BRANCH_COLORS.length].hex : "currentColor",
+      }];
+    });
+  }, [sequenceGraph, edgePorts]);
+
+  // Pasos a los que se puede conectar mientras el lienzo está en modo conexión: solo los de un
+  // nivel estrictamente más profundo que el origen (ver canConnectForward — con eso alcanza para
+  // que nunca se pueda cerrar un ciclo), y nunca el destino que esa conexión ya tiene.
+  const pickableTargetIds = useMemo(() => {
+    if (!pickingTarget || !sequenceGraph) return new Set<string>();
+    const sourceId = pickingTarget.source.kind === "option" ? pickingTarget.source.questionId : pickingTarget.source.stepId;
+    return new Set(
+      sequenceGraph.nodes
+        .filter(n => !n.pending && n.id !== pickingTarget.currentTargetId && canConnectForward(sequenceGraph.nodes, sourceId, n.id))
+        .map(n => n.id),
+    );
+  }, [pickingTarget, sequenceGraph]);
+
+  // Abre el modo conexión para una arista concreta, cerrando el diálogo desde el que se llamó.
+  const startPickingTarget = (source: EdgeManageSource, currentTargetId: string | null) => {
+    setPendingConnectFlow(null);
+    setPendingEdgeManage(null);
+    setPickingTarget({ source, currentTargetId });
+  };
+
+  // Confirma el destino tocado en el lienzo. La validación de "rama suelta" es la misma que tenía
+  // la lista: si mover esta conexión dejaría contenido sin forma de llegar, no se aplica.
+  const confirmPickedTarget = (targetId: string) => {
+    if (!pickingTarget) return;
+    const orphaned = computeEdgeChangeOrphans(pickingTarget.source, targetId);
+    if (orphaned.length > 0) {
+      toast.error(`Si conectas aquí, ${orphaned.length} paso${orphaned.length !== 1 ? "s quedarían" : " quedaría"} sin forma de llegar. Reconéctalo${orphaned.length !== 1 ? "s" : ""} o bórralo${orphaned.length !== 1 ? "s" : ""} primero.`);
+      return;
     }
-
-    return segs.length > 0 ? segs : null;
-  }, [editingSeq, activeBranches]);
+    applyEdgeTarget(pickingTarget.source, targetId);
+    setPickingTarget(null);
+  };
 
   // Perfil de WhatsApp
   const [bio, setBio]                     = useState("");
@@ -2084,6 +2882,32 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setApplyDiscounts(config.apply_discounts ?? true);
     setProfilePicUrl(config.profile_picture_url ?? null);
     if (config.agent_about) setBio(config.agent_about);
+    setSavedConexionAgenteSnapshot(JSON.stringify({
+      phoneNumberId: config.phone_number_id ?? "",
+      accessToken: config.access_token ?? "",
+      wabaId: config.waba_id ?? "",
+      appSecret: config.app_secret ?? "",
+      systemPrompt: config.system_prompt ?? "",
+      schedulingCalendarId: config.scheduling_calendar_id ?? "",
+      canServices: config.can_answer_services ?? true,
+      canTransfer: config.can_transfer_human ?? false,
+      autoDetectPaymentsSP: config.auto_detect_payments ?? false,
+      physicalProductsModeSP: config.physical_products_mode ?? "none",
+      digitalProductsModeSP: config.digital_products_mode ?? "none",
+      spSelectedProductIds: config.selected_product_ids ?? [],
+      spServicesMode: config.services_mode ?? "none",
+      spSelectedServiceIds: config.selected_service_ids ?? [],
+      spCoursesMode: config.courses_mode ?? "none",
+      spSelectedCourseIds: config.selected_course_ids ?? [],
+      agentPersonalitySP: config.agent_personality ?? "",
+      responseLengthSP: config.response_length ?? "normal",
+      emojiLevelSP: config.emoji_level ?? "poco",
+      doUpsell: config.do_upsell ?? false,
+      applyDiscounts: config.apply_discounts ?? true,
+    }));
+    // Doble rAF: deja pintar el estado real sin transición y recién luego la habilita,
+    // para que el cambio de valores inicial no se vea como una animación de encendido.
+    requestAnimationFrame(() => requestAnimationFrame(() => setSwitchesReady(true)));
   }, [config]);
 
   // Clasifica el trigger localmente — instantáneo, sin API.
@@ -2096,13 +2920,13 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     // ── BLOQUEOS DUROS: casos que confunden al usuario creyendo que es un scheduler ──
     const hardBlocks: Array<[RegExp, (m: string) => string]> = [
       [/\b(a\s*las\s*\d+|\d+\s*:\s*\d+\s*(am|pm)?|cada\s+\d+\s*(hora|dia|semana|mes)|diario\s*a\s*las|programar\s*para)\b/i,
-        m => `"${m}" es una hora programada — este trigger no es un scheduler. El flujo solo se activa cuando el usuario envía un mensaje.`],
+        m => `"${m}" es una hora, y los flujos no se disparan solos a una hora. Se activan cuando el cliente te escribe.`],
       [/\b(lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/,
-        m => `"${m}" es un día de la semana — los flujos no tienen scheduler. Solo se activan cuando llega un mensaje.`],
+        m => `"${m}" es un día de la semana, y los flujos no se programan por fecha. Se activan cuando el cliente te escribe.`],
       [/\b(cumpleanos|aniversario)\b/,
-        m => `"${m}" requiere conocer la fecha del contacto — usa los Recordatorios para envíos programados.`],
+        m => `Para "${m}" hace falta la fecha del contacto. Usa Recordatorios, que sí envían en una fecha.`],
       [/\b(llamada[s]?|llame[ns]?|llamar[ae]?|videollamada)\b/,
-        m => `"${m}" es una llamada de voz — los flujos solo detectan mensajes de texto en WhatsApp.`],
+        m => `"${m}" es una llamada, y los flujos solo reconocen mensajes de texto de WhatsApp.`],
     ];
 
     for (const [regex, label] of hardBlocks) {
@@ -2181,6 +3005,23 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     }
   };
 
+  const currentConexionAgenteSnapshot = useMemo(() => JSON.stringify({
+    phoneNumberId, accessToken, wabaId, appSecret,
+    systemPrompt, schedulingCalendarId, canServices, canTransfer,
+    autoDetectPaymentsSP, physicalProductsModeSP, digitalProductsModeSP,
+    spSelectedProductIds, spServicesMode, spSelectedServiceIds,
+    spCoursesMode, spSelectedCourseIds, agentPersonalitySP,
+    responseLengthSP, emojiLevelSP, doUpsell, applyDiscounts,
+  }), [
+    phoneNumberId, accessToken, wabaId, appSecret,
+    systemPrompt, schedulingCalendarId, canServices, canTransfer,
+    autoDetectPaymentsSP, physicalProductsModeSP, digitalProductsModeSP,
+    spSelectedProductIds, spServicesMode, spSelectedServiceIds,
+    spCoursesMode, spSelectedCourseIds, agentPersonalitySP,
+    responseLengthSP, emojiLevelSP, doUpsell, applyDiscounts,
+  ]);
+  const hasUnsavedConexionAgenteChanges = currentConexionAgenteSnapshot !== savedConexionAgenteSnapshot;
+
   const handleSave = async () => {
     setSaving(true);
     try {
@@ -2226,6 +3067,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         }).catch(() => {});
       }
 
+      setSavedConexionAgenteSnapshot(currentConexionAgenteSnapshot);
       toast.success("Configuración guardada");
     } catch { toast.error("Error al guardar"); }
     finally { setSaving(false); }
@@ -2399,9 +3241,9 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const SECTIONS = [
     { id: "conexion" as const,    label: "Conexión",    icon: Wifi,      desc: "Meta Cloud API" },
     { id: "agente" as const,      label: "Agente IA",   icon: Sparkles,  desc: "Personalidad, capacidades y prompt" },
-    { id: "flujos" as const,      label: "Flujos",      icon: GitBranch, desc: "Secuencias y Flujos" },
     { id: "etiquetas" as const,   label: "Etiquetas",   icon: Tag,       desc: "Gestionar etiquetas" },
-    { id: "respuestas" as const,  label: "Respuestas",  icon: Zap,       desc: "/ atajos de respuesta rápida" },
+    { id: "respuestas" as const,  label: "Respuestas Rápidas", icon: Zap, desc: "/ atajos de respuesta rápida" },
+    { id: "flujos" as const,      label: "Flujos",      icon: GitBranch, desc: "Automatiza conversaciones paso a paso" },
     { id: "plantillas" as const,  label: "Plantillas",  icon: Megaphone, desc: "Remarketing fuera de 24h" },
     { id: "campanias" as const,   label: "Envío Masivo", icon: Send,     desc: "Envíos pasados y dentro de 24h" },
   ];
@@ -2409,19 +3251,203 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <DeleteConfirmDialog
-        open={!!pendingDeleteSeqId}
-        onOpenChange={open => !open && setPendingDeleteSeqId(null)}
-        onConfirm={handleDeleteSeq}
-        isPending={deletingSeq}
-        description="Se eliminará la secuencia de mensajes permanentemente y dejará de estar disponible en los flujos."
-      />
-      <DeleteConfirmDialog
         open={!!pendingDeleteFlowId}
         onOpenChange={open => !open && setPendingDeleteFlowId(null)}
         onConfirm={handleDeleteFlow}
         isPending={deletingFlow}
-        description="Se eliminará el flujo de automatización permanentemente."
+        description="Se eliminará el flujo permanentemente. La(s) secuencia(s) que usaba no se borran — siguen disponibles para otros flujos."
       />
+      <DeleteConfirmDialog
+        open={!!pendingDeleteSeqId}
+        onOpenChange={open => !open && setPendingDeleteSeqId(null)}
+        onConfirm={handleDeleteSeq}
+        isPending={deletingSeq}
+        description={(() => {
+          const inUse = flows.filter(f =>
+            f.sequence_id === pendingDeleteSeqId || (f.country_sequences ?? []).some(cs => cs.sequence_id === pendingDeleteSeqId),
+          );
+          if (inUse.length === 0) return "Se eliminará la secuencia permanentemente. Ningún flujo la está usando.";
+          return `Se eliminará permanentemente. La está usando ${inUse.length === 1 ? "el flujo" : "los flujos"} ${inUse.map(f => `"${f.name}"`).join(", ")}${inUse.some(f => f.is_active && f.status === "published") ? " —que está activo ahora mismo—" : ""}, y ${inUse.length === 1 ? "dejará" : "dejarán"} de enviar estos mensajes.`;
+        })()}
+      />
+      <Dialog open={!!pendingStepCreate} onOpenChange={open => !open && setPendingStepCreate(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">¿Qué tipo de paso quieres crear?</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            {STEP_TYPE_ORDER.map(t => {
+              const Icon = STEP_TYPE_ICONS[t];
+              return (
+                <button
+                  key={t}
+                  onClick={() => resolvePendingStepCreate(t)}
+                  className="flex flex-col items-center gap-1.5 py-3 rounded-xl border border-border hover:border-primary/50 hover:bg-primary/5 transition-colors text-xs font-medium"
+                >
+                  <Icon size={18} className="text-muted-foreground" />
+                  {STEP_TYPE_LABELS[t]}
+                </button>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!pendingConnectFlow} onOpenChange={open => !open && setPendingConnectFlow(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">¿Qué sigue después de esto?</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 pt-1">
+            <button
+              onClick={() => {
+                if (!pendingConnectFlow) return;
+                setPendingStepCreate(pendingConnectFlow.kind === "option"
+                  ? { kind: "option", questionStepId: pendingConnectFlow.questionStepId, optionId: pendingConnectFlow.optionId }
+                  : { kind: "after", afterStepId: pendingConnectFlow.afterStepId });
+                setPendingConnectFlow(null);
+              }}
+              className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
+            >
+              Crear paso nuevo
+            </button>
+            <button
+              onClick={() => {
+                if (!pendingConnectFlow) return;
+                startPickingTarget(
+                  pendingConnectFlow.kind === "option"
+                    ? { kind: "option", questionId: pendingConnectFlow.questionStepId, optionId: pendingConnectFlow.optionId }
+                    : { kind: "step", stepId: pendingConnectFlow.afterStepId },
+                  null,
+                );
+              }}
+              className="h-10 px-4 rounded-xl border border-primary/40 text-primary text-xs font-medium hover:bg-primary/5 transition-colors"
+            >
+              Llevar a un paso que ya existe
+            </button>
+            <button
+              onClick={() => setPendingConnectFlow(null)}
+              className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors"
+            >
+              Cancelar
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!pendingEdgeManage} onOpenChange={open => !open && setPendingEdgeManage(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">¿Qué quieres hacer con este camino?</DialogTitle>
+          </DialogHeader>
+          {pendingEdgeManage && editingSeq && sequenceGraph && (
+            <EdgeTargetPreview steps={editingSeq.steps} graph={sequenceGraph} source={pendingEdgeManage} />
+          )}
+          <div className="flex flex-col gap-2 pt-1">
+            <button
+              onClick={() => {
+                if (!pendingEdgeManage) return;
+                startPickingTarget(pendingEdgeManage, describeEdgeSource(pendingEdgeManage)?.currentTargetId ?? null);
+              }}
+              className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
+            >
+              Cambiar a dónde lleva
+            </button>
+            <button
+              onClick={() => {
+                if (!pendingEdgeManage) return;
+                const orphaned = computeEdgeChangeOrphans(pendingEdgeManage, null);
+                if (orphaned.length > 0) {
+                  toast.error(`Si quitas esta conexión, ${orphaned.length} paso${orphaned.length !== 1 ? "s quedarían" : " quedaría"} sin forma de llegar. Bórralo${orphaned.length !== 1 ? "s" : ""} primero.`);
+                  return;
+                }
+                applyEdgeTarget(pendingEdgeManage, null);
+                setPendingEdgeManage(null);
+              }}
+              className="h-10 px-4 rounded-xl border border-destructive/40 text-destructive text-xs font-medium hover:bg-destructive/5 transition-colors"
+            >
+              Quitar este camino
+            </button>
+            <button
+              onClick={() => setPendingEdgeManage(null)}
+              className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors"
+            >
+              Cancelar
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!pendingDeleteStep} onOpenChange={open => !open && setPendingDeleteStep(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">Después de este paso hay más contenido</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <p className="text-sm text-muted-foreground">
+              {pendingDeleteStep?.branchOptions
+                ? `Esta pregunta abre ${pendingDeleteStep.branchOptions.length} caminos distintos. Puedes quedarte con uno (sigue completo y se conecta directo con lo anterior) y eliminar los demás, o eliminar todo.`
+                : pendingDeleteStep?.unifySuccessorId !== undefined
+                ? `Hay ${pendingDeleteStep?.cascadeIds.length ?? 0} paso${pendingDeleteStep && pendingDeleteStep.cascadeIds.length !== 1 ? "s" : ""} que dependen solo de este. Puedes eliminar solo este paso y conectar directo lo anterior con lo siguiente, o eliminar todo junto con él.`
+                : `Este paso abre varios caminos, así que no hay uno solo con el que continuar. Si sigues, se eliminarán todos (${pendingDeleteStep?.cascadeIds.length ?? 0} pasos).`}
+            </p>
+            <div className="flex flex-col gap-2">
+              {pendingDeleteStep?.branchOptions?.map(opt => (
+                <button
+                  key={opt.successorId}
+                  onClick={() => pendingDeleteStep && deleteStepWithRewire(pendingDeleteStep.id, opt.discardedIds, opt.successorId)}
+                  className="h-9 px-4 rounded-xl border border-primary/40 text-primary text-xs font-medium hover:bg-primary/5 transition-colors truncate"
+                >
+                  Quedarme solo con "{opt.label}"
+                </button>
+              ))}
+              {pendingDeleteStep?.unifySuccessorId !== undefined && (
+                <button
+                  onClick={() => pendingDeleteStep && deleteStepWithRewire(pendingDeleteStep.id, [], pendingDeleteStep.unifySuccessorId ?? null)}
+                  className="h-9 px-4 rounded-xl border border-primary/40 text-primary text-xs font-medium hover:bg-primary/5 transition-colors"
+                >
+                  Eliminar solo este paso y unir lo de antes con lo de después
+                </button>
+              )}
+              <button
+                onClick={() => pendingDeleteStep && deleteStepWithRewire(pendingDeleteStep.id, pendingDeleteStep.cascadeIds, null)}
+                className="h-9 px-4 rounded-xl bg-destructive text-destructive-foreground text-xs font-medium hover:opacity-90 transition-opacity"
+              >
+                Eliminar todo ({pendingDeleteStep ? pendingDeleteStep.cascadeIds.length + 1 : 0} pasos)
+              </button>
+              <button
+                onClick={() => setPendingDeleteStep(null)}
+                className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={!!pendingDeleteOption} onOpenChange={open => !open && setPendingDeleteOption(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-base">Este botón lleva a otros pasos</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 pt-1">
+            <p className="text-sm text-muted-foreground">
+              Hay {pendingDeleteOption?.orphanIds.length ?? 0} paso{pendingDeleteOption && pendingDeleteOption.orphanIds.length !== 1 ? "s" : ""} que dependen solo de este botón — si lo eliminas, se eliminarán junto con él.
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={() => pendingDeleteOption && deleteOptionWithCascade(pendingDeleteOption.questionId, pendingDeleteOption.optionId, pendingDeleteOption.orphanIds)}
+                className="h-9 px-4 rounded-xl bg-destructive text-destructive-foreground text-xs font-medium hover:opacity-90 transition-opacity"
+              >
+                Eliminar botón y {pendingDeleteOption?.orphanIds.length ?? 0} paso{pendingDeleteOption && pendingDeleteOption.orphanIds.length !== 1 ? "s" : ""}
+              </button>
+              <button
+                onClick={() => setPendingDeleteOption(null)}
+                className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative z-10 w-full sm:max-w-lg bg-card h-full flex shadow-2xl border-l overflow-hidden">
 
@@ -2483,8 +3509,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
             </button>
             <div className="flex items-center gap-3">
               <button onClick={handleToggleActive} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                <span className={`absolute inset-0 rounded-full transition-colors ${isActive ? "bg-emerald-500" : "bg-secondary border"}`} />
-                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${isActive ? "left-[22px]" : "left-0.5"}`} />
+                <span className={`absolute inset-0 rounded-full ${switchesReady ? "transition-colors" : ""} ${isActive ? "bg-emerald-500" : "bg-secondary border"}`} />
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow ${switchesReady ? "transition-all" : ""} ${isActive ? "left-[22px]" : "left-0.5"}`} />
               </button>
               <button
                 onClick={() => { setSection("perfil"); setMobileShowSection(true); }}
@@ -2541,10 +3567,13 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     isActive ? "bg-[#1877F2]/8 dark:bg-[#1877F2]/12" : "hover:bg-secondary/60"
                   }`}
                 >
-                  <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
+                  <div className={`relative w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${
                     isActive ? "bg-[#1877F2]/15" : "bg-secondary"
                   }`}>
                     <Icon size={15} className={isActive ? "text-[#1877F2]" : "text-muted-foreground"} />
+                    {s.id === "conexion" && !config?.verified_phone && (
+                      <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-destructive border-2 border-background" />
+                    )}
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className={`text-sm font-medium leading-tight ${isActive ? "text-[#1877F2]" : "text-foreground"}`}>{s.label}</p>
@@ -2572,6 +3601,34 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
             <h2 className="text-sm font-semibold flex-1 truncate">
               {section === "perfil" ? "Perfil WhatsApp" : SECTIONS.find(s => s.id === section)?.label ?? "Configuración"}
             </h2>
+            {section === "respuestas" && (
+              <button
+                onClick={() => setShowNewQrForm(v => !v)}
+                className={`w-8 h-8 flex items-center justify-center rounded-xl transition-colors shrink-0 ${
+                  showNewQrForm ? "bg-secondary text-muted-foreground hover:bg-secondary/80" : "bg-primary text-primary-foreground hover:bg-primary/90"
+                }`}
+              >
+                {showNewQrForm ? <X size={16} /> : <Plus size={16} />}
+              </button>
+            )}
+            {section === "etiquetas" && (
+              <button
+                onClick={() => setShowNewLabelForm(v => !v)}
+                className={`w-8 h-8 flex items-center justify-center rounded-xl transition-colors shrink-0 ${
+                  showNewLabelForm ? "bg-secondary text-muted-foreground hover:bg-secondary/80" : "bg-primary text-primary-foreground hover:bg-primary/90"
+                }`}
+              >
+                {showNewLabelForm ? <X size={16} /> : <Plus size={16} />}
+              </button>
+            )}
+            {section === "flujos" && flowWizardStep === null && (
+              <button
+                onClick={startNewFlow}
+                className="w-8 h-8 flex items-center justify-center rounded-xl transition-colors shrink-0 bg-primary text-primary-foreground hover:bg-primary/90"
+              >
+                <Plus size={16} />
+              </button>
+            )}
           </div>
 
           {/* Content */}
@@ -2714,29 +3771,29 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                 </div>
               </div>
 
-              {/* Longitud + Emojis en la misma fila */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Longitud de respuestas</label>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {RESPONSE_LENGTHS.map(r => (
-                      <button key={r.val} onClick={() => setResponseLengthSP(r.val)}
-                        className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${responseLengthSP === r.val ? "bg-primary/10 border-primary text-primary font-medium" : "border-border hover:border-primary/40"}`}>
-                        {r.label}
-                      </button>
-                    ))}
-                  </div>
+              {/* Longitud de respuestas */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">Longitud de respuestas</label>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {RESPONSE_LENGTHS.map(r => (
+                    <button key={r.val} onClick={() => setResponseLengthSP(r.val)}
+                      className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${responseLengthSP === r.val ? "bg-primary/10 border-primary text-primary font-medium" : "border-border hover:border-primary/40"}`}>
+                      {r.label}
+                    </button>
+                  ))}
                 </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-medium text-muted-foreground">Uso de emojis</label>
-                  <div className="grid grid-cols-1 gap-1.5">
-                    {EMOJI_LEVELS.map(e => (
-                      <button key={e.val} onClick={() => setEmojiLevelSP(e.val)}
-                        className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${emojiLevelSP === e.val ? "bg-primary/10 border-primary text-primary font-medium" : "border-border hover:border-primary/40"}`}>
-                        {e.label}
-                      </button>
-                    ))}
-                  </div>
+              </div>
+
+              {/* Uso de emojis */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-muted-foreground">Uso de emojis</label>
+                <div className="grid grid-cols-1 gap-1.5">
+                  {EMOJI_LEVELS.map(e => (
+                    <button key={e.val} onClick={() => setEmojiLevelSP(e.val)}
+                      className={`text-left text-xs px-3 py-2 rounded-lg border transition-colors ${emojiLevelSP === e.val ? "bg-primary/10 border-primary text-primary font-medium" : "border-border hover:border-primary/40"}`}>
+                      {e.label}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -2774,8 +3831,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     <p className="text-xs text-muted-foreground">El agente detecta cuando el cliente quiere hablar con una persona y cambia a modo Manual</p>
                   </div>
                   <button onClick={() => setCanTransfer(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                    <span className={`absolute inset-0 rounded-full transition-colors ${canTransfer ? "bg-primary" : "bg-secondary border"}`} />
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${canTransfer ? "left-[22px]" : "left-0.5"}`} />
+                    <span className={`absolute inset-0 rounded-full ${switchesReady ? "transition-colors" : ""} ${canTransfer ? "bg-primary" : "bg-secondary border"}`} />
+                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow ${switchesReady ? "transition-all" : ""} ${canTransfer ? "left-[22px]" : "left-0.5"}`} />
                   </button>
                 </div>
                 {canTransfer && pushChecked && isPushSupported() && pushPermission !== "denied" && !pushHasSubscription && (
@@ -2803,8 +3860,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     <p className="text-xs text-muted-foreground">La IA analiza comprobantes de pago y registra ventas automáticamente. Si lo desactivas, el comprobante detectado queda pendiente de tu confirmación manual en el CRM.</p>
                   </div>
                   <button onClick={() => setAutoDetectPaymentsSP(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                    <span className={`absolute inset-0 rounded-full transition-colors ${autoDetectPaymentsSP ? "bg-primary" : "bg-secondary border"}`} />
-                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${autoDetectPaymentsSP ? "left-[22px]" : "left-0.5"}`} />
+                    <span className={`absolute inset-0 rounded-full ${switchesReady ? "transition-colors" : ""} ${autoDetectPaymentsSP ? "bg-primary" : "bg-secondary border"}`} />
+                    <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow ${switchesReady ? "transition-all" : ""} ${autoDetectPaymentsSP ? "left-[22px]" : "left-0.5"}`} />
                   </button>
                 </div>
                 {pushChecked && isPushSupported() && pushPermission !== "denied" && !pushHasSubscription && (
@@ -2830,8 +3887,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   <p className="text-xs text-muted-foreground">Sugiere productos complementarios cuando sea relevante</p>
                 </div>
                 <button onClick={() => setDoUpsell(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                  <span className={`absolute inset-0 rounded-full transition-colors ${doUpsell ? "bg-primary" : "bg-secondary border"}`} />
-                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${doUpsell ? "left-[22px]" : "left-0.5"}`} />
+                  <span className={`absolute inset-0 rounded-full ${switchesReady ? "transition-colors" : ""} ${doUpsell ? "bg-primary" : "bg-secondary border"}`} />
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow ${switchesReady ? "transition-all" : ""} ${doUpsell ? "left-[22px]" : "left-0.5"}`} />
                 </button>
               </div>
               <div className="flex items-center justify-between py-3 border-t">
@@ -2840,8 +3897,8 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   <p className="text-xs text-muted-foreground">El agente mostrará precios con descuento cuando estén configurados para la moneda del contacto</p>
                 </div>
                 <button onClick={() => setApplyDiscounts(v => !v)} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                  <span className={`absolute inset-0 rounded-full transition-colors ${applyDiscounts ? "bg-primary" : "bg-secondary border"}`} />
-                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${applyDiscounts ? "left-[22px]" : "left-0.5"}`} />
+                  <span className={`absolute inset-0 rounded-full ${switchesReady ? "transition-colors" : ""} ${applyDiscounts ? "bg-primary" : "bg-secondary border"}`} />
+                  <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow ${switchesReady ? "transition-all" : ""} ${applyDiscounts ? "left-[22px]" : "left-0.5"}`} />
                 </button>
               </div>
             </div>
@@ -3125,10 +4182,20 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
           {section === "etiquetas" && (
             <div className="space-y-4">
+              {!showNewLabelForm && (
+              <>
               {/* Lista de etiquetas existentes */}
               <div className="space-y-1">
                 {labels.length === 0 && (
-                  <p className="text-xs text-muted-foreground/60 italic text-center py-4">Sin etiquetas. Crea una abajo.</p>
+                  <div className="flex flex-col items-center justify-center gap-3 py-8">
+                    <p className="text-xs text-muted-foreground/60 italic text-center">Sin etiquetas creadas</p>
+                    <button
+                      onClick={() => setShowNewLabelForm(true)}
+                      className="h-9 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center gap-1.5 hover:opacity-90 transition-opacity"
+                    >
+                      <Plus size={13} /> Crear Etiqueta
+                    </button>
+                  </div>
                 )}
                 {labels.map(l => (
                   <div key={l.id} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-border/60 bg-card">
@@ -3239,8 +4306,11 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   </div>
                 ))}
               </div>
+              </>
+              )}
 
-              {/* Formulario nueva etiqueta */}
+              {/* Formulario nueva etiqueta — pantalla completa, solo visible al presionar + en el header */}
+              {showNewLabelForm && (
               <div className="rounded-xl border border-dashed border-border p-3 space-y-2.5">
                 <p className="text-xs font-medium text-muted-foreground">Nueva etiqueta</p>
                 <div className="flex gap-1 flex-wrap">
@@ -3317,30 +4387,50 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     </button>
                   )}
                 </div>
-                <button
-                  onClick={async () => {
-                    if (!newLabelName.trim()) return;
-                    await upsertLabel.mutateAsync({ name: newLabelName.trim(), color: newLabelColor, hint: newLabelHint.trim() || null, remove_hint: newLabelRemoveHint.trim() || null });
-                    setNewLabelName("");
-                    setNewLabelHint("");
-                    setNewLabelRemoveHint("");
-                  }}
-                  disabled={!newLabelName.trim() || upsertLabel.isPending}
-                  className="flex items-center gap-1 px-3 h-8 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40"
-                >
-                  <Plus size={12} /> Crear etiqueta
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setShowNewLabelForm(false); setNewLabelName(""); setNewLabelHint(""); setNewLabelRemoveHint(""); }}
+                    className="h-8 px-3 rounded-lg border text-xs hover:bg-secondary transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!newLabelName.trim()) return;
+                      await upsertLabel.mutateAsync({ name: newLabelName.trim(), color: newLabelColor, hint: newLabelHint.trim() || null, remove_hint: newLabelRemoveHint.trim() || null });
+                      setNewLabelName("");
+                      setNewLabelHint("");
+                      setNewLabelRemoveHint("");
+                      setShowNewLabelForm(false);
+                    }}
+                    disabled={!newLabelName.trim() || upsertLabel.isPending}
+                    className="flex-1 flex items-center justify-center gap-1 px-3 h-8 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40"
+                  >
+                    <Plus size={12} /> Crear etiqueta
+                  </button>
+                </div>
               </div>
+              )}
             </div>
           )}
 
           {/* ── Respuestas Rápidas ── */}
           {section === "respuestas" && (
             <div className="space-y-4">
+              {!showNewQrForm && (
+              <>
               {/* Lista */}
               <div className="space-y-1">
                 {quickReplies.length === 0 && (
-                  <p className="text-xs text-muted-foreground/60 italic text-center py-4">Sin respuestas. Crea una abajo.</p>
+                  <div className="flex flex-col items-center justify-center gap-3 py-8">
+                    <p className="text-xs text-muted-foreground/60 italic text-center">Sin respuestas rápidas creadas</p>
+                    <button
+                      onClick={() => setShowNewQrForm(true)}
+                      className="h-9 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center gap-1.5 hover:opacity-90 transition-opacity"
+                    >
+                      <Plus size={13} /> Crear Respuesta Rápida
+                    </button>
+                  </div>
                 )}
                 {quickReplies.map(qr => (
                   <div key={qr.id} className="flex items-start gap-2 px-3 py-2.5 rounded-xl border border-border/60 bg-card">
@@ -3422,8 +4512,12 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   </div>
                 ))}
               </div>
-              {/* Formulario de creación */}
-              <div className="space-y-2 pt-2 border-t border-border/40">
+              </>
+              )}
+
+              {/* Formulario de creación — pantalla completa, solo visible al presionar + en el header */}
+              {showNewQrForm && (
+              <div className="space-y-2">
                 <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Nueva respuesta</p>
                 <input
                   value={newQrShortcut}
@@ -3463,11 +4557,18 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                     {newQrMediaUrl ? "Cambiar" : "Adjuntar"}
                   </button>
                   <button
+                    onClick={() => { setShowNewQrForm(false); setNewQrShortcut(""); setNewQrContent(""); setNewQrMediaUrl(null); setNewQrMediaType(null); setNewQrMediaFilename(null); }}
+                    className="h-8 px-3 rounded-xl border text-xs hover:bg-secondary transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
                     disabled={!newQrShortcut.trim() || (!newQrContent.trim() && !newQrMediaUrl) || newQrUploading || upsertQuickReply.isPending}
                     onClick={async () => {
                       if (!newQrShortcut.trim() || (!newQrContent.trim() && !newQrMediaUrl)) return;
                       await upsertQuickReply.mutateAsync({ shortcut: newQrShortcut, content: newQrContent, media_url: newQrMediaUrl, media_type: newQrMediaType, media_filename: newQrMediaFilename });
                       setNewQrShortcut(""); setNewQrContent(""); setNewQrMediaUrl(null); setNewQrMediaType(null); setNewQrMediaFilename(null);
+                      setShowNewQrForm(false);
                     }}
                     className="flex-1 h-8 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 hover:opacity-90 transition-opacity"
                   >
@@ -3475,629 +4576,95 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                   </button>
                 </div>
               </div>
+              )}
             </div>
           )}
 
-          {/* ── Flujos (Secuencias + Flujos) ── */}
+          {/* ── Flujos ── */}
           {section === "flujos" && (
             <div className="space-y-4">
-
-              {/* ── Sub-sección: Secuencias de Mensajes ── */}
-              {editingFlow === null && <div className="rounded-xl border border-border bg-card overflow-hidden">
-                <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-secondary/20">
-                  <p className="text-xs font-semibold">Secuencias de Mensajes</p>
-                  <span className="text-[10px] text-muted-foreground/60">Scripts reutilizables</span>
-                </div>
-
-                <div className="p-4 space-y-3">
-                {editingSeq === null ? (
-                  <>
-                    {sequences.length === 0 && (
-                      <p className="text-xs text-muted-foreground/60 italic text-center py-3">Sin secuencias. Crea una abajo.</p>
-                    )}
-                    {sequences.map(seq => (
-                      <div key={seq.id} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-border/60 bg-background">
-                        <MessageSquare size={13} className="text-muted-foreground mt-0.5 shrink-0" />
+              {flowWizardStep === null ? (
+                <>
+                  {flows.length === 0 && (
+                    <div className="flex flex-col items-center justify-center gap-3 py-8">
+                      <p className="text-xs text-muted-foreground/60 italic text-center">Sin flujos creados</p>
+                      <button
+                        onClick={startNewFlow}
+                        className="h-9 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center gap-1.5 hover:opacity-90 transition-opacity"
+                      >
+                        <Plus size={13} /> Crear Flujo
+                      </button>
+                    </div>
+                  )}
+                  {flows.map(flow => {
+                    const isDraft = flow.status === "draft";
+                    const seqName = sequences.find(s => s.id === flow.sequence_id)?.name;
+                    return (
+                      <div key={flow.id} className={`flex items-start gap-2.5 px-3 py-2.5 rounded-xl border ${isDraft ? "border-dashed border-amber-400/50 bg-amber-50/40 dark:bg-amber-950/10" : "border-border/60 bg-background"}`}>
+                        <GitBranch size={13} className={`mt-0.5 shrink-0 ${isDraft ? "text-amber-500" : "text-muted-foreground"}`} />
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium truncate">{seq.name}</p>
-                          <p className="text-[10px] text-muted-foreground/60">
-                            {seq.steps.length} paso{seq.steps.length !== 1 ? "s" : ""}
-                            {seq.product_id && (() => {
-                              const name = allServices.find(s => s.id === seq.product_id)?.name
-                                ?? allProducts.find(p => p.id === seq.product_id)?.name
-                                ?? allCourses.find(c => c.id === seq.product_id)?.title;
-                              return name ? <> · {name}</> : null;
-                            })()}
-                            {seq.currency && <> · {seq.currency}</>}
-                          </p>
+                          <div className="flex items-center gap-1.5">
+                            <p className="text-sm font-medium truncate">{flow.name || "Sin nombre"}</p>
+                            {isDraft && (
+                              <span className="text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-400/15 px-1.5 py-0.5 rounded-full shrink-0">
+                                Borrador
+                              </span>
+                            )}
+                          </div>
+                          {isDraft ? (
+                            <p className="text-[10px] text-amber-600/80 dark:text-amber-400/70 mt-0.5">Continúa en el paso {flow.draft_step} de 3</p>
+                          ) : (
+                            <>
+                              <p className="text-[10px] text-muted-foreground/60 truncate">
+                                {(flow.flow_trigger_type ?? "intent") === "new_conversation" ? "Conversación nueva" : flow.trigger_text || <em>Sin trigger</em>}
+                              </p>
+                              <p className="text-[10px] text-muted-foreground/50">
+                                {(flow.country_sequences?.length > 0)
+                                  ? <>→ Por país: {flow.country_sequences.map(cs => FLOW_COUNTRY_BY_CODE[cs.country_code]?.flag ?? cs.country_code).join(" ")}</>
+                                  : (seqName ? `→ ${seqName}` : "→ Sin secuencia")
+                                }
+                                {" · "}
+                                {FLOW_FINAL_ACTION_LABELS[flow.final_action]}
+                              </p>
+                            </>
+                          )}
                         </div>
-                        <button onClick={() => { setInsertAtIdx(null); setAddBranchTarget("shared"); setEditingSeq({ id: seq.id, name: seq.name, product_id: seq.product_id, entity_type: (seq as any).entity_type ?? null, currency: (seq as any).currency ?? null, steps: seq.steps }); }}
-                          className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+                        {!isDraft && (
+                          <button
+                            onClick={() => toggleFlow.mutate({ id: flow.id, is_active: !flow.is_active })}
+                            className={`w-8 h-5 shrink-0 rounded-full transition-colors flex items-center px-0.5 mt-0.5 ${flow.is_active ? "bg-emerald-500" : "bg-muted-foreground/30"}`}
+                          >
+                            <span className={`w-3 h-3 rounded-full bg-white shadow transition-transform ${flow.is_active ? "translate-x-3.5" : "translate-x-0"}`} />
+                          </button>
+                        )}
+                        <button onClick={() => openFlowForEdit(flow)} className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0">
                           <Pencil size={12} />
                         </button>
-                        <button onClick={() => setPendingDeleteSeqId(seq.id)}
-                          className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                        <button onClick={() => setPendingDeleteFlowId(flow.id)} className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
                           <Trash2 size={12} />
                         </button>
                       </div>
-                    ))}
-                    <button
-                      onClick={() => { setInsertAtIdx(null); setAddBranchTarget("shared"); setEditingSeq({ name: "", product_id: null, entity_type: null, currency: null, steps: [] }); }}
-                      className="flex items-center gap-1.5 w-full px-3 h-9 rounded-xl border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors">
-                      <Plus size={13} /> Nueva secuencia
-                    </button>
-                  </>
-                ) : (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <button onClick={() => setEditingSeq(null)} className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
-                        <ArrowLeft size={14} />
-                      </button>
-                      <span className="text-xs font-medium">{editingSeq.id ? "Editar secuencia" : "Nueva secuencia"}</span>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-muted-foreground">Nombre</label>
-                      <input
-                        value={editingSeq.name}
-                        onChange={e => setEditingSeq(s => s ? { ...s, name: e.target.value } : s)}
-                        placeholder="ej: Presentación Paquete Gold"
-                        className="w-full h-8 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      />
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className="text-xs font-medium text-muted-foreground">Servicio/Producto/Curso asociado <span className="text-muted-foreground/50">(opcional)</span></label>
-                      <select
-                        value={editingSeq.product_id ?? ""}
-                        onChange={e => {
-                          const val = e.target.value || null;
-                          let etype: DraftSequence["entity_type"] = null;
-                          if (val) {
-                            if (allServices.some(s => s.id === val)) etype = "service";
-                            else if (allProducts.some(p => p.id === val)) etype = "product";
-                            else if (allCourses.some(c => c.id === val)) etype = "course";
-                          }
-                          setEditingSeq(s => s ? { ...s, product_id: val, entity_type: etype, currency: null } : s);
-                        }}
-                        className="w-full h-8 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none">
-                        <option value="">Sin asociar</option>
-                        {allServices.length > 0 && <option disabled>── Servicios ──</option>}
-                        {allServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        {allProducts.length > 0 && <option disabled>── Productos ──</option>}
-                        {allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                        {allCourses.length > 0 && <option disabled>── Cursos ──</option>}
-                        {allCourses.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
-                      </select>
-                    </div>
-
-                    {/* Selector de moneda — combinando precio principal + crm_prices */}
-                    {editingSeq.product_id && (() => {
-                      // Precio principal almacenado en la tabla del producto/servicio/curso
-                      const entityObj = editingSeq.entity_type === 'service'
-                        ? allServices.find(s => s.id === editingSeq.product_id)
-                        : editingSeq.entity_type === 'product'
-                          ? allProducts.find(p => p.id === editingSeq.product_id)
-                          : allCourses.find(c => c.id === editingSeq.product_id);
-                      const mainCurrency = (entityObj as any)?.currency as string | undefined;
-                      const mainPrice    = (entityObj as any)?.price as number | undefined;
-
-                      // Combinar: precio principal + precios de crm_prices (sin duplicar moneda)
-                      const combined: { currency: string; price: number }[] = [];
-                      if (mainCurrency && mainPrice != null) combined.push({ currency: mainCurrency, price: Number(mainPrice) });
-                      for (const p of seqEntityPrices) {
-                        if (!combined.some(c => c.currency === p.currency)) combined.push({ currency: p.currency, price: p.price });
-                      }
-
-                      if (combined.length <= 1) {
-                        return combined.length === 1
-                          ? <p className="text-[10px] text-muted-foreground/60">Moneda: {combined[0].currency}</p>
-                          : null;
-                      }
-
-                      return (
-                        <div className="space-y-1">
-                          <label className="text-xs font-medium text-muted-foreground">
-                            Moneda de esta secuencia <span className="text-red-500">*</span>
-                          </label>
-                          <p className="text-[10px] text-muted-foreground/60 leading-snug">El agente detectará el país del contacto y usará la secuencia con la moneda correspondiente.</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {combined.map(p => (
-                              <button
-                                key={p.currency}
-                                type="button"
-                                onClick={() => setEditingSeq(s => s ? { ...s, currency: p.currency } : s)}
-                                className={`px-3 py-1.5 text-xs rounded-lg border transition-all ${editingSeq.currency === p.currency ? "border-primary bg-primary/8 text-primary font-semibold" : "border-border text-muted-foreground hover:border-primary/40"}`}
-                              >
-                                {p.currency} — {formatAmount(p.price, p.currency)}
-                              </button>
-                            ))}
-                          </div>
-                          {!editingSeq.currency && (
-                            <p className="text-[10px] text-amber-600">Debes seleccionar una moneda para guardar.</p>
-                          )}
-                        </div>
-                      );
-                    })()}
-
-                    <div className="space-y-1.5">
-                      <label className="text-xs font-medium text-muted-foreground">Pasos</label>
-                      {editingSeq.steps.length === 0 && (
-                        <p className="text-[11px] text-muted-foreground/50 italic text-center py-3">Sin pasos. Agrega uno abajo.</p>
-                      )}
-                      <DndContext
-                        sensors={seqSensors}
-                        collisionDetection={closestCenter}
-                        onDragEnd={(event: DragEndEvent) => {
-                          const { active, over } = event;
-                          if (!over || active.id === over.id) return;
-                          setEditingSeq(s => {
-                            if (!s) return s;
-                            const oldIdx = s.steps.findIndex(st => st.id === active.id);
-                            const newIdx = s.steps.findIndex(st => st.id === over.id);
-                            const reordered = arrayMove(s.steps, oldIdx, newIdx);
-                            return { ...s, steps: computeNextStepIds(reordered) };
-                          });
-                        }}
-                      >
-                        <SortableContext items={editingSeq.steps.map(s => s.id)} strategy={verticalListSortingStrategy}>
-                          <div className="space-y-0">
-                            {editingSeq.steps.flatMap((step, i) => {
-                              const stepEl = (
-                                <div key={step.id} className="pb-2">
-                                  <SortableSequenceStep
-                                    step={step}
-                                    index={i}
-                                    allSteps={editingSeq.steps}
-                                    onChange={updated => setEditingSeq(s => {
-                                      if (!s) return s;
-                                      const newSteps = s.steps.map(st => st.id === updated.id ? updated : st);
-                                      const prevType = s.steps.find(st => st.id === updated.id)?.type;
-                                      // Recomputar si el paso es/era pregunta (estructura de ramas cambia)
-                                      const needsRecompute = updated.type === "question" || prevType === "question";
-                                      return { ...s, steps: needsRecompute ? computeNextStepIds(newSteps) : newSteps };
-                                    })}
-                                    onRemove={() => setEditingSeq(s => {
-                                      if (!s) return s;
-                                      // Limpiar referencias a este paso en opciones de preguntas
-                                      const cleaned = s.steps
-                                        .filter(st => st.id !== step.id)
-                                        .map(st => ({
-                                          ...st,
-                                          options: st.options?.map(o => o.next_step_id === step.id ? { ...o, next_step_id: null } : o),
-                                        }));
-                                      return { ...s, steps: computeNextStepIds(cleaned) };
-                                    })}
-                                    userId={user?.id ?? ""}
-                                    branchInfo={stepBranchMap.get(step.id)}
-                                    isShared={step.shared === true}
-                                    isHighlighted={step.id === highlightStepId}
-                                    availableBranches={activeBranches.length > 0 ? activeBranches.map((b, bi) => ({ label: b.label, branchIdx: bi })) : undefined}
-                                    onMoveToBranch={activeBranches.length > 0 ? (target) => handleMoveToBranch(step.id, target) : undefined}
-                                  />
-                                </div>
-                              );
-                              if (i === 0) return [stepEl];
-                              const insertBtn = insertAtIdx === i - 1 ? (
-                                <div key={`ins-open-${i}`} className="flex flex-wrap gap-1 py-2 px-2.5 rounded-lg bg-primary/5 border border-primary/20 mb-2">
-                                  <span className="text-[10px] text-muted-foreground/70 w-full">Insertar paso aquí:</span>
-                                  {(["message", "question", "link", "image", "video", "audio", "file"] as const).map(t => (
-                                    <button key={t} onClick={() => {
-                                      const inserted = newStep(t);
-                                      setEditingSeq(s => {
-                                        if (!s) return s;
-                                        const steps = [...s.steps];
-                                        steps.splice(i, 0, inserted);
-                                        return { ...s, steps: computeNextStepIds(steps) };
-                                      });
-                                      setInsertAtIdx(null);
-                                      flashStep(inserted.id);
-                                    }} className="text-[10px] px-2 py-0.5 rounded-md border border-primary/30 bg-background hover:bg-primary/10 text-primary transition-colors">
-                                      + {STEP_TYPE_LABELS[t]}
-                                    </button>
-                                  ))}
-                                  <button onClick={() => setInsertAtIdx(null)} className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground ml-1">✕</button>
-                                </div>
-                              ) : (
-                                <button key={`ins-btn-${i}`} onClick={() => setInsertAtIdx(i - 1)}
-                                  className="w-full flex items-center gap-2 mb-1.5 group cursor-pointer">
-                                  <div className="flex-1 h-px bg-border/20 group-hover:bg-primary/25 transition-colors" />
-                                  <span className="text-[9px] text-muted-foreground/25 group-hover:text-primary/50 transition-colors flex items-center gap-0.5 shrink-0 select-none">
-                                    <Plus size={7} /> insertar
-                                  </span>
-                                  <div className="flex-1 h-px bg-border/20 group-hover:bg-primary/25 transition-colors" />
-                                </button>
-                              );
-                              return [insertBtn, stepEl];
-                            })}
-                          </div>
-                        </SortableContext>
-                      </DndContext>
-                    </div>
-
-                    {branchTargets.size > 0 && (
-                      <div className="rounded-lg border border-border bg-secondary/20 px-3 pt-2.5 pb-2 space-y-2">
-                        <p className="text-[10px] font-semibold text-muted-foreground">Estructura de ramas</p>
-                        <svg viewBox="0 0 310 80" fill="none" xmlns="http://www.w3.org/2000/svg" className="w-full" style={{ maxHeight: 72 }}>
-                          <rect x="1" y="27" width="70" height="26" rx="5" fill="#6366f1" fillOpacity="0.14" stroke="#6366f1" strokeOpacity="0.5" strokeWidth="1"/>
-                          <text x="36" y="44" textAnchor="middle" fontSize="9" fill="currentColor" fontFamily="system-ui, sans-serif">Pregunta</text>
-                          <path d="M71 33 L100 18" stroke="#22c55e" strokeWidth="1.5"/>
-                          <text x="78" y="12" fontSize="8" fill="#22c55e" fontWeight="700" fontFamily="system-ui, sans-serif">SI</text>
-                          <rect x="100" y="6" width="96" height="24" rx="5" fill="#22c55e" fillOpacity="0.1" stroke="#22c55e" strokeOpacity="0.5" strokeWidth="1"/>
-                          <text x="148" y="22" textAnchor="middle" fontSize="8" fill="#22c55e" fontFamily="system-ui, sans-serif">pasos rama SI</text>
-                          <path d="M71 47 L100 62" stroke="#ef4444" strokeWidth="1.5"/>
-                          <text x="78" y="76" fontSize="8" fill="#ef4444" fontWeight="700" fontFamily="system-ui, sans-serif">NO</text>
-                          <rect x="100" y="50" width="96" height="24" rx="5" fill="#ef4444" fillOpacity="0.1" stroke="#ef4444" strokeOpacity="0.5" strokeWidth="1"/>
-                          <text x="148" y="66" textAnchor="middle" fontSize="8" fill="#ef4444" fontFamily="system-ui, sans-serif">pasos rama NO</text>
-                          <path d="M196 18 Q214 18 214 40 L228 40" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5"/>
-                          <path d="M196 62 Q214 62 214 40 L228 40" stroke="currentColor" strokeOpacity="0.25" strokeWidth="1.5"/>
-                          <rect x="228" y="27" width="80" height="26" rx="5" fill="currentColor" fillOpacity="0.05" stroke="currentColor" strokeOpacity="0.2" strokeWidth="1"/>
-                          <text x="268" y="44" textAnchor="middle" fontSize="8" fill="currentColor" fillOpacity="0.5" fontFamily="system-ui, sans-serif">paso compartido</text>
-                        </svg>
-                        <p className="text-[9px] text-muted-foreground/60 leading-relaxed">
-                          Los pasos después de cada destino se ejecutan en cadena. Los pasos al final (compartidos) los ejecutan <em>todas</em> las ramas.
-                        </p>
-                      </div>
-                    )}
-
-                    {activeBranches.length > 0 ? (
-                      <div className="space-y-2">
-                        <div className="space-y-1.5">
-                          <p className="text-[10px] font-medium text-muted-foreground">Agregar nuevo paso a:</p>
-                          <div className="flex flex-wrap gap-1.5">
-                            {activeBranches.map((branch, idx) => (
-                              <button key={branch.label + idx}
-                                onClick={() => setAddBranchTarget(idx)}
-                                className={`text-[10px] px-2.5 py-1 rounded-full border font-medium transition-colors ${
-                                  addBranchTarget === idx
-                                    ? "bg-primary text-primary-foreground border-primary"
-                                    : branch.isVirtual
-                                      ? "border-dashed border-amber-400/60 text-amber-600 dark:text-amber-400 hover:border-amber-500"
-                                      : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
-                                }`}>
-                                {branch.isVirtual ? `⚠ "${branch.label}" sin paso` : `Rama "${branch.label}"`}
-                              </button>
-                            ))}
-                            <button
-                              onClick={() => setAddBranchTarget("shared")}
-                              className={`text-[10px] px-2.5 py-1 rounded-full border transition-colors ${
-                                addBranchTarget === "shared"
-                                  ? "bg-secondary border-border text-foreground font-medium"
-                                  : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
-                              }`}>
-                              Paso compartido
-                            </button>
-                          </div>
-                          {addBranchTarget === "shared" && (
-                            <p className="text-[9px] text-muted-foreground/50">El paso se agrega al final — lo ejecutan todas las ramas (reconvergencia)</p>
-                          )}
-                          {typeof addBranchTarget === "number" && (
-                            <p className="text-[9px] text-muted-foreground/50">El paso se inserta al final de la rama "{activeBranches[addBranchTarget]?.label}"</p>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {(["message", "question", "link", "image", "video", "audio", "file"] as const).map(t => (
-                            <button key={t}
-                              onClick={() => {
-                                const inserted = addBranchTarget === "shared"
-                                  ? { ...newStep(t), shared: true }
-                                  : newStep(t);
-                                const branch = typeof addBranchTarget === "number" ? activeBranches[addBranchTarget] : null;
-                                setEditingSeq(seq => {
-                                  if (!seq) return seq;
-                                  if (addBranchTarget === "shared") {
-                                    return { ...seq, steps: computeNextStepIds([...seq.steps, inserted]) };
-                                  }
-                                  let insertIdx: number;
-                                  if (branch?.isVirtual && branch.questionId) {
-                                    const realSiblings = activeBranches.filter(b => !b.isVirtual && b.questionId === branch.questionId);
-                                    if (realSiblings.length > 0) {
-                                      const maxEnd = realSiblings.reduce((acc, b) => {
-                                        const end = b.insertBeforeIdx ?? seq.steps.length;
-                                        return end > acc ? end : acc;
-                                      }, 0);
-                                      insertIdx = maxEnd;
-                                    } else {
-                                      const qi = seq.steps.findIndex(s => s.id === branch.questionId);
-                                      insertIdx = qi >= 0 ? qi + 1 : seq.steps.length;
-                                    }
-                                  } else {
-                                    insertIdx = branch?.insertBeforeIdx ?? seq.steps.length;
-                                  }
-                                  const steps = [...seq.steps];
-                                  steps.splice(insertIdx, 0, inserted);
-                                  if (branch?.isVirtual && branch.questionId) {
-                                    const linked = steps.map(st => st.id !== branch.questionId ? st : {
-                                      ...st,
-                                      options: st.options?.map(o => o.label === branch.label && !o.next_step_id ? { ...o, next_step_id: inserted.id } : o),
-                                    });
-                                    return { ...seq, steps: computeNextStepIds(linked) };
-                                  }
-                                  return { ...seq, steps: computeNextStepIds(steps) };
-                                });
-                                flashStep(inserted.id);
-                              }}
-                              className="flex items-center justify-center gap-1 h-8 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors">
-                              <Plus size={10} /> {STEP_TYPE_LABELS[t]}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="grid grid-cols-3 gap-1.5">
-                        {(["message", "question", "link", "image", "video", "audio", "file"] as const).map(t => (
-                          <button key={t}
-                            onClick={() => {
-                              const inserted = newStep(t);
-                              setEditingSeq(s => s ? { ...s, steps: computeNextStepIds([...s.steps, inserted]) } : s);
-                              flashStep(inserted.id);
-                            }}
-                            className="flex items-center justify-center gap-1 h-8 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors">
-                            <Plus size={10} /> {STEP_TYPE_LABELS[t]}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* ── Árbol visual de la secuencia ── */}
-                    {activeBranches.length > 0 && treeData && (
-                      <div className="rounded-lg border border-border overflow-hidden">
-                        <button
-                          onClick={() => setTreeOpen(v => !v)}
-                          className="flex items-center justify-between w-full px-3 py-2 text-[11px] font-medium text-muted-foreground hover:bg-secondary/30 transition-colors"
-                        >
-                          <span className="flex items-center gap-1.5">
-                            <GitBranch size={11} />
-                            Árbol de la secuencia
-                            <span className="text-[9px] font-normal opacity-50">
-                              {editingSeq.steps.length} pasos · {activeBranches.filter(b => !b.isVirtual).length} ramas
-                            </span>
-                          </span>
-                          <ChevronDown size={12} className={`transition-transform duration-200 ${treeOpen ? "rotate-180" : ""}`} />
-                        </button>
-                        {treeOpen && treeData && (
-                          <div className="bg-secondary/10 border-t border-border/40 overflow-x-auto">
-                            <div
-                              className="p-3 flex flex-col items-center"
-                              style={{
-                                minWidth: `${Math.max(220, treeData.reduce<number>((acc, s) => s.kind === "fork" ? Math.max(acc, s.branches.length) : acc, 1) * 92)}px`,
-                              }}
-                            >
-                              {treeData.map((seg, si) => {
-                                const hasNextSeg = si < treeData.length - 1;
-
-                                if (seg.kind === "trunk") {
-                                  return (
-                                    <div key={`t${si}`} className="flex flex-col items-center w-full">
-                                      {/* Conector de entrada cuando este trunk sigue a un fork */}
-                                      {si > 0 && <div className="w-px h-2 bg-border/60" />}
-                                      {seg.steps.map((node, ni) => {
-                                        const isQ = node.step.type === "question";
-                                        const preview = getStepPreview(node.step, 26);
-                                        return (
-                                          <div key={node.step.id} className="flex flex-col items-center w-full">
-                                            {ni > 0 && <div className="w-px h-2.5 bg-border/60" />}
-                                            <button
-                                              onClick={() => flashStep(node.step.id)}
-                                              className={`flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-lg border text-left w-full max-w-[210px] hover:border-primary/40 hover:bg-primary/5 transition-colors ${isQ ? "border-amber-400/40 bg-amber-400/5" : "border-border/60 bg-background"}`}
-                                            >
-                                              <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${isQ ? "bg-amber-400" : "bg-border"}`} />
-                                              <span className="text-[8px] text-muted-foreground/60 tabular-nums shrink-0 w-3.5">{node.idx + 1}</span>
-                                              <span className={`text-[9px] font-semibold shrink-0 ${isQ ? "text-amber-500 dark:text-amber-400" : "text-foreground/80"}`}>{STEP_TYPE_LABELS[node.step.type]}</span>
-                                              {preview && <span className="text-[8.5px] text-muted-foreground/65 truncate">{preview}</span>}
-                                              {isQ && <span className="ml-auto text-[8px] text-amber-400/70 shrink-0">▼</span>}
-                                            </button>
-                                          </div>
-                                        );
-                                      })}
-                                      {hasNextSeg && <div className="w-px h-2.5 bg-border/60" />}
-                                    </div>
-                                  );
-                                }
-
-                                // Fork: columnas de ramas en paralelo
-                                const isSingle = seg.branches.length === 1;
-                                return (
-                                  <div key={`f${si}`} className="flex flex-col w-full">
-
-                                    {/* Columnas de ramas */}
-                                    <div className="flex w-full">
-                                      {seg.branches.map((branch, bi) => {
-                                        const color = BRANCH_COLORS[branch.bi % BRANCH_COLORS.length];
-                                        const isFirstB = bi === 0;
-                                        const isLastB = bi === seg.branches.length - 1;
-                                        return (
-                                          /* relative: contexto para la línea vertical absoluta */
-                                          <div key={branch.bi} className="relative flex-1 flex flex-col items-center min-w-[84px]">
-
-                                            {/* Línea vertical absoluta: recorre TODO el alto de la columna
-                                                independientemente del contenido — esto garantiza la conexión */}
-                                            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 w-px bg-border/55 pointer-events-none" />
-
-                                            {/* T-connector superior: solo líneas horizontales (la vertical ya está arriba) */}
-                                            <div className="relative w-full h-3">
-                                              {!isSingle && !isFirstB && <div className="absolute top-0 left-0 w-1/2 h-px bg-border/60" />}
-                                              {!isSingle && !isLastB && <div className="absolute top-0 right-0 w-1/2 h-px bg-border/60" />}
-                                            </div>
-
-                                            {/* Etiqueta de rama */}
-                                            <span className={`relative z-10 text-[8px] font-bold px-2 py-px rounded-full border truncate max-w-[82px] mb-1.5 ${color.pill}`}>
-                                              {branch.label}
-                                            </span>
-
-                                            {/* Pasos de esta rama — z-10 para rendir encima de la línea absoluta */}
-                                            <div className="relative z-10 flex flex-col items-center w-full px-1 pb-3">
-                                              {branch.steps.length === 0 ? (
-                                                <span className="text-[8px] text-muted-foreground/50 italic py-1">(vacío)</span>
-                                              ) : branch.steps.map((node, ni) => {
-                                                const isNestedQ = node.step.type === "question";
-                                                const preview = getStepPreview(node.step, 10);
-                                                return (
-                                                  <div key={node.step.id} className="flex flex-col items-center w-full">
-                                                    {ni > 0 && <div className={`w-px h-1.5 ${color.bar} opacity-50`} />}
-                                                    <button
-                                                      onClick={() => flashStep(node.step.id)}
-                                                      className={`w-full text-left rounded-md border px-1.5 py-0.5 hover:bg-primary/5 hover:border-primary/40 transition-colors ${isNestedQ ? "border-amber-400/40 bg-amber-400/5" : `${color.border} bg-background/80`}`}
-                                                    >
-                                                      <div className="flex items-center gap-0.5">
-                                                        <span className="text-[7.5px] text-muted-foreground/55 tabular-nums shrink-0">{node.idx + 1}</span>
-                                                        <span className={`text-[8.5px] font-semibold shrink-0 ${isNestedQ ? "text-amber-500 dark:text-amber-400" : color.text}`}>{STEP_TYPE_LABELS[node.step.type]}</span>
-                                                      </div>
-                                                      {preview && <div className="text-[7.5px] text-muted-foreground/60 truncate leading-tight">{preview}</div>}
-                                                    </button>
-                                                  </div>
-                                                );
-                                              })}
-                                            </div>
-                                          </div>
-                                        );
-                                      })}
-                                    </div>
-
-                                    {/* Línea de merge horizontal — justo debajo de las columnas */}
-                                    {hasNextSeg && (
-                                      <div className="flex w-full" style={{ height: "1px" }}>
-                                        {seg.branches.map((branch, bi) => {
-                                          const isFirstB = bi === 0;
-                                          const isLastB = bi === seg.branches.length - 1;
-                                          return (
-                                            <div key={`m${branch.bi}`} className="flex-1 relative" style={{ height: "1px" }}>
-                                              {!isSingle && !isFirstB && <div className="absolute inset-y-0 left-0 right-1/2 bg-border/60" />}
-                                              {!isSingle && !isLastB && <div className="absolute inset-y-0 right-0 left-1/2 bg-border/60" />}
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <button
-                      disabled={!editingSeq.name.trim() || upsertSequence.isPending || (() => {
-                        if (!editingSeq.product_id) return false;
-                        const obj = editingSeq.entity_type === 'service' ? allServices.find(s => s.id === editingSeq.product_id)
-                          : editingSeq.entity_type === 'product' ? allProducts.find(p => p.id === editingSeq.product_id)
-                          : allCourses.find(c => c.id === editingSeq.product_id);
-                        const mainC = (obj as any)?.currency as string | undefined;
-                        const extraCs = seqEntityPrices.map(p => p.currency).filter(c => c !== mainC);
-                        const totalCurrencies = [mainC, ...extraCs].filter(Boolean).length;
-                        return totalCurrencies > 1 && !editingSeq.currency;
-                      })()}
-                      onClick={async () => {
-                        if (!editingSeq.name.trim()) return;
-                        // Calcular monedas combinadas para validar
-                        const obj = editingSeq.product_id
-                          ? (editingSeq.entity_type === 'service' ? allServices.find(s => s.id === editingSeq.product_id)
-                            : editingSeq.entity_type === 'product' ? allProducts.find(p => p.id === editingSeq.product_id)
-                            : allCourses.find(c => c.id === editingSeq.product_id))
-                          : null;
-                        const mainC = obj ? (obj as any).currency as string | undefined : undefined;
-                        const allC = [mainC, ...seqEntityPrices.map(p => p.currency).filter(c => c !== mainC)].filter(Boolean) as string[];
-                        if (editingSeq.product_id && allC.length > 1 && !editingSeq.currency) {
-                          toast.error("Selecciona una moneda para guardar la secuencia.");
-                          return;
-                        }
-                        const currency = editingSeq.currency ?? (allC.length === 1 ? allC[0] : null);
-                        try {
-                          await upsertSequence.mutateAsync({ ...editingSeq, currency });
-                          setEditingSeq(null);
-                          toast.success(editingSeq.id ? "Secuencia actualizada" : "Secuencia creada");
-                        } catch (e: any) {
-                          toast.error(e?.message?.slice(0, 120) ?? "Error al guardar la secuencia");
-                        }
-                      }}
-                      className="w-full h-9 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity">
-                      {upsertSequence.isPending ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                      Guardar secuencia
-                    </button>
-                  </div>
-                )}
-                </div>
-              </div>}
-
-              {/* ── Sub-sección: Flujos ── */}
-              {editingSeq === null && (
+                    );
+                  })}
+                </>
+              ) : editingFlow && (
                 <div className="rounded-xl border border-border bg-card overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-3 border-b border-border/60 bg-secondary/20">
-                    <p className="text-xs font-semibold">Flujos</p>
-                    <span className="text-[10px] text-muted-foreground/60">Trigger → Secuencia → Acción</span>
+                    <button onClick={closeFlowWizard} className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+                      <ArrowLeft size={14} />
+                    </button>
+                    <div className="flex flex-col items-center">
+                      <p className="text-xs font-semibold">
+                        {flowWizardStep === 1 ? "Nombre y activación" : flowWizardStep === 2 ? "Secuencia(s)" : "Acción final"}
+                      </p>
+                      <span className="text-[10px] text-muted-foreground/60">Paso {flowWizardStep} de 3</span>
+                    </div>
+                    <div style={{ width: 24 }} />
                   </div>
 
                   <div className="p-4 space-y-3">
-                  {editingFlow === null ? (
-                    <>
-                      {flows.length === 0 && (
-                        <p className="text-xs text-muted-foreground/60 italic text-center py-3">Sin flujos. Crea uno abajo.</p>
-                      )}
-                      {flows.map(flow => {
-                        const seqName = sequences.find(s => s.id === flow.sequence_id)?.name;
-                        return (
-                          <div key={flow.id} className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl border border-border/60 bg-background">
-                            <GitBranch size={13} className="text-muted-foreground mt-0.5 shrink-0" />
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium truncate">{flow.name}</p>
-                              <p className="text-[10px] text-muted-foreground/60 truncate">
-                                {(flow.flow_trigger_type ?? "intent") === "new_conversation"
-                                  ? "Conversación nueva"
-                                  : flow.trigger_text || <em>Sin trigger</em>}
-                              </p>
-                              <p className="text-[10px] text-muted-foreground/50">
-                                {seqName ? `→ ${seqName}` : "→ Sin secuencia"}
-                                {(flow.country_sequences?.length > 0) && (
-                                  <> · {flow.country_sequences.map(cs => COUNTRY_BY_CODE[cs.country_code]?.flag ?? cs.country_code).join(" ")}</>
-                                )}
-                                {" · "}
-                                {FLOW_FINAL_ACTION_LABELS[flow.final_action]}
-                                {(flow.flow_trigger_type ?? "intent") === "intent" && (
-                                  <> · {(flow.trigger_once ?? true) ? "1 vez" : "múltiples veces"}</>
-                                )}
-                              </p>
-                            </div>
-                            {/* Toggle activo */}
-                            <button
-                              onClick={() => toggleFlow.mutate({ id: flow.id, is_active: !flow.is_active })}
-                              className={`w-8 h-5 shrink-0 rounded-full transition-colors flex items-center px-0.5 mt-0.5 ${flow.is_active ? "bg-emerald-500" : "bg-muted-foreground/30"}`}
-                            >
-                              <span className={`w-3 h-3 rounded-full bg-white shadow transition-transform ${flow.is_active ? "translate-x-3.5" : "translate-x-0"}`} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setTriggerValidation(null);
-                                setEditingFlow({ id: flow.id, name: flow.name, trigger_text: flow.trigger_text, sequence_id: flow.sequence_id, final_action: flow.final_action, is_active: flow.is_active, trigger_once: flow.trigger_once ?? true, flow_trigger_type: (flow.flow_trigger_type === "new_conversation" ? "new_conversation" : "intent") as DraftFlow["flow_trigger_type"], country_sequences: flow.country_sequences ?? [] });
-                              }}
-                              className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0">
-                              <Pencil size={12} />
-                            </button>
-                            <button
-                              onClick={() => setPendingDeleteFlowId(flow.id)}
-                              className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
-                              <Trash2 size={12} />
-                            </button>
-                          </div>
-                        );
-                      })}
-                      <button
-                        onClick={() => { setTriggerValidation(null); setEditingFlow(newDraftFlow()); }}
-                        className="flex items-center gap-1.5 w-full px-3 h-9 rounded-xl border border-dashed border-border text-xs text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors">
-                        <Plus size={13} /> Nuevo flujo
-                      </button>
-                    </>
-                  ) : (
-                    /* ── Editor de flujo ── */
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => { setTriggerValidation(null); setEditingFlow(null); }} className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
-                          <ArrowLeft size={14} />
-                        </button>
-                        <span className="text-xs font-medium">{editingFlow.id ? "Editar flujo" : "Nuevo flujo"}</span>
-                      </div>
-
+                    {flowWizardStep === 1 && (
+                      <>
                       {/* Nombre */}
                       <div className="space-y-1">
                         <label className="text-xs font-medium text-muted-foreground">Nombre</label>
@@ -4206,163 +4773,633 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                         </div>
                       )}
 
-                      {/* Secuencias por país */}
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-medium text-muted-foreground">Secuencias a ejecutar</label>
+                        <div className="flex gap-2 pt-1">
                           <button
-                            type="button"
-                            onClick={() => setEditingFlow(f => f ? { ...f, country_sequences: [...f.country_sequences, { country_code: "", sequence_id: "" }] } : f)}
-                            className="text-[10px] text-primary hover:underline flex items-center gap-0.5"
+                            onClick={handleFlowStep1Continue}
+                            disabled={savingFlowStep}
+                            className="w-full h-9 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity"
                           >
-                            + Agregar por país
+                            {savingFlowStep ? <Loader2 size={13} className="animate-spin" /> : null}
+                            Continuar
                           </button>
                         </div>
+                      </>
+                    )}
 
-                        {/* Secuencia por defecto */}
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-muted-foreground shrink-0 w-20">Por defecto</span>
-                          <select
-                            value={editingFlow.sequence_id ?? ""}
-                            onChange={e => setEditingFlow(f => f ? { ...f, sequence_id: e.target.value || null } : f)}
-                            className="flex-1 h-8 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none">
-                            <option value="">Sin secuencia</option>
-                            {sequences.map(s => (
-                              <option key={s.id} value={s.id}>{s.name}</option>
-                            ))}
-                          </select>
-                        </div>
+                    {flowWizardStep === 2 && (
+                      <>
+                        {seqEditorOpen === null ? (
+                          <>
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-muted-foreground">¿Cómo se usa la secuencia?</label>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => setFlowUsageMode("global")}
+                                  className={`text-left px-3 py-2 rounded-xl border transition-all ${flowUsageMode === "global" ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/40 hover:bg-muted/30"}`}
+                                >
+                                  <p className="text-xs font-semibold">Global</p>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">Misma secuencia para todos los contactos</p>
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setFlowUsageMode("country")}
+                                  className={`text-left px-3 py-2 rounded-xl border transition-all ${flowUsageMode === "country" ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/40 hover:bg-muted/30"}`}
+                                >
+                                  <p className="text-xs font-semibold">Por País</p>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">Una secuencia distinta según el país del contacto</p>
+                                </button>
+                              </div>
+                            </div>
 
-                        {/* Filas secuencia → país (el país se filtra por la moneda de la secuencia) */}
-                        {editingFlow.country_sequences.map((cs, idx) => {
-                          const selectedSeq = sequences.find(s => s.id === cs.sequence_id);
-                          const seqCurrency = (selectedSeq as any)?.currency as string | null | undefined;
-                          // Países que corresponden a la moneda de la secuencia seleccionada
-                          const countryPool = seqCurrency
-                            ? supportedCountries.filter(c => c.currency === seqCurrency)
-                            : supportedCountries;
-                          // Excluir países ya usados en otras filas
-                          const countryOptions = countryPool.filter(
-                            c => c.code === cs.country_code || !editingFlow.country_sequences.some((x, i) => i !== idx && x.country_code === c.code)
-                          );
-                          return (
-                            <div key={idx} className="flex items-center gap-2">
-                              {/* 1. Secuencia */}
-                              <select
-                                value={cs.sequence_id}
-                                onChange={e => setEditingFlow(f => {
-                                  if (!f) return f;
-                                  const next = [...f.country_sequences];
-                                  const newSeq = sequences.find(s => s.id === e.target.value);
-                                  const newCurrency = (newSeq as any)?.currency as string | null | undefined;
-                                  // Si la nueva secuencia tiene moneda, calculamos los países posibles
-                                  const newPool = newCurrency
-                                    ? supportedCountries.filter(c => c.currency === newCurrency)
-                                    : [];
-                                  // Auto-seleccionar país si solo hay uno disponible
-                                  const autoCountry = newPool.length === 1 ? newPool[0].code : "";
-                                  next[idx] = { sequence_id: e.target.value, country_code: autoCountry };
-                                  return { ...f, country_sequences: next };
-                                })}
-                                className="flex-1 h-8 px-2 text-xs rounded-lg border border-input bg-background focus:outline-none">
-                                <option value="">Secuencia…</option>
-                                {sequences.map(s => (
-                                  <option key={s.id} value={s.id}>{s.name}</option>
-                                ))}
-                              </select>
-                              {/* 2. País — filtrado por moneda de la secuencia */}
-                              <select
-                                value={cs.country_code}
-                                onChange={e => setEditingFlow(f => {
-                                  if (!f) return f;
-                                  const next = [...f.country_sequences];
-                                  next[idx] = { ...next[idx], country_code: e.target.value };
-                                  return { ...f, country_sequences: next };
-                                })}
-                                disabled={!cs.sequence_id}
-                                className="w-40 h-8 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none shrink-0 disabled:opacity-40">
-                                <option value="">País…</option>
-                                {countryOptions.map(c => (
-                                  <option key={c.code} value={c.code}>{c.flag} {c.name}</option>
-                                ))}
-                              </select>
+                            {/* UNA sola lista en los dos modos. Antes, en Por País, había un desplegable
+                                de secuencia por fila Y abajo la lista completa: la misma secuencia
+                                aparecía dos veces y elegirla era un paso aparte de elegir sus países.
+                                Ahora se recorre la lista de secuencias y a cada una se le asignan sus
+                                países ahí mismo; en Global se toca la que se quiere usar y ya. */}
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-muted-foreground">
+                                {flowUsageMode === "global"
+                                  ? "Toca la secuencia que enviará este flujo"
+                                  : "Toca las secuencias que usará este flujo y elige los países de cada una"}
+                              </label>
+                              {sequences.length === 0 && (
+                                <p className="text-[11px] text-muted-foreground/50 italic text-center py-2">
+                                  Todavía no tienes secuencias. Crea la primera aquí abajo.
+                                </p>
+                              )}
+                              {sequences.map(seq => {
+                                const isDraft = seq.status === "draft";
+                                const assigned = countriesForSequence(seq.id);
+                                const inUse = isSequenceInUse(seq.id);
+                                const isSelected = flowUsageMode === "global"
+                                  ? editingFlow.sequence_id === seq.id
+                                  : inUse;
+                                // Elegida pero todavía sin países: no envía a nadie y bloquea continuar.
+                                const missingCountries = flowUsageMode === "country" && inUse && assigned.length === 0;
+                                const isExpanded = expandedCountrySeqId === seq.id;
+                                const stepCount = (seq.draft_steps ?? seq.steps).length;
+                                return (
+                                  <div
+                                    key={seq.id}
+                                    className={`rounded-lg border transition-all ${
+                                      missingCountries ? "border-destructive/50 bg-destructive/5"
+                                      : isSelected ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                                      : "border-border/60 bg-background"
+                                    }`}
+                                  >
+                                    <div className="flex items-center gap-2 px-3 py-2">
+                                      <button
+                                        onClick={() => {
+                                          if (isDraft) { toast.error("Esta secuencia es un borrador. Ábrela y publícala para poder usarla."); return; }
+                                          if (flowUsageMode === "global") {
+                                            setEditingFlow(f => f ? { ...f, sequence_id: isSelected ? null : seq.id } : f);
+                                          } else {
+                                            toggleSequenceInUse(seq.id);
+                                          }
+                                        }}
+                                        className={`flex-1 min-w-0 flex items-center gap-2 text-left ${isDraft ? "opacity-60" : ""}`}
+                                      >
+                                        {isSelected
+                                          ? <CheckCircle2 size={13} className="text-primary shrink-0" />
+                                          : <MessageSquare size={12} className="text-muted-foreground shrink-0" />}
+                                        <span className="flex-1 min-w-0 truncate">
+                                          <span className="text-xs">{seq.name}</span>
+                                          <span className="block text-[10px] text-muted-foreground/60">
+                                            {stepCount} paso{stepCount !== 1 ? "s" : ""}
+                                            {isDraft && " · borrador sin publicar"}
+                                            {!isDraft && seq.draft_steps && " · con cambios sin publicar"}
+                                          </span>
+                                        </span>
+                                      </button>
+                                      <button onClick={() => openSeqEditor(flowUsageMode, toDraftSequence(seq))} title="Editar" className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0">
+                                        <Pencil size={11} />
+                                      </button>
+                                      <button onClick={() => setPendingDeleteSeqId(seq.id)} title="Eliminar" className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
+                                        <Trash2 size={11} />
+                                      </button>
+                                    </div>
+
+                                    {flowUsageMode === "country" && !isDraft && inUse && (
+                                      <>
+                                        <button
+                                          onClick={() => setExpandedCountrySeqId(isExpanded ? null : seq.id)}
+                                          className="w-full flex items-center gap-1.5 px-3 py-1.5 border-t border-border/40 text-left"
+                                        >
+                                          <Globe size={11} className="text-muted-foreground shrink-0" />
+                                          <span className={`flex-1 min-w-0 truncate text-[10px] ${missingCountries ? "text-destructive font-medium" : "text-muted-foreground"}`}>
+                                            {assigned.length === 0
+                                              ? "Falta elegir a qué países se envía"
+                                              : `${assigned.length} país${assigned.length !== 1 ? "es" : ""}: ${assigned.map(c => FLOW_COUNTRY_BY_CODE[c]?.flag ?? c).join(" ")}`}
+                                          </span>
+                                          {isExpanded
+                                            ? <ChevronUp size={11} className="text-muted-foreground shrink-0" />
+                                            : <ChevronDown size={11} className="text-muted-foreground shrink-0" />}
+                                        </button>
+                                        {isExpanded && (
+                                          <div className="px-3 pb-2.5 pt-1 space-y-2 border-t border-border/40">
+                                            <div className="flex flex-wrap gap-1.5">
+                                              {FLOW_COUNTRY_OPTIONS.map(c => {
+                                                const mine = assigned.includes(c.code);
+                                                const ownerId = countryRows.find(r => r.sequence_id !== seq.id && r.country_codes.includes(c.code))?.sequence_id;
+                                                const owner = ownerId ? sequences.find(sq => sq.id === ownerId) : null;
+                                                return (
+                                                  <button
+                                                    key={c.code}
+                                                    type="button"
+                                                    // Un país solo puede recibir UNA secuencia. En vez de dejar el
+                                                    // botón muerto, tocarlo lo MUEVE acá y el aviso dice de dónde
+                                                    // sale: bloquearlo obligaba a ir a buscar la otra tarjeta.
+                                                    title={owner ? `Ahora lo recibe "${owner.name}" — tócalo para moverlo aquí` : undefined}
+                                                    onClick={() => toggleCountryForSequence(seq.id, c.code)}
+                                                    className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-[11px] font-medium border transition-all ${
+                                                      mine ? "border-primary bg-primary/10 text-primary"
+                                                      : owner ? "border-dashed border-border text-muted-foreground/50 hover:border-primary/40"
+                                                      : "border-border text-muted-foreground hover:border-primary/40"
+                                                    }`}
+                                                  >
+                                                    <span>{c.flag}</span>{c.name}
+                                                  </button>
+                                                );
+                                              })}
+                                            </div>
+                                            {assigned.length > 0 && (
+                                              <button
+                                                type="button"
+                                                onClick={() => setCountryRows(rows => rows.map(r => r.sequence_id === seq.id ? { ...r, country_codes: [] } : r))}
+                                                className="text-[10px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline"
+                                              >
+                                                Limpiar selección
+                                              </button>
+                                            )}
+                                          </div>
+                                        )}
+                                      </>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              <button onClick={() => openSeqEditor(flowUsageMode)} className="flex items-center gap-1.5 w-full px-3 h-8 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors">
+                                <Plus size={12} /> Crear secuencia
+                              </button>
+                              {flowUsageMode === "country" && (
+                                <p className="text-[10px] text-muted-foreground/50">
+                                  El flujo no se activa para contactos de países que no asignes a ninguna de las secuencias elegidas.
+                                </p>
+                              )}
+                            </div>
+
+                            <div className="flex gap-2 pt-1">
+                              <button onClick={() => setFlowWizardStep(1)} className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors">
+                                Atrás
+                              </button>
                               <button
-                                type="button"
-                                onClick={() => setEditingFlow(f => f ? { ...f, country_sequences: f.country_sequences.filter((_, i) => i !== idx) } : f)}
-                                className="p-1.5 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
-                                <Trash2 size={12} />
+                                onClick={handleFlowStep2Continue}
+                                disabled={savingFlowStep}
+                                className="flex-1 h-9 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity"
+                              >
+                                {savingFlowStep ? <Loader2 size={13} className="animate-spin" /> : null}
+                                Continuar
                               </button>
                             </div>
-                          );
-                        })}
+                          </>
+                        ) : (
+                          <>
+                            <div className="flex items-center gap-2">
+                              <button onClick={closeSeqEditor} className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+                                <ArrowLeft size={14} />
+                              </button>
+                              <span className="text-xs font-medium">{editingSeq?.status === "published" ? "Editar secuencia" : "Nueva secuencia"}</span>
+                              {/* Estado del autoguardado: los cambios nunca se pierden aunque se cierre
+                                  a medias, pero siguen siendo un borrador hasta tocar Publicar. */}
+                              <span className="ml-auto text-[10px] text-muted-foreground/60 flex items-center gap-1 shrink-0">
+                                {draftSaveState === "saving" && <><Loader2 size={10} className="animate-spin" /> Guardando…</>}
+                                {draftSaveState === "saved" && <><Check size={10} /> Borrador guardado</>}
+                              </span>
+                            </div>
 
-                        {sequences.length === 0 && (
-                          <p className="text-[10px] text-amber-600">No hay secuencias creadas. Crea una en la sección de arriba primero.</p>
+                            <div className="space-y-1">
+                              <label className="text-xs font-medium text-muted-foreground">Nombre</label>
+                              <input
+                                value={editingSeq?.name ?? ""}
+                                onChange={e => setEditingSeq(s => s ? { ...s, name: e.target.value } : s)}
+                                placeholder="ej: Presentación Paquete Gold"
+                                className="w-full h-8 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                              />
+                            </div>
+
+                      {/* ── Mapa de la secuencia + editor del paso elegido — un solo elemento ── */}
+                      <div className="rounded-lg border border-border overflow-hidden">
+                        <div className="px-3 py-2 bg-secondary/20 border-b border-border/40">
+                          <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+                            <GitBranch size={11} />
+                            Tu secuencia
+                            {sequenceGraph && sequenceGraph.nodes.length > 0 && (
+                              <span className="text-[9px] font-normal opacity-50">
+                                {editingSeq.steps.length} paso{editingSeq.steps.length !== 1 ? "s" : ""}
+                                {activeBranches.filter(b => b.targetId).length > 0 && ` · ${activeBranches.filter(b => b.targetId).length} respuesta${activeBranches.filter(b => b.targetId).length !== 1 ? "s" : ""}`}
+                              </span>
+                            )}
+                            {sequenceIssues.length > 0 && (
+                              <span className="ml-auto flex items-center gap-1 text-[9px] font-semibold text-destructive shrink-0">
+                                <AlertTriangle size={10} />
+                                {sequenceIssues.length} sin conectar
+                              </span>
+                            )}
+                          </div>
+                          {sequenceGraph && sequenceGraph.nodes.length > 0 && !pickingTarget && (
+                            <p className="text-[9.5px] text-muted-foreground/60 mt-0.5">
+                              Así ve tu cliente la conversación, de izquierda a derecha. Toca un paso para editarlo abajo, o un "+" para agregar el siguiente.
+                            </p>
+                          )}
+                        </div>
+                        {/* Modo conexión: el lienzo mismo es el selector de destino. */}
+                        {pickingTarget && (
+                          <div className="px-3 py-2 bg-primary/10 border-b border-primary/30 flex items-center gap-2">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-semibold text-primary">
+                                {pickableTargetIds.size > 0
+                                  ? "Toca el paso al que quieres llevar la conversación"
+                                  : "Todavía no hay un paso al que puedas llevarla"}
+                              </p>
+                              <p className="text-[9px] text-muted-foreground truncate">
+                                {pickableTargetIds.size > 0
+                                  ? describeEdgeSource(pickingTarget.source)?.text
+                                  : "La conversación solo puede seguir hacia adelante. Mejor crea un paso nuevo aquí."}
+                              </p>
+                            </div>
+                            <button
+                              onClick={() => setPickingTarget(null)}
+                              className="h-7 px-2.5 rounded-lg border border-border bg-background text-[10px] text-muted-foreground hover:bg-secondary transition-colors shrink-0"
+                            >
+                              Cancelar
+                            </button>
+                          </div>
                         )}
+                        {/* Aviso de respuestas sin conectar — cada línea lleva de un toque al botón
+                            exacto que falta resolver, en vez de dejar al usuario buscarlo en el árbol. */}
+                        {sequenceIssues.length > 0 && !pickingTarget && (
+                          <div className="px-3 py-2 bg-destructive/10 border-b border-destructive/20 space-y-1">
+                            <p className="text-[10px] font-semibold text-destructive flex items-center gap-1">
+                              <AlertTriangle size={11} className="shrink-0" />
+                              No puedes guardar hasta conectar {sequenceIssues.length === 1 ? "esta respuesta" : "estas respuestas"}
+                            </p>
+                            {sequenceIssues.map(issue => (
+                              <button
+                                key={`${issue.questionId}-${issue.optionId ?? "sin-botones"}`}
+                                onClick={() => {
+                                  setTreeSelectedStepId(issue.questionId);
+                                  if (issue.optionId) {
+                                    setPendingConnectFlow({ kind: "option", questionStepId: issue.questionId, optionId: issue.optionId });
+                                  }
+                                }}
+                                className="w-full flex items-center gap-1.5 text-left text-[10px] text-destructive/90 hover:text-destructive hover:underline"
+                              >
+                                <ChevronRight size={10} className="shrink-0" />
+                                <span className="truncate">{issue.text}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {sequenceGraph && sequenceGraph.nodes.length > 0 ? (
+                          <div
+                            className="bg-secondary/10 overflow-auto"
+                            style={{ maxHeight: 340 }}
+                          >
+                            <div
+                              className="relative"
+                              style={{
+                                width: (sequenceGraph.maxDepth + 1) * SEQ_TREE_COL_PITCH + SEQ_TREE_NODE_W + 40,
+                                // ROW_PITCH ya reserva espacio para el nodo Pregunta más alto posible (3 botones),
+                                // así que un carril extra + margen alcanza para lo que quede en el último carril.
+                                height: (sequenceGraph.maxLane + 1) * SEQ_TREE_ROW_PITCH + 16,
+                                margin: 12,
+                              }}
+                            >
+                              <svg className="absolute inset-0 overflow-visible pointer-events-none" width="100%" height="100%">
+                                {edgeGeometry.map(({ edge, ei, sx, sy, tx, py, midX, color }) => (
+                                  <g key={ei}>
+                                    <path
+                                      d={`M${sx},${sy} C${midX},${sy} ${midX},${py} ${tx},${py}`}
+                                      stroke={color}
+                                      strokeOpacity={edge.colorIdx !== undefined ? 0.8 : 0.3}
+                                      strokeWidth={1.5}
+                                      fill="none"
+                                    />
+                                    {/* Etiqueta junto al destino (no a la salida de la pregunta) — como cada opción
+                                        normalmente termina en un paso distinto, las etiquetas de una misma pregunta
+                                        quedan naturalmente separadas en vez de apiladas en un solo punto. */}
+                                    {edge.label && (
+                                      <text x={tx - 14} y={py - 7} textAnchor="end" fontSize="8" fontWeight="700" fill={color} fontFamily="system-ui, sans-serif">
+                                        {edge.label}
+                                      </text>
+                                    )}
+                                  </g>
+                                ))}
+                              </svg>
+                              {sequenceGraph.nodes.map(node => {
+                                const x = node.depth * SEQ_TREE_COL_PITCH;
+                                const y = node.lane * SEQ_TREE_ROW_PITCH;
+                                if (node.pending) {
+                                  const parentEdge = sequenceGraph.edges.find(e => e.toId === node.id);
+                                  return (
+                                    <button
+                                      key={node.id}
+                                      onClick={() => parentEdge && node.pendingOptionId && setPendingConnectFlow({ kind: "option", questionStepId: parentEdge.fromId, optionId: node.pendingOptionId })}
+                                      disabled={!!pickingTarget}
+                                      title={`El botón "${node.pendingLabel}" todavía no lleva a ningún paso — tócalo para conectarlo o crear el paso que sigue`}
+                                      className={`absolute flex flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-destructive/50 bg-destructive/5 text-[8px] text-destructive px-2 text-center leading-tight transition-all ${
+                                        pickingTarget ? "opacity-25" : "hover:bg-destructive/10 hover:border-destructive/70"
+                                      }`}
+                                      style={{ left: x, top: y, width: SEQ_TREE_NODE_W, height: SEQ_TREE_NODE_H }}
+                                    >
+                                      <span className="font-semibold flex items-center gap-1"><AlertTriangle size={8} className="shrink-0" /> sin respuesta</span>
+                                      <span className="opacity-70">toca para conectar</span>
+                                    </button>
+                                  );
+                                }
+                                const step = node.step!;
+                                const isQ = step.type === "question";
+                                const isLeaf = !isQ && !sequenceGraph.edges.some(e => e.fromId === node.id);
+                                const canAddOption = isQ && (step.options?.filter(o => o.label.trim()).length ?? 0) < SEQ_TREE_MAX_PILLS;
+                                const isSelected = step.id === treeSelectedStepId;
+                                const preview = getStepPreview(step, 30);
+                                const stepIdx = editingSeq.steps.findIndex(s => s.id === step.id);
+                                const boxH = nodeBoxHeight(node);
+                                const labeledOptions = isQ ? (step.options ?? []).filter(o => o.label.trim()).slice(0, SEQ_TREE_MAX_PILLS) : [];
+                                // Modo conexión: solo los destinos válidos quedan vivos (halo que late), el resto
+                                // se atenúa y no responde — el usuario ve de una cuáles son sus opciones reales.
+                                const isPickable = !!pickingTarget && pickableTargetIds.has(step.id);
+                                const isPickBlocked = !!pickingTarget && !isPickable;
+                                // Mismo color de borde para la cabecera y el mockup de botones debajo — para que
+                                // se lean como una sola tarjeta, no dos elementos apilados.
+                                const stateBorderClass = isPickable ? "border-primary" : isSelected ? "border-primary" : isQ ? "border-amber-400/50" : "border-border/70";
+                                return (
+                                  <div
+                                    key={node.id}
+                                    className={`absolute transition-opacity ${isPickBlocked ? "opacity-25" : ""}`}
+                                    style={{ left: x, top: y, width: SEQ_TREE_NODE_W, height: boxH }}
+                                  >
+                                    <button
+                                      onClick={() => pickingTarget ? confirmPickedTarget(step.id) : setTreeSelectedStepId(step.id)}
+                                      disabled={isPickBlocked}
+                                      title={
+                                        isPickable ? "Llevar la conversación hasta aquí"
+                                        : isPickBlocked ? "Aquí no: la conversación avanza hacia adelante, no puede volver a un paso anterior"
+                                        : node.mergeCount > 1 ? "Varias respuestas terminan en este mismo paso"
+                                        : undefined
+                                      }
+                                      className={`absolute inset-x-0 top-0 flex flex-col justify-center gap-0.5 border px-2.5 py-1 text-left transition-colors overflow-hidden ${isQ ? "rounded-t-lg" : "rounded-lg"} ${
+                                        isPickable ? "border-2 border-primary bg-primary/10 motion-safe:animate-connect-pulse"
+                                        : isSelected ? "border-primary ring-2 ring-primary/25 bg-primary/5"
+                                        : isQ ? "border-amber-400/50 bg-amber-400/5"
+                                        : "border-border/70 bg-background"
+                                      } ${isPickBlocked ? "cursor-not-allowed" : "hover:border-primary/50 hover:bg-primary/5"}`}
+                                      style={{ height: SEQ_TREE_NODE_H, animationDelay: isPickable ? `${(node.depth * 2 + node.lane) * 90}ms` : undefined }}
+                                    >
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[8px] text-muted-foreground/60 tabular-nums shrink-0">{stepIdx + 1}</span>
+                                        <span className={`text-[9px] font-semibold shrink-0 ${isQ ? "text-amber-500 dark:text-amber-400" : "text-foreground/80"}`}>{STEP_TYPE_LABELS[step.type]}</span>
+                                        {node.mergeCount > 1 && <span className="ml-auto text-[8px] text-muted-foreground/50 shrink-0">⤵</span>}
+                                      </div>
+                                      {preview && <span className="text-[8.5px] text-muted-foreground/65 truncate">{preview}</span>}
+                                    </button>
+                                    {/* Mockup de los botones de respuesta — se parece al mensaje interactivo real de
+                                        WhatsApp, para que se entienda de un vistazo que una Pregunta trae botones. */}
+                                    {isQ && (
+                                      <div
+                                        className={`absolute inset-x-0 rounded-b-lg border-x border-b overflow-hidden bg-background ${stateBorderClass}`}
+                                        style={{ top: SEQ_TREE_NODE_H }}
+                                      >
+                                        {labeledOptions.length === 0 ? (
+                                          <div className="flex items-center justify-center px-2 text-[8px] text-muted-foreground/40 italic" style={{ height: SEQ_TREE_PILL_H }}>
+                                            Sin botones
+                                          </div>
+                                        ) : labeledOptions.map((o, oi) => {
+                                          const color = BRANCH_COLORS[oi % BRANCH_COLORS.length];
+                                          return (
+                                            <div
+                                              key={oi}
+                                              title={o.label}
+                                              className={`flex items-center justify-center px-2 truncate ${oi > 0 ? "border-t border-border/40" : ""} ${color.text}`}
+                                              style={{ height: SEQ_TREE_PILL_H }}
+                                            >
+                                              <span className="text-[8px] font-medium truncate">{o.label}</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                    {isLeaf && !pickingTarget && (
+                                      <button
+                                        onClick={() => setPendingConnectFlow({ kind: "after", afterStepId: step.id })}
+                                        title="Agregar o conectar el siguiente paso"
+                                        className="absolute top-1/2 -right-3 -translate-y-1/2 w-5 h-5 rounded-full bg-primary text-primary-foreground text-[11px] font-bold flex items-center justify-center hover:bg-primary/90 transition-colors shadow"
+                                      >
+                                        +
+                                      </button>
+                                    )}
+                                    {canAddOption && !pickingTarget && (
+                                      <button
+                                        onClick={() => addOptionToQuestion(step.id)}
+                                        title="Agregar otro botón a esta pregunta"
+                                        className="absolute -bottom-2.5 right-2 w-5 h-5 rounded-full bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center hover:bg-amber-600 transition-colors shadow"
+                                      >
+                                        +
+                                      </button>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                              {/* Controles de las conexiones, DESPUÉS de los nodos y con z-index: el círculo de
+                                  editar se apoya sobre el borde del paso destino, así que si se dibujara con las
+                                  líneas (detrás) la caja del nodo le taparía la mitad y quedaría medio oculto.
+                                  El svg no captura clics; solo los grupos tocables los reactivan. */}
+                              {!pickingTarget && (
+                                <svg className="absolute inset-0 overflow-visible pointer-events-none z-10" width="100%" height="100%">
+                                  {edgeGeometry.map(({ edge, ei, to, tx, py, midX, midY, color }) => (
+                                    <g key={ei}>
+                                      {/* "+" para intercalar un paso a la mitad de esta conexión */}
+                                      {!to.pending && (
+                                        <g
+                                          onClick={() => setPendingStepCreate({ kind: "edge", fromId: edge.fromId, toId: edge.toId, optionId: edge.optionId })}
+                                          style={{ cursor: "pointer", pointerEvents: "auto" }}
+                                        >
+                                          <circle cx={midX} cy={midY} r={7} fill="hsl(var(--card))" stroke={color} strokeOpacity={0.6} strokeWidth={1} />
+                                          <text x={midX} y={midY + 3} textAnchor="middle" fontSize="10" fontWeight="700" fill={color} fillOpacity={0.8}>+</text>
+                                        </g>
+                                      )}
+                                      {/* Tocar para cambiar o quitar el destino de esta conexión (en vez de
+                                          arrastrar — más simple y funciona igual en mobile). */}
+                                      {!to.pending && (
+                                        <g
+                                          onClick={() => setPendingEdgeManage(edge.optionId !== undefined
+                                            ? { kind: "option", questionId: edge.fromId, optionId: edge.optionId }
+                                            : { kind: "step", stepId: edge.fromId })}
+                                          style={{ cursor: "pointer", pointerEvents: "auto" }}
+                                        >
+                                          <circle cx={tx} cy={py} r={7} fill="hsl(var(--card))" stroke={color} strokeWidth={1.5} />
+                                          {/* El lápiz hace evidente que el círculo se toca para editar este camino
+                                              — sin él parecía el remate decorativo de la línea. */}
+                                          <Pencil x={tx - 4} y={py - 4} width={8} height={8} stroke={color} strokeWidth={2.5} />
+                                        </g>
+                                      )}
+                                    </g>
+                                  ))}
+                                </svg>
+                              )}
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center gap-2 py-8 bg-secondary/10">
+                            <p className="text-[11px] text-muted-foreground/60 italic">Sin pasos todavía</p>
+                            <button
+                              onClick={() => setPendingStepCreate({ kind: "first" })}
+                              className="h-8 px-3 rounded-lg border border-dashed border-muted-foreground/40 bg-secondary/40 text-muted-foreground text-xs font-medium flex items-center gap-1.5 hover:bg-secondary/70 hover:border-muted-foreground/60 transition-colors"
+                            >
+                              <Plus size={12} /> Crear primer paso
+                            </button>
+                          </div>
+                        )}
+
+                        {/* ── Zona Edición: panel del paso seleccionado en el árbol de arriba ── */}
+                        <div className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium text-muted-foreground bg-secondary/20 border-y border-border/40">
+                          <Pencil size={11} />
+                          {treeSelectedStepId && editingSeq.steps.some(s => s.id === treeSelectedStepId)
+                            ? `Contenido del paso ${editingSeq.steps.findIndex(s => s.id === treeSelectedStepId) + 1}`
+                            : "Contenido del paso"}
+                        </div>
+                        <div className="bg-card p-3">
+                          {treeSelectedStepId && editingSeq.steps.some(s => s.id === treeSelectedStepId) ? (
+                            <StepEditorPanel
+                              step={editingSeq.steps.find(s => s.id === treeSelectedStepId)!}
+                              allSteps={editingSeq.steps}
+                              onChange={updated => setEditingSeq(s => {
+                                if (!s) return s;
+                                const newSteps = s.steps.map(st => st.id === updated.id ? updated : st);
+                                return { ...s, steps: newSteps };
+                              })}
+                              onRemove={() => {
+                                if (!treeSelectedStepId) return;
+                                const impact = computeDeletionImpact(treeSelectedStepId);
+                                if (impact.cascadeIds.length > 0) {
+                                  setPendingDeleteStep({ id: treeSelectedStepId, ...impact });
+                                  return;
+                                }
+                                deleteStepWithRewire(treeSelectedStepId, [], null);
+                              }}
+                              onDeleteOption={optionId => {
+                                if (!treeSelectedStepId) return;
+                                const orphanIds = computeOptionDeletionOrphans(treeSelectedStepId, optionId);
+                                if (orphanIds.length > 0) {
+                                  setPendingDeleteOption({ questionId: treeSelectedStepId, optionId, orphanIds });
+                                  return;
+                                }
+                                setEditingSeq(s => {
+                                  if (!s) return s;
+                                  const steps = s.steps.map(st => st.id !== treeSelectedStepId ? st : { ...st, options: (st.options ?? []).filter(o => o.id !== optionId) });
+                                  return { ...s, steps };
+                                });
+                              }}
+                              userId={user?.id ?? ""}
+                            />
+                          ) : (
+                            <p className="text-[11px] text-muted-foreground/50 italic text-center py-3">
+                              {sequenceGraph && sequenceGraph.nodes.length > 0
+                                ? 'Toca un paso de arriba para editar su contenido aquí, o crea uno nuevo con los "+".'
+                                : "Crea el primer paso para empezar a editarlo aquí."}
+                            </p>
+                          )}
+                        </div>
                       </div>
 
-                      {/* Acción final */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-medium text-muted-foreground">Acción al terminar</label>
-                        <select
-                          value={editingFlow.final_action}
-                          onChange={e => setEditingFlow(f => f ? { ...f, final_action: e.target.value as CrmWaFlowFinalAction } : f)}
-                          className="w-full h-8 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none">
-                          {(Object.entries(FLOW_FINAL_ACTION_LABELS) as [CrmWaFlowFinalAction, string][]).map(([k, v]) => (
-                            <option key={k} value={k}>{v}</option>
-                          ))}
-                        </select>
+                            {/* El botón sigue habilitado a propósito: al tocarlo el aviso dice cuál es
+                                el botón que falta conectar, en vez de quedar muerto sin explicación. */}
+                            {sequenceIssues.length === 0 && (
+                              <p className="text-[10px] text-muted-foreground/60 pt-1">
+                                {editingSeq?.status === "published"
+                                  ? "Tus cambios se guardan solos como borrador. La versión que reciben tus clientes es la última publicada."
+                                  : "Tus cambios se guardan solos como borrador. Publícala para poder usarla en un flujo."}
+                              </p>
+                            )}
+                            {sequenceIssues.length > 0 && (
+                              <p className="flex items-center gap-1 text-[10px] font-medium text-destructive pt-1">
+                                <AlertTriangle size={11} className="shrink-0" />
+                                {sequenceIssues.length === 1
+                                  ? "Hay 1 respuesta sin conectar — revísala arriba para poder guardar"
+                                  : `Hay ${sequenceIssues.length} respuestas sin conectar — revísalas arriba para poder guardar`}
+                              </p>
+                            )}
+                            <div className="flex gap-2 pt-1">
+                              <button onClick={closeSeqEditor} className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors">
+                                Cancelar
+                              </button>
+                              <button
+                                onClick={handleSaveSequence}
+                                disabled={savingFlowStep}
+                                className={`flex-1 h-9 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity ${
+                                  sequenceIssues.length > 0 ? "bg-primary/40 text-primary-foreground" : "bg-primary text-primary-foreground"
+                                }`}
+                              >
+                                {savingFlowStep ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                                {editingSeq?.status === "published" ? "Guardar cambios" : "Publicar secuencia"}
+                              </button>
+                            </div>
+                          </>
+                        )}
+                      </>
+                    )}
+
+                    {flowWizardStep === 3 && (
+                      <>
+                      {/* Acción final — son solo 2 opciones, así que se muestran las dos a la vez
+                          (mismo patrón que Global / Por País del paso anterior): un desplegable
+                          esconde la mitad de la decisión detrás de un toque de más. */}
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-muted-foreground">Cuando la secuencia termina…</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          {(Object.entries(FLOW_FINAL_ACTION_DESCRIPTIONS) as [CrmWaFlowFinalAction, string][]).map(([key, description]) => {
+                            const Icon = FLOW_FINAL_ACTION_ICONS[key];
+                            const isSelected = editingFlow.final_action === key;
+                            return (
+                              <button
+                                key={key}
+                                type="button"
+                                onClick={() => setEditingFlow(f => f ? { ...f, final_action: key } : f)}
+                                className={`text-left px-3 py-2.5 rounded-xl border transition-all ${
+                                  isSelected
+                                    ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                                    : "border-border hover:border-primary/40 hover:bg-muted/30"
+                                }`}
+                              >
+                                <span className={`flex items-center justify-center w-7 h-7 rounded-lg mb-1.5 ${
+                                  isSelected ? "bg-primary/15 text-primary" : "bg-secondary text-muted-foreground"
+                                }`}>
+                                  <Icon size={14} />
+                                </span>
+                                <p className="text-xs font-semibold">{FLOW_FINAL_ACTION_LABELS[key]}</p>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">{description}</p>
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
 
-                      {/* Activo */}
-                      <div className="flex items-center justify-between py-1">
-                        <label className="text-xs font-medium text-muted-foreground">Flujo activo</label>
-                        <button
-                          onClick={() => setEditingFlow(f => f ? { ...f, is_active: !f.is_active } : f)}
-                          className={`w-9 h-5 rounded-full transition-colors flex items-center px-0.5 ${editingFlow.is_active ? "bg-emerald-500" : "bg-muted-foreground/30"}`}
-                        >
-                          <span className={`w-4 h-4 rounded-full bg-white shadow transition-transform ${editingFlow.is_active ? "translate-x-4" : "translate-x-0"}`} />
-                        </button>
-                      </div>
-
-
-                      {/* Guardar */}
-                      <button
-                        disabled={
-                          !editingFlow.name.trim() ||
-                          (editingFlow.flow_trigger_type === "intent" && !editingFlow.trigger_text.trim()) ||
-                          editingFlow.country_sequences.some(cs => !cs.country_code || !cs.sequence_id) ||
-                          upsertFlow.isPending
-                        }
-                        onClick={async () => {
-                          if (!editingFlow.name.trim()) return;
-                          if (editingFlow.flow_trigger_type === "intent") {
-                            if (!editingFlow.trigger_text.trim()) return;
-                            const validation = triggerValidation ?? classifyTrigger(editingFlow.trigger_text.trim());
-                            if (!triggerValidation) setTriggerValidation(validation);
-                            if (validation.severity === "invalid") {
-                              toast.error("Corrige el trigger antes de guardar.");
-                              return;
-                            }
-                          }
-                          if (editingFlow.country_sequences.some(cs => !cs.country_code || !cs.sequence_id)) {
-                            toast.error("Completa el país y la secuencia en cada fila.");
-                            return;
-                          }
-                          try {
-                            await upsertFlow.mutateAsync(editingFlow);
-                            setTriggerValidation(null); setEditingFlow(null);
-                            toast.success(editingFlow.id ? "Flujo actualizado" : "Flujo creado");
-                          } catch (e: any) {
-                            toast.error(e?.message?.slice(0, 120) ?? "Error al guardar el flujo");
-                          }
-                        }}
-                        className="w-full h-9 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity">
-                        {upsertFlow.isPending ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                        Guardar flujo
-                      </button>
-                    </div>
-                  )}
+                        <div className="flex gap-2 pt-1">
+                          <button onClick={() => setFlowWizardStep(2)} className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors">
+                            Atrás
+                          </button>
+                          <button
+                            onClick={handleFlowPublish}
+                            disabled={savingFlowStep}
+                            className="flex-1 h-9 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity"
+                          >
+                            {savingFlowStep ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
+                            {editingFlow.status === "published" ? "Guardar cambios" : "Publicar flujo"}
+                          </button>
+                        </div>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
@@ -4391,7 +5428,12 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
           {/* Footer — fijo en la base, fuera del scroll */}
           {section !== "perfil" && section !== "etiquetas" && section !== "respuestas" && section !== "flujos" && section !== "plantillas" && section !== "campanias" && (
             <div className="px-5 py-4 border-t shrink-0">
-              <Button onClick={handleSave} disabled={saving} className="w-full h-9 gap-1.5">
+              <Button
+                onClick={handleSave}
+                disabled={saving || !hasUnsavedConexionAgenteChanges}
+                variant={hasUnsavedConexionAgenteChanges ? "default" : "secondary"}
+                className="w-full h-9 gap-1.5"
+              >
                 {saving ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
                 Guardar cambios
               </Button>
@@ -5225,8 +6267,13 @@ const ChatPanel = ({
           <div className="flex items-center gap-1.5">
             {conv.contact_name && <p className="text-[11px] text-muted-foreground truncate">+{conv.phone}</p>}
             {conv.contact_name && <span className="text-muted-foreground/40">·</span>}
-            <span className={`text-[11px] font-medium ${conv.mode === "AI" ? "text-[#00a884]" : "text-blue-500"}`}>
-              {conv.mode === "AI" ? "IA activa" : "Manual"}
+            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold shrink-0 ${
+              conv.mode === "AI"
+                ? "bg-[#00a884]/12 text-[#00a884]"
+                : "bg-blue-500/12 text-blue-600 dark:text-blue-400"
+            }`}>
+              {conv.mode === "AI" ? <Bot size={10} /> : <User size={10} />}
+              {conv.mode === "AI" ? "Responde la IA" : "Respondes tú"}
             </span>
           </div>
         </div>
@@ -5745,13 +6792,16 @@ const ChatPanel = ({
               <button
                 onClick={handleToggleMode}
                 disabled={setMode.isPending}
-                title={conv.mode === "AI" ? "Tomar control manual" : "Activar agente IA"}
+                title={conv.mode === "AI" ? "Responder tú este chat: la IA deja de contestar" : "Que la IA vuelva a responder este chat"}
                 className={`inline-flex items-center gap-1 px-2 h-7 rounded-lg text-[11px] font-medium transition-colors cursor-pointer ${
                   conv.mode === "AI" ? "text-[#00a884] hover:bg-[#00a884]/10" : "text-blue-500 hover:bg-blue-500/10"
                 }`}
               >
-                {conv.mode === "AI" ? <Bot size={13} /> : <Pencil size={13} />}
-                {conv.mode === "AI" ? "Modo IA" : "Humano"}
+                {/* Antes el botón se etiquetaba con el estado actual ("Modo IA") mientras su tooltip
+                    decía la acción contraria ("Tomar control manual") — una de las dos mentía. Ahora
+                    el estado vive en la cabecera y el botón dice solo qué pasa si lo tocas. */}
+                {conv.mode === "AI" ? <User size={13} /> : <Bot size={13} />}
+                {conv.mode === "AI" ? "Tomar el control" : "Devolver a la IA"}
               </button>
               <div className="w-px h-3.5 bg-border/60 mx-1" />
               {/* Nota interna */}
@@ -5928,6 +6978,7 @@ const CrmAgentIA = ({
   const principalId = isStaff ? (ownerUserId ?? undefined) : undefined;
   const { data: config, isLoading } = useAIAgentConfig(principalId);
   const { data: conversations = [] }         = useWaConversations(principalId);
+  const { data: lastMessages = {} }          = useWaLastMessages(principalId);
   const { data: archivedConversations = [] } = useArchivedWaConversations(principalId);
   const { data: pendingSales = [] }          = useAiPendingSales();
   const updateSaleStatus                     = useUpdateSale();
@@ -5994,7 +7045,7 @@ const CrmAgentIA = ({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [labelFilter, setLabelFilter]         = useState<string | null>(null);
   const [assignFilter, setAssignFilter]       = useState<"all" | "mine" | "unassigned">("all");
-  const [readFilter, setReadFilter]           = useState<"all" | "unread" | "favorites" | "pending_payment">("all");
+  const [readFilter, setReadFilter]           = useState<"all" | "unread" | "favorites" | "pending_payment" | "human">("all");
   const [wizardDone, setWizardDone]           = useState(false);
   const [forceWizard, setForceWizard]         = useState(false);
   const [deleteModalId, setDeleteModalId]     = useState<string | null>(null);
@@ -6040,6 +7091,9 @@ const CrmAgentIA = ({
       { id: "all" as const,       label: "Todos" },
       { id: "unread" as const,    label: "Sin leer", count: conversations.filter(c => (c.unread_count ?? 0) > 0).length },
       { id: "favorites" as const, label: "Favoritos", icon: "star" as const },
+      // Poder filtrar por "los que atiendo yo" es lo que convierte el modo IA/Humano en algo
+      // entendible: deja de ser un color en un punto y pasa a ser una pregunta que se responde.
+      { id: "human" as const, label: "Humano", icon: "human" as const, count: conversations.filter(c => c.mode === "HUMAN").length },
     ];
     if (pendingSaleConvIds.size === 0) return base;
     const paymentTab = { id: "pending_payment" as const, label: "Pagos", icon: "payment" as const, count: pendingSaleConvIds.size, amber: true };
@@ -6077,6 +7131,8 @@ const CrmAgentIA = ({
         result = result.filter(c => c.is_favorite);
       } else if (readFilter === "pending_payment") {
         result = result.filter(c => pendingSaleConvIds.has(c.id));
+      } else if (readFilter === "human") {
+        result = result.filter(c => c.mode === "HUMAN");
       }
       // Chats con pago pendiente al tope
       return [...result].sort((a, b) => {
@@ -6226,12 +7282,12 @@ const CrmAgentIA = ({
                 {config?.verified_phone && (
                   <span className="text-[11px] text-muted-foreground truncate">{config.verified_phone}</span>
                 )}
+                {config?.verified_phone
+                  ? <span title="Conectado a la API de Meta" className="shrink-0 inline-flex"><Wifi size={13} className="text-[#00a884]" /></span>
+                  : <span title="Desconectado — revisa Conexión en Configuración" className="shrink-0 inline-flex"><WifiOff size={13} className="text-destructive" /></span>
+                }
                 <span className="flex items-center gap-1 shrink-0">
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.verified_phone ? "bg-[#00a884]" : "bg-muted-foreground/40"}`} />
-                  <span className="text-[11px] text-muted-foreground">{config?.verified_phone ? "Conectado a API" : "Desconectado"}</span>
-                </span>
-                <span className="flex items-center gap-1 shrink-0">
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-[#00a884] animate-pulse" : "bg-muted-foreground/40"}`} />
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-[#00a884]" : "bg-muted-foreground/40"}`} />
                   <span className="text-[11px] text-muted-foreground">{config?.is_active ? "Activo" : "Apagado"}</span>
                 </span>
               </div>
@@ -6239,7 +7295,12 @@ const CrmAgentIA = ({
           </div>
           {!isStaff && (
             <button onClick={() => setShowSettings(true)} className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors" title="Configurar">
-              <Settings size={18} />
+              <span className="relative inline-flex">
+                <Settings size={18} />
+                {!config?.verified_phone && (
+                  <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-destructive border-2 border-background" />
+                )}
+              </span>
             </button>
           )}
         </div>
@@ -6275,7 +7336,7 @@ const CrmAgentIA = ({
                   return (
                     <button
                       key={tab.id}
-                      onClick={() => setReadFilter(tab.id as "all" | "unread" | "favorites" | "pending_payment")}
+                      onClick={() => setReadFilter(tab.id as "all" | "unread" | "favorites" | "pending_payment" | "human")}
                       className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors shrink-0 ${
                         isActive
                           ? amber
@@ -6288,6 +7349,7 @@ const CrmAgentIA = ({
                     >
                       {tab.icon === "star" && <Star size={12} fill={isActive ? "currentColor" : "none"} />}
                       {tab.icon === "payment" && <CreditCard size={12} />}
+                      {tab.icon === "human" && <User size={12} />}
                       {tab.label}
                       {tab.count !== undefined && tab.count > 0 && (
                         <span className={`min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full text-[10px] font-bold text-white ${amber ? "bg-amber-500" : "bg-[#1877F2]"}`}>
@@ -6397,6 +7459,12 @@ const CrmAgentIA = ({
                         <p className="text-xs font-medium">Sin favoritos</p>
                         <p className="text-xs opacity-70">Marca conversaciones con ⭐ para encontrarlas rápido.</p>
                       </>
+                    ) : readFilter === "human" ? (
+                      <>
+                        <User size={24} className="opacity-30" />
+                        <p className="text-xs font-medium">Ningún chat en manos del equipo</p>
+                        <p className="text-xs opacity-70">La IA está respondiendo todas las conversaciones. Toma el control de una cuando quieras responder tú.</p>
+                      </>
                     ) : readFilter === "pending_payment" ? (
                       <>
                         <CreditCard size={24} className="opacity-30 text-amber-600 dark:text-amber-400" />
@@ -6425,6 +7493,12 @@ const CrmAgentIA = ({
                     const isSelected = selectedId === conv.id;
                     const convName = conv.contact_name ?? `+${conv.phone}`;
                     const convAvatarBg = getAvatarColor(convName);
+                    const convLabels = convLabelsMap[conv.id] ?? [];
+                    const preview = lastMessagePreview(lastMessages[conv.id]);
+                    // El teléfono solo se repite si arriba se está mostrando el nombre del contacto.
+                    const subtitle = hasPendingPayment
+                      ? `💳 ${pendingSale?.product_name ?? pendingSale?.service_name ?? "Pago pendiente"} · ${formatSaleAmount(Number(pendingSale?.amount), pendingSale?.currency ?? null)}`
+                      : conv.contact_name ? `+${conv.phone}` : "";
                     return (
                     <button
                       key={conv.id}
@@ -6460,10 +7534,17 @@ const CrmAgentIA = ({
                               )}
                             </div>
                           )}
-                          {/* Mode dot */}
-                          <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-background ${
-                            conv.mode === "AI" ? "bg-[#00a884]" : "bg-blue-500"
-                          }`} />
+                          {/* Quién responde este chat. Antes era un punto de color a secas: sin
+                              leyenda, verde y azul no significan nada. Con el ícono la forma ya lo
+                              dice, y el color queda como refuerzo (no como única pista). */}
+                          <span
+                            title={conv.mode === "AI" ? "La IA responde este chat" : "Este chat lo respondes tú"}
+                            className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-background flex items-center justify-center ${
+                              conv.mode === "AI" ? "bg-[#00a884]" : "bg-blue-500"
+                            }`}
+                          >
+                            {conv.mode === "AI" ? <Bot size={9} className="text-white" /> : <User size={9} className="text-white" />}
+                          </span>
                         </div>
 
                         {/* Content */}
@@ -6476,12 +7557,33 @@ const CrmAgentIA = ({
                               {formatTime(conv.last_message_at)}
                             </span>
                           </div>
+                          {/* Renglón 2: identidad (teléfono o pago pendiente) + etiquetas.
+                              Las etiquetas vivían en un renglón propio abajo del todo; se movieron
+                              acá, a la derecha de este renglón —que estaba vacío— para dejarle el
+                              último renglón al preview de la conversación sin que la fila crezca. */}
+                          {(subtitle || convLabels.length > 0) && (
+                            <div className="flex items-center justify-between gap-2 mt-0.5">
+                              <p className={`text-[11px] truncate flex-1 ${hasPendingPayment ? "text-amber-700 dark:text-amber-500 font-medium" : "text-muted-foreground/70"}`}>
+                                {subtitle}
+                              </p>
+                              {convLabels.length > 0 && (
+                                <span className="flex items-center gap-1 shrink-0">
+                                  {convLabels.slice(0, 5).map(l => (
+                                    <span key={l.id} title={l.name} className="inline-flex">
+                                      <Tag size={10} style={{ color: l.color }} />
+                                    </span>
+                                  ))}
+                                  {convLabels.length > 5 && (
+                                    <span className="text-[9px] text-muted-foreground">+{convLabels.length - 5}</span>
+                                  )}
+                                </span>
+                              )}
+                            </div>
+                          )}
+                          {/* Renglón 3: de qué se viene hablando */}
                           <div className="flex items-center justify-between gap-2 mt-0.5">
                             <p className={`text-[12px] truncate flex-1 ${isUnread ? "text-foreground/80 font-medium" : "text-muted-foreground"}`}>
-                              {hasPendingPayment
-                                ? `💳 ${pendingSale?.product_name ?? pendingSale?.service_name ?? "Pago pendiente"} · ${formatSaleAmount(Number(pendingSale?.amount), pendingSale?.currency ?? null)}`
-                                : conv.contact_name ? `+${conv.phone}` : formatTime(conv.last_message_at)
-                              }
+                              {preview ?? <span className="italic text-muted-foreground/40">Sin mensajes todavía</span>}
                             </p>
                             {isUnread && (
                               <span className="shrink-0 min-w-[20px] h-5 px-1.5 flex items-center justify-center rounded-full bg-[#1877F2] text-[11px] font-bold text-white">
@@ -6489,19 +7591,6 @@ const CrmAgentIA = ({
                               </span>
                             )}
                           </div>
-                          {/* Labels */}
-                          {(convLabelsMap[conv.id] ?? []).length > 0 && (
-                            <div className="flex items-center gap-1 mt-1">
-                              {(convLabelsMap[conv.id] ?? []).slice(0, 5).map(l => (
-                                <span key={l.id} title={l.name} className="shrink-0 inline-flex">
-                                  <Tag size={10} style={{ color: l.color }} />
-                                </span>
-                              ))}
-                              {(convLabelsMap[conv.id] ?? []).length > 5 && (
-                                <span className="text-[9px] text-muted-foreground">+{(convLabelsMap[conv.id] ?? []).length - 5}</span>
-                              )}
-                            </div>
-                          )}
                         </div>
 
                         {/* Assigned staff avatar */}

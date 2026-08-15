@@ -708,6 +708,7 @@ export type CrmWaConversation = {
   contact_profile_pic: string | null
   mode: 'AI' | 'HUMAN' | 'FLOW'
   active_flow_id: string | null
+  active_sequence_id: string | null
   flow_step: number
   assigned_to: string | null
   last_message_at: string | null
@@ -738,7 +739,17 @@ export type CrmWaMessage = {
   replied_to_preview: string | null
 }
 
+// Último mensaje real de una conversación (vista crm_wa_conversation_last_message) — alimenta el
+// preview de la lista de chats. Excluye notas internas.
+export type WaLastMessage = {
+  conversation_id: string
+  role: string           // 'user' = el contacto · 'assistant' = la IA · 'human' = tu equipo
+  media_type: string | null
+  content: string | null
+}
+
 export type SequenceStepOption = {
+  id: string // identidad estable del botón — nunca por posición/índice, así borrar y agregar otro no causa mezclas
   label: string
   next_step_id: string | null
 }
@@ -757,9 +768,16 @@ export type SequenceStep = {
   media?: SequenceStepMedia[]
   link_url?: string
   link_label?: string
-  shared?: boolean
-  next_step_id?: string | null  // undefined = legacy (usa índice); null = fin; string = ID del siguiente paso
+  // Única arista saliente de un paso normal — el grafo se guarda, nunca se deriva de la posición
+  // en el arreglo: string = id del siguiente paso, null = fin de esta rama.
+  // En un paso 'question' no se usa: ahí cada botón lleva su propio next_step_id.
+  // undefined solo puede venir de datos legados; normalizeSequenceSteps() lo materializa al abrir.
+  next_step_id?: string | null
   ai_enhance?: boolean          // si true, la IA personaliza el texto antes de enviar
+  /** @deprecated Modelo viejo (ramas inferidas por rangos de índices). Se ignora y se descarta al abrir la secuencia. */
+  shared?: boolean
+  /** @deprecated Modelo viejo: marcaba las pocas aristas que NO se recalculaban por posición. Ahora TODAS son explícitas. */
+  next_step_pinned?: boolean
 }
 
 export type CrmWaSequence = {
@@ -769,7 +787,12 @@ export type CrmWaSequence = {
   product_id: string | null
   entity_type: 'product' | 'service' | 'course' | null
   currency: string | null
+  // Versión PUBLICADA — la única que lee el runtime. Editar una secuencia en uso nunca la pisa.
   steps: SequenceStep[]
+  // Trabajo en curso, autoguardado en cada edición. null = no hay cambios sin publicar.
+  draft_steps: SequenceStep[] | null
+  // 'draft' = nunca se publicó, todavía no puede asignarse a un flujo.
+  status: 'draft' | 'published'
   created_at: string
   updated_at: string
 }
@@ -790,6 +813,8 @@ export type CrmWaFlow = {
   trigger_once: boolean
   flow_trigger_type: CrmWaFlowTriggerType
   country_sequences: CrmWaFlowCountrySequence[]
+  status: 'draft' | 'published'
+  draft_step: number
   created_at: string
   updated_at: string
 }

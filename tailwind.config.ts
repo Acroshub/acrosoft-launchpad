@@ -101,6 +101,13 @@ export default {
           "50%": { transform: "scale(1.2)" },
           "100%": { transform: "scale(1)" },
         },
+        // Halo que se expande y se desvanece — marca los nodos a los que SÍ se puede conectar
+        // mientras se elige un destino en el lienzo del árbol de secuencias.
+        "connect-pulse": {
+          "0%": { boxShadow: "0 0 0 0 hsl(var(--primary) / 0.45)" },
+          "70%": { boxShadow: "0 0 0 6px hsl(var(--primary) / 0)" },
+          "100%": { boxShadow: "0 0 0 0 hsl(var(--primary) / 0)" },
+        },
       },
       animation: {
         "accordion-down": "accordion-down 0.2s ease-out",
@@ -109,6 +116,7 @@ export default {
         "slide-right": "slide-right 0.3s ease-out",
         "fade-in": "fade-in 0.5s ease-out",
         "check-bounce": "check-bounce 0.5s ease-out",
+        "connect-pulse": "connect-pulse 1.9s ease-out infinite",
       },
     },
   },
