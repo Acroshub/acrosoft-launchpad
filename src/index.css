@@ -75,6 +75,11 @@
   /* Selección de texto */
   ::selection { background: hsl(var(--primary) / 0.15); color: hsl(var(--foreground)); }
 
+  /* Carruseles horizontales (chips de filtro): el scroll se hace arrastrando o con
+     shift+rueda, la barra solo agregaría ruido a una fila de 24px de alto. */
+  .scrollbar-none { scrollbar-width: none; -ms-overflow-style: none; }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+
   /* Red de seguridad: iOS Safari hace zoom automático al enfocar un campo con
      font-size < 16px. Esto fuerza 16px en cualquier input/textarea/select por
      debajo del breakpoint md, incluso si una clase de Tailwind intenta achicarlo. */

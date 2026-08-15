@@ -6862,10 +6862,17 @@ const ChatPanel = ({
                 <div className="relative">
                   <button
                     onClick={() => setShowLabels(v => !v)}
-                    className={`w-8 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${showLabels ? "bg-black/5 dark:bg-white/8 text-foreground" : "text-muted-foreground hover:bg-black/5 dark:hover:bg-white/8 hover:text-foreground"}`}
-                    title="Etiquetas"
+                    className={`relative w-8 h-8 flex items-center justify-center rounded-lg transition-colors cursor-pointer ${showLabels || convLabels.length > 0 ? "bg-black/5 dark:bg-white/8 text-foreground" : "text-muted-foreground hover:bg-black/5 dark:hover:bg-white/8 hover:text-foreground"}`}
+                    title={convLabels.length > 0 ? `Etiquetas: ${convLabels.map(l => l.name).join(", ")}` : "Etiquetas"}
                   >
                     <Tag size={15} />
+                    {/* Con el chat abierto las etiquetas asignadas eran invisibles hasta abrir el
+                        menú. El contador las delata sin ocupar espacio en la barra. */}
+                    {convLabels.length > 0 && (
+                      <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] px-0.5 rounded-full bg-[#1877F2] text-white text-[9px] font-bold flex items-center justify-center">
+                        {convLabels.length}
+                      </span>
+                    )}
                   </button>
                   {showLabels && (
                     <>
@@ -6875,10 +6882,10 @@ const ChatPanel = ({
                         {allLabels.map(l => {
                           const active = convLabels.some(cl => cl.id === l.id);
                           return (
-                            <button key={l.id} onClick={() => toggleLabel.mutate({ conversationId: conv.id, labelId: l.id, active: !active })} className="w-full flex items-center gap-3 px-4 py-2.5 hover:bg-secondary/60 transition-colors">
-                              <Tag size={12} className="shrink-0" style={{ color: l.color }} />
-                              <span className="text-sm flex-1 text-left">{l.name}</span>
-                              {active && <Check size={13} className="text-primary shrink-0" />}
+                            <button key={l.id} onClick={() => toggleLabel.mutate({ conversationId: conv.id, labelId: l.id, active: !active })} className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-secondary/60 transition-colors">
+                              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                              <span className={`text-sm flex-1 text-left truncate ${active ? "font-semibold" : ""}`}>{l.name}</span>
+                              {active && <Check size={13} className="text-[#1877F2] shrink-0" />}
                             </button>
                           );
                         })}
@@ -7043,7 +7050,9 @@ const CrmAgentIA = ({
   const [showSettings, setShowSettings]       = useState(false);
   const [search, setSearch]                   = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
-  const [labelFilter, setLabelFilter]         = useState<string | null>(null);
+  // Filtro por etiquetas: multi-selección con AND (cada etiqueta añadida acota más).
+  const [labelFilters, setLabelFilters]       = useState<string[]>([]);
+  const [showLabelFilterMenu, setShowLabelFilterMenu] = useState(false);
   const [assignFilter, setAssignFilter]       = useState<"all" | "mine" | "unassigned">("all");
   const [readFilter, setReadFilter]           = useState<"all" | "unread" | "favorites" | "pending_payment" | "human">("all");
   const [wizardDone, setWizardDone]           = useState(false);
@@ -7117,8 +7126,11 @@ const CrmAgentIA = ({
       return name.includes(q) || phone.includes(q.replace(/\D/g, ""));
     });
     if (!showArchived) {
-      if (labelFilter) {
-        result = result.filter(c => (convLabelsMap[c.id] ?? []).some(l => l.id === labelFilter));
+      if (labelFilters.length > 0) {
+        result = result.filter(c => {
+          const ids = new Set((convLabelsMap[c.id] ?? []).map(l => l.id));
+          return labelFilters.every(id => ids.has(id));
+        });
       }
       if (assignFilter === "unassigned") {
         result = result.filter(c => !c.assigned_to);
@@ -7142,7 +7154,40 @@ const CrmAgentIA = ({
       });
     }
     return result;
-  }, [showArchived, conversations, archivedConversations, search, labelFilter, convLabelsMap, assignFilter, readFilter, staffRecord, pendingSaleConvIds]);
+  }, [showArchived, conversations, archivedConversations, search, labelFilters, convLabelsMap, assignFilter, readFilter, staffRecord, pendingSaleConvIds]);
+
+  // Cuántas conversaciones activas tiene cada etiqueta — para ordenar por uso y mostrar el
+  // conteo antes de hacer clic (una etiqueta sin chats no debería robar el primer lugar).
+  const labelCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const c of conversations) {
+      for (const l of convLabelsMap[c.id] ?? []) counts[l.id] = (counts[l.id] ?? 0) + 1;
+    }
+    return counts;
+  }, [conversations, convLabelsMap]);
+
+  // Orden del filtro: seleccionadas primero, luego las más usadas. Así las etiquetas que
+  // de verdad se usan quedan al alcance sin scroll, y las vacías caen al final.
+  const sortedFilterLabels = useMemo(
+    () => [...labels].sort((a, b) => {
+      const as = labelFilters.includes(a.id) ? 0 : 1;
+      const bs = labelFilters.includes(b.id) ? 0 : 1;
+      if (as !== bs) return as - bs;
+      return (labelCounts[b.id] ?? 0) - (labelCounts[a.id] ?? 0);
+    }),
+    [labels, labelFilters, labelCounts],
+  );
+
+  const toggleLabelFilter = (id: string) =>
+    setLabelFilters(f => f.includes(id) ? f.filter(x => x !== id) : [...f, id]);
+
+  // Si se borra una etiqueta mientras filtraba, sacarla del filtro: si no, la lista queda
+  // vacía para siempre por una etiqueta que ya no existe ni se ve en la barra.
+  useEffect(() => {
+    if (labels.length === 0) return;
+    const valid = new Set(labels.map(l => l.id));
+    setLabelFilters(f => f.every(id => valid.has(id)) ? f : f.filter(id => valid.has(id)));
+  }, [labels]);
 
   // Debounce para búsqueda de mensajes
   useEffect(() => {
@@ -7329,7 +7374,7 @@ const CrmAgentIA = ({
             {/* Tabs: Unread / All / Assignment filter */}
             {!showArchived && <div className="px-4 pt-3 pb-0 border-b space-y-2.5">
               {/* Unread / All / Favorites tabs */}
-              <div className="flex gap-0 overflow-x-auto">
+              <div className="flex gap-0 min-w-0 overflow-x-auto scrollbar-none">
                 {conversationTabs.map(tab => {
                   const isActive = readFilter === tab.id;
                   const amber = (tab as any).amber === true;
@@ -7401,23 +7446,99 @@ const CrmAgentIA = ({
                 )}
               </div>
 
-              {/* Label pills */}
+              {/* Filtro por etiquetas — una sola fila con scroll horizontal.
+                  Antes era un flex-wrap con TODAS las etiquetas siempre abiertas: con 8-10
+                  etiquetas se comía 3 renglones de alto y le robaba espacio a la lista de chats.
+                  Ahora: altura fija de una fila, multi-selección (AND), conteo por etiqueta y un
+                  menú "Todas" para ver el panorama completo sin scrollear la fila. */}
               {search.length < 3 && labels.length > 0 && (
-                <div className="flex gap-1.5 flex-wrap pb-2">
-                  {labels.map(l => (
+                <div className="flex items-center gap-1.5 pb-2.5">
+                  {/* Menú con la lista completa */}
+                  <div className="relative shrink-0">
                     <button
-                      key={l.id}
-                      onClick={() => setLabelFilter(f => f === l.id ? null : l.id)}
-                      className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-medium transition-all"
-                      style={labelFilter === l.id
-                        ? { backgroundColor: l.color, color: "#fff" }
-                        : { backgroundColor: `${l.color}18`, color: l.color, border: `1px solid ${l.color}30` }
-                      }
+                      onClick={() => setShowLabelFilterMenu(v => !v)}
+                      title="Filtrar por etiquetas"
+                      className={`flex items-center gap-1 pl-2 pr-1.5 py-1 rounded-full text-[11px] font-medium border transition-colors ${
+                        labelFilters.length > 0
+                          ? "bg-[#1877F2] border-[#1877F2] text-white"
+                          : "bg-secondary/60 border-transparent text-muted-foreground hover:text-foreground hover:bg-secondary"
+                      }`}
                     >
-                      <Tag size={10} className="shrink-0" style={{ color: labelFilter === l.id ? "#fff" : l.color }} />
-                      {l.name}
+                      <Tag size={10} className="shrink-0" />
+                      {labelFilters.length > 0 ? labelFilters.length : "Etiquetas"}
+                      <ChevronDown size={11} className={`shrink-0 transition-transform ${showLabelFilterMenu ? "rotate-180" : ""}`} />
                     </button>
-                  ))}
+                    {showLabelFilterMenu && (
+                      <>
+                        <div className="fixed inset-0 z-30" onClick={() => setShowLabelFilterMenu(false)} />
+                        <div className="absolute left-0 top-full mt-1.5 z-40 bg-card border rounded-2xl shadow-xl py-1.5 w-[240px] max-h-[320px] overflow-y-auto">
+                          <div className="flex items-center justify-between px-4 py-2">
+                            <p className="text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-widest">Etiquetas</p>
+                            {labelFilters.length > 0 && (
+                              <button
+                                onClick={() => setLabelFilters([])}
+                                className="text-[10px] font-medium text-[#1877F2] hover:underline"
+                              >
+                                Limpiar
+                              </button>
+                            )}
+                          </div>
+                          {sortedFilterLabels.map(l => {
+                            const active = labelFilters.includes(l.id);
+                            const count = labelCounts[l.id] ?? 0;
+                            return (
+                              <button
+                                key={l.id}
+                                onClick={() => toggleLabelFilter(l.id)}
+                                className="w-full flex items-center gap-2.5 px-4 py-2.5 hover:bg-secondary/60 transition-colors"
+                              >
+                                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                                <span className={`text-sm flex-1 text-left truncate ${active ? "font-semibold" : ""} ${count === 0 ? "text-muted-foreground/50" : ""}`}>
+                                  {l.name}
+                                </span>
+                                <span className="text-[11px] text-muted-foreground/60 tabular-nums shrink-0">{count}</span>
+                                {active && <Check size={13} className="text-[#1877F2] shrink-0" />}
+                              </button>
+                            );
+                          })}
+                          {labelFilters.length > 1 && (
+                            <p className="text-[10px] text-muted-foreground/60 px-4 pt-2 pb-1 leading-snug border-t mt-1.5">
+                              Se muestran los chats que tienen <strong>todas</strong> las etiquetas elegidas.
+                            </p>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Acceso de un clic a las etiquetas más usadas */}
+                  <div className="flex items-center gap-1.5 min-w-0 overflow-x-auto scrollbar-none">
+                    {sortedFilterLabels.map(l => {
+                      const active = labelFilters.includes(l.id);
+                      const count = labelCounts[l.id] ?? 0;
+                      if (!active && count === 0) return null;
+                      return (
+                        <button
+                          key={l.id}
+                          onClick={() => toggleLabelFilter(l.id)}
+                          className="flex items-center gap-1.5 pl-2 pr-2.5 py-1 rounded-full text-[11px] font-medium transition-all shrink-0 max-w-[140px]"
+                          style={active
+                            ? { backgroundColor: l.color, color: "#fff" }
+                            : { backgroundColor: `${l.color}18`, color: l.color, border: `1px solid ${l.color}30` }
+                          }
+                        >
+                          <span
+                            className="w-2 h-2 rounded-full shrink-0"
+                            style={{ backgroundColor: active ? "rgba(255,255,255,.85)" : l.color }}
+                          />
+                          <span className="truncate">{l.name}</span>
+                          {active
+                            ? <X size={11} className="shrink-0 opacity-80" />
+                            : <span className="tabular-nums opacity-60">{count}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
             </div>}
@@ -7442,12 +7563,26 @@ const CrmAgentIA = ({
               </div>
             )}
 
-            <div className="flex-1 overflow-y-auto">
+            {/* overflow-x-hidden explícito: con solo overflow-y-auto el navegador computa
+                overflow-x: auto y cualquier desborde de unos píxeles (una etiqueta larga, el
+                ancho del scrollbar) aparece como barra horizontal. Acá nada scrollea de lado. */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden">
               {(showArchived || search.length < 3) ? (
                 /* ── Lista normal ── */
                 filteredConvs.length === 0 ? (
                   <div className="flex flex-col items-center justify-center h-40 gap-2 text-muted-foreground px-6 text-center">
-                    {readFilter === "unread" ? (
+                    {!showArchived && labelFilters.length > 0 ? (
+                      <>
+                        <Tag size={24} className="opacity-30" />
+                        <p className="text-xs font-medium">Ningún chat con {labelFilters.length > 1 ? "esas etiquetas" : "esa etiqueta"}</p>
+                        <button
+                          onClick={() => setLabelFilters([])}
+                          className="text-xs font-medium text-[#1877F2] hover:underline"
+                        >
+                          Quitar filtro de etiquetas
+                        </button>
+                      </>
+                    ) : readFilter === "unread" ? (
                       <>
                         <CheckCheck size={24} className="opacity-30" />
                         <p className="text-xs font-medium">Todo leído</p>
@@ -7503,7 +7638,7 @@ const CrmAgentIA = ({
                     <button
                       key={conv.id}
                       onClick={() => { setSelectedId(conv.id); setMobileShowChat(true); setHighlightMessageId(null); if (unread > 0) markRead.mutate(conv.id); }}
-                      className={`group/convitem w-full text-left px-4 py-3 border-b transition-colors cursor-pointer ${
+                      className={`w-full text-left px-4 py-3 border-b transition-colors cursor-pointer ${
                         isSelected
                           ? "bg-[#1877F2]/8 dark:bg-[#1877F2]/10 border-l-2 border-l-[#1877F2]"
                           : isUnread
@@ -7566,15 +7701,30 @@ const CrmAgentIA = ({
                               <p className={`text-[11px] truncate flex-1 ${hasPendingPayment ? "text-amber-700 dark:text-amber-500 font-medium" : "text-muted-foreground/70"}`}>
                                 {subtitle}
                               </p>
+                              {/* Antes eran 5 iconos de tag idénticos, solo diferenciados por color:
+                                  sin leyenda no se puede saber qué etiqueta es cuál (y en móvil no hay
+                                  hover que revele el title). Ahora se leen 2 nombres y el resto se
+                                  resume en "+N", que es lo que cabe sin romper el ancho de la fila. */}
                               {convLabels.length > 0 && (
-                                <span className="flex items-center gap-1 shrink-0">
-                                  {convLabels.slice(0, 5).map(l => (
-                                    <span key={l.id} title={l.name} className="inline-flex">
-                                      <Tag size={10} style={{ color: l.color }} />
+                                <span className="flex items-center gap-1 min-w-0 max-w-[62%] overflow-hidden">
+                                  {convLabels.slice(0, 2).map(l => (
+                                    <span
+                                      key={l.id}
+                                      title={l.name}
+                                      className="inline-flex items-center gap-1 pl-1.5 pr-2 py-px rounded-full text-[10px] font-medium leading-[15px] max-w-[78px] min-w-0"
+                                      style={{ backgroundColor: `${l.color}1f`, color: l.color }}
+                                    >
+                                      <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: l.color }} />
+                                      <span className="truncate">{l.name}</span>
                                     </span>
                                   ))}
-                                  {convLabels.length > 5 && (
-                                    <span className="text-[9px] text-muted-foreground">+{convLabels.length - 5}</span>
+                                  {convLabels.length > 2 && (
+                                    <span
+                                      title={convLabels.slice(2).map(l => l.name).join(", ")}
+                                      className="text-[10px] font-medium text-muted-foreground/70 shrink-0"
+                                    >
+                                      +{convLabels.length - 2}
+                                    </span>
                                   )}
                                 </span>
                               )}
@@ -7617,7 +7767,7 @@ const CrmAgentIA = ({
                               setConvMenu({ id: conv.id, isArchived: !!conv.is_archived, top: rect.bottom + 4, right: window.innerWidth - rect.right });
                             }
                           }}
-                          className="cursor-pointer shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-colors text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary/70 lg:opacity-0 lg:group-hover/convitem:opacity-100"
+                          className="cursor-pointer shrink-0 w-9 h-9 flex items-center justify-center rounded-xl transition-colors text-muted-foreground/50 hover:text-muted-foreground hover:bg-secondary/70"
                         >
                           <MoreVertical size={15} />
                         </div>
