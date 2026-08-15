@@ -3,10 +3,11 @@ import { useNavigate } from "react-router-dom";
 import {
   LayoutDashboard, CalendarDays, Users, LogOut, ClipboardList, User,
   Store, Settings, DollarSign, ShieldOff, Loader2, MessageCircle,
-  PlayCircle, Bot, Sparkles, GraduationCap, Menu, X, ChevronRight, ShoppingBag, BookOpen, Briefcase, Video,
+  PlayCircle, Sparkles, GraduationCap, Menu, X, ChevronRight, ShoppingBag, BookOpen, Briefcase, Video,
   TrendingUp, Plus, History, RefreshCcw, Mail, CreditCard, Bell,
 } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
+import WhatsAppIcon from "@/components/shared/WhatsAppIcon";
 import { useCurrentUser, signOut, useStaffPermissions } from "@/hooks/useAuth";
 import { getOverdueRenewals, getUpcomingRenewals } from "@/components/crm/RenewalsPanel";
 import CrmOverview from "@/components/crm/CrmOverview";
@@ -66,7 +67,7 @@ const CRM_CHILDREN: NavChild[] = [
 ];
 
 const IA_CHILDREN: NavChild[] = [
-  { id: "agente_ia", label: "WhatsApp IA", icon: Bot },
+  { id: "agente_ia", label: "WhatsApp IA", icon: WhatsAppIcon },
 ];
 
 const SOPORTE_CHILDREN: NavChild[] = [
