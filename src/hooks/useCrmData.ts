@@ -1795,7 +1795,18 @@ export type AdminAlert = {
   message: string;
   metadata: Record<string, unknown> | null;
   created_at: string;
+  /** Título corto. Las alertas viejas no lo tienen: se cae a una etiqueta por `type`. */
+  title: string | null;
+  severity: "critical" | "warning";
+  /** Nombre del cliente SaaS afectado. null = problema global. */
+  tenant_label: string | null;
+  occurrences: number;
+  last_occurred_at: string;
+  resolved_at: string | null;
 };
+
+const ADMIN_ALERT_COLS =
+  "id, type, user_id, message, metadata, created_at, title, severity, tenant_label, occurrences, last_occurred_at, resolved_at";
 
 // Alertas administrativas persistentes (ej. relleno de caché insuficiente para
 // un tenant). RLS ya restringe la lectura al superadmin — `enabled` evita la
@@ -1807,9 +1818,32 @@ export const useAdminAlerts = () => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("crm_admin_alerts")
-        .select("id, type, user_id, message, metadata, created_at")
+        .select(ADMIN_ALERT_COLS)
         .is("resolved_at", null)
         .order("created_at", { ascending: false });
+      if (error) return [];
+      return data as AdminAlert[];
+    },
+    enabled: !!user && user.email === ACROSOFT_ADMIN_EMAIL,
+    refetchInterval: 60_000,
+  });
+};
+
+/**
+ * Historial completo, incluidas las ya resueltas — alimenta "Notificaciones
+ * Críticas" en Ajustes. Ver qué se rompió y cuándo se arregló importa tanto
+ * como ver lo que está roto ahora.
+ */
+export const useAdminAlertHistory = (limit = 100) => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["admin_alerts_history", limit],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_admin_alerts")
+        .select(ADMIN_ALERT_COLS)
+        .order("last_occurred_at", { ascending: false })
+        .limit(limit);
       if (error) return [];
       return data as AdminAlert[];
     },

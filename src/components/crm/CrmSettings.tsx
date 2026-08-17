@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useRef, useCallback, Fragment } from "react";
-import { Activity, Loader2, Filter, Users, ChevronDown, ChevronRight, ChevronLeft, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, Clock, Send, UserCog, Bell, Bot } from "lucide-react";
-import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, useContacts, useServices, useProducts } from "@/hooks/useCrmData";
+import { Activity, Loader2, Filter, Users, ChevronDown, ChevronRight, ChevronLeft, Search, X, Plus, Trash2, Mail, Pencil, ToggleLeft, ToggleRight, BellOff, CheckCircle2, AlertCircle, AlertTriangle, Clock, Send, UserCog, Bell, Bot } from "lucide-react";
+import { useLogs, useStaff, useCreateStaff, useUpdateStaff, useDeleteStaff, useInviteStaff, useReminderConfig, useUpsertReminderConfig, useReminders, useCalendars, useForms, useContacts, useServices, useProducts, useAdminAlertHistory, useResolveAdminAlert, type AdminAlert } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
 import type { CrmLog, CrmStaff, StaffPermission, StaffItemPermission, CrmReminder } from "@/lib/supabase";
@@ -1544,7 +1544,127 @@ const NotificationsTab = () => {
   );
 };
 
-type TabId = "logs" | "staff" | "reminders" | "saas" | "ia_costos" | "notificaciones";
+type TabId = "logs" | "staff" | "reminders" | "saas" | "ia_costos" | "notificaciones" | "alertas";
+
+// ─── Notificaciones Críticas (admin) ──────────────────────────────────────────
+// Lo que se envía por push queda también aquí. Nace del incidente del 16/08:
+// el webhook estuvo 21h sin guardar mensajes y nadie se enteró porque no había
+// dónde mirar. wa-health-check comprueba cada 5 minutos y escribe aquí.
+
+const ALERT_FALLBACK_TITLES: Record<string, string> = {
+  wa_messages_not_saved:    "No se están guardando los mensajes",
+  wa_send_failures:         "Meta está rechazando los envíos",
+  wa_ai_not_replying:       "La IA dejó de responder",
+  wa_webhook_disconnected:  "WhatsApp desconectado de Meta",
+  wa_followups_stuck:       "Seguimientos automáticos atascados",
+  cache_filler_insufficient:"Relleno de caché insuficiente",
+};
+
+function tiempoRelativo(iso: string): string {
+  const seg = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (seg < 60)     return "hace un momento";
+  if (seg < 3600)   return `hace ${Math.floor(seg / 60)} min`;
+  if (seg < 86_400) return `hace ${Math.floor(seg / 3600)} h`;
+  return new Date(iso).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+}
+
+const AlertasCriticasTab = () => {
+  const { data: alertas = [], isLoading } = useAdminAlertHistory();
+  const resolver = useResolveAdminAlert();
+
+  const abiertas  = alertas.filter(a => !a.resolved_at);
+  const resueltas = alertas.filter(a => a.resolved_at);
+
+  const Tarjeta = ({ a }: { a: AdminAlert }) => {
+    const resuelta = !!a.resolved_at;
+    const critica  = a.severity === "critical";
+    const titulo   = a.title ?? ALERT_FALLBACK_TITLES[a.type] ?? a.type;
+    return (
+      <div className={`rounded-2xl border p-4 ${
+        resuelta ? "border-border bg-card opacity-70"
+        : critica ? "border-destructive/40 bg-destructive/5"
+        : "border-amber-500/40 bg-amber-500/5"
+      }`}>
+        <div className="flex items-start gap-3">
+          <span className="text-base leading-none mt-0.5 shrink-0">
+            {resuelta ? "🟢" : critica ? "🔴" : "🟠"}
+          </span>
+          <div className="flex-1 min-w-0">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <p className="text-sm font-semibold">{titulo}</p>
+              <Badge variant="outline" className="text-[10px] font-medium">
+                {a.tenant_label ?? "Global"}
+              </Badge>
+              {a.occurrences > 1 && (
+                <span className="text-[10px] text-muted-foreground">
+                  {a.occurrences} veces
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground leading-relaxed mt-1.5">{a.message}</p>
+            <p className="text-[10px] text-muted-foreground/60 mt-2">
+              {resuelta
+                ? `Empezó ${tiempoRelativo(a.created_at)} · resuelto ${tiempoRelativo(a.resolved_at!)}`
+                : `Empezó ${tiempoRelativo(a.created_at)} · última vez ${tiempoRelativo(a.last_occurred_at)}`}
+            </p>
+          </div>
+          {!resuelta && (
+            <button
+              onClick={() => resolver.mutate(a.id)}
+              disabled={resolver.isPending}
+              title="Marcar como resuelta"
+              className="text-[10px] px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:bg-secondary transition-colors shrink-0"
+            >
+              Cerrar
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  if (isLoading) {
+    return <div className="flex justify-center py-10"><Loader2 size={18} className="animate-spin text-muted-foreground/50" /></div>;
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h3 className="text-sm font-semibold">Notificaciones Críticas</h3>
+        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">
+          Fallos del Agente IA de WhatsApp. Se revisa cada 5 minutos y solo tú recibes
+          el aviso por notificación push — ni los dueños de negocio ni su equipo ven esto.
+        </p>
+      </div>
+
+      {abiertas.length === 0 ? (
+        <div className="rounded-2xl border border-border bg-card p-6 text-center">
+          <CheckCircle2 size={22} className="mx-auto text-emerald-500 mb-2" />
+          <p className="text-sm font-medium">Todo funcionando</p>
+          <p className="text-xs text-muted-foreground mt-1">
+            Ningún problema activo en este momento.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">
+            Activos ({abiertas.length})
+          </p>
+          {abiertas.map(a => <Tarjeta key={a.id} a={a} />)}
+        </div>
+      )}
+
+      {resueltas.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40">
+            Historial
+          </p>
+          {resueltas.map(a => <Tarjeta key={a.id} a={a} />)}
+        </div>
+      )}
+    </div>
+  );
+};
 
 type TabDef = {
   id: TabId;
@@ -1563,6 +1683,7 @@ const ALL_TABS: TabDef[] = [
   { id: "reminders",     label: "Historial de Comunicaciones", description: "Email y WhatsApp", icon: Mail,          group: "Comunicación",                                             Component: RemindersTab        },
   { id: "logs",          label: "Logs",              description: "Historial de actividad",     icon: Activity,      group: "Sistema",      adminOnly: true,  saasClientVisible: true,   Component: LogsTab             },
   { id: "ia_costos",     label: "Costos IA",         description: "Uso y costo del agente IA",  icon: Bot,           group: "Sistema",      adminOnly: true,                           Component: IACostosTab         },
+  { id: "alertas",       label: "Notificaciones Críticas", description: "Fallos del Agente IA de WhatsApp", icon: AlertTriangle, group: "Sistema", adminOnly: true,            Component: AlertasCriticasTab  },
 ];
 
 const SETTINGS_GROUPS = ["General", "Comunicación", "Sistema"];

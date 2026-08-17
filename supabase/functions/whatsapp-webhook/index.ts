@@ -467,7 +467,19 @@ async function upsertConversation(userId: string, phone: string, contactName: st
       { onConflict: "user_id,phone", ignoreDuplicates: false }
     )
     .select().single();
-  if (error) { console.error("[webhook] error upsert conversación:", error); return null; }
+  if (error) {
+    console.error("[webhook] error upsert conversación:", error);
+    // Se deja constancia en la base, no solo en el log. Un fallo aquí descarta
+    // el mensaje entero y es INVISIBLE mirando los datos: no se pueden ver
+    // mensajes que nunca se guardaron. El 16/08 esto estuvo 21h pasando en
+    // silencio. wa-health-check lee esta tabla y avisa al administrador.
+    await supabase.from("crm_wa_health_events").insert({
+      kind: "message_not_saved",
+      tenant_user_id: userId,
+      detail: `${error.code ?? ""} ${error.message ?? ""}`.trim().slice(0, 300),
+    }).then(() => {}, () => {}); // nunca debe tumbar el webhook
+    return null;
+  }
 
   // Conversación sin contacto vinculado: enlazar uno existente por teléfono o, si el tenant
   // tiene "crear contacto" activo, crear uno nuevo — así cada chat nuevo queda guardado en el
