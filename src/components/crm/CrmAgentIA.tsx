@@ -5207,6 +5207,30 @@ const CrmAgentIA = ({
   const [deleteModalId, setDeleteModalId]     = useState<string | null>(null);
   const [showArchived, setShowArchived]       = useState(false);
   const [convMenu, setConvMenu]               = useState<{ id: string; isArchived: boolean; top: number; right: number } | null>(null);
+  // Chats que ya se leyeron pero siguen listándose en "Sin leer" hasta que se cambie de pestaña.
+  // Antes la fila desaparecía en el mismo clic que la abría: si tenías 8 sin leer, la lista se te
+  // deshacía debajo del cursor y perdías de vista cuáles te faltaban.
+  const [stickyUnreadIds, setStickyUnreadIds] = useState<Set<string>>(() => new Set());
+  // Salir de la pestaña (o entrar a Archivadas) es lo que "confirma" la tanda y limpia el listado.
+  useEffect(() => { setStickyUnreadIds(new Set()); }, [readFilter, showArchived]);
+
+  const rememberSticky = (id: string) => {
+    if (readFilter !== "unread") return;
+    setStickyUnreadIds(prev => (prev.has(id) ? prev : new Set(prev).add(id)));
+  };
+
+  // El panel del chat vive siempre visible en desktop (lg+); en móvil solo cuando se entró a él.
+  // Hace falta saberlo para no marcar como leído lo que no estás mirando.
+  const [isDesktopChat, setIsDesktopChat] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(min-width: 1024px)").matches,
+  );
+  useEffect(() => {
+    const mql = window.matchMedia("(min-width: 1024px)");
+    const onChange = () => setIsDesktopChat(mql.matches);
+    mql.addEventListener("change", onChange);
+    return () => mql.removeEventListener("change", onChange);
+  }, []);
+  const chatPanelVisible = isDesktopChat || mobileShowChat;
 
   const handleDisconnect = () => {
     setForceWizard(true);
@@ -5229,6 +5253,23 @@ const CrmAgentIA = ({
       ?? null,
     [conversations, archivedConversations, selectedId]
   );
+
+  // Mientras tenés el chat a la vista, lo que entra ya lo estás leyendo: se marca leído solo.
+  // Antes el contador seguía subiendo en silencio (el badge se ocultaba por estar seleccionado) y
+  // el chat quedaba clavado en "Sin leer" hasta volver a clickearlo.
+  // El ref evita repetir la mutación mientras el refetch (cada 3s) todavía devuelve el valor viejo.
+  const autoReadRef = useRef<Record<string, number>>({});
+  const { mutate: markReadMutate } = markRead;
+  useEffect(() => {
+    if (!selectedConv || !chatPanelVisible || showArchived) return;
+    const id = selectedConv.id;
+    const pending = selectedConv.unread_count ?? 0;
+    if (pending <= 0) { delete autoReadRef.current[id]; return; }
+    if (autoReadRef.current[id] === pending) return;
+    autoReadRef.current[id] = pending;
+    markReadMutate(id);
+    if (readFilter === "unread") setStickyUnreadIds(prev => (prev.has(id) ? prev : new Set(prev).add(id)));
+  }, [selectedConv, chatPanelVisible, showArchived, readFilter, markReadMutate]);
 
   // Set de conversation IDs con pago pendiente — para lookup O(1)
   const pendingSaleConvIds = useMemo(
@@ -5285,7 +5326,8 @@ const CrmAgentIA = ({
         result = result.filter(c => c.assigned_to === staffRecord.id);
       }
       if (readFilter === "unread") {
-        result = result.filter(c => (c.unread_count ?? 0) > 0);
+        // Los ya leídos en esta tanda (stickyUnreadIds) siguen apareciendo, sin badge y sin negrita.
+        result = result.filter(c => (c.unread_count ?? 0) > 0 || stickyUnreadIds.has(c.id));
       } else if (readFilter === "favorites") {
         result = result.filter(c => c.is_favorite);
       } else if (readFilter === "pending_payment") {
@@ -5301,7 +5343,7 @@ const CrmAgentIA = ({
       });
     }
     return result;
-  }, [showArchived, conversations, archivedConversations, search, labelFilters, convLabelsMap, assignFilter, readFilter, staffRecord, pendingSaleConvIds]);
+  }, [showArchived, conversations, archivedConversations, search, labelFilters, convLabelsMap, assignFilter, readFilter, staffRecord, pendingSaleConvIds, stickyUnreadIds]);
 
   // Cuántas conversaciones activas tiene cada etiqueta — para ordenar por uso y mostrar el
   // conteo antes de hacer clic (una etiqueta sin chats no debería robar el primer lugar).
@@ -5528,7 +5570,12 @@ const CrmAgentIA = ({
                   return (
                     <button
                       key={tab.id}
-                      onClick={() => setReadFilter(tab.id as "all" | "unread" | "favorites" | "pending_payment" | "human")}
+                      onClick={() => {
+                        // Volver a tocar "Sin leer" estando en "Sin leer" limpia los ya revisados:
+                        // es la forma de vaciar la tanda sin tener que ir y volver de otra pestaña.
+                        if (tab.id === "unread" && readFilter === "unread") setStickyUnreadIds(new Set());
+                        setReadFilter(tab.id as "all" | "unread" | "favorites" | "pending_payment" | "human");
+                      }}
                       className={`flex items-center gap-1.5 px-3 py-2.5 text-sm font-medium border-b-2 transition-colors shrink-0 ${
                         isActive
                           ? amber
@@ -5771,8 +5818,10 @@ const CrmAgentIA = ({
                     const hasPendingPayment = pendingSaleConvIds.has(conv.id);
                     const pendingSale = hasPendingPayment ? pendingSaleByConvId[conv.id] : null;
                     const unread = conv.unread_count ?? 0;
-                    const isUnread = unread > 0 && selectedId !== conv.id;
                     const isSelected = selectedId === conv.id;
+                    // El badge se apaga solo cuando el chat está de verdad a la vista: en móvil,
+                    // parado en la lista, un chat seleccionado que recibe mensajes sigue avisando.
+                    const isUnread = unread > 0 && !(isSelected && chatPanelVisible);
                     const convName = conv.contact_name ?? `+${conv.phone}`;
                     const convAvatarBg = getAvatarColor(convName);
                     const convLabels = convLabelsMap[conv.id] ?? [];
@@ -5784,7 +5833,10 @@ const CrmAgentIA = ({
                     return (
                     <button
                       key={conv.id}
-                      onClick={() => { setSelectedId(conv.id); setMobileShowChat(true); setHighlightMessageId(null); if (unread > 0) markRead.mutate(conv.id); }}
+                      onClick={() => {
+                        setSelectedId(conv.id); setMobileShowChat(true); setHighlightMessageId(null);
+                        if (unread > 0) { markRead.mutate(conv.id); rememberSticky(conv.id); }
+                      }}
                       className={`w-full text-left px-4 py-3 border-b transition-colors cursor-pointer ${
                         isSelected
                           ? "bg-[#1877F2]/8 dark:bg-[#1877F2]/10 border-l-2 border-l-[#1877F2]"
