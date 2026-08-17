@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { usePushSubscriptionStatus, useSubscribeToPush, isPushSupported } from "@/hooks/usePushNotifications";
+import { useWaRealtime } from "@/hooks/useWaRealtime";
 import {
   useAIAgentConfig, useUpsertAIAgentConfig,
   useWaConversations, useWaLastMessages, useWaMessages,
@@ -5130,6 +5131,9 @@ const CrmAgentIA = ({
 }) => {
   // Staff uses principal's userId to fetch config and conversations
   const principalId = isStaff ? (ownerUserId ?? undefined) : undefined;
+  // Mantiene lista, previews e hilo abierto al día por Realtime. Debe montarse
+  // una sola vez y por encima de las queries que parchea.
+  useWaRealtime(principalId);
   const { data: config, isLoading } = useAIAgentConfig(principalId);
   const { data: conversations = [] }         = useWaConversations(principalId);
   const { data: lastMessages = {} }          = useWaLastMessages(principalId);

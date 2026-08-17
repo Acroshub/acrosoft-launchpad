@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase, supabasePublic } from "@/lib/supabase";
+import { patchWaConversation, removeWaConversation } from "@/lib/waCache";
 import { ALL_COUNTRY_OPTIONS, COUNTRIES_BY_CURRENCY, type CountryOption } from "@/lib/countries";
 import type {
   CrmContact,
@@ -1914,6 +1915,18 @@ export const useUpsertAIAgentConfig = () => {
   });
 };
 
+/**
+ * Red de seguridad de las queries de la bandeja de WhatsApp.
+ *
+ * Quien las mantiene al día es `useWaRealtime`, no este intervalo: antes
+ * refrescaban cada 3s y con 1.000+ conversaciones eso costaba ~300 MB de egress
+ * al día por pestaña. Esto solo cubre el hueco si un evento de Realtime se
+ * pierde sin que el socket llegue a caerse (una caída sí dispara resync al
+ * reconectar). React Query pausa el intervalo con la pestaña en segundo plano,
+ * así que solo corre mientras alguien está mirando.
+ */
+const WA_FALLBACK_REFETCH_MS = 5 * 60_000;
+
 export const useWaConversations = (userId?: string) => {
   const { user } = useCurrentUser();
   const effectiveId = userId ?? user?.id;
@@ -1930,14 +1943,15 @@ export const useWaConversations = (userId?: string) => {
       return (data ?? []) as CrmWaConversation[];
     },
     enabled: !!effectiveId,
-    refetchInterval: 3000,
+    refetchInterval: WA_FALLBACK_REFETCH_MS,
+    refetchOnWindowFocus: true,
   });
 };
 
 // Preview del último mensaje de cada conversación, para la lista de chats. Una sola consulta a la
 // vista `crm_wa_conversation_last_message` (un renglón por conversación) en vez de una por chat.
-// Refresca más lento que la lista de conversaciones: el preview puede llegar un segundo tarde sin
-// que se note, pero el orden y los no leídos no.
+// Solo se consulta al abrir la bandeja: después, `useWaRealtime` parchea cada preview con el
+// mensaje que viene en el evento, sin volver a traer la vista entera.
 export const useWaLastMessages = (userId?: string) => {
   const { user } = useCurrentUser();
   const effectiveId = userId ?? user?.id;
@@ -1955,7 +1969,8 @@ export const useWaLastMessages = (userId?: string) => {
       return byConversation;
     },
     enabled: !!effectiveId,
-    refetchInterval: 5000,
+    refetchInterval: WA_FALLBACK_REFETCH_MS,
+    refetchOnWindowFocus: true,
   });
 };
 
@@ -1975,7 +1990,8 @@ export const useArchivedWaConversations = (userId?: string) => {
       return (data ?? []) as CrmWaConversation[];
     },
     enabled: !!effectiveId,
-    refetchInterval: 3000,
+    refetchInterval: WA_FALLBACK_REFETCH_MS,
+    refetchOnWindowFocus: true,
   });
 };
 
@@ -1989,7 +2005,11 @@ export const useMarkConversationRead = () => {
         .eq("id", conversationId);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+    // Parche puntual en vez de invalidar la lista: esto se dispara en cada
+    // apertura de chat, y con 1.000+ conversaciones invalidar costaba un
+    // refetch completo cada vez. El evento de Realtime confirma la fila después.
+    onSuccess: (_data, conversationId) =>
+      patchWaConversation(qc, conversationId, { unread_count: 0 }),
   });
 };
 
@@ -2003,7 +2023,7 @@ export const useMarkConversationUnread = () => {
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+    onSuccess: (_data, id) => patchWaConversation(qc, id, { unread_count: 1 }),
   });
 };
 
@@ -2017,10 +2037,9 @@ export const useArchiveConversation = () => {
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] });
-      qc.invalidateQueries({ queryKey: ["crm_wa_conversations_archived"] });
-    },
+    // `patchWaConversation` mueve la fila entre la lista de activas y la de
+    // archivadas, así que no hace falta invalidar ninguna de las dos.
+    onSuccess: (_data, { id, value }) => patchWaConversation(qc, id, { is_archived: value }),
   });
 };
 
@@ -2038,7 +2057,10 @@ export const useWaMessages = (conversationId: string | null) => {
       return (data ?? []) as CrmWaMessage[];
     },
     enabled: !!user && !!conversationId,
-    refetchInterval: 3000,
+    // Sin polling: el historial se trae entero al abrir el chat y a partir de
+    // ahí `useWaRealtime` va agregando cada mensaje nuevo desde el evento.
+    refetchInterval: WA_FALLBACK_REFETCH_MS,
+    refetchOnWindowFocus: true,
   });
 };
 
@@ -2052,7 +2074,7 @@ export const useSetWaConversationMode = () => {
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+    onSuccess: (_data, { id, mode }) => patchWaConversation(qc, id, { mode }),
   });
 };
 
@@ -2066,9 +2088,12 @@ export const useDeleteWaConversation = () => {
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] });
-      qc.invalidateQueries({ queryKey: ["crm_wa_messages"] });
+    // Realtime no propaga este borrado (los DELETE solo traen la PK y no pasan
+    // el filtro `user_id` del canal), así que la fila se saca a mano. En las
+    // pestañas de otros agentes reaparece hasta el próximo resync.
+    onSuccess: (_data, id) => {
+      removeWaConversation(qc, id);
+      qc.removeQueries({ queryKey: ["crm_wa_messages", id] });
     },
   });
 };
@@ -2083,7 +2108,7 @@ export const useToggleFavorite = () => {
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+    onSuccess: (_data, { id, value }) => patchWaConversation(qc, id, { is_favorite: value }),
   });
 };
 
@@ -2097,7 +2122,8 @@ export const useAssignConversation = () => {
         .eq("id", conversationId);
       if (error) throw error;
     },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_wa_conversations"] }),
+    onSuccess: (_data, { conversationId, staffId }) =>
+      patchWaConversation(qc, conversationId, { assigned_to: staffId }),
   });
 };
 
