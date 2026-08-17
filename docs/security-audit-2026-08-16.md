@@ -16,7 +16,7 @@ Los marcados **[LATENTE]** no son explotables hoy, pero se vuelven explotables c
 | A-1 | Subida anónima ilimitada a bucket público | ✅ Corregido y verificado |
 | A-2 | Escritura cruzada entre tenants en Storage | ✅ Corregido y verificado |
 | A-3 | Staff sin permisos controla calendarios/formularios | ✅ Corregido |
-| M-1 | `wa-media` público | ⚠️ **Parcial** — límites aplicados; privatización pendiente (ver nota) |
+| M-1 | `wa-media` público | ✅ Corregido y verificado — bucket privado + URLs firmadas |
 | M-2 | `send-support-email` sin autenticación | ✅ Corregido y verificado |
 | M-3 | Policies anon latentes en citas/bloqueos | ✅ Eliminadas |
 | M-4 | Flujo implícito en vez de PKCE | ✅ Corregido |
@@ -26,14 +26,7 @@ Los marcados **[LATENTE]** no son explotables hoy, pero se vuelven explotables c
 | B-1 | `ab_stats` SECURITY DEFINER | ✅ Ahora `security_invoker=on` |
 | Bugs | `crm_staff_has_perm`, perm `write`, comprobantes | ✅ Los tres corregidos |
 
-**Nota sobre M-1:** `wa-media` guarda sólo multimedia **entrante**. La saliente va por
-`form-uploads`/`chat-attachments` y **tiene que seguir siendo pública** porque Meta descarga
-los archivos por URL. Como `crm_wa_messages.media_url` mezcla ambos orígenes, privatizar
-`wa-media` obliga a distinguir el bucket por URL en cada punto de render del inbox y a montar
-una capa de URLs firmadas con caché. Es un refactor con riesgo real sobre la bandeja de
-WhatsApp en producción, así que se deja fuera de esta tanda. Mitigación aplicada: límite de
-10 MB y lista blanca de MIME. Riesgo residual: las rutas son `{uuid}/{uuid}/{wa_id}` (no
-enumerables, no listables), así que la exposición requiere conocer la URL exacta.
+Único pendiente: **M-5**, que se activa desde el Dashboard porque no tiene API.
 
 ---
 
@@ -187,15 +180,56 @@ Idealmente, además, mover `google_token` a una tabla aparte a la que el staff n
 
 ## 🟡 MEDIO
 
-### M-1. `wa-media` es un bucket público sin restricciones
+### M-1. `wa-media` es un bucket público sin restricciones **[CONFIRMADO · CORREGIDO]**
 
 Toda la multimedia de las conversaciones de WhatsApp de **todos los tenants** (fotos, audios y
-documentos que envían los clientes) es legible por cualquiera que tenga la URL, sin autenticar.
-Sin `file_size_limit` ni `allowed_mime_types`. No es enumerable (no hay policy de SELECT que
-permita listar), pero las URLs viven en la DB y no caducan nunca.
+documentos que envían los clientes) era legible por cualquiera que tuviera la URL, sin
+autenticar. Sin `file_size_limit` ni `allowed_mime_types`. Verificado: **95 objetos de 4 tenants
+distintos**, y una foto de cliente respondía `200 image/jpeg` sin ninguna credencial.
 
-**Fix:** pasar el bucket a privado y servir la multimedia con `createSignedUrl()` (TTL corto)
-desde el CRM. Es un cambio con impacto en `CrmAgentIA.tsx`, conviene planificarlo.
+**Lo que hacía este caso distinto al resto de buckets:** `crm_wa_messages.media_url` mezcla dos
+orígenes. La multimedia **entrante** vive en `wa-media` y sólo la consume el CRM, pero la
+**saliente** vive en `chat-attachments`/`form-uploads` y **tiene que seguir siendo pública**
+porque Meta descarga el archivo por URL para entregarlo. Así que no se podía firmar todo a
+ciegas: hay que distinguir por la URL guardada.
+
+Antes de tocarlo se descartaron los tres consumidores que habrían roto:
+
+- **Transcripción de audio** — transcribe en memoria desde el buffer descargado de Meta
+  (`whatsapp-webhook/index.ts:419`), no lee la URL.
+- **Detección de comprobantes de pago por visión** — el webhook bifurca el buffer: `encodeBase64()`
+  → `media_base64` al agente, y `uploadMedia()` → bucket para mostrarlo
+  (`whatsapp-webhook/index.ts:308-335`, y la rama de PDF en 362-364). El agente monta el bloque
+  `source: {type: "base64"}` para Claude (`ai-agent/index.ts:2808`) y **nunca hace fetch de la URL**.
+- **Reenvío de mensajes** — no existe esa función en la bandeja.
+
+**Fix aplicado:**
+
+1. `src/lib/wa-media.ts` — capa de URLs firmadas que detecta por URL, no por un campo semántico:
+   las públicas pasan tal cual y sin parpadeo, las de `wa-media` se firman (TTL 2 h). Con caché
+   por ruta y deduplicación de peticiones en vuelo, porque galería, burbuja y menú contextual
+   piden la misma imagen a la vez.
+2. Puntos de render migrados en `CrmAgentIA.tsx`: imagen, documento, vídeo, galería de fotos,
+   lista de documentos y menú contextual. El audio no renderiza `media_url` (sólo la
+   transcripción), así que no necesitaba cambios.
+3. Policy `owner_read_wa_media` — mismo criterio que la lectura de `crm_wa_messages`: el dueño o
+   su staff con `perm_agente_ia.read`. Es lo que permite firmar (`createSignedUrl` exige SELECT).
+4. Bucket a privado, más límite de 10 MB y lista blanca de MIME.
+
+**Verificado tras el cambio:** la URL pública pasó de `200 image/jpeg` a `404`; anon no puede
+firmar (falla cerrado); y simulando sesiones reales, cada tenant ve **sólo** sus objetos (Daniel
+39, Barón Group 17, **0 de otros** en ambos casos).
+
+**Detalle de despliegue que importa:** las URLs firmadas funcionan igual con el bucket público,
+así que el frontend nuevo es compatible con ambos estados — pero el viejo pinta la URL pública
+tal cual. Por eso el orden fue desplegar primero y privatizar después, confirmando que producción
+servía el bundle correcto por coincidencia de hash. Invertir ese orden rompe la bandeja de todos
+los tenants hasta que salga el deploy.
+
+Un matiz que quedó al descubierto y no es un fallo de seguridad, sino una fragilidad del diseño
+actual: la visión es de **una sola pasada**. Si el análisis de un comprobante falla en el momento
+en que llega el mensaje (timeout, error de Anthropic), no hay reintento posterior — el base64 sólo
+existe durante esa invocación, y el bucket no sirve como respaldo para reprocesarlo.
 
 ### M-2. `send-support-email` no autentica al llamante
 
