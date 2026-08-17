@@ -2655,10 +2655,13 @@ REGLAS:
     + salesPatternInstruction
     + labelInstruction;
 
-  const fillerResult = applyCacheFiller(stableRaw + INJECTION_GUARD);
+  // La comparación va contra lo que realmente entró a applyCacheFiller (incluido
+  // el guard), no contra stableRaw: si no, el log se dispara siempre.
+  const stableBase = stableRaw + INJECTION_GUARD;
+  const fillerResult = applyCacheFiller(stableBase);
   const stable = fillerResult.text;
-  if (stable.length !== stableRaw.length) {
-    console.log(`[ai-agent] relleno de caché aplicado para user_id:${config.user_id} — ${stableRaw.length}→${stable.length} chars (~${Math.round(stableRaw.length / CHARS_PER_TOKEN_ES)}→~${Math.round(stable.length / CHARS_PER_TOKEN_ES)} tokens est.)`);
+  if (stable.length !== stableBase.length) {
+    console.log(`[ai-agent] relleno de caché aplicado para user_id:${config.user_id} — ${stableBase.length}→${stable.length} chars (~${Math.round(stableBase.length / CHARS_PER_TOKEN_ES)}→~${Math.round(stable.length / CHARS_PER_TOKEN_ES)} tokens est.)`);
   }
   if (fillerResult.insufficient) {
     notifyInsufficientFiller(config.user_id, stable.length);
