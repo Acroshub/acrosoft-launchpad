@@ -1,4 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { buildAudience, buildAudienceBase } from "../_shared/wa-audience.ts";
+import { requireInternalOrUser } from "../_shared/internal-auth.ts";
+import { filterByLocalTime, allTimezonesReached } from "../_shared/wa-timezone.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -7,6 +10,18 @@ const supabase = createClient(
 
 const GRAPH = "https://graph.facebook.com/v21.0";
 const SEND_DELAY_MS = 120; // ~8 msg/seg — seguro bajo el límite de Meta
+
+// Un envío grande no cabe en una sola invocación: Supabase corta la petición a
+// los 150s (request idle timeout) y a ~450ms por destinatario eso son unos 330.
+// Se procesa por lotes y el cron retoma lo que quede; el tope desaparece.
+const BUDGET_MS    = 100_000; // margen para cerrar limpio antes de los 150s
+const BATCH_SIZE   = 400;     // techo por invocación, aunque sobre presupuesto
+const INSERT_CHUNK = 500;
+
+// El cron reinvoca cada minuto, pero un lote puede durar BUDGET_MS. Sin cerrojo,
+// dos invocaciones leían los mismos logs 'pending' y el contacto recibía el
+// mensaje dos veces. Caduca solo: si una invocación muere, la siguiente entra.
+const LOCK_MS = 5 * 60_000;
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -20,13 +35,8 @@ function json(body: unknown, status = 200) {
   });
 }
 
-async function getAuthUser(req: Request) {
-  const auth = req.headers.get("Authorization");
-  if (!auth) return null;
-  const { data: { user }, error } = await supabase.auth.getUser(auth.replace("Bearer ", ""));
-  if (error || !user) return null;
-  return user;
-}
+// Acepta el JWT del usuario del CRM (envío inmediato desde la UI) o el service
+// role key (envío programado, disparado por send-wa-instant-scheduler).
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -79,136 +89,15 @@ function resolveVariables(
   });
 }
 
-// ─── Audience building ────────────────────────────────────────────────────────
-
-async function getFilterContactIds(
-  userId: string,
-  filter: Record<string, any>,
-  allContacts: any[],
-): Promise<Set<string>> {
-  switch (filter.type) {
-    case "tag": {
-      return new Set(
-        allContacts.filter(c => (c.tags ?? []).includes(filter.value)).map(c => c.id),
-      );
-    }
-    case "wa_label": {
-      const { data: clRows } = await supabase
-        .from("crm_wa_conversation_labels")
-        .select("conversation_id")
-        .eq("label_id", filter.labelId);
-      if (!clRows?.length) return new Set();
-      const convIds = clRows.map((r: any) => r.conversation_id);
-      const { data: convRows } = await supabase
-        .from("crm_wa_conversations")
-        .select("phone")
-        .in("id", convIds)
-        .eq("user_id", userId);
-      const phones = new Set((convRows ?? []).map((r: any) => r.phone));
-      return new Set(allContacts.filter(c => phones.has(c.phone)).map(c => c.id));
-    }
-    case "has_sale_any": {
-      const { data } = await supabase
-        .from("crm_sales")
-        .select("contact_id")
-        .eq("user_id", userId)
-        .neq("status", "rejected");
-      return new Set((data ?? []).map((r: any) => r.contact_id).filter(Boolean));
-    }
-    case "has_sale_product": {
-      const { data } = await supabase
-        .from("crm_sales")
-        .select("contact_id")
-        .eq("user_id", userId)
-        .eq("product_id", filter.productId)
-        .neq("status", "rejected");
-      return new Set((data ?? []).map((r: any) => r.contact_id).filter(Boolean));
-    }
-    case "has_sale_service": {
-      const { data } = await supabase
-        .from("crm_sales")
-        .select("contact_id")
-        .eq("user_id", userId)
-        .eq("service_id", filter.serviceId)
-        .neq("status", "rejected");
-      return new Set((data ?? []).map((r: any) => r.contact_id).filter(Boolean));
-    }
-    case "no_sale": {
-      const { data } = await supabase
-        .from("crm_sales")
-        .select("contact_id")
-        .eq("user_id", userId)
-        .neq("status", "rejected");
-      const withSale = new Set((data ?? []).map((r: any) => r.contact_id).filter(Boolean));
-      return new Set(allContacts.filter(c => !withSale.has(c.id)).map(c => c.id));
-    }
-    case "has_appointment_ever": {
-      const { data } = await supabase
-        .from("crm_appointments")
-        .select("contact_id")
-        .eq("user_id", userId)
-        .neq("status", "cancelled");
-      return new Set((data ?? []).map((r: any) => r.contact_id).filter(Boolean));
-    }
-    case "has_appointment_recent": {
-      const days = Number(filter.days ?? 30);
-      const cutoff = new Date(Date.now() - days * 86400_000).toISOString();
-      const { data } = await supabase
-        .from("crm_appointments")
-        .select("contact_id")
-        .eq("user_id", userId)
-        .neq("status", "cancelled")
-        .gte("created_at", cutoff);
-      return new Set((data ?? []).map((r: any) => r.contact_id).filter(Boolean));
-    }
-    case "has_wa_conversation": {
-      const { data } = await supabase
-        .from("crm_wa_conversations")
-        .select("phone")
-        .eq("user_id", userId);
-      const phones = new Set((data ?? []).map((r: any) => r.phone));
-      return new Set(allContacts.filter(c => phones.has(c.phone)).map(c => c.id));
-    }
-    default:
-      return new Set();
-  }
-}
-
-async function buildAudienceContacts(
-  userId: string,
-  audienceType: string,
-  filters: Record<string, any>[],
-): Promise<any[]> {
-  const { data: all } = await supabase
-    .from("crm_contacts")
-    .select("id, name, email, phone, company, tags")
-    .eq("user_id", userId)
-    .not("phone", "is", null)
-    .neq("phone", "");
-
-  const allContacts: any[] = all ?? [];
-  if (!allContacts.length) return [];
-  if (audienceType === "all" || !filters.length) return allContacts;
-
-  const sets = await Promise.all(
-    filters.map(f => getFilterContactIds(userId, f, allContacts)),
-  );
-
-  // Union of all matching IDs
-  const unionSet = new Set(sets.flatMap(s => [...s]));
-
-  return audienceType === "include"
-    ? allContacts.filter(c => unionSet.has(c.id))
-    : allContacts.filter(c => !unionSet.has(c.id));
-}
-
 // ─── Entry point ──────────────────────────────────────────────────────────────
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
-  const user = await getAuthUser(req);
-  if (!user) return json({ error: "unauthorized" }, 401);
+  const startedAt = Date.now();
+
+  const { caller, error: authError } = await requireInternalOrUser(req, supabase);
+  if (authError) return authError;
 
   let body: any = {};
   try { body = await req.json(); } catch { /* no body */ }
@@ -221,17 +110,55 @@ Deno.serve(async (req: Request) => {
     .from("crm_wa_campaigns")
     .select("*, crm_wa_templates(*)")
     .eq("id", campaignId)
-    .eq("user_id", user.id)
     .single();
 
   if (!campaign) return json({ error: "campaign_not_found" }, 404);
-  if (campaign.status !== "draft") return json({ error: "already_processed" }, 400);
+  // Un usuario solo puede disparar sus propias campañas. La llamada interna ya
+  // viene del scheduler, que las seleccionó por su propio user_id.
+  if (caller!.kind === "user" && campaign.user_id !== caller!.userId) {
+    return json({ error: "campaign_not_found" }, 404);
+  }
+
+  // Desde la UI solo se lanzan borradores. El cron además dispara las programadas
+  // ('scheduled') y retoma las que quedaron a medias ('processing').
+  const launchable = caller!.kind === "internal"
+    ? ["draft", "scheduled", "processing"]
+    : ["draft"];
+  if (!launchable.includes(campaign.status)) return json({ error: "already_processed" }, 400);
+
+  const ownerId: string = campaign.user_id;
+
+  // ── Cerrojo ────────────────────────────────────────────────────────────────
+  // Se toma ANTES de preparar o enviar nada. La condición va en el propio UPDATE,
+  // así que si dos invocaciones llegan a la vez solo una se lleva la fila: la
+  // otra ve 0 resultados y se retira sin enviar.
+  const { data: locked } = await supabase
+    .from("crm_wa_campaigns")
+    .update({ locked_until: new Date(Date.now() + LOCK_MS).toISOString() })
+    .eq("id", campaignId)
+    .or(`locked_until.is.null,locked_until.lt.${new Date().toISOString()}`)
+    .select("id");
+
+  if (!locked?.length) {
+    return json({ ok: true, busy: true, message: "otra invocación ya está enviando esta campaña" });
+  }
+
+  const releaseLock = () =>
+    supabase.from("crm_wa_campaigns").update({ locked_until: null }).eq("id", campaignId);
+
+  try {
+    return await run();
+  } finally {
+    await releaseLock();
+  }
+
+  async function run(): Promise<Response> {
 
   // ── Load WABA config ──
   const { data: cfg } = await supabase
     .from("crm_ai_agent_config")
     .select("phone_number_id, access_token")
-    .eq("user_id", user.id)
+    .eq("user_id", ownerId)
     .maybeSingle();
 
   if (!cfg?.phone_number_id || !cfg?.access_token) {
@@ -241,76 +168,165 @@ Deno.serve(async (req: Request) => {
   const template = campaign.crm_wa_templates;
   if (!template) return json({ error: "template_not_found" }, 404);
 
-  // ── Mark processing ──
-  await supabase
-    .from("crm_wa_campaigns")
-    .update({ status: "processing", started_at: new Date().toISOString() })
-    .eq("id", campaignId);
+  // ── Preparar (solo en la primera invocación) ───────────────────────────────
+  // Los logs 'pending' SON la lista de trabajo: se escriben una vez, antes de
+  // enviar nada, y a partir de ahí cada invocación consume los que queden. Eso
+  // es lo que permite reanudar sin volver a calcular la audiencia ni arriesgar
+  // envíos duplicados.
+  if (campaign.status === "draft" || campaign.status === "scheduled") {
+    const audience = await buildAudience(
+      supabase,
+      ownerId,
+      campaign.audience_type,
+      campaign.audience_filters ?? [],
+      { match: campaign.audience_match ?? "any" },
+    );
 
-  // ── Load entities for variable resolution ──
-  const [prodRes, svcRes, courseRes] = await Promise.all([
-    supabase.from("crm_products").select("id, name, price, currency").eq("user_id", user.id),
-    supabase.from("crm_services").select("id, name, price, currency").eq("user_id", user.id),
-    supabase.from("crm_courses").select("id, title, price, currency").eq("user_id", user.id),
-  ]);
+    if (!audience.length) {
+      await supabase
+        .from("crm_wa_campaigns")
+        .update({ status: "completed", total_contacts: 0, completed_at: new Date().toISOString() })
+        .eq("id", campaignId);
+      return json({ ok: true, done: true, sent: 0, failed: 0, total: 0 });
+    }
 
-  const entities = {
-    products: prodRes.data ?? [],
-    services: svcRes.data ?? [],
-    courses:  courseRes.data ?? [],
-  };
-
-  // ── Build audience ──
-  const contacts = await buildAudienceContacts(
-    user.id,
-    campaign.audience_type,
-    campaign.audience_filters ?? [],
-  );
-
-  await supabase
-    .from("crm_wa_campaigns")
-    .update({ total_contacts: contacts.length })
-    .eq("id", campaignId);
-
-  if (!contacts.length) {
-    await supabase
-      .from("crm_wa_campaigns")
-      .update({ status: "completed", completed_at: new Date().toISOString() })
-      .eq("id", campaignId);
-    return json({ ok: true, sent: 0, failed: 0, total: 0 });
-  }
-
-  // ── Insert pending log rows ──
-  await supabase.from("crm_wa_campaign_logs").insert(
-    contacts.map(c => ({
+    // Insert en trozos: 1000 filas en un solo insert revientan el payload.
+    const rows = audience.map(c => ({
       campaign_id:  campaignId,
-      contact_id:   c.id,
+      contact_id:   c.contactId,   // null si el teléfono no tiene ficha de contacto
       phone:        normalizePhone(c.phone),
       contact_name: c.name ?? null,
       status:       "pending",
-    })),
+    }));
+    for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
+      const { error } = await supabase.from("crm_wa_campaign_logs").insert(rows.slice(i, i + INSERT_CHUNK));
+      if (error) return json({ error: "log_insert_failed", detail: error.message }, 500);
+    }
+
+    await supabase
+      .from("crm_wa_campaigns")
+      .update({
+        status: "processing",
+        total_contacts: rows.length,
+        started_at: campaign.started_at ?? new Date().toISOString(),
+      })
+      .eq("id", campaignId);
+  }
+
+  // ── Datos para resolver variables ──────────────────────────────────────────
+  const varMap  = campaign.variable_map ?? {};
+  const hasVars = Object.keys(varMap).length > 0;
+
+  // Solo hace falta si la plantilla usa variables. Se reconstruye en cada
+  // invocación porque el log solo guarda teléfono y nombre, no email ni empresa.
+  let byPhone = new Map<string, any>();
+  let entities = { products: [] as any[], services: [] as any[], courses: [] as any[] };
+  if (hasVars) {
+    const [prodRes, svcRes, courseRes, audience] = await Promise.all([
+      supabase.from("crm_products").select("id, name, price, currency").eq("user_id", ownerId),
+      supabase.from("crm_services").select("id, name, price, currency").eq("user_id", ownerId),
+      supabase.from("crm_courses").select("id, title, price, currency").eq("user_id", ownerId),
+      buildAudienceBase(supabase, ownerId),
+    ]);
+    entities = {
+      products: prodRes.data ?? [],
+      services: svcRes.data ?? [],
+      courses:  courseRes.data ?? [],
+    };
+    byPhone = new Map(audience.map(m => [m.phoneKey, m]));
+  }
+
+  // ── Procesar un lote ───────────────────────────────────────────────────────
+  const { data: pendingAll } = await supabase
+    .from("crm_wa_campaign_logs")
+    .select("id, phone, contact_name")
+    .eq("campaign_id", campaignId)
+    .eq("status", "pending")
+    // Sin ORDER BY, "los primeros 400" no es un conjunto estable entre lotes.
+    .order("id", { ascending: true })
+    .limit(BATCH_SIZE);
+
+  // Modo "hora local de cada contacto": de los pendientes solo salen ahora
+  // aquellos en cuyo país ya dio la hora. El resto sigue en 'pending' y lo
+  // recoge una pasada posterior del cron.
+  const pending = filterByLocalTime(
+    pendingAll ?? [],
+    campaign.timezone_mode,
+    campaign.target_date,
+    campaign.target_local_time,
   );
 
-  // ── Send messages ──
-  const varMap = campaign.variable_map ?? {};
-  const hasVars = Object.keys(varMap).length > 0;
-  let sentCount = 0;
-  let failedCount = 0;
+  // ── Conversaciones donde dejar constancia del envío ────────────────────────
+  // El log de la campaña guarda teléfono, no conversación, así que hay que
+  // resolverla. A quien nunca escribió se le crea: una plantilla ABRE el hilo en
+  // el teléfono del contacto, y si aquí no existe, el operador ve llegar una
+  // respuesta a un mensaje que no aparece por ningún lado.
+  const batchKeys = [...new Set(pending.map(r => normalizePhone(r.phone)).filter(p => p.length >= 7))];
+  const convByPhone = new Map<string, string>();
 
-  for (const contact of contacts) {
-    const phone = normalizePhone(contact.phone);
+  if (batchKeys.length) {
+    const CHUNK = 200;
+    for (let i = 0; i < batchKeys.length; i += CHUNK) {
+      const slice = batchKeys.slice(i, i + CHUNK);
+      const { data } = await supabase
+        .from("crm_wa_conversations")
+        .select("id, phone")
+        .eq("user_id", ownerId)
+        .in("phone", slice);
+      for (const c of data ?? []) convByPhone.set(normalizePhone(c.phone), c.id);
+    }
+
+    const missing = pending.filter(r => {
+      const k = normalizePhone(r.phone);
+      return k.length >= 7 && !convByPhone.has(k);
+    });
+    if (missing.length) {
+      const seen = new Set<string>();
+      const rows = missing.flatMap(r => {
+        const k = normalizePhone(r.phone);
+        if (seen.has(k)) return [];
+        seen.add(k);
+        return [{ user_id: ownerId, phone: k, contact_name: r.contact_name ?? null }];
+      });
+      const { data: created } = await supabase
+        .from("crm_wa_conversations").insert(rows).select("id, phone");
+      for (const c of created ?? []) convByPhone.set(normalizePhone(c.phone), c.id);
+    }
+  }
+
+  // Lo que el contacto ve de verdad: el cuerpo de la plantilla con sus variables
+  // ya sustituidas, no un "[Plantilla: nombre]" que no dice nada.
+  const renderTemplate = (values: string[]): string => {
+    const body = template.body_text ?? `[Plantilla: ${template.name}]`;
+    return body.replace(/\{\{(\d+)\}\}/g, (m: string, n: string) => values[Number(n) - 1] ?? m);
+  };
+
+  let sent = 0;
+  let failed = 0;
+
+  for (const row of pending) {
+    // Corte por tiempo: se para ANTES de agotar el presupuesto para poder cerrar
+    // limpio. Lo que quede sigue en 'pending' y lo retoma el cron.
+    if (Date.now() - startedAt > BUDGET_MS) break;
+
+    const phone = normalizePhone(row.phone);
 
     if (phone.length < 7) {
-      await supabase
-        .from("crm_wa_campaign_logs")
+      await supabase.from("crm_wa_campaign_logs")
         .update({ status: "failed", error_message: "Número inválido", sent_at: new Date().toISOString() })
-        .eq("campaign_id", campaignId)
-        .eq("contact_id", contact.id);
-      failedCount++;
+        .eq("id", row.id);
+      failed++;
       continue;
     }
 
-    const resolvedValues = hasVars ? resolveVariables(contact, varMap, entities) : [];
+    const member = byPhone.get(phone);
+    const contactForVars = {
+      name:    member?.name    ?? row.contact_name ?? null,
+      email:   member?.email   ?? null,
+      phone:   row.phone,
+      company: member?.company ?? null,
+    };
+    const resolvedValues = hasVars ? resolveVariables(contactForVars, varMap, entities) : [];
 
     const msgPayload: any = {
       messaging_product: "whatsapp",
@@ -342,44 +358,84 @@ Deno.serve(async (req: Request) => {
       const resData = await res.json().catch(() => ({}));
 
       if (res.ok) {
-        await supabase
-          .from("crm_wa_campaign_logs")
+        await supabase.from("crm_wa_campaign_logs")
           .update({ status: "sent", sent_at: new Date().toISOString() })
-          .eq("campaign_id", campaignId)
-          .eq("contact_id", contact.id);
-        sentCount++;
+          .eq("id", row.id);
+        const convId = convByPhone.get(phone);
+        if (convId) {
+          await supabase.from("crm_wa_messages").insert({
+            conversation_id: convId,
+            role: "assistant",
+            content: renderTemplate(resolvedValues),
+            wa_message_id: (resData as any)?.messages?.[0]?.id ?? null,
+            delivery_status: "sent",
+            origin: "campaign",
+          });
+        }
+        sent++;
       } else {
         const errMsg = (resData as any)?.error?.message ?? `Meta ${res.status}`;
-        await supabase
-          .from("crm_wa_campaign_logs")
+        await supabase.from("crm_wa_campaign_logs")
           .update({ status: "failed", error_message: errMsg, sent_at: new Date().toISOString() })
-          .eq("campaign_id", campaignId)
-          .eq("contact_id", contact.id);
-        failedCount++;
+          .eq("id", row.id);
+        failed++;
         console.error("[send-wa-campaign] Meta error:", JSON.stringify(resData));
       }
-    } catch (err) {
-      await supabase
-        .from("crm_wa_campaign_logs")
+    } catch (_err) {
+      await supabase.from("crm_wa_campaign_logs")
         .update({ status: "failed", error_message: "Error de red", sent_at: new Date().toISOString() })
-        .eq("campaign_id", campaignId)
-        .eq("contact_id", contact.id);
-      failedCount++;
+        .eq("id", row.id);
+      failed++;
     }
 
     await sleep(SEND_DELAY_MS);
   }
 
-  // ── Finalize ──
+  // ── ¿Queda trabajo? ────────────────────────────────────────────────────────
+  const { count: remaining } = await supabase
+    .from("crm_wa_campaign_logs")
+    .select("id", { count: "exact", head: true })
+    .eq("campaign_id", campaignId)
+    .eq("status", "pending");
+
+  // Los contadores se leen de los logs, no de este lote: con varias invocaciones
+  // un contador en memoria solo conocería su propia tanda.
+  const [{ count: totalSent }, { count: totalFailed }] = await Promise.all([
+    supabase.from("crm_wa_campaign_logs").select("id", { count: "exact", head: true })
+      .eq("campaign_id", campaignId).eq("status", "sent"),
+    supabase.from("crm_wa_campaign_logs").select("id", { count: "exact", head: true })
+      .eq("campaign_id", campaignId).eq("status", "failed"),
+  ]);
+
+  // En modo hora local quedan pendientes a propósito hasta que dé la hora en su
+  // país: eso no es estar a medias, así que no se cierra hasta que pase la
+  // última zona horaria.
+  const waitingForTimezones =
+    campaign.timezone_mode === "contact" &&
+    campaign.target_date && campaign.target_local_time &&
+    !allTimezonesReached(campaign.target_date, campaign.target_local_time);
+
+  const done = (remaining ?? 0) === 0 && !waitingForTimezones;
+
   await supabase
     .from("crm_wa_campaigns")
     .update({
-      status:       failedCount === contacts.length ? "failed" : "completed",
-      completed_at: new Date().toISOString(),
-      sent_count:   sentCount,
-      failed_count: failedCount,
+      status:       done ? ((totalSent ?? 0) === 0 ? "failed" : "completed") : "processing",
+      sent_count:   totalSent   ?? 0,
+      failed_count: totalFailed ?? 0,
+      ...(done ? { completed_at: new Date().toISOString() } : {}),
     })
     .eq("id", campaignId);
 
-  return json({ ok: true, sent: sentCount, failed: failedCount, total: contacts.length });
+  return json({
+    ok: true,
+    done,
+    sent:      totalSent   ?? 0,
+    failed:    totalFailed ?? 0,
+    total:     (totalSent ?? 0) + (totalFailed ?? 0) + (remaining ?? 0),
+    remaining: remaining ?? 0,
+    batch:     { sent, failed },
+  });
+
+  } // fin de run()
 });

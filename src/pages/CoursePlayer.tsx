@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   Loader2, BookOpen, ChevronLeft, ChevronRight, LogOut,
   CheckCircle2, Circle, Menu, X, PlayCircle, FileText,
@@ -29,10 +29,8 @@ async function fetchCourseContent(
 export default function CoursePlayer() {
   const { tenantSlug, courseSlug } = useParams<{ tenantSlug: string; courseSlug: string }>();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
 
   const [loading, setLoading]                 = useState(true);
-  const [authError, setAuthError]             = useState("");
   const [course, setCourse]                   = useState<CrmCourse | null>(null);
   const [modules, setModules]                 = useState<CrmCourseModule[]>([]);
   const [lessons, setLessons]                 = useState<CrmCourseLesson[]>([]);
@@ -53,27 +51,6 @@ export default function CoursePlayer() {
   }, [activeLesson?.module_id]);
 
   useEffect(() => {
-    const magicToken = searchParams.get("token");
-    if (magicToken) {
-      fetch(`${FUNCTIONS_URL}/verify-course-magic-link`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ token: magicToken }),
-      })
-        .then(r => r.json())
-        .then(data => {
-          if (data.session_token) {
-            localStorage.setItem(storageKey, data.session_token);
-            navigate(`/curso/${tenantSlug}/${courseSlug}/ver`, { replace: true });
-          } else {
-            setAuthError(data.error ?? "Enlace inválido o expirado");
-            setLoading(false);
-          }
-        })
-        .catch(() => { setAuthError("Error al verificar el enlace"); setLoading(false); });
-      return;
-    }
-
     const stored = localStorage.getItem(storageKey);
     if (!stored) {
       navigate(`/curso/${tenantSlug}/${courseSlug}`, { replace: true });
@@ -102,7 +79,7 @@ export default function CoursePlayer() {
       localStorage.removeItem(storageKey);
       navigate(`/curso/${tenantSlug}/${courseSlug}`, { replace: true });
     });
-  }, [tenantSlug, courseSlug, searchParams, navigate, storageKey]);
+  }, [tenantSlug, courseSlug, navigate, storageKey]);
 
   const markCompleted = (lessonId: string) => {
     const next = new Set(completed);
@@ -134,7 +111,18 @@ export default function CoursePlayer() {
   const allDone         = lessons.length > 0 && completed.size === lessons.length;
 
   const handleLogout = () => {
+    const token = localStorage.getItem(storageKey);
     localStorage.removeItem(storageKey);
+    // Revoca en el servidor: borrar sólo el localStorage dejaría el token válido
+    // para quien lo hubiera copiado. No se espera la respuesta — la salida es inmediata.
+    if (token) {
+      fetch(`${FUNCTIONS_URL}/course-logout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_token: token }),
+        keepalive: true,
+      }).catch(() => { /* la sesión ya caducará por inactividad */ });
+    }
     navigate(`/curso/${tenantSlug}/${courseSlug}`, { replace: true });
   };
 
@@ -148,29 +136,6 @@ export default function CoursePlayer() {
           </div>
           <Loader2 className="animate-spin text-primary" size={18} />
           <p className="text-sm text-muted-foreground">Cargando curso...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // ── Auth error ───────────────────────────────────────────────────────────
-  if (authError) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background px-4">
-        <div className="text-center space-y-4 max-w-sm w-full">
-          <div className="w-14 h-14 rounded-2xl bg-destructive/10 flex items-center justify-center mx-auto">
-            <BookOpen size={22} className="text-destructive" />
-          </div>
-          <div className="space-y-1">
-            <p className="text-sm font-semibold text-foreground">{authError}</p>
-            <p className="text-xs text-muted-foreground">El enlace puede haber expirado o ya fue utilizado.</p>
-          </div>
-          <button
-            onClick={() => navigate(`/curso/${tenantSlug}/${courseSlug}`)}
-            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold bg-primary text-primary-foreground hover:bg-primary/90 transition-colors cursor-pointer"
-          >
-            Solicitar nuevo acceso
-          </button>
         </div>
       </div>
     );

@@ -159,6 +159,16 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ── Autenticación ───────────────────────────────────────────────────────────
+  // Sin esto la función era anónima: bastaba conocer un ticketId para mandar
+  // correos con contenido arbitrario desde el dominio de Acrosoft.
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const bearer = authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  if (!bearer) return respond({ error: "No autorizado" }, 401);
+
+  const { data: { user: caller }, error: authErr } = await supabase.auth.getUser(bearer);
+  if (authErr || !caller) return respond({ error: "No autorizado" }, 401);
+
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
   if (!RESEND_API_KEY) return respond({ error: "RESEND_API_KEY not configured" }, 500);
 
@@ -185,6 +195,15 @@ Deno.serve(async (req) => {
     .single();
 
   if (tErr || !ticket) return respond({ error: "Ticket not found" }, 404);
+
+  // ── Autorización sobre este ticket concreto ─────────────────────────────────
+  // Avisar al cliente ('admin_reply') sólo lo puede disparar el admin; los otros
+  // dos triggers, sólo el dueño del ticket. Así nadie usa un ticket ajeno como
+  // vehículo para enviar correo.
+  const isAdmin = caller.email === ADMIN_EMAIL;
+  const isOwner = ticket.user_id === caller.id;
+  const authorized = trigger === "admin_reply" ? isAdmin : isOwner;
+  if (!authorized) return respond({ error: "No autorizado" }, 403);
 
   // ── Resolve client email ─────────────────────────────────────────────────────
   const { data: account } = await supabase

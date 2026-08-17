@@ -74,21 +74,29 @@ const Chevron = () => (
 
 // ─── Proof Upload ─────────────────────────────────────────────────────────────
 
-const ProofUpload = ({ onUploaded }: { onUploaded: (url: string) => void }) => {
+const ProofUpload = ({ onUploaded }: { onUploaded: (path: string) => void }) => {
   const ref = useRef<HTMLInputElement>(null);
+  const { user } = useCurrentUser();
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview]     = useState<string | null>(null);
 
   const handleFile = async (file: File) => {
+    if (!user?.id) return;
     setUploading(true);
     try {
-      const ext  = file.name.split(".").pop() ?? "jpg";
-      const path = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
+      const ext = file.name.split(".").pop() ?? "jpg";
+      // Carpeta por usuario: la policy de storage exige que el primer segmento sea
+      // el uid, para que nadie pueda sembrar comprobantes en la carpeta de otro.
+      const path = `${user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
       const { error } = await supabase.storage.from("payment-proofs").upload(path, file, { upsert: false });
       if (error) throw error;
-      const { data } = supabase.storage.from("payment-proofs").getPublicUrl(path);
-      setPreview(data.publicUrl);
-      onUploaded(data.publicUrl);
+
+      // El bucket es privado: getPublicUrl daría una URL que no resuelve. Se guarda
+      // la ruta y se firma una URL temporal sólo para previsualizar.
+      const { data: signed } = await supabase.storage
+        .from("payment-proofs").createSignedUrl(path, 60 * 60);
+      setPreview(signed?.signedUrl ?? null);
+      onUploaded(path);
     } catch {
       toast.error("Error al subir el comprobante");
     } finally {

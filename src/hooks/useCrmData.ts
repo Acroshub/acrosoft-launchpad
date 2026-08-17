@@ -2831,11 +2831,35 @@ export const useDeleteWaSequence = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
+      // `crm_wa_flows.sequence_id` tiene FK ON DELETE SET NULL, pero
+      // `country_sequences` es JSONB y no la tiene: sin esta limpieza quedan
+      // flujos apuntando a una secuencia que ya no existe, y el runtime deja de
+      // responder a los contactos de ese país sin ningún aviso.
+      //
+      // Vive en la mutación, no en la pantalla, porque una secuencia se borra
+      // desde Flujos Y desde Seguimiento y Envíos: cuando la limpieza estaba
+      // solo en Flujos, borrarla desde el otro sitio dejaba los flujos rotos.
+      const { data: flows } = await supabase
+        .from("crm_wa_flows")
+        .select("id, country_sequences")
+        .not("country_sequences", "is", null);
+
+      for (const f of flows ?? []) {
+        const rows = (f.country_sequences ?? []) as { country_code: string; sequence_id: string }[];
+        if (!rows.some(cs => cs.sequence_id === id)) continue;
+        const { error } = await supabase
+          .from("crm_wa_flows")
+          .update({ country_sequences: rows.filter(cs => cs.sequence_id !== id) })
+          .eq("id", f.id);
+        if (error) throw error;
+      }
+
       const { error } = await supabase.from("crm_wa_sequences").delete().eq("id", id);
       if (error) throw error;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["wa_sequences"] });
+      qc.invalidateQueries({ queryKey: ["wa_flows"] });
       qc.invalidateQueries({ queryKey: ["supported_countries"] });
     },
   });
@@ -3482,6 +3506,14 @@ type CreateCampaignPayload = {
   variable_map: WaVarMap;
   audience_type: "all" | "include" | "exclude";
   audience_filters: WaAudienceFilter[];
+  audience_match?: CrmWaCampaign["audience_match"];
+  send_mode?: "instant" | "scheduled";
+  timezone_mode?: "user" | "contact" | null;
+  target_local_time?: string | null;
+  target_date?: string | null;
+  user_timezone?: string | null;
+  scheduled_at?: string | null;
+  status?: CrmWaCampaign["status"];
 };
 
 export const useCreateWaCampaign = () => {
@@ -3491,7 +3523,7 @@ export const useCreateWaCampaign = () => {
     mutationFn: async (payload: CreateCampaignPayload) => {
       const { data, error } = await supabase
         .from("crm_wa_campaigns")
-        .insert({ ...payload, user_id: user!.id, status: "draft" })
+        .insert({ status: "draft", ...payload, user_id: user!.id })
         .select()
         .single();
       if (error) throw error;
@@ -3570,6 +3602,61 @@ export const useWaActiveConversations = (windowHours: number) => {
         ...c,
         label_ids: labelsByConv.get(c.id) ?? [],
       })) as ActiveConv[];
+    },
+  });
+};
+
+// Teléfonos de TODAS las conversaciones (no solo las activas). Se usa para
+// estimar la audiencia real de un envío: ~20% de las conversaciones no tienen
+// ficha de contacto, así que contar solo crm_contacts las dejaba fuera.
+export const useWaConversationPhones = () => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useQuery({
+    queryKey: ["wa_conversation_phones", uid],
+    enabled: !!uid,
+    staleTime: 60_000,
+    queryFn: async () => {
+      // PostgREST corta en 1000 filas; este proyecto ya tiene más conversaciones
+      // que eso, y el corte no da error — simplemente devolvería menos gente.
+      type Row = { id: string; phone: string; contact_name: string | null; contact_id: string | null };
+      const PAGE = 1000;
+      const out: Row[] = [];
+      for (let from = 0; ; from += PAGE) {
+        const { data, error } = await supabase
+          .from("crm_wa_conversations")
+          .select("id, phone, contact_name, contact_id")
+          .eq("user_id", uid!)
+          .not("phone", "is", null)
+          .neq("phone", "")
+          .range(from, from + PAGE - 1);
+        if (error) throw error;
+        const rows = (data ?? []) as Row[];
+        out.push(...rows);
+        if (rows.length < PAGE) break;
+      }
+      return out;
+    },
+  });
+};
+
+// Qué conversación tiene qué etiqueta del Agente IA. Se usa para calcular la
+// audiencia de un envío en el cliente sin tener que preguntar al backend.
+export const useWaConversationLabelLinks = () => {
+  const { user } = useCurrentUser();
+  const { ownerUserId } = useStaffPermissions();
+  const uid = ownerUserId ?? user?.id;
+  return useQuery({
+    queryKey: ["wa_conversation_label_links", uid],
+    enabled: !!uid,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("crm_wa_conversation_labels")
+        .select("conversation_id, label_id");
+      if (error) throw error;
+      return (data ?? []) as { conversation_id: string; label_id: string }[];
     },
   });
 };

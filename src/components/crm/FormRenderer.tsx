@@ -437,7 +437,10 @@ const FileUploadField = ({
     for (const file of files) {
       const ext  = file.name.split(".").pop() ?? "bin";
       const base = sanitizeFilename(file.name.replace(/\.[^.]+$/, ""));
-      const path = `${field.id}/${Date.now()}-${base}.${ext}`;
+      // Prefijo "submissions/": es la única carpeta del bucket donde la policy de
+      // storage permite escribir a visitantes anónimos. El resto de form-uploads
+      // (cursos, secuencias, fotos del agente) exige usuario autenticado.
+      const path = `submissions/${field.id}/${Date.now()}-${base}.${ext}`;
 
       const { error: upErr } = await supabase.storage
         .from(BUCKET)

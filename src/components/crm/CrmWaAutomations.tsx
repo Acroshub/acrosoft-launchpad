@@ -1,151 +1,53 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo } from "react";
 import {
-  Plus, Trash2, Edit2, Zap, Clock,
-  CheckCircle2, XCircle, Loader2, ChevronDown, ChevronUp,
-  ArrowLeft, AlertCircle, Send, SkipForward,
-  Image, Video, Mic, Upload,
+  Plus, Trash2, Edit2, Zap, Clock, CheckCircle2, XCircle, Loader2,
+  ChevronDown, ChevronUp, ArrowLeft, SkipForward, Megaphone, GitBranch,
+  ChevronLeft, ChevronRight, AlertCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   useWaAutomations, useCreateWaAutomation, useUpdateWaAutomation,
-  useDeleteWaAutomation, useAutomationQueue, useWaLabels, useWaTemplates,
+  useDeleteWaAutomation, useAutomationQueue, useWaTemplates,
+  useProducts, useServices, useCourses, useDeleteWaSequence,
 } from "@/hooks/useCrmData";
 import { useCurrentUser } from "@/hooks/useAuth";
-import { supabase } from "@/lib/supabase";
 import { Switch } from "@/components/ui/switch";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
-import type { CrmWaAutomation, WaAutomationTrigger, WaAutomationMsgType, WaMediaType, WaVarSource } from "@/lib/supabase";
+import { filterLabel, StepAudience, useAudienceData } from "@/components/crm/wa/audience";
+import { PART_TYPES, newPart, MessageEditor, PartPreview } from "@/components/crm/wa/message";
+import { SequencePicker, useSequenceUsage, sequenceDeleteWarning } from "@/components/crm/wa/sequences";
+import { SequenceEditorModal } from "@/components/crm/wa/SequenceEditor";
+import { toDraftSequence, type DraftSequence } from "@/components/crm/wa/sequence-model";
+import { StepBar } from "@/components/crm/wa/StepBar";
+import type {
+  CrmWaAutomation, CrmWaSequence, WaAutomationMsgType, WaVarSource,
+  WaAudienceFilter, WaAudienceMatch, WaCampaignPart,
+} from "@/lib/supabase";
 
-// ── Media upload field ────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// SEGUIMIENTO AUTOMÁTICO
+//
+// Un solo disparador: el contacto lleva X horas sin responder. Ya no se elige,
+// porque nunca hubo otro — el backend siempre filtró por 'inactivity' y los
+// demás valores del enum eran código muerto.
+//
+// Wizard con la misma forma que Envíos Masivos y compartiendo sus piezas
+// (audiencia, filtros, editor de mensaje). Antes tenía su propio modelo de
+// audiencia por etiquetas y países: dos formas de responder "¿a quién?" que
+// daban resultados distintos para la misma pregunta.
+// ─────────────────────────────────────────────────────────────────────────────
 
-type WaMediaKind = "image" | "video" | "audio";
-
-function MediaUploadField({
-  mediaType, value, onChange, userId,
-}: {
-  mediaType: WaMediaKind;
-  value: string;
-  onChange: (url: string) => void;
-  userId: string;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-
-  const accept = mediaType === "image"
-    ? "image/jpeg,image/png,image/webp"
-    : mediaType === "video"
-    ? "video/mp4,video/3gpp"
-    : "audio/ogg,audio/mpeg,audio/mp4,audio/aac,audio/amr";
-
-  const handleFile = async (file: File) => {
-    setUploading(true);
-    try {
-      const ext = file.name.split(".").pop()?.toLowerCase() ?? "bin";
-      const path = `wa-campaigns/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from("form-uploads").upload(path, file, { upsert: false });
-      if (error) { toast.error("Error al subir archivo: " + error.message); return; }
-      const { data: { publicUrl } } = supabase.storage.from("form-uploads").getPublicUrl(path);
-      onChange(publicUrl);
-    } catch {
-      toast.error("Error al subir archivo");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const label = mediaType === "image" ? "imagen" : mediaType === "video" ? "video" : "audio";
-  const Icon = mediaType === "image" ? Image : mediaType === "video" ? Video : Mic;
-
-  return (
-    <div className="space-y-1.5">
-      <input ref={inputRef} type="file" accept={accept} className="hidden"
-        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
-      {value ? (
-        <div className="flex items-center gap-2.5 p-2.5 rounded-xl border border-border bg-muted/20">
-          {mediaType === "image" ? (
-            <img src={value} alt="" className="h-14 w-14 object-cover rounded-lg shrink-0" />
-          ) : (
-            <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center shrink-0">
-              <Icon size={18} className="text-muted-foreground" />
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium">{label.charAt(0).toUpperCase() + label.slice(1)} subido</p>
-            <p className="text-[10px] text-muted-foreground truncate">{value.split("/").pop()}</p>
-          </div>
-          <button type="button" onClick={() => onChange("")}
-            className="p-1 rounded-lg hover:bg-muted transition-colors text-muted-foreground shrink-0">
-            <XCircle size={14} />
-          </button>
-        </div>
-      ) : (
-        <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
-          className="w-full flex flex-col items-center justify-center gap-2 h-24 rounded-xl border-2 border-dashed border-border hover:border-primary/50 hover:bg-muted/20 transition-all text-muted-foreground disabled:opacity-50 cursor-pointer">
-          {uploading ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}
-          <span className="text-xs">{uploading ? "Subiendo..." : `Seleccionar ${label}`}</span>
-        </button>
-      )}
-    </div>
-  );
-}
-
-// ─── Constants ────────────────────────────────────────────────────────────────
-
-const COUNTRY_REGIONS: { label: string; countries: { code: string; name: string; flag: string }[] }[] = [
-  {
-    label: "Norte América",
-    countries: [
-      { code: "1",  name: "USA / Canadá", flag: "🇺🇸" },
-      { code: "52", name: "México",       flag: "🇲🇽" },
-    ],
-  },
-  {
-    label: "Centro América",
-    countries: [
-      { code: "53",  name: "Cuba",         flag: "🇨🇺" },
-      { code: "502", name: "Guatemala",    flag: "🇬🇹" },
-      { code: "503", name: "El Salvador",  flag: "🇸🇻" },
-      { code: "504", name: "Honduras",     flag: "🇭🇳" },
-      { code: "505", name: "Nicaragua",    flag: "🇳🇮" },
-      { code: "506", name: "Costa Rica",   flag: "🇨🇷" },
-      { code: "507", name: "Panamá",       flag: "🇵🇦" },
-    ],
-  },
-  {
-    label: "Sud América",
-    countries: [
-      { code: "57",  name: "Colombia",  flag: "🇨🇴" },
-      { code: "58",  name: "Venezuela", flag: "🇻🇪" },
-      { code: "593", name: "Ecuador",   flag: "🇪🇨" },
-      { code: "51",  name: "Perú",      flag: "🇵🇪" },
-      { code: "591", name: "Bolivia",   flag: "🇧🇴" },
-      { code: "55",  name: "Brasil",    flag: "🇧🇷" },
-      { code: "595", name: "Paraguay",  flag: "🇵🇾" },
-      { code: "54",  name: "Argentina", flag: "🇦🇷" },
-      { code: "56",  name: "Chile",     flag: "🇨🇱" },
-      { code: "598", name: "Uruguay",   flag: "🇺🇾" },
-    ],
-  },
-  {
-    label: "Europa",
-    countries: [
-      { code: "351", name: "Portugal",      flag: "🇵🇹" },
-      { code: "34",  name: "España",        flag: "🇪🇸" },
-      { code: "33",  name: "Francia",       flag: "🇫🇷" },
-      { code: "44",  name: "Reino Unido",   flag: "🇬🇧" },
-      { code: "49",  name: "Alemania",      flag: "🇩🇪" },
-      { code: "39",  name: "Italia",        flag: "🇮🇹" },
-      { code: "31",  name: "Países Bajos",  flag: "🇳🇱" },
-    ],
-  },
+const STEPS = ["Cuándo", "A quién", "Mensaje", "Revisar"] as const;
+const STEP_HINTS = [
+  "Cuántas horas de silencio tienen que pasar para que salga solo.",
+  "Acota a quién se le hace seguimiento, o déjalo para todos.",
+  "Qué recibe el contacto cuando salta el seguimiento.",
+  "Comprueba que todo está como quieres antes de activarlo.",
 ];
 
-// Lookup plano para el backend (getPhonePrefix sigue funcionando igual)
-const COUNTRY_INFO: Record<string, { name: string; flag: string }> = Object.fromEntries(
-  COUNTRY_REGIONS.flatMap(r => r.countries.map(c => [c.code, { name: c.name, flag: c.flag }]))
-);
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// Tope duro de Meta para mensajes libres. Pasadas 24h del último mensaje del
+// contacto solo se puede escribir con plantilla aprobada.
+const META_WINDOW_H = 24;
 
 function relativeTime(iso: string): string {
   const diff = (Date.now() - new Date(iso).getTime()) / 1000;
@@ -159,113 +61,42 @@ function extractVarNums(text: string): number[] {
   return [...new Set([...text.matchAll(/\{\{(\d+)\}\}/g)].map(m => Number(m[1])))].sort((a, b) => a - b);
 }
 
-function triggerBadge(trigger: WaAutomationTrigger) {
-  const map: Record<WaAutomationTrigger, { label: string; cls: string }> = {
-    new_conversation: { label: "Conversación nueva", cls: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" },
-    label_assigned:   { label: "Etiqueta asignada",  cls: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400" },
-    inactivity:       { label: "Inactividad",         cls: "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400" },
-  };
-  const m = map[trigger];
-  return (
-    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${m.cls}`}>
-      {m.label}
-    </span>
-  );
-}
+// ─── Payloads ────────────────────────────────────────────────────────────────
 
-function msgTypeBadge(msgType: WaAutomationMsgType) {
-  const map: Record<WaAutomationMsgType, string> = {
-    free_text:               "Texto libre",
-    template:                "Plantilla",
-    free_text_with_fallback: "Inteligente",
-  };
-  return (
-    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-muted text-muted-foreground">
-      {map[msgType]}
-    </span>
-  );
-}
+type PayloadKind = Extract<WaAutomationMsgType, "free_text" | "template" | "sequence">;
 
-// ─── Var Selector (simplified: only contact_field and fixed) ──────────────────
+const PAYLOADS: { id: PayloadKind; icon: JSX.Element; title: string; note: string; needsWindow: boolean }[] = [
+  { id: "free_text", icon: <Zap size={15} />, title: "Mensaje libre",
+    note: "Un mensaje suelto, gratis.", needsWindow: true },
+  { id: "template", icon: <Megaphone size={15} />, title: "Plantilla aprobada",
+    note: "Llega siempre, dentro o fuera de las 24h. Meta cobra cada mensaje entregado.", needsWindow: false },
+  { id: "sequence", icon: <GitBranch size={15} />, title: "Secuencia",
+    note: "Arranca una secuencia publicada y avanza según responda el contacto.", needsWindow: true },
+];
 
-function AutoVarSelector({
-  varNum, value, onChange,
-}: {
-  varNum: number;
-  value: WaVarSource | undefined;
-  onChange: (v: WaVarSource) => void;
-}) {
-  const source = value?.source ?? "contact_field";
-  return (
-    <div className="space-y-1.5 p-3 rounded-xl bg-muted/30 border border-border">
-      <span className="text-[11px] font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md">{`{{${varNum}}}`}</span>
-      <div className="flex flex-wrap gap-2 mt-1.5">
-        <select
-          value={source}
-          onChange={e => {
-            if (e.target.value === "contact_field") onChange({ source: "contact_field", field: "name" });
-            else onChange({ source: "fixed", value: "" });
-          }}
-          className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30"
-        >
-          <option value="contact_field">Campo del contacto</option>
-          <option value="fixed">Texto fijo</option>
-        </select>
-        {source === "contact_field" && (
-          <select
-            value={(value as any)?.field ?? "name"}
-            onChange={e => onChange({ source: "contact_field", field: e.target.value as any })}
-            className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30"
-          >
-            <option value="name">Nombre</option>
-            <option value="phone">Teléfono</option>
-          </select>
-        )}
-        {source === "fixed" && (
-          <input
-            value={(value as any)?.value ?? ""}
-            onChange={e => onChange({ source: "fixed", value: e.target.value })}
-            placeholder="Texto fijo para todos"
-            className="flex-1 h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 min-w-0"
-          />
-        )}
-      </div>
-    </div>
-  );
-}
+// ─── Selectores ──────────────────────────────────────────────────────────────
 
-// ─── Template selector ────────────────────────────────────────────────────────
-
-function TemplateSelector({
-  selectedId, onSelect,
-}: {
-  selectedId: string;
-  onSelect: (id: string, body: string) => void;
+function TemplateSelector({ selectedId, onSelect }: {
+  selectedId: string; onSelect: (id: string, body: string) => void;
 }) {
   const { data: templates = [], isLoading } = useWaTemplates("remarketing");
   const approved = templates.filter(t => t.local_status === "APPROVED");
   if (isLoading) return <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-muted-foreground/50" /></div>;
   if (!approved.length) return (
     <p className="text-xs text-muted-foreground py-3 text-center">
-      No tienes plantillas aprobadas. Ve a la sección Plantillas.
+      No tienes plantillas aprobadas. Créalas en Plantillas, dentro de esta misma sección.
     </p>
   );
   return (
     <div className="space-y-2">
       {approved.map(t => (
-        <button
-          key={t.id} type="button"
-          onClick={() => onSelect(t.id, t.body_text)}
+        <button key={t.id} type="button" onClick={() => onSelect(t.id, t.body_text)}
           className={`w-full text-left p-3 rounded-xl border transition-all ${
-            selectedId === t.id
-              ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-              : "border-border hover:border-primary/40 hover:bg-muted/30"
-          }`}
-        >
+            selectedId === t.id ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/40 hover:bg-muted/30"
+          }`}>
           <div className="flex items-center gap-2 mb-1">
             <span className="text-xs font-semibold font-mono">{t.name}</span>
             <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-1.5 py-0.5 rounded-full font-semibold">APROBADA</span>
-            <span className="text-[10px] text-muted-foreground">{t.language}</span>
           </div>
           <p className="text-xs text-muted-foreground line-clamp-2 leading-relaxed">{t.body_text}</p>
         </button>
@@ -274,409 +105,425 @@ function TemplateSelector({
   );
 }
 
-// ─── Form state type ───────────────────────────────────────────────────────────
+function VarSelector({ varNum, value, onChange }: {
+  varNum: number; value: WaVarSource | undefined; onChange: (v: WaVarSource) => void;
+}) {
+  const { data: products = [] } = useProducts();
+  const { data: services = [] } = useServices();
+  const { data: courses = [] }  = useCourses();
+  const source = value?.source ?? "contact_field";
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 p-2.5 rounded-xl bg-muted/30 border border-border">
+      <span className="text-[11px] font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-md shrink-0">{`{{${varNum}}}`}</span>
+      <select value={source}
+        onChange={e => {
+          const s = e.target.value;
+          if (s === "contact_field") onChange({ source: "contact_field", field: "name" });
+          else if (s === "fixed") onChange({ source: "fixed", value: "" });
+          else if (s === "product_field" && products[0]) onChange({ source: "product_field", entityId: products[0].id, entityName: products[0].name, field: "name" });
+          else if (s === "service_field" && services[0]) onChange({ source: "service_field", entityId: services[0].id, entityName: services[0].name, field: "name" });
+          else if (s === "course_field" && courses[0]) onChange({ source: "course_field", entityId: courses[0].id, entityName: courses[0].title, field: "title" });
+        }}
+        className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">
+        <option value="contact_field">Campo del contacto</option>
+        {products.length > 0 && <option value="product_field">Producto</option>}
+        {services.length > 0 && <option value="service_field">Servicio</option>}
+        {courses.length  > 0 && <option value="course_field">Curso</option>}
+        <option value="fixed">Texto fijo</option>
+      </select>
+      {source === "contact_field" && (
+        <select value={(value as any)?.field ?? "name"} onChange={e => onChange({ source: "contact_field", field: e.target.value as any })}
+          className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">
+          <option value="name">Nombre</option>
+          <option value="email">Email</option>
+          <option value="phone">Teléfono</option>
+          <option value="company">Empresa</option>
+        </select>
+      )}
+      {source === "fixed" && (
+        <input value={(value as any)?.value ?? ""} onChange={e => onChange({ source: "fixed", value: e.target.value })}
+          placeholder="Texto fijo"
+          className="flex-1 min-w-0 h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30" />
+      )}
+    </div>
+  );
+}
+
+// ─── Wizard ──────────────────────────────────────────────────────────────────
 
 type FormState = {
   name: string;
-  is_active: boolean;
-  trigger_type: WaAutomationTrigger;
-  trigger_label_ids: string[];
-  trigger_inactivity_hours: string;
-  trigger_country_codes: string[];
-  delay_hours: string;
-  message_type: WaAutomationMsgType;
-  message_text: string;
-  media_type: WaMediaType | "none";
-  media_url: string;
-  template_id: string;
-  template_body: string;
-  template_var_map: Record<string, WaVarSource>;
+  hours: number;
+  audienceType: "all" | "include" | "exclude";
+  filters: WaAudienceFilter[];
+  match: WaAudienceMatch;
+  payload: PayloadKind;
+  part: WaCampaignPart;
+  templateId: string;
+  templateBody: string;
+  varMap: Record<string, WaVarSource>;
+  sequenceId: string | null;
 };
 
-function emptyForm(): FormState {
-  return {
-    name: "",
-    is_active: true,
-    trigger_type: "inactivity",
-    trigger_label_ids: [],
-    trigger_inactivity_hours: "6",
-    trigger_country_codes: [],
-    delay_hours: "0",
-    message_type: "free_text",
-    message_text: "",
-    media_type: "none",
-    media_url: "",
-    template_id: "",
-    template_body: "",
-    template_var_map: {},
-  };
-}
+const emptyForm = (): FormState => ({
+  name: "",
+  hours: 6,
+  audienceType: "all",
+  filters: [],
+  match: "any",
+  payload: "free_text",
+  part: newPart("text"),
+  templateId: "",
+  templateBody: "",
+  varMap: {},
+  sequenceId: null,
+});
 
-function automationToForm(a: CrmWaAutomation): FormState {
+function toForm(a: CrmWaAutomation): FormState {
+  const parts = Array.isArray(a.parts) ? a.parts : [];
   return {
     name: a.name,
-    is_active: a.is_active,
-    trigger_type: "inactivity",
-    trigger_label_ids: a.trigger_label_ids ?? [],
-    trigger_inactivity_hours: String(a.trigger_inactivity_hours ?? 6),
-    trigger_country_codes: a.trigger_country_codes ?? [],
-    delay_hours: String(a.delay_hours ?? 0),
-    message_type: a.message_type,
-    message_text: a.message_text ?? "",
-    media_type: a.media_type ?? "none",
-    media_url: a.media_url ?? "",
-    template_id: a.template_id ?? "",
-    template_body: "",
-    template_var_map: (a.template_var_map ?? {}) as Record<string, WaVarSource>,
+    hours: a.trigger_inactivity_hours ?? 6,
+    audienceType: a.audience_type ?? "all",
+    filters: a.audience_filters ?? [],
+    match: a.audience_match ?? "any",
+    payload: (a.message_type ?? "free_text") as PayloadKind,
+    part: parts[0] ?? (a.message_text ? { ...newPart("text"), text: a.message_text } : newPart("text")),
+    templateId: a.template_id ?? "",
+    templateBody: "",
+    varMap: (a.template_var_map ?? {}) as Record<string, WaVarSource>,
+    sequenceId: a.sequence_id ?? null,
   };
 }
 
-// ─── Automation Form ──────────────────────────────────────────────────────────
-
-function AutomationForm({
-  initial, editing, onBack,
-}: {
-  initial: FormState;
+function AutomationWizard({ editing, onDone }: {
   editing: CrmWaAutomation | null;
-  onBack: () => void;
+  onDone: () => void;
 }) {
-  const [form, setForm] = useState<FormState>(initial);
   const { user } = useCurrentUser();
   const createAuto = useCreateWaAutomation();
   const updateAuto = useUpdateWaAutomation();
-  const { data: labels = [] } = useWaLabels();
 
+  const [step, setStep] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [pendingDeleteSeq, setPendingDeleteSeq] = useState<CrmWaSequence | null>(null);
+  const deleteSequence = useDeleteWaSequence();
+  const seqUsage = useSequenceUsage(pendingDeleteSeq?.id ?? null);
+  // Editar la secuencia sin salir de aquí: son objetos compartidos con Flujos, pero
+  // mandar al usuario a otra sección para tocar la que acaba de elegir rompía el hilo
+  // de lo que estaba armando. null = editor cerrado.
+  const [editingSeq, setEditingSeq] = useState<DraftSequence | null>(null);
+  const [form, setForm] = useState<FormState>(() => editing ? toForm(editing) : emptyForm());
   const set = (patch: Partial<FormState>) => setForm(f => ({ ...f, ...patch }));
 
-  const varNums = useMemo(
-    () => form.template_body ? extractVarNums(form.template_body) : [],
-    [form.template_body]
-  );
+  // Un seguimiento no tiene una audiencia fija como una campaña: está siempre
+  // vigilando y quien entra o sale cambia solo. Por eso aquí no se muestra
+  // ningún total — solo se usan estos datos para pintar el selector de filtros.
+  const { base, phoneless, ctx } = useAudienceData(Math.min(form.hours, META_WINDOW_H));
 
-  const needsTemplate = form.message_type === "template" || form.message_type === "free_text_with_fallback";
-  const needsText = form.message_type === "free_text" || form.message_type === "free_text_with_fallback";
+  // Pasadas 24h Meta solo acepta plantillas, así que a partir de ahí el paso del
+  // mensaje ofrece solo esa. El slider NO se bloquea: elegir 48h es legítimo,
+  // simplemente condiciona el tipo de mensaje.
+  const outOfWindow = form.hours >= META_WINDOW_H;
+  const available   = PAYLOADS.filter(p => !outOfWindow || !p.needsWindow);
+  const meta        = PAYLOADS.find(p => p.id === form.payload)!;
 
-  const isValid = useMemo(() => {
-    if (!form.name.trim()) return false;
-    if (!form.trigger_inactivity_hours || Number(form.trigger_inactivity_hours) < 1) return false;
-    if (needsText) {
-      if (form.media_type === "none" && !form.message_text.trim()) return false;
-      if (form.media_type !== "none" && !form.media_url.trim()) return false;
+  const varNums = useMemo(() => extractVarNums(form.templateBody), [form.templateBody]);
+
+  const canNext = () => {
+    if (step === 0) return form.hours >= 1;
+    if (step === 1) return form.audienceType === "all" || form.filters.length > 0;
+    if (step === 2) {
+      if (form.payload === "sequence") return !!form.sequenceId;
+      if (form.payload === "template") return !!form.templateId;
+      return form.part.type === "text" ? (form.part.text ?? "").trim().length > 0
+           : form.part.type === "link" ? (form.part.link_url ?? "").trim().length > 0
+           : (form.part.url ?? "").trim().length > 0;
     }
-    if (needsTemplate && !form.template_id) return false;
-    return true;
-  }, [form, needsText, needsTemplate]);
+    return form.name.trim().length > 0;
+  };
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!isValid) return;
-
-    const payload: Omit<CrmWaAutomation, "id" | "user_id" | "sent_count" | "skipped_count" | "failed_count" | "created_at"> = {
-      name: form.name.trim(),
-      is_active: form.is_active,
-      trigger_type: "inactivity",
-      trigger_label_ids: form.trigger_label_ids,
-      trigger_inactivity_hours: Number(form.trigger_inactivity_hours),
-      trigger_country_codes: form.trigger_country_codes,
-      delay_hours: Number(form.delay_hours) || 0,
-      message_type: form.message_type,
-      message_text: needsText && form.media_type !== "audio" ? form.message_text.trim() : null,
-      media_type: needsText && form.media_type !== "none" ? form.media_type as WaMediaType : null,
-      media_url: needsText && form.media_type !== "none" ? form.media_url.trim() : null,
-      template_id: needsTemplate ? form.template_id : null,
-      template_var_map: needsTemplate ? form.template_var_map : {},
-    };
-
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
     try {
-      if (editing) {
-        await updateAuto.mutateAsync({ id: editing.id, ...payload });
-        toast.success("Automatización actualizada");
-      } else {
-        await createAuto.mutateAsync(payload);
-        toast.success("Automatización creada");
-      }
-      onBack();
-    } catch (err: any) {
-      toast.error(err.message ?? "Error al guardar");
+      const usesFree = form.payload === "free_text";
+      const payload = {
+        name: form.name.trim(),
+        is_active: editing?.is_active ?? true,
+        trigger_type: "inactivity" as const,
+        trigger_inactivity_hours: form.hours,
+        audience_type: form.audienceType,
+        audience_filters: form.filters,
+        audience_match: form.match,
+        message_type: form.payload,
+        parts: usesFree ? [form.part] : [],
+        sequence_id: form.payload === "sequence" ? form.sequenceId : null,
+        message_text: null,
+        media_type: null,
+        media_url: null,
+        template_id: form.payload === "template" ? form.templateId : null,
+        template_var_map: form.varMap,
+      };
+      if (editing) await updateAuto.mutateAsync({ id: editing.id, ...payload });
+      else         await createAuto.mutateAsync(payload);
+      toast.success(editing ? "Seguimiento actualizado" : "Seguimiento creado");
+      onDone();
+    } catch (e: any) {
+      toast.error(e?.message ?? "No se pudo guardar");
+    } finally {
+      setSaving(false);
     }
-  }
-
-  const isPending = createAuto.isPending || updateAuto.isPending;
+  };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <button type="button" onClick={onBack} className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft size={14} /> Volver
+        <button
+          onClick={() => { if (step === 0) onDone(); else setStep(s => s - 1); }}
+          title={step === 0 ? "Cancelar" : "Paso anterior"}
+          className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground">
+          <ArrowLeft size={14} />
         </button>
-        <h2 className="text-sm font-semibold flex-1">{editing ? "Editar automatización" : "Nueva automatización"}</h2>
-        <div className="flex items-center gap-2">
-          <span className={`text-xs font-medium ${form.is_active ? "text-green-600 dark:text-green-400" : "text-muted-foreground"}`}>
-            {form.is_active ? "Activa" : "Inactiva"}
-          </span>
-          <Switch
-            checked={form.is_active}
-            onCheckedChange={v => set({ is_active: v })}
-          />
-        </div>
+        <h2 className="text-sm font-semibold flex-1 truncate">
+          {editing ? "Editar seguimiento" : "Nuevo seguimiento"}
+        </h2>
+        <button onClick={onDone} title="Cancelar"
+          className="p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground shrink-0">
+          <XCircle size={15} />
+        </button>
       </div>
 
-      {/* Nombre */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-semibold text-foreground">Nombre</label>
-        <input
-          value={form.name}
-          onChange={e => set({ name: e.target.value })}
-          placeholder="Ej: Seguimiento a nuevos contactos"
-          className="w-full h-9 px-3 rounded-xl border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30"
-        />
-      </div>
+      <StepBar steps={STEPS} current={step} />
+      <p className="text-[11px] text-muted-foreground -mt-1">{STEP_HINTS[step]}</p>
 
-      {/* Trigger — solo inactividad */}
-      <div className="space-y-2">
-        <label className="text-xs font-semibold text-foreground">Disparador</label>
-        <div className="p-3 rounded-xl border border-primary bg-primary/5 ring-1 ring-primary/30">
-          <p className="text-xs font-semibold">Inactividad</p>
-          <p className="text-[11px] text-muted-foreground mt-0.5">Se activa cuando un contacto no ha escrito en X horas</p>
-        </div>
-        <div className="flex items-center gap-2 pt-1">
-          <label className="text-xs text-muted-foreground shrink-0">Horas sin actividad:</label>
-          <input
-            type="number" min="1" max="720"
-            value={form.trigger_inactivity_hours}
-            onChange={e => set({ trigger_inactivity_hours: e.target.value })}
-            className="w-24 h-8 px-2 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 text-center"
-          />
-          <span className="text-xs text-muted-foreground">horas</span>
-        </div>
-      </div>
-
-      {/* Filtro por etiquetas */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-semibold text-foreground">Filtro por etiquetas <span className="text-muted-foreground font-normal">(opcional)</span></label>
-        <p className="text-[11px] text-muted-foreground">Solo se enviará a contactos que tengan al menos una de estas etiquetas. Dejar vacío = todos los contactos.</p>
-        {labels.length === 0
-          ? <p className="text-xs text-muted-foreground/70">No hay etiquetas disponibles.</p>
-          : (
-            <div className="flex flex-wrap gap-1.5">
-              {labels.map(lbl => {
-                const selected = form.trigger_label_ids.includes(lbl.id);
-                return (
-                  <button key={lbl.id} type="button"
-                    onClick={() => set({
-                      trigger_label_ids: selected
-                        ? form.trigger_label_ids.filter(id => id !== lbl.id)
-                        : [...form.trigger_label_ids, lbl.id],
-                    })}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
-                      selected
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40"
-                    }`}
-                  >
-                    {lbl.name}
-                  </button>
-                );
-              })}
-            </div>
-          )
-        }
-      </div>
-
-      {/* Country filter */}
-      <div className="space-y-2">
-        <label className="text-xs font-semibold text-foreground">Filtro por país <span className="text-muted-foreground font-normal">(opcional)</span></label>
-        <p className="text-[11px] text-muted-foreground">Si seleccionas países, solo se activará para contactos de esos países.</p>
-        <div className="space-y-2.5">
-          {COUNTRY_REGIONS.map(region => (
-            <div key={region.label}>
-              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/50 mb-1.5">{region.label}</p>
-              <div className="flex flex-wrap gap-1.5">
-                {region.countries.map(({ code, name, flag }) => {
-                  const selected = form.trigger_country_codes.includes(code);
-                  return (
-                    <button key={code} type="button"
-                      onClick={() => set({
-                        trigger_country_codes: selected
-                          ? form.trigger_country_codes.filter(c => c !== code)
-                          : [...form.trigger_country_codes, code],
-                      })}
-                      className={`px-2 py-1 rounded-lg text-xs border transition-all ${
-                        selected
-                          ? "border-primary bg-primary/10 text-primary font-medium"
-                          : "border-border bg-muted/20 text-muted-foreground hover:border-primary/40"
-                      }`}
-                    >
-                      {flag} {name}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Delay */}
-      <div className="space-y-1.5">
-        <label className="text-xs font-semibold text-foreground">¿Cuánto tiempo esperar antes de enviar?</label>
-        <p className="text-[11px] text-muted-foreground">
-          Tiempo entre que se activa el disparador y que se envía el mensaje.{" "}
-          <span className="text-foreground/70">
-            Ej: si alguien te escribe por primera vez y pones 2h, recibirá tu mensaje 2 horas después.
-          </span>
-        </p>
-        <div className="flex items-center gap-2">
-          <input
-            type="number" min="0" max="8760"
-            value={form.delay_hours}
-            onChange={e => set({ delay_hours: e.target.value })}
-            className="w-24 h-9 px-2 rounded-xl border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 text-center font-semibold"
-          />
-          <span className="text-xs text-muted-foreground">horas</span>
-          <span className="text-[10px] text-muted-foreground/60 italic">
-            {Number(form.delay_hours) === 0 ? "· Envío inmediato" : Number(form.delay_hours) === 1 ? "· 1 hora de espera" : `· ${form.delay_hours} horas de espera`}
-          </span>
-        </div>
-      </div>
-
-      {/* Message type */}
-      <div className="space-y-2">
-        <label className="text-xs font-semibold text-foreground">Tipo de mensaje</label>
-        <div className="grid grid-cols-1 gap-2">
-          {([
-            {
-              value: "free_text",
-              label: "Texto libre",
-              desc: "Solo aplica si el contacto escribió en las últimas 24h. Fuera de ese tiempo, el mensaje se omite.",
-            },
-            {
-              value: "template",
-              label: "Plantilla aprobada",
-              desc: "Usa una plantilla de Meta. Se envía siempre, sin importar cuándo fue el último mensaje.",
-            },
-            {
-              value: "free_text_with_fallback",
-              label: "Inteligente: texto libre o plantilla",
-              desc: "Si el contacto está en las últimas 24h → envía texto libre. Si no → envía la plantilla automáticamente.",
-            },
-          ] as const).map(opt => (
-            <button
-              key={opt.value} type="button"
-              onClick={() => set({ message_type: opt.value, media_type: "none", media_url: "" })}
-              className={`w-full text-left p-3 rounded-xl border transition-all ${
-                form.message_type === opt.value
-                  ? "border-primary bg-primary/5 ring-1 ring-primary/30"
-                  : "border-border hover:border-primary/40 hover:bg-muted/30"
-              }`}
-            >
-              <p className="text-xs font-semibold">{opt.label}</p>
-              <p className="text-[11px] text-muted-foreground mt-0.5">{opt.desc}</p>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Message text / media */}
-      {needsText && (
+      {/* ── Paso 1: cuándo ── */}
+      {step === 0 && (
         <div className="space-y-3">
-          <label className="text-xs font-semibold text-foreground">
-            {form.message_type === "free_text_with_fallback" ? "Mensaje de texto libre (dentro de 24h)" : "Mensaje"}
-          </label>
+          <div className="space-y-1.5 p-3 rounded-xl bg-muted/20 border border-border">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-semibold">Horas sin respuesta</p>
+              <span className="text-xs font-bold shrink-0">{form.hours}h</span>
+            </div>
+            <input type="range" min={1} max={72} step={1} value={form.hours}
+              onChange={e => {
+                const h = Number(e.target.value);
+                const needsTemplate = h >= META_WINDOW_H;
+                // Si el tipo elegido deja de ser posible con esas horas, se pasa
+                // a plantilla en vez de dejar una combinación que no puede salir.
+                const stillValid = !needsTemplate || !PAYLOADS.find(p => p.id === form.payload)?.needsWindow;
+                set({ hours: h, ...(stillValid ? {} : { payload: "template" as PayloadKind }) });
+              }}
+              className="w-full accent-primary" />
+            <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+              El seguimiento sale cuando pasan {form.hours}h desde el último mensaje del contacto sin
+              que haya vuelto a escribir. Si responde antes, no se envía nada.
+            </p>
+          </div>
 
-          {/* Media type selector */}
-          <div className="grid grid-cols-4 gap-1.5">
-            {([
-              { value: "none",  icon: <Send size={13} />,  label: "Solo texto" },
-              { value: "image", icon: <Image size={13} />, label: "Imagen" },
-              { value: "video", icon: <Video size={13} />, label: "Video" },
-              { value: "audio", icon: <Mic size={13} />,   label: "Audio" },
-            ] as const).map(opt => (
-              <button key={opt.value} type="button"
-                onClick={() => set({ media_type: opt.value, media_url: "" })}
-                className={`flex flex-col items-center gap-1 py-2.5 rounded-xl border text-xs font-medium transition-all ${
-                  form.media_type === opt.value
-                    ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/30"
-                    : "border-border hover:border-primary/40 text-muted-foreground"
-                }`}
-              >
-                {opt.icon}
-                <span className="text-[10px]">{opt.label}</span>
+          {form.hours >= META_WINDOW_H && (
+            <div className="flex items-start gap-2 p-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40">
+              <AlertCircle size={13} className="text-amber-600 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+                A partir de 24h el contacto queda fuera de la ventana de Meta: solo se le puede escribir
+                con <strong>plantilla aprobada</strong>. Es lo único que ofrecerá el paso del mensaje.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Paso 2: a quién ── */}
+      {step === 1 && (
+        <StepAudience
+          audienceType={form.audienceType} filters={form.filters} base={base}
+          phoneless={phoneless} ctx={ctx} match={form.match}
+          onTypeChange={t => set({ audienceType: t, ...(t === "all" ? { filters: [] } : {}) })}
+          onFiltersChange={f => set({ filters: f })}
+          onMatchChange={m => set({ match: m })}
+        />
+      )}
+
+      {/* ── Paso 3: mensaje ── */}
+      {step === 2 && (
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <p className="text-xs font-semibold text-muted-foreground">¿Qué se le manda?</p>
+            {outOfWindow && (
+              <p className="text-[11px] text-muted-foreground">
+                Con {form.hours}h de espera el contacto ya está fuera de la ventana de Meta, así que
+                la plantilla aprobada es la única forma de llegarle.
+              </p>
+            )}
+            {available.map(p => (
+              <button key={p.id} type="button" onClick={() => set({ payload: p.id })}
+                className={`w-full flex items-start gap-2.5 p-3 rounded-xl border text-left transition-colors ${
+                  form.payload === p.id ? "border-primary bg-primary/5 ring-1 ring-primary/30"
+                  : "border-border hover:border-primary/40 hover:bg-muted/20"
+                }`}>
+                <span className={`mt-0.5 shrink-0 ${form.payload === p.id ? "text-primary" : "text-muted-foreground"}`}>{p.icon}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium">{p.title}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">{p.note}</p>
+                </div>
               </button>
             ))}
           </div>
 
-          {/* Media upload */}
-          {form.media_type !== "none" && (
-            <div className="space-y-1">
-              <label className="text-xs text-muted-foreground">
-                Archivo de {form.media_type === "image" ? "imagen" : form.media_type === "video" ? "video" : "audio"} *
-              </label>
-              <MediaUploadField
-                mediaType={form.media_type as WaMediaKind}
-                value={form.media_url}
-                onChange={url => set({ media_url: url })}
-                userId={user?.id ?? ""}
+          {form.payload === "free_text" && (
+            <div className="space-y-3 pt-1 border-t border-border">
+              <p className="text-xs font-semibold text-muted-foreground mt-3">El mensaje</p>
+              <MessageEditor part={form.part} onChange={p => set({ part: p })} userId={user?.id ?? ""} />
+              <PartPreview part={form.part} />
+            </div>
+          )}
+
+          {form.payload === "template" && (
+            <div className="space-y-3 pt-1 border-t border-border">
+              <p className="text-xs font-semibold text-muted-foreground mt-3">La plantilla</p>
+              <TemplateSelector selectedId={form.templateId}
+                onSelect={(id, body) => set({ templateId: id, templateBody: body, varMap: {} })} />
+              {varNums.length > 0 && (
+                <div className="space-y-1.5">
+                  <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Variables</p>
+                  {varNums.map(n => (
+                    <VarSelector key={n} varNum={n} value={form.varMap[String(n)]}
+                      onChange={v => set({ varMap: { ...form.varMap, [String(n)]: v } })} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {form.payload === "sequence" && (
+            <div className="space-y-3 pt-1 border-t border-border">
+              <p className="text-xs font-semibold text-muted-foreground mt-3">La secuencia</p>
+              <SequencePicker
+                selectedId={form.sequenceId}
+                onSelect={id => set({ sequenceId: id })}
+                onEdit={seq => setEditingSeq(toDraftSequence(seq))}
+                onDelete={seq => setPendingDeleteSeq(seq)}
+                publishedOnly
+                emptyHint="Todavía no tienes secuencias. Crea la primera aquí abajo."
               />
-            </div>
-          )}
-
-          {/* Caption / text (hidden for audio) */}
-          {form.media_type !== "audio" && (
-            <textarea
-              value={form.message_text}
-              onChange={e => set({ message_text: e.target.value })}
-              rows={4}
-              placeholder={form.media_type === "none"
-                ? "Escribe el mensaje que se enviará..."
-                : "Pie de foto o descripción (opcional)..."}
-              className="w-full px-3 py-2 rounded-xl border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 resize-none"
-            />
-          )}
-        </div>
-      )}
-
-      {/* Template */}
-      {needsTemplate && (
-        <div className="space-y-1.5">
-          <label className="text-xs font-semibold text-foreground">
-            {form.message_type === "free_text_with_fallback" ? "Plantilla fallback (fuera de 24h)" : "Plantilla aprobada"}
-          </label>
-          <TemplateSelector
-            selectedId={form.template_id}
-            onSelect={(id, body) => {
-              set({ template_id: id, template_body: body, template_var_map: {} });
-            }}
-          />
-          {form.template_id && varNums.length > 0 && (
-            <div className="mt-2 space-y-2">
-              <p className="text-[11px] text-muted-foreground">Configura las variables de la plantilla:</p>
-              {varNums.map(num => (
-                <AutoVarSelector
-                  key={num}
-                  varNum={num}
-                  value={form.template_var_map[String(num)]}
-                  onChange={v => set({ template_var_map: { ...form.template_var_map, [String(num)]: v } })}
-                />
-              ))}
+              <button
+                type="button"
+                onClick={() => setEditingSeq({ name: "", steps: [], status: "draft" })}
+                className="flex items-center gap-1.5 w-full px-3 h-8 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+              >
+                <Plus size={12} /> Crear secuencia
+              </button>
+              <p className="text-[10px] text-muted-foreground/70">
+                Las secuencias se comparten con <strong>Flujos</strong>: lo que edites o elimines aquí cambia también allí.
+              </p>
+              <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+                La secuencia arranca en el contacto y avanza como cualquier flujo: si tiene preguntas,
+                espera la respuesta. Si el contacto no responde y se cierra la ventana de 24h, la
+                secuencia caduca y la conversación queda libre.
+              </p>
             </div>
           )}
         </div>
       )}
 
-      {/* Submit */}
-      <button
-        type="submit" disabled={!isValid || isPending}
-        className="w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-semibold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
-      >
-        {isPending ? <Loader2 size={16} className="animate-spin" /> : <CheckCircle2 size={16} />}
-        {editing ? "Guardar cambios" : "Crear automatización"}
-      </button>
-    </form>
+      {/* ── Paso 4: revisar ── */}
+      {step === 3 && (
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <label className="text-xs font-semibold text-muted-foreground">Nombre del seguimiento</label>
+            <input value={form.name} onChange={e => set({ name: e.target.value })}
+              placeholder="Ej: Recordatorio a las 6h"
+              className="w-full h-9 px-3 rounded-xl border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+            <p className="text-[10px] text-muted-foreground/70">Solo para que lo reconozcas en la lista.</p>
+          </div>
+
+          <div className="rounded-xl border border-border bg-card p-3 space-y-2 text-xs">
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground shrink-0">Se dispara</span>
+              <span className="font-medium text-right">{form.hours}h sin respuesta</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-muted-foreground shrink-0">A quién</span>
+              <span className="font-medium text-right">
+                {form.audienceType === "all" ? "Todos"
+                 : form.audienceType === "include" ? `Solo incluir (${form.filters.length})`
+                 : `Todos menos (${form.filters.length})`}
+              </span>
+            </div>
+            {form.filters.length > 0 && (
+              <div className="flex flex-wrap gap-1 justify-end">
+                {form.filters.map((f, i) => (
+                  <span key={i} className="bg-primary/8 border border-primary/20 text-primary px-2 py-0.5 rounded-full text-[10px]">{filterLabel(f)}</span>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-between gap-3 pt-2 border-t border-border">
+              <span className="text-muted-foreground shrink-0">Se le manda</span>
+              <span className="font-medium text-right">{meta.title}</span>
+            </div>
+            {form.payload === "free_text" && (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground shrink-0">Tipo</span>
+                <span className="font-medium text-right">{PART_TYPES.find(t => t.id === form.part.type)?.label}</span>
+              </div>
+            )}
+          </div>
+
+          {form.payload === "free_text" && <PartPreview part={form.part} />}
+        </div>
+      )}
+
+      {editingSeq && (
+        <SequenceEditorModal
+          initial={editingSeq}
+          userId={user?.id ?? ""}
+          onClose={() => setEditingSeq(null)}
+          // Recién publicada queda elegida: crearla y tener que buscarla en la lista
+          // para seleccionarla era un paso de más sin ninguna decisión detrás.
+          onPublished={saved => set({ sequenceId: saved.id })}
+        />
+      )}
+
+      <DeleteConfirmDialog
+        open={!!pendingDeleteSeq}
+        onOpenChange={open => { if (!open) setPendingDeleteSeq(null); }}
+        isPending={deleteSequence.isPending}
+        description={sequenceDeleteWarning(seqUsage)}
+        onConfirm={async () => {
+          if (!pendingDeleteSeq) return;
+          await deleteSequence.mutateAsync(pendingDeleteSeq.id);
+          if (form.sequenceId === pendingDeleteSeq.id) set({ sequenceId: null });
+          setPendingDeleteSeq(null);
+          toast.success("Secuencia eliminada de todo el CRM");
+        }}
+      />
+
+      <div className="flex items-center gap-2 pt-2 border-t border-border">
+        {step > 0 && (
+          <button type="button" onClick={() => setStep(s => s - 1)}
+            className="flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-sm text-muted-foreground hover:bg-muted transition-colors">
+            <ChevronLeft size={14} /> Anterior
+          </button>
+        )}
+        <div className="flex-1" />
+        {step < 3 ? (
+          <button type="button" onClick={() => setStep(s => s + 1)} disabled={!canNext()}
+            className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40">
+            Siguiente <ChevronRight size={14} />
+          </button>
+        ) : (
+          <button type="button" onClick={handleSave} disabled={saving || !canNext()}
+            className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40">
+            {saving ? <><Loader2 size={13} className="animate-spin" /> Guardando...</> : <><CheckCircle2 size={13} /> {editing ? "Guardar cambios" : "Crear seguimiento"}</>}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
-// ─── Queue Detail ─────────────────────────────────────────────────────────────
+// ─── Historial de un seguimiento ─────────────────────────────────────────────
 
 function AutomationQueueDetail({ automationId }: { automationId: string }) {
   const { data: items = [], isLoading } = useAutomationQueue(automationId);
@@ -684,40 +531,27 @@ function AutomationQueueDetail({ automationId }: { automationId: string }) {
   if (isLoading) return <div className="flex justify-center py-4"><Loader2 size={16} className="animate-spin text-muted-foreground/50" /></div>;
   if (!items.length) return <p className="text-xs text-muted-foreground text-center py-3">Sin actividad registrada.</p>;
 
-  const statusIcon = (s: string) => {
-    if (s === "sent")    return <CheckCircle2 size={12} className="text-green-500" />;
-    if (s === "failed")  return <XCircle size={12} className="text-red-500" />;
-    if (s === "skipped") return <SkipForward size={12} className="text-orange-400" />;
-    if (s === "pending") return <Clock size={12} className="text-blue-400" />;
-    return <Clock size={12} className="text-muted-foreground" />;
-  };
+  const icon = (s: string) =>
+    s === "sent"    ? <CheckCircle2 size={12} className="text-green-500" />
+  : s === "failed"  ? <XCircle size={12} className="text-red-500" />
+  : s === "skipped" ? <SkipForward size={12} className="text-orange-400" />
+  :                   <Clock size={12} className="text-blue-400" />;
 
-  const statusLabel = (s: string) => {
-    if (s === "sent")    return "Enviado";
-    if (s === "failed")  return "Fallido";
-    if (s === "skipped") return "Omitido";
-    if (s === "pending") return "Pendiente";
-    return s;
-  };
+  const label = (s: string) =>
+    s === "sent" ? "Enviado" : s === "failed" ? "Fallido"
+  : s === "skipped" ? "Omitido" : s === "pending" ? "Pendiente" : s;
 
   return (
     <div className="mt-3 space-y-1 max-h-48 overflow-y-auto">
       {items.map(item => (
         <div key={item.id} className="flex items-start gap-2 py-1.5 border-b border-border/50 last:border-0">
-          <div className="mt-0.5 shrink-0">{statusIcon(item.status)}</div>
+          <div className="mt-0.5 shrink-0">{icon(item.status)}</div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="text-[11px] font-medium">{statusLabel(item.status)}</span>
+              <span className="text-[11px] font-medium">{label(item.status)}</span>
               <span className="text-[10px] text-muted-foreground">{relativeTime(item.created_at)}</span>
-              {item.scheduled_at && item.status === "pending" && (
-                <span className="text-[10px] text-blue-500">
-                  · envío: {new Date(item.scheduled_at).toLocaleString("es-ES", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
-                </span>
-              )}
             </div>
-            {item.error_message && (
-              <p className="text-[10px] text-red-500 mt-0.5 truncate">{item.error_message}</p>
-            )}
+            {item.error_message && <p className="text-[10px] text-red-500 mt-0.5 truncate">{item.error_message}</p>}
           </div>
         </div>
       ))}
@@ -725,197 +559,106 @@ function AutomationQueueDetail({ automationId }: { automationId: string }) {
   );
 }
 
-// ─── Automation Card ──────────────────────────────────────────────────────────
+// ─── Tarjeta de la lista ─────────────────────────────────────────────────────
 
-function AutomationCard({
-  automation,
-  onEdit,
-  onDelete,
-}: {
+const PAYLOAD_LABEL: Partial<Record<WaAutomationMsgType, string>> = {
+  free_text: "Mensaje libre",
+  free_text_with_fallback: "Libre + plantilla",   // legado
+  template: "Plantilla",
+  sequence: "Secuencia",
+};
+
+function AutomationCard({ automation, onEdit, onDelete }: {
   automation: CrmWaAutomation;
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
+  const [open, setOpen] = useState(false);
   const updateAuto = useUpdateWaAutomation();
 
-  async function toggleActive() {
-    try {
-      await updateAuto.mutateAsync({ id: automation.id, is_active: !automation.is_active });
-      toast.success(automation.is_active ? "Automatización pausada" : "Automatización activada");
-    } catch {
-      toast.error("Error al cambiar estado");
-    }
-  }
-
-  const countryFlags = (automation.trigger_country_codes ?? [])
-    .map(code => COUNTRY_INFO[code]?.flag ?? code)
-    .join(" ");
-
   return (
-    <div className={`rounded-2xl border bg-card transition-all ${automation.is_active ? "border-border" : "border-border/50 opacity-70"}`}>
-      <div className="p-4 space-y-2.5">
-        {/* Header row */}
-        <div className="flex items-start gap-2">
-          <div className="flex-1 min-w-0 space-y-1.5">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-sm font-semibold truncate">{automation.name}</h3>
-              {triggerBadge(automation.trigger_type)}
-              {msgTypeBadge(automation.message_type)}
-            </div>
-            <div className="flex items-center gap-2 flex-wrap text-[10px] text-muted-foreground">
-              {automation.trigger_type === "inactivity" && automation.trigger_inactivity_hours && (
-                <span className="flex items-center gap-1"><Clock size={9} />{automation.trigger_inactivity_hours}h sin actividad</span>
-              )}
-              {automation.delay_hours > 0 && (
-                <span>· Demora {automation.delay_hours}h</span>
-              )}
-              {countryFlags && <span>· {countryFlags}</span>}
-              <span>· {relativeTime(automation.created_at)}</span>
-            </div>
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="flex items-center gap-2 px-3 py-2.5">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-sm font-medium truncate">{automation.name}</span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
+              <Clock size={9} />{automation.trigger_inactivity_hours ?? "—"}h
+            </span>
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-secondary text-muted-foreground">
+              {PAYLOAD_LABEL[automation.message_type] ?? automation.message_type}
+            </span>
           </div>
-
-          {/* Active toggle */}
-          <Switch
-            checked={automation.is_active}
-            onCheckedChange={toggleActive}
-            disabled={updateAuto.isPending}
-            className="shrink-0"
-          />
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {automation.sent_count} enviados · {automation.skipped_count} omitidos · {automation.failed_count} fallidos
+          </p>
         </div>
-
-        {/* Stats */}
-        <div className="flex gap-3">
-          <div className="flex items-center gap-1 text-[11px]">
-            <Send size={10} className="text-green-500" />
-            <span className="font-semibold">{automation.sent_count}</span>
-            <span className="text-muted-foreground">enviados</span>
-          </div>
-          <div className="flex items-center gap-1 text-[11px]">
-            <SkipForward size={10} className="text-orange-400" />
-            <span className="font-semibold">{automation.skipped_count}</span>
-            <span className="text-muted-foreground">omitidos</span>
-          </div>
-          <div className="flex items-center gap-1 text-[11px]">
-            <XCircle size={10} className="text-red-400" />
-            <span className="font-semibold">{automation.failed_count}</span>
-            <span className="text-muted-foreground">fallidos</span>
-          </div>
-        </div>
-
-        {/* Actions */}
-        <div className="flex items-center gap-2 pt-1">
-          <button
-            type="button" onClick={() => setExpanded(v => !v)}
-            className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-          >
-            {expanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-            {expanded ? "Ocultar historial" : "Ver historial"}
-          </button>
-          <div className="flex-1" />
-          <button
-            type="button" onClick={onEdit}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground border border-border rounded-lg px-2.5 py-1 hover:border-primary/40 transition-all"
-          >
-            <Edit2 size={11} /> Editar
-          </button>
-          <button
-            type="button" onClick={onDelete}
-            className="flex items-center gap-1.5 text-xs text-red-500 hover:text-red-600 border border-red-200 dark:border-red-900/40 rounded-lg px-2.5 py-1 hover:bg-red-50 dark:hover:bg-red-950/20 transition-all"
-          >
-            <Trash2 size={11} /> Eliminar
-          </button>
-        </div>
+        <Switch
+          checked={automation.is_active}
+          onCheckedChange={v => updateAuto.mutate({ id: automation.id, is_active: v })}
+          className="shrink-0"
+        />
       </div>
-
-      {expanded && (
-        <div className="border-t border-border px-4 pb-4">
-          <AutomationQueueDetail automationId={automation.id} />
-        </div>
-      )}
+      <div className="flex items-center gap-1 px-3 pb-2.5">
+        <button onClick={() => setOpen(o => !o)}
+          className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground transition-colors">
+          {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Historial
+        </button>
+        <div className="flex-1" />
+        <button onClick={onEdit} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"><Edit2 size={13} /></button>
+        <button onClick={onDelete} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 size={13} /></button>
+      </div>
+      {open && <div className="px-3 pb-3"><AutomationQueueDetail automationId={automation.id} /></div>}
     </div>
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Componente principal ────────────────────────────────────────────────────
 
 export default function CrmWaAutomations() {
   const { data: automations = [], isLoading } = useWaAutomations();
   const deleteAuto = useDeleteWaAutomation();
-  const [view, setView] = useState<"list" | "form">("list");
-  const [editing, setEditing] = useState<CrmWaAutomation | null>(null);
-  const [formInitial, setFormInitial] = useState<FormState>(emptyForm());
+
+  const [building, setBuilding] = useState(false);
+  const [editing, setEditing]   = useState<CrmWaAutomation | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<CrmWaAutomation | null>(null);
 
-  function handleCreate() {
-    setEditing(null);
-    setFormInitial(emptyForm());
-    setView("form");
-  }
-
-  function handleEdit(a: CrmWaAutomation) {
-    setEditing(a);
-    setFormInitial(automationToForm(a));
-    setView("form");
-  }
-
-  if (view === "form") {
-    return (
-      <AutomationForm
-        initial={formInitial}
-        editing={editing}
-        onBack={() => setView("list")}
-      />
-    );
-  }
+  if (building) return (
+    <AutomationWizard
+      editing={editing}
+      onDone={() => { setBuilding(false); setEditing(null); }}
+    />
+  );
 
   return (
     <div className="space-y-4">
-      {/* Info banner */}
-      <div className="flex items-start gap-2 p-3 rounded-xl bg-secondary/40 border border-border">
-        <AlertCircle size={13} className="text-muted-foreground shrink-0 mt-0.5" />
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          Las automatizaciones se ejecutan en segundo plano cada minuto. Puedes configurar mensajes automáticos basados en disparadores como conversaciones nuevas, etiquetas del Agente IA o períodos de inactividad.
-        </p>
-      </div>
-
-      {/* Header */}
-      <div className="flex items-center gap-2">
-        <h2 className="text-sm font-semibold flex-1">Automatizaciones</h2>
-        <button
-          type="button" onClick={handleCreate}
-          className="flex items-center gap-1.5 h-8 px-3 rounded-xl bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors"
-        >
-          <Plus size={13} /> Nueva
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">Seguimientos</p>
+          <p className="text-xs text-muted-foreground">
+            {automations.length} configurado{automations.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+        <button type="button" onClick={() => { setEditing(null); setBuilding(true); }}
+          className="h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors flex items-center gap-1.5 shrink-0">
+          <Plus size={12} /> Nuevo
         </button>
       </div>
 
-      {/* List */}
       {isLoading ? (
-        <div className="flex justify-center py-12">
-          <Loader2 size={20} className="animate-spin text-muted-foreground/50" />
-        </div>
-      ) : automations.length === 0 ? (
-        <div className="text-center py-14 space-y-2">
-          <Zap size={28} className="mx-auto text-muted-foreground/30" />
-          <p className="text-sm font-medium text-muted-foreground">Sin automatizaciones</p>
-          <p className="text-xs text-muted-foreground/70">Crea tu primera automatización para enviar mensajes de forma automática.</p>
-          <button
-            type="button" onClick={handleCreate}
-            className="mt-2 inline-flex items-center gap-1.5 h-8 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-semibold"
-          >
-            <Plus size={13} /> Crear automatización
-          </button>
+        <div className="space-y-2">{[1, 2].map(i => <div key={i} className="h-16 rounded-xl bg-muted animate-pulse" />)}</div>
+      ) : !automations.length ? (
+        <div className="text-center py-12 space-y-2">
+          <Clock size={28} className="mx-auto text-muted-foreground/30" />
+          <p className="text-sm text-muted-foreground">Sin seguimientos todavía</p>
+          <p className="text-xs text-muted-foreground/70">Configura uno y saldrá solo cuando un contacto deje de responder</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {automations.map(a => (
-            <AutomationCard
-              key={a.id}
-              automation={a}
-              onEdit={() => handleEdit(a)}
-              onDelete={() => setDeleteTarget(a)}
-            />
+            <AutomationCard key={a.id} automation={a}
+              onEdit={() => { setEditing(a); setBuilding(true); }}
+              onDelete={() => setDeleteTarget(a)} />
           ))}
         </div>
       )}
@@ -923,13 +666,13 @@ export default function CrmWaAutomations() {
       <DeleteConfirmDialog
         open={!!deleteTarget}
         onOpenChange={open => { if (!open) setDeleteTarget(null); }}
-        description={`Se eliminará la automatización "${deleteTarget?.name}" y todo su historial de envíos permanentemente.`}
+        description={`Se eliminará el seguimiento "${deleteTarget?.name}" permanentemente.`}
         isPending={deleteAuto.isPending}
         onConfirm={async () => {
           if (!deleteTarget) return;
           await deleteAuto.mutateAsync(deleteTarget.id);
           setDeleteTarget(null);
-          toast.success("Automatización eliminada");
+          toast.success("Seguimiento eliminado");
         }}
       />
     </div>

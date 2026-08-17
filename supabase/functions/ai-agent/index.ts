@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAiUsage } from "../_shared/ai-usage.ts";
+import { normalizeUrl } from "../_shared/wa-url.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 import { requireInternal } from "../_shared/internal-auth.ts";
 
@@ -64,10 +65,31 @@ interface AgentConfig {
   sales_pattern_summary: string | null;
 }
 
+/** Qué lanzó la secuencia que se está ejecutando: un flujo o un seguimiento. */
+type SequenceOrigin = "flow" | "automation";
+
 interface WaMessage {
   role: "user" | "assistant" | "human";
   content: string;
   button_reply_id?: string | null;
+  media_type?: string | null;
+  interactive_options?: Array<{ label: string }> | null;
+}
+
+/**
+ * Cómo se le cuenta un mensaje del historial a Claude.
+ *
+ * Una Pregunta de secuencia se guarda con su texto en `content` y los botones
+ * aparte, en `interactive_options`. Si solo se le pasa el texto, el agente ve
+ * "¿Cuál prefieres?" sin saber qué se ofreció, y no puede entender un "el
+ * segundo" ni retomar la pregunta si el contacto responde otra cosa.
+ */
+function historyContent(m: WaMessage): string {
+  const opts = (m.interactive_options ?? []).map(o => o.label).filter(Boolean);
+  if (m.media_type === "interactive_question" && opts.length) {
+    return `${m.content}\n[Opciones ofrecidas: ${opts.join(" · ")}]`;
+  }
+  return m.content;
 }
 
 interface WaLabel {
@@ -945,6 +967,7 @@ async function sendInteractiveQuestion(
   phone: string,
   config: AgentConfig,
   conversationId: string,
+  origin: SequenceOrigin = "flow",
 ): Promise<void> {
   const options = (step.options ?? []).filter(o => o.label.trim()).slice(0, 3);
   const bodyText = step.text?.trim() || "";
@@ -955,7 +978,7 @@ async function sendInteractiveQuestion(
     if (!text.trim()) return;
     const { wa_message_id } = await sendWhatsAppMessageRaw(phone, text, config);
     await supabase.from("crm_wa_messages").insert({
-      conversation_id: conversationId, role: "assistant", content: bodyText || text, wa_message_id,
+      conversation_id: conversationId, role: "assistant", origin, content: bodyText || text, wa_message_id,
       media_type: "interactive_question",
       interactive_options: (step.options ?? []).filter(o => o.label.trim()).map(o => ({ label: o.label })),
       delivery_status: "sent",
@@ -994,14 +1017,14 @@ async function sendInteractiveQuestion(
     const text = formatQuestionStep(step);
     const { wa_message_id } = await sendWhatsAppMessageRaw(phone, text, config);
     await supabase.from("crm_wa_messages").insert({
-      conversation_id: conversationId, role: "assistant", content: text, wa_message_id, delivery_status: "sent",
+      conversation_id: conversationId, role: "assistant", origin, content: text, wa_message_id, delivery_status: "sent",
     });
     return;
   }
   const json = await res.json();
   const wa_message_id = json?.messages?.[0]?.id ?? "";
   await supabase.from("crm_wa_messages").insert({
-    conversation_id: conversationId, role: "assistant", content: bodyText, wa_message_id,
+    conversation_id: conversationId, role: "assistant", origin, content: bodyText, wa_message_id,
     media_type: "interactive_question",
     interactive_options: options.map(o => ({ label: o.label })),
     delivery_status: "sent",
@@ -1073,14 +1096,25 @@ async function sendSequenceStep(
   phone: string,
   config: AgentConfig,
   conversationId: string,
+  origin: SequenceOrigin = "flow",
 ): Promise<void> {
   if (step.type === "question") {
     // No personalizamos el texto de preguntas: el texto es estructural para el routing/recuperación
-    await sendInteractiveQuestion(step, phone, config, conversationId);
+    await sendInteractiveQuestion(step, phone, config, conversationId, origin);
     return;
   } else if (step.type === "link") {
-    const url = step.link_url?.trim();
-    if (!url) return;
+    // Meta exige URL absoluta: sin esquema el mensaje llega pero el botón no
+    // abre nada, sin error ni log. Mismo fallo que había en envíos masivos.
+    const rawUrl = step.link_url?.trim();
+    const url = normalizeUrl(rawUrl);
+    if (!url) {
+      // Irrecuperable como botón: se manda el texto con el enlace en crudo.
+      const fallbackText = [step.text?.trim(), rawUrl].filter(Boolean).join("\n");
+      if (!fallbackText) return;
+      const { wa_message_id } = await sendWhatsAppMessageRaw(phone, fallbackText, config);
+      await supabase.from("crm_wa_messages").insert({ conversation_id: conversationId, role: "assistant", origin, content: fallbackText, wa_message_id, delivery_status: "sent" });
+      return;
+    }
     const btnLabel = (step.link_label?.trim() || "Ver más").slice(0, 20);
     const bodyText = step.text?.trim() || url;
     const payload = {
@@ -1102,12 +1136,12 @@ async function sendSequenceStep(
       // Fallback: enviar URL como texto plano
       const fallback = bodyText !== url ? `${bodyText}\n${url}` : url;
       const { wa_message_id } = await sendWhatsAppMessageRaw(phone, fallback, config);
-      await supabase.from("crm_wa_messages").insert({ conversation_id: conversationId, role: "assistant", content: fallback, wa_message_id, delivery_status: "sent" });
+      await supabase.from("crm_wa_messages").insert({ conversation_id: conversationId, role: "assistant", origin, content: fallback, wa_message_id, delivery_status: "sent" });
       return;
     }
     const json = await res.json();
     await supabase.from("crm_wa_messages").insert({
-      conversation_id: conversationId, role: "assistant",
+      conversation_id: conversationId, role: "assistant", origin,
       content: `${bodyText} → ${url}`,
       wa_message_id: json?.messages?.[0]?.id ?? "",
       delivery_status: "sent",
@@ -1122,7 +1156,7 @@ async function sendSequenceStep(
     if (!text.trim()) return;
     const { wa_message_id } = await sendWhatsAppMessageRaw(phone, text, config);
     await supabase.from("crm_wa_messages").insert({
-      conversation_id: conversationId, role: "assistant", content: text, wa_message_id, delivery_status: "sent",
+      conversation_id: conversationId, role: "assistant", origin, content: text, wa_message_id, delivery_status: "sent",
     });
   } else if (step.type === "image" || step.type === "video" || step.type === "audio" || step.type === "file") {
     const mediaUrl = step.media?.[0]?.url;
@@ -1150,7 +1184,7 @@ async function sendSequenceStep(
     if (errText) console.error(`[flow] error enviando ${step.type}:`, errText);
     const resJson = res.ok ? await res.json() : null;
     await supabase.from("crm_wa_messages").insert({
-      conversation_id: conversationId, role: "assistant",
+      conversation_id: conversationId, role: "assistant", origin,
       content: caption || `[${step.type}]`,
       media_type: step.type, media_url: mediaUrl,
       wa_message_id: resJson?.messages?.[0]?.id ?? null,
@@ -1197,6 +1231,7 @@ async function executeFlowSteps(
   conversationId: string,
   isAnsweringQuestion: boolean,
   buttonReplyId?: string,
+  origin: SequenceOrigin = "flow",
 ): Promise<{ newStep: number; completed: boolean }> {
   let idx = startIdx;
 
@@ -1242,7 +1277,7 @@ async function executeFlowSteps(
         }
         if (!foundPrev) {
           console.log(`[flow] botón opt_${optIdx}="${answer}" sin match → reenviando pregunta actual`);
-          await sendSequenceStep(steps[idx], phone, config, conversationId);
+          await sendSequenceStep(steps[idx], phone, config, conversationId, origin);
           return { newStep: idx, completed: false };
         }
       }
@@ -1259,7 +1294,7 @@ async function executeFlowSteps(
           chosenNextStepId = options[matchIdx].next_step_id ?? null;
         } else {
           // Sin match → reenviar la pregunta
-          await sendSequenceStep(steps[idx], phone, config, conversationId);
+          await sendSequenceStep(steps[idx], phone, config, conversationId, origin);
           return { newStep: idx, completed: false };
         }
       }
@@ -1291,11 +1326,11 @@ async function executeFlowSteps(
     }
 
     if (step.type === "question") {
-      await sendSequenceStep(step, phone, config, conversationId);
+      await sendSequenceStep(step, phone, config, conversationId, origin);
       return { newStep: idx, completed: false };
     }
 
-    await sendSequenceStep(step, phone, config, conversationId);
+    await sendSequenceStep(step, phone, config, conversationId, origin);
     prevSentType = step.type;
 
     // Navegar al siguiente paso según el modelo explícito o legado
@@ -2787,7 +2822,7 @@ async function callClaude(
 ): Promise<{ text: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cacheWrite5m: number; cacheWrite1h: number }> {
   const messages: any[] = history.slice(0, -1).map(m => ({
     role: m.role === "user" ? "user" : "assistant",
-    content: m.content,
+    content: historyContent(m),
   }));
 
   const lastMsg = history[history.length - 1];
@@ -2805,7 +2840,7 @@ async function callClaude(
         ],
       });
     } else {
-      messages.push({ role: lastMsg.role === "user" ? "user" : "assistant", content: lastMsg.content });
+      messages.push({ role: lastMsg.role === "user" ? "user" : "assistant", content: historyContent(lastMsg) });
     }
   }
 
@@ -2950,7 +2985,7 @@ async function callClaudeAgentLoop(
 ): Promise<{ text: string; inputTokens: number; outputTokens: number; cacheReadTokens: number; cacheCreationTokens: number; cacheWrite5m: number; cacheWrite1h: number }> {
   const messages: any[] = history.slice(0, -1).map(m => ({
     role: m.role === "user" ? "user" : "assistant",
-    content: m.content,
+    content: historyContent(m),
   }));
 
   const lastMsg = history[history.length - 1];
@@ -2961,7 +2996,7 @@ async function callClaudeAgentLoop(
         : { type: "document", source: { type: "base64", media_type: "application/pdf", data: media.base64 } };
       messages.push({ role: "user", content: [mediaBlock, { type: "text", text: lastMsg.content || "¿Qué ves?" }] });
     } else {
-      messages.push({ role: "user", content: lastMsg.content });
+      messages.push({ role: "user", content: historyContent(lastMsg) });
     }
   }
 
@@ -3143,7 +3178,7 @@ Deno.serve(async (req: Request) => {
     // is_internal=false: las notas internas del staff no deben contaminar el contexto del agente
     const { data: rawHistory } = await supabase
       .from("crm_wa_messages")
-      .select("role, content, button_reply_id, media_type")
+      .select("role, content, button_reply_id, media_type, interactive_options")
       .eq("conversation_id", conversation_id)
       .eq("is_internal", false)
       .order("created_at", { ascending: false })
@@ -3167,6 +3202,41 @@ Deno.serve(async (req: Request) => {
     const activeFlowId = convState?.active_flow_id ?? null;
     const currentFlowStep = convState?.flow_step ?? 0;
     const triggeredFlowIds: string[] = convState?.triggered_flow_ids ?? [];
+
+    // ── Secuencia lanzada por un seguimiento automático ────────────────────────
+    // No tiene flujo detrás (active_flow_id = null), así que la rama de flujo no
+    // la recogería. Se avanza igual que un flujo: paso a paso, esperando las
+    // respuestas. Si el contacto acaba de escribir estamos dentro de la ventana,
+    // así que aquí no hace falta comprobarla — la caducidad la aplica el cron.
+    const orphanSequenceId = (!activeFlowId && convState?.active_sequence_id) ? convState.active_sequence_id : null;
+    if (orphanSequenceId && convMode === "AI") {
+      const { data: seq } = await supabase
+        .from("crm_wa_sequences").select("steps").eq("id", orphanSequenceId).single();
+      const steps: FlowStep[] = (seq?.steps as FlowStep[]) ?? [];
+      if (!steps.length) {
+        await supabase.from("crm_wa_conversations")
+          .update({ active_sequence_id: null, flow_step: 0 })
+          .eq("id", conversation_id);
+      } else {
+        // Esta secuencia la lanzó un seguimiento, no un flujo: sus pasos se
+        // etiquetan como tales. Si no, en el chat los primeros pasos salían
+        // como SEGUIMIENTO y los de después de responder como FLUJO, siendo
+        // exactamente la misma secuencia.
+        const { newStep, completed } = await executeFlowSteps(
+          // buttonReplyId se deja sin pasar, igual que antes: esta rama enruta la
+          // respuesta por el texto del botón y así está probado. Aquí solo se
+          // añade el origen.
+          steps, currentFlowStep, lastUserMsg, phone, config as AgentConfig, conversation_id, !!effectiveButtonReplyId,
+          undefined, "automation",
+        );
+        await supabase.from("crm_wa_conversations")
+          .update(completed
+            ? { active_sequence_id: null, flow_step: 0, last_message_at: new Date().toISOString() }
+            : { flow_step: newStep, last_message_at: new Date().toISOString() })
+          .eq("id", conversation_id);
+        return new Response(JSON.stringify({ ok: true, reason: "followup_sequence_advanced" }), { status: 200 });
+      }
+    }
 
     // ── B18-6: Modo FLOW activo ──
     // Usar activeFlowId como indicador primario — si hay un flujo activo se procesa

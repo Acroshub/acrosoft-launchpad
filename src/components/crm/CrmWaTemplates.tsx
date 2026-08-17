@@ -22,13 +22,21 @@ import { supabase } from "@/lib/supabase";
 import { useCurrentUser } from "@/hooks/useAuth";
 
 // ─── Meta pricing table ───────────────────────────────────────────────────────
+// Tarifas por MENSAJE de plantilla entregado (USD) — rate card vigente desde el
+// 2026-07-01. Desde el 2025-07-01 Meta cobra por mensaje, no por conversación de
+// 24h: enviar 3 plantillas al mismo contacto el mismo día cuesta 3 veces.
+// Utilidad y autenticación comparten tarifa; el precio depende del país del
+// destinatario, no del nuestro. Fuente: business.whatsapp.com/products/platform-pricing
 const META_PRICING = [
-  { region: "Bolivia, Perú, Chile, Argentina, Colombia", marketing: "$0.0147", utility: "$0.0062" },
-  { region: "México",                                    marketing: "$0.0165", utility: "$0.0073" },
-  { region: "Brasil",                                    marketing: "$0.0625", utility: "$0.0200" },
-  { region: "España",                                    marketing: "$0.0379", utility: "$0.0167" },
-  { region: "Estados Unidos / Canadá",                   marketing: "$0.0250", utility: "$0.0083" },
-  { region: "Venezuela, Ecuador, Paraguay",              marketing: "$0.0147", utility: "$0.0062" },
+  { region: "Colombia",                marketing: "$0.0125", utility: "$0.0008" },
+  { region: "México",                  marketing: "$0.0305", utility: "$0.0085" },
+  { region: "Estados Unidos / Canadá", marketing: "$0.0250", utility: "$0.0034" },
+  { region: "Brasil",                  marketing: "$0.0625", utility: "$0.0068" },
+  { region: "Argentina",               marketing: "$0.0618", utility: "$0.0260" },
+  { region: "Perú",                    marketing: "$0.0703", utility: "$0.0200" },
+  { region: "Chile",                   marketing: "$0.0889", utility: "$0.0200" },
+  { region: "España",                  marketing: "$0.0707", utility: "$0.0200" },
+  { region: "Resto de Latinoamérica",  marketing: "$0.0740", utility: "$0.0113" },
 ];
 
 const LANGUAGES = [
@@ -129,7 +137,7 @@ function PricingInfo({ collapsed, onToggle, showOnly }: {
 
           <div>
             <p className="text-[11px] font-semibold text-amber-800 dark:text-amber-400 mb-1.5">
-              Costo por conversación iniciada con plantilla (USD aprox.)
+              Costo por <strong>mensaje de plantilla entregado</strong> (USD)
             </p>
             <div className="rounded-lg border border-amber-200 dark:border-amber-800/40 overflow-hidden">
               <table className="w-full text-[10px]">
@@ -140,7 +148,7 @@ function PricingInfo({ collapsed, onToggle, showOnly }: {
                       <th className="text-right px-2.5 py-1.5 text-amber-800 dark:text-amber-400 font-semibold">Marketing</th>
                     )}
                     {(!showOnly || showOnly === "utility") && (
-                      <th className="text-right px-2.5 py-1.5 text-amber-800 dark:text-amber-400 font-semibold">Utilidad</th>
+                      <th className="text-right px-2.5 py-1.5 text-amber-800 dark:text-amber-400 font-semibold">Utilidad / Autenticación</th>
                     )}
                   </tr>
                 </thead>
@@ -159,11 +167,24 @@ function PricingInfo({ collapsed, onToggle, showOnly }: {
                 </tbody>
               </table>
             </div>
-            <p className="text-[10px] text-amber-600 dark:text-amber-600 mt-1">
-              * Precios aprox. por conversación de 24h. Verifica en{" "}
+            <p className="text-[10px] text-amber-600 dark:text-amber-600 mt-1 leading-relaxed">
+              * Se cobra <strong>cada mensaje entregado</strong>, no la conversación: 3 plantillas al mismo
+              contacto en un día cuestan 3 veces. Cuenta el país del destinatario.
+              «Resto de Latinoamérica» cubre Bolivia, Ecuador, Paraguay, Venezuela, Uruguay y Centroamérica.
+              Utilidad y autenticación bajan por volumen mensual; marketing no.
+              Tarifas vigentes desde el 1 jul 2026 — verifica en{" "}
               <a href="https://business.whatsapp.com/products/platform-pricing" target="_blank" rel="noopener noreferrer" className="underline inline-flex items-center gap-0.5">
                 Meta Business <ExternalLink size={9} />
               </a>
+            </p>
+          </div>
+
+          <div className="rounded-lg border border-amber-300 dark:border-amber-700/50 bg-amber-100/60 dark:bg-amber-900/20 px-2.5 py-2">
+            <p className="text-[10px] text-amber-800 dark:text-amber-400 leading-relaxed">
+              <strong>Cambio el 1 de octubre de 2026:</strong> los mensajes libres dentro de las 24h y las
+              plantillas de utilidad enviadas dentro de esa ventana dejan de ser gratis — pasan a cobrarse
+              a la tarifa de utilidad de la tabla. Solo siguen gratis las 72h que abre un anuncio
+              Click-to-WhatsApp.
             </p>
           </div>
         </div>

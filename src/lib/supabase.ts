@@ -11,6 +11,10 @@ if (!supabaseUrl || !supabaseAnonKey) {
 export const supabase = createClient(
   supabaseUrl ?? 'https://placeholder.supabase.co',
   supabaseAnonKey ?? 'placeholder-key',
+  // PKCE en vez del flujo implícito (el default de supabase-js v2): con implicit,
+  // los tokens de recuperación de contraseña y de magic link viajan en el fragmento
+  // de la URL, quedando en el historial del navegador y expuestos a fugas.
+  { auth: { flowType: 'pkce' } },
 )
 
 // Cliente sin sesión para queries públicas (landing pages, booking, formularios).
@@ -178,6 +182,8 @@ export type CrmSale = {
   notes: string | null
   is_paid: boolean
   paid_at: string | null
+  /** Ruta dentro del bucket privado payment-proofs ({uid}/archivo). Para mostrarlo
+   *  hay que firmar una URL con createSignedUrl — no es una URL pública. */
   payment_proof_url: string | null
   // Campos de ventas IA / productos
   product_id: string | null
@@ -737,6 +743,8 @@ export type CrmWaMessage = {
   delivery_status: string
   reply_to_id: string | null
   replied_to_preview: string | null
+  /** Qué lo disparó, si no fue la IA ni una persona: paso de flujo, seguimiento o envío masivo. */
+  origin: 'flow' | 'automation' | 'campaign' | null
 }
 
 // Último mensaje real de una conversación (vista crm_wa_conversation_last_message) — alimenta el
@@ -881,13 +889,35 @@ export type WaAudienceFilter =
   | { type: "wa_label";               labelId: string;    labelName: string }
   | { type: "has_sale_any" }
   | { type: "has_sale_product";       productId: string;  productName: string }
+  | { type: "has_sale_course";        courseId: string;   courseName: string }
   | { type: "has_sale_service";       serviceId: string;  serviceName: string }
+  | { type: "has_sale_digital" }
+  | { type: "has_sale_physical" }
   | { type: "no_sale" }
   | { type: "has_appointment_ever" }
   | { type: "has_appointment_recent"; days: number }
   | { type: "has_wa_conversation" }
+  | { type: "country";                codes: string[] }
 
-export type WaCampaignStatus = "draft" | "processing" | "completed" | "failed" | "cancelled"
+/** Cómo se combinan varios filtros: cumplir uno cualquiera, o cumplirlos todos. */
+export type WaAudienceMatch = "any" | "all"
+
+/**
+ * Una parte del mensaje de un envío libre. Se mandan en orden, igual que los
+ * pasos de una secuencia — pero sin preguntas: en un envío masivo no hay a quién
+ * esperar.
+ */
+export type WaCampaignPart = {
+  id: string
+  type: 'text' | 'image' | 'video' | 'audio' | 'file' | 'link'
+  text?: string          // cuerpo, o pie de foto en los media
+  url?: string           // archivo subido (image/video/audio/file)
+  name?: string          // nombre visible del documento (solo file)
+  link_url?: string      // solo link
+  link_label?: string    // texto del botón (solo link, máx. 20 caracteres)
+}
+
+export type WaCampaignStatus = "draft" | "scheduled" | "processing" | "completed" | "failed" | "cancelled"
 
 export type CrmWaCampaign = {
   id: string
@@ -897,6 +927,15 @@ export type CrmWaCampaign = {
   variable_map: WaVarMap
   audience_type: "all" | "include" | "exclude"
   audience_filters: WaAudienceFilter[]
+  audience_match: WaAudienceMatch
+  // Programación — agregada al unificar el wizard; antes solo las campañas
+  // instantáneas podían programarse.
+  send_mode: "instant" | "scheduled"
+  timezone_mode: "user" | "contact" | null
+  target_local_time: string | null
+  target_date: string | null
+  user_timezone: string | null
+  scheduled_at: string | null
   status: WaCampaignStatus
   total_contacts: number | null
   sent_count: number
@@ -928,10 +967,18 @@ export type CrmWaInstantCampaign = {
   message_text: string
   media_type: WaMediaType | null
   media_url: string | null
+  /** Partes en orden — la fuente de verdad. message_text/media_* son legado. */
+  parts: WaCampaignPart[]
+  // Tope de la ventana de Meta para este envío (<= 24). No es el filtro que
+  // elige el usuario: es el techo que el backend aplica igual.
   window_hours: number
+  // Legado del modelo propio de audiencia — ya no se escriben; la audiencia
+  // vive en audience_type + audience_filters, igual que en crm_wa_campaigns.
   label_ids: string[]
   country_codes: string[]
-  audience_type: "all" | "labels" | "countries" | "combined"
+  audience_type: "all" | "include" | "exclude"
+  audience_filters: WaAudienceFilter[]
+  audience_match: WaAudienceMatch
   send_mode: "instant" | "scheduled"
   timezone_mode: "user" | "contact" | null
   target_local_time: string | null
@@ -959,7 +1006,7 @@ export type CrmWaInstantCampaignLog = {
 // ─── WA Automations ───────────────────────────────────────────────────────────
 
 export type WaAutomationTrigger = "new_conversation" | "label_assigned" | "inactivity"
-export type WaAutomationMsgType = "free_text" | "template" | "free_text_with_fallback"
+export type WaAutomationMsgType = "free_text" | "template" | "free_text_with_fallback" | "sequence"
 export type WaAutomationQueueStatus = "pending" | "sent" | "failed" | "skipped" | "cancelled"
 
 export type CrmWaAutomation = {
@@ -967,12 +1014,18 @@ export type CrmWaAutomation = {
   user_id: string
   name: string
   is_active: boolean
+  /** Solo existe 'inactivity'; el campo se conserva por si algún día hay más. */
   trigger_type: WaAutomationTrigger
-  trigger_label_ids: string[]
-  trigger_country_codes: string[]
   trigger_inactivity_hours: number | null
-  delay_hours: number
+  /** Mismo lenguaje de audiencia que los envíos masivos. */
+  audience_type: 'all' | 'include' | 'exclude'
+  audience_filters: WaAudienceFilter[]
+  audience_match: WaAudienceMatch
   message_type: WaAutomationMsgType
+  /** Contenido del mensaje libre — misma forma que un envío masivo. */
+  parts: WaCampaignPart[]
+  /** Secuencia publicada a disparar, si message_type = 'sequence'. */
+  sequence_id: string | null
   message_text: string | null
   media_type: WaMediaType | null
   media_url: string | null
@@ -983,6 +1036,7 @@ export type CrmWaAutomation = {
   failed_count: number
   created_at: string
 }
+
 
 export type CrmWaAutomationQueueItem = {
   id: string

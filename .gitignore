@@ -17,6 +17,11 @@ dist
 dist-ssr
 *.local
 
+# Lo genera `deno check` al type-checkear Edge Functions. No es la fuente de
+# verdad de las dependencias del proyecto (esa es package-lock.json) y con
+# --node-modules-dir=auto llega a reescribir node_modules y romper el build.
+deno.lock
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

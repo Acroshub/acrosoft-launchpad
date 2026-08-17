@@ -22,6 +22,18 @@ verify_jwt = false
 # verify_jwt false — invocado por pg_cron, no lleva JWT de usuario
 verify_jwt = false
 
+[functions.send-wa-campaign]
+# Dos llamadores: el usuario del CRM (envío inmediato) y send-wa-instant-scheduler
+# (envío programado y reanudación de lotes, con service role key). El key ya no es
+# un JWT legacy, así que verify_jwt = true rechazaría al scheduler antes de entrar
+# a la función. La autorización real la hace requireInternalOrUser + chequeo de user_id.
+verify_jwt = false
+
+[functions.send-wa-instant]
+# Mismo caso que send-wa-campaign: lo llama el usuario del CRM y también el cron
+# para retomar los lotes que quedaron pendientes.
+verify_jwt = false
+
 # ── verify_jwt = false + autenticación propia ────────────────────────────────
 # Estas funciones ya estaban en false en el dashboard, pero no figuraban aquí: un
 # deploy desde el CLI las habría puesto en true y roto la invocación interna.
@@ -68,6 +80,39 @@ verify_jwt = false
 
 [functions.send-course-invitation]
 # Interna o usuario dueño del curso
+verify_jwt = false
+
+# ── Acceso de alumnos a cursos (sin cuenta) ─────────────────────────────────
+# El alumno no está autenticado en Supabase: su identidad se prueba con el código
+# de 6 dígitos que recibe por email, y luego con el token de sesión opaco que se
+# valida contra crm_course_sessions. El navegador no manda apikey ni Authorization,
+# así que verify_jwt = true las dejaría inservibles.
+
+[functions.request-course-access]
+# Pública — rate limit por IP y por email+curso dentro de la función
+verify_jwt = false
+
+[functions.verify-course-otp]
+# Pública — canjea el código por sesión; rate limit por IP + contador por código
+verify_jwt = false
+
+[functions.get-course-content]
+# Pública — autoriza con el token de sesión, no con JWT de Supabase
+verify_jwt = false
+
+[functions.course-logout]
+# Pública — revoca la sesión del propio token que se presenta
+verify_jwt = false
+
+[functions.notify-sale]
+# Interna (ai-agent) — valida x-internal-key contra el service role key
+verify_jwt = false
+
+[functions.send-support-email]
+# verify_jwt = false porque la anon key también es un JWT válido y no distinguiría
+# nada. La autorización real es interna: exige un JWT de usuario resuelto con
+# auth.getUser() y comprueba que sea el dueño del ticket (o el admin, para el
+# trigger 'admin_reply').
 verify_jwt = false
 
 # ── Widgets públicos embebibles ─────────────────────────────────────────────

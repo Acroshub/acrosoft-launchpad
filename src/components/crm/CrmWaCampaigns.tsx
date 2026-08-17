@@ -2,27 +2,35 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import {
   Plus, Trash2, Send, ChevronRight, ChevronLeft, CheckCircle2,
   XCircle, Clock, Loader2, Users, Eye,
-  ArrowLeft, AlertCircle, Tag, Megaphone, Zap, Info, Calendar, Globe, Bot,
+  ArrowLeft, AlertCircle, Megaphone, Zap, Info, Calendar,
+  ChevronUp, ChevronDown, MessageSquare, FileText, Link as LinkIcon,
   Image, Video, Mic, Upload,
 } from "lucide-react";
-import CrmWaAutomations from "./CrmWaAutomations";
 import { toast } from "sonner";
 import {
   useWaTemplates, useWaCampaigns, useCreateWaCampaign,
   useDeleteWaCampaign, useWaCampaignLogs,
   useProducts, useServices, useCourses,
-  useWaLabels, useAllContactTags, useContacts,
   useInstantCampaigns, useInstantCampaignLogs,
   useCreateInstantCampaign, useDeleteInstantCampaign,
-  useWaActiveConversations, useBusinessProfile,
-  type ActiveConv,
+  useBusinessProfile,
 } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
+import {
+  COUNTRY_INFO, getPhonePrefix, filterLabel, digits,
+  estimateAudience, StepAudience, useAudienceData,
+  type AudienceMember,
+} from "@/components/crm/wa/audience";
+import {
+  PART_TYPES, newPart, MessageEditor, PartPreview, SentPart, MediaUploadField,
+  type WaMediaKind,
+} from "@/components/crm/wa/message";
+import { StepBar } from "@/components/crm/wa/StepBar";
 import { useCurrentUser } from "@/hooks/useAuth";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import type {
   CrmWaCampaign, CrmWaCampaignLog, CrmWaTemplate,
-  WaVarMap, WaVarSource, WaAudienceFilter,
+  WaVarMap, WaVarSource, WaAudienceFilter, WaAudienceMatch, WaCampaignPart,
   CrmWaInstantCampaign, CrmWaInstantCampaignLog,
 } from "@/lib/supabase";
 
@@ -57,56 +65,31 @@ function statusBadge(status: string) {
 // ── SECCIÓN 1: PASADO 24H (Templates) — código original ──────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
-function filterLabel(f: WaAudienceFilter): string {
-  switch (f.type) {
-    case "tag":                    return `Etiqueta: ${f.value}`;
-    case "wa_label":               return `IA: ${f.labelName}`;
-    case "has_sale_any":           return "Tiene alguna compra";
-    case "has_sale_product":       return `Compró: ${f.productName}`;
-    case "has_sale_service":       return `Compró servicio: ${f.serviceName}`;
-    case "no_sale":                return "Sin compras registradas";
-    case "has_appointment_ever":   return "Agendó alguna vez";
-    case "has_appointment_recent": return `Agendó en los últimos ${f.days} días`;
-    case "has_wa_conversation":    return "Tiene conversación con el Agente IA";
-    default:                       return "Filtro desconocido";
-  }
-}
+// ─── Universo unificado: teléfonos únicos ────────────────────────────────────
+// Espeja _shared/wa-audience.ts en el cliente para poder estimar sin llamar al
+// backend. El número final SIEMPRE lo recalcula el servidor al enviar; esto es
+// una estimación honesta, no una promesa.
 
-function estimateAudience(contacts: any[], audienceType: string, filters: WaAudienceFilter[]): number {
-  const withPhone = contacts.filter(c => c.phone?.trim());
-  if (audienceType === "all" || !filters.length) return withPhone.length;
-  const tagFilters = filters.filter(f => f.type === "tag") as Extract<WaAudienceFilter, { type: "tag" }>[];
-  const hasOtherFilters = filters.some(f => f.type !== "tag");
-  if (tagFilters.length === 0 && hasOtherFilters) return withPhone.length;
-  const matchingIds = new Set<string>();
-  for (const f of tagFilters) {
-    withPhone.forEach(c => { if ((c.tags ?? []).includes(f.value)) matchingIds.add(c.id); });
-  }
-  return audienceType === "include" ? matchingIds.size : withPhone.length - matchingIds.size;
-}
+// Cuántos destinatarios se listan en el resumen antes de resumir con "y N más".
+const LIST_PREVIEW = 100;
 
-const STEPS = ["Plantilla", "Variables", "Audiencia", "Revisar"];
-function StepBar({ current }: { current: number }) {
-  return (
-    <div className="flex items-center gap-1 mb-5">
-      {STEPS.map((label, idx) => (
-        <div key={idx} className="flex items-center gap-1 flex-1">
-          <div className={`flex items-center gap-1.5 ${idx <= current ? "text-primary" : "text-muted-foreground/40"}`}>
-            <div className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 transition-colors
-              ${idx < current ? "bg-primary text-primary-foreground" :
-                idx === current ? "border-2 border-primary text-primary" :
-                "border border-muted-foreground/30 text-muted-foreground/40"}`}>
-              {idx < current ? <CheckCircle2 size={12} /> : idx + 1}
-            </div>
-            <span className={`text-[11px] font-medium hidden sm:inline ${idx === current ? "text-foreground" : ""}`}>{label}</span>
-          </div>
-          {idx < STEPS.length - 1 && <div className={`flex-1 h-px mx-1 ${idx < current ? "bg-primary" : "bg-border"}`} />}
-        </div>
-      ))}
-    </div>
-  );
-}
+// "Cómo llegas" es un paso propio y no parte de "Mensaje" porque decide dos
+// cosas que no son contenido: a cuánta gente alcanzas y cuánto te cuesta. El
+// deslizador de la ventana vive ahí por lo mismo — recorta la audiencia, no el
+// texto.
+const STEPS = ["Audiencia", "Cómo llegas", "Mensaje", "Cuándo", "Revisar"];
+const STEP_HINTS = [
+  "Elige entre todos tus contactos o filtra por lo que te interese.",
+  "Define a cuántos alcanzas y si el envío tiene costo.",
+  "Escribe lo que van a recibir.",
+  "Ahora mismo, o en el día y hora que elijas.",
+  "Comprueba a quién llega y qué recibe antes de mandarlo.",
+];
 
+// Barra de progreso: el nombre va DEBAJO de cada número y siempre visible, para
+// que en cualquier momento se vea qué pasos están hechos y cuáles faltan sin
+// tener que deducirlo del número solo. Antes el nombre iba al lado y se ocultaba
+// en móvil (hidden sm:inline), que es justo donde más falta hace.
 function StepTemplate({ selected, onSelect }: { selected: CrmWaTemplate | null; onSelect: (t: CrmWaTemplate) => void }) {
   const { data: templates = [], isLoading } = useWaTemplates("remarketing");
   const approved = templates.filter(t => t.local_status === "APPROVED");
@@ -222,142 +205,41 @@ function StepVariables({ template, varMap, onChange }: { template: CrmWaTemplate
   );
 }
 
-type FilterType = WaAudienceFilter["type"];
-const FILTER_TYPE_LABELS: Record<FilterType, string> = {
-  tag: "Etiqueta del contacto", wa_label: "Etiqueta del Agente IA",
-  has_sale_any: "Tiene alguna compra",
-  has_sale_product: "Compró un producto", has_sale_service: "Compró un servicio",
-  no_sale: "Sin compras registradas", has_appointment_ever: "Ha agendado alguna vez",
-  has_appointment_recent: "Agendó recientemente", has_wa_conversation: "Tiene conversación con el Agente IA",
-};
+// ─── Qué se envió ─────────────────────────────────────────────────────────────
 
-function FilterBuilder({ filters, onChange }: { filters: WaAudienceFilter[]; onChange: (f: WaAudienceFilter[]) => void }) {
-  const { data: tags = [] }      = useAllContactTags();
-  const { data: waLabels = [] }  = useWaLabels();
-  const { data: products = [] }  = useProducts();
-  const { data: services = [] }  = useServices();
-  const [addType, setAddType]       = useState<FilterType>("tag");
-  const [addTag, setAddTag]         = useState("");
-  const [addLabelId, setAddLabelId] = useState("");
-  const [addProductId, setAddProductId] = useState("");
-  const [addServiceId, setAddServiceId] = useState("");
-  const [addDays, setAddDays]       = useState("30");
-
-  const handleAdd = () => {
-    let filter: WaAudienceFilter | null = null;
-    if (addType === "tag") { const tag = addTag || tags[0]; if (!tag) return; filter = { type: "tag", value: tag }; }
-    else if (addType === "wa_label") { const lbl = waLabels.find(l => l.id === addLabelId) ?? waLabels[0]; if (!lbl) return; filter = { type: "wa_label", labelId: lbl.id, labelName: lbl.name }; }
-    else if (addType === "has_sale_product") { const prod = products.find(p => p.id === addProductId) ?? products[0]; if (!prod) return; filter = { type: "has_sale_product", productId: prod.id, productName: prod.name }; }
-    else if (addType === "has_sale_service") { const svc = services.find(s => s.id === addServiceId) ?? services[0]; if (!svc) return; filter = { type: "has_sale_service", serviceId: svc.id, serviceName: svc.name }; }
-    else if (addType === "has_appointment_recent") { filter = { type: "has_appointment_recent", days: Number(addDays) || 30 }; }
-    else { filter = { type: addType } as WaAudienceFilter; }
-    if (filter) onChange([...filters, filter]);
-  };
-
-  return (
-    <div className="space-y-3">
-      {filters.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {filters.map((f, idx) => (
-            <span key={idx} className="inline-flex items-center gap-1.5 bg-primary/8 border border-primary/20 text-primary px-2.5 py-1 rounded-full text-[11px] font-medium">
-              {filterLabel(f)}
-              <button type="button" onClick={() => onChange(filters.filter((_, i) => i !== idx))} className="hover:text-destructive transition-colors"><XCircle size={12} /></button>
-            </span>
-          ))}
-        </div>
-      )}
-      <div className="rounded-xl border border-dashed border-border p-3 space-y-2 bg-muted/20">
-        <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Agregar filtro</p>
-        <div className="flex flex-wrap gap-2">
-          <select value={addType} onChange={e => setAddType(e.target.value as FilterType)} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">
-            {Object.entries(FILTER_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-          </select>
-          {addType === "tag" && tags.length > 0 && <select value={addTag || tags[0]} onChange={e => setAddTag(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">{tags.map((t: string) => <option key={t} value={t}>{t}</option>)}</select>}
-          {addType === "wa_label" && waLabels.length > 0 && <select value={addLabelId || waLabels[0]?.id} onChange={e => setAddLabelId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">{waLabels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-          {addType === "has_sale_product" && products.length > 0 && <select value={addProductId || products[0]?.id} onChange={e => setAddProductId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 flex-1 min-w-0">{products.map((p: any) => <option key={p.id} value={p.id}>{p.name}</option>)}</select>}
-          {addType === "has_sale_service" && services.length > 0 && <select value={addServiceId || services[0]?.id} onChange={e => setAddServiceId(e.target.value)} className="h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 flex-1 min-w-0">{services.map((s: any) => <option key={s.id} value={s.id}>{s.name}</option>)}</select>}
-          {addType === "has_appointment_recent" && <div className="flex items-center gap-1.5 text-xs text-muted-foreground"><input type="number" min={1} max={365} value={addDays} onChange={e => setAddDays(e.target.value)} className="w-16 h-8 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30 text-center" /><span>días</span></div>}
-          <button type="button" onClick={handleAdd} className="h-8 px-3 rounded-lg bg-primary/10 text-primary text-xs font-semibold hover:bg-primary/20 transition-colors flex items-center gap-1"><Plus size={12} /> Agregar</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function StepAudience({ audienceType, filters, contacts, onTypeChange, onFiltersChange }: { audienceType: "all" | "include" | "exclude"; filters: WaAudienceFilter[]; contacts: any[]; onTypeChange: (t: "all" | "include" | "exclude") => void; onFiltersChange: (f: WaAudienceFilter[]) => void }) {
-  const estimated = estimateAudience(contacts, audienceType, filters);
-  return (
-    <div className="space-y-4">
-      <div className="space-y-2">
-        <p className="text-xs font-semibold text-muted-foreground">¿A quiénes enviar?</p>
-        <div className="space-y-1.5">
-          {(["all", "include", "exclude"] as const).map(t => (
-            <label key={t} className={`flex items-start gap-2.5 cursor-pointer p-2.5 rounded-xl border transition-all hover:bg-muted/20 ${audienceType === t ? "border-primary/50 bg-primary/5" : "border-border"}`}>
-              <input type="radio" name="audienceType" value={t} checked={audienceType === t} onChange={() => { onTypeChange(t); if (t === "all") onFiltersChange([]); }} className="mt-0.5 accent-primary shrink-0" />
-              <div>
-                <p className="text-sm font-medium">{t === "all" ? "Todos los contactos" : t === "include" ? "Solo incluir a..." : "Todos menos..."}</p>
-                <p className="text-[11px] text-muted-foreground">{t === "all" ? "Todos los contactos con número de WhatsApp." : t === "include" ? "Solo los contactos que cumplan al menos uno de los filtros." : "Todos excepto los que cumplan al menos uno de los filtros."}</p>
-              </div>
-            </label>
-          ))}
-        </div>
-      </div>
-      {audienceType !== "all" && <FilterBuilder filters={filters} onChange={onFiltersChange} />}
-      <div className="flex items-center gap-2 p-3 rounded-xl bg-secondary/30 border border-border">
-        <Users size={14} className="text-primary shrink-0" />
-        <p className="text-xs text-muted-foreground">Audiencia estimada: <strong className="text-foreground">{estimated} contacto{estimated !== 1 ? "s" : ""}</strong>{audienceType !== "all" && filters.some(f => f.type !== "tag") && <span className="text-muted-foreground/60"> (estimado; filtros DB se calculan al enviar)</span>}</p>
-      </div>
-    </div>
-  );
-}
-
-function StepReview({ template, varMap, audienceType, filters, campaignName, onNameChange, contacts }: { template: CrmWaTemplate; varMap: WaVarMap; audienceType: "all" | "include" | "exclude"; filters: WaAudienceFilter[]; campaignName: string; onNameChange: (n: string) => void; contacts: any[] }) {
-  const estimated = estimateAudience(contacts, audienceType, filters);
-  const previewContact = contacts.find(c => c.phone?.trim()) ?? { name: "Juan Pérez", email: "juan@ejemplo.com", phone: "59170000000", company: "Mi Empresa" };
-  const varNums = extractVarNums(template.body_text);
-  let previewText = template.body_text;
-  for (const num of varNums) {
-    const entry = varMap[String(num)];
-    let val = `{{${num}}}`;
-    if (entry?.source === "contact_field") val = (previewContact as any)[entry.field] ?? val;
-    else if (entry?.source === "fixed") val = entry.value || val;
-    else if (entry?.source === "product_field") val = entry.entityName || val;
-    else if (entry?.source === "service_field") val = entry.entityName || val;
-    else if (entry?.source === "course_field")  val = entry.entityName || val;
-    previewText = previewText.replace(`{{${num}}}`, val);
+/** Descripción legible del origen de una variable de plantilla. */
+function varSourceLabel(v: WaVarSource | undefined): string {
+  if (!v) return "—";
+  switch (v.source) {
+    case "contact_field": return CONTACT_FIELD_LABELS[v.field] ?? v.field;
+    case "fixed":         return `"${v.value}"`;
+    case "product_field": return `${v.entityName} · ${v.field === "price" ? "precio" : "nombre"}`;
+    case "service_field": return `${v.entityName} · ${v.field === "price" ? "precio" : "nombre"}`;
+    case "course_field":  return `${v.entityName} · ${v.field === "price" ? "precio" : "título"}`;
+    default:              return "—";
   }
+}
+
+/**
+ * Las partes de un envío libre. Los envíos anteriores a la columna `parts`
+ * guardaban texto y adjunto por separado: se convierten al vuelo para no tener
+ * dos formas de pintar lo mismo.
+ */
+function campaignPartsOf(campaign: CrmWaInstantCampaign): WaCampaignPart[] {
+  if (Array.isArray(campaign.parts) && campaign.parts.length) return campaign.parts;
+  const text = (campaign.message_text ?? "").trim();
+  if (campaign.media_type && campaign.media_url) {
+    return [{ id: "legacy", type: campaign.media_type as WaCampaignPart["type"], url: campaign.media_url, text: text || undefined }];
+  }
+  return text ? [{ id: "legacy", type: "text", text }] : [];
+}
+
+/** Una parte tal como llegó al teléfono, con enlace abrible para comprobarlo. */
+function SentContent({ children }: { children: React.ReactNode }) {
   return (
-    <div className="space-y-4">
-      <div className="space-y-1">
-        <label className="text-xs font-semibold text-muted-foreground">Nombre de la campaña *</label>
-        <input value={campaignName} onChange={e => onNameChange(e.target.value)} placeholder="ej. Promoción junio 2025" className="w-full h-9 px-3 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
-      </div>
-      <div className="rounded-xl border border-border bg-muted/20 p-3 space-y-2 text-xs">
-        <div className="flex justify-between"><span className="text-muted-foreground">Plantilla</span><span className="font-mono font-semibold">{template.name}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">Audiencia</span><span className="font-medium">{audienceType === "all" ? "Todos los contactos" : audienceType === "include" ? `Solo incluir (${filters.length} filtro${filters.length !== 1 ? "s" : ""})` : `Todos menos (${filters.length} filtro${filters.length !== 1 ? "s" : ""})`}</span></div>
-        <div className="flex justify-between"><span className="text-muted-foreground">Contactos estimados</span><span className="font-bold text-primary">{estimated}</span></div>
-      </div>
-      <div className="space-y-1.5">
-        <p className="text-[11px] text-muted-foreground font-medium">Vista previa con datos del primer contacto:</p>
-        <div className="rounded-xl bg-[#e5ddd5] dark:bg-[#1a1a2e] p-3">
-          <div className="bg-white dark:bg-[#202c33] rounded-xl px-3 py-2.5 shadow-sm">
-            <p className="text-sm whitespace-pre-wrap leading-snug">{previewText}</p>
-          </div>
-          {(template.buttons ?? []).length > 0 && (
-            <div className="mt-1 space-y-1">
-              {template.buttons.map((b: any, i: number) => (
-                <div key={i} className="bg-white dark:bg-[#202c33] rounded-xl px-3 py-1.5 text-center">
-                  <span className="text-xs text-[#0a7bcd] font-medium">{b.text}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30">
-        <AlertCircle size={13} className="text-amber-600 shrink-0 mt-0.5" />
-        <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">Se enviará un mensaje de WhatsApp a cada contacto de la audiencia. Esta acción tiene costo por conversación según las tarifas de Meta. Una vez iniciada, no se puede cancelar.</p>
-      </div>
+    <div className="space-y-1.5">
+      <p className="text-xs font-semibold text-muted-foreground">Contenido enviado</p>
+      {children}
     </div>
   );
 }
@@ -371,6 +253,28 @@ function CampaignDetail({ campaign, onBack }: { campaign: CrmWaCampaign; onBack:
         <div className="flex items-center gap-2 flex-wrap"><h2 className="text-base font-semibold">{campaign.name}</h2>{statusBadge(campaign.status)}</div>
         <p className="text-xs text-muted-foreground mt-0.5">Plantilla: <strong className="font-mono">{campaign.crm_wa_templates?.name}</strong>{" · "}{relativeTime(campaign.created_at)}</p>
       </div>
+      <SentContent>
+        <div className="rounded-xl border border-border bg-[#E5DDD5] dark:bg-[#0B141A] p-3">
+          <div className="max-w-[85%] rounded-lg bg-[#DCF8C6] dark:bg-[#005C4B] px-2.5 py-1.5 shadow-sm">
+            <p className="text-[11px] text-black dark:text-white whitespace-pre-wrap leading-relaxed">
+              {campaign.crm_wa_templates?.body_text ?? "—"}
+            </p>
+          </div>
+        </div>
+        {Object.keys(campaign.variable_map ?? {}).length > 0 && (
+          <div className="rounded-xl border border-border bg-muted/20 p-2.5 space-y-1">
+            <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Variables</p>
+            {Object.entries(campaign.variable_map ?? {})
+              .sort((a, b) => Number(a[0]) - Number(b[0]))
+              .map(([num, src]) => (
+                <div key={num} className="flex items-center gap-2 text-[11px]">
+                  <span className="font-mono font-bold text-primary bg-primary/10 px-1.5 rounded shrink-0">{`{{${num}}}`}</span>
+                  <span className="text-muted-foreground truncate">{varSourceLabel(src as WaVarSource)}</span>
+                </div>
+              ))}
+          </div>
+        )}
+      </SentContent>
       <div className="grid grid-cols-3 gap-3">
         {[{ label: "Total", value: campaign.total_contacts ?? "—", cls: "text-foreground" }, { label: "Enviados", value: campaign.sent_count, cls: "text-green-600 dark:text-green-400" }, { label: "Fallidos", value: campaign.failed_count, cls: "text-red-600 dark:text-red-400" }].map(s => (
           <div key={s.label} className="rounded-xl border border-border bg-muted/20 p-3 text-center"><p className={`text-xl font-bold ${s.cls}`}>{s.value}</p><p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p></div>
@@ -396,185 +300,11 @@ function CampaignDetail({ campaign, onBack }: { campaign: CrmWaCampaign; onBack:
   );
 }
 
-function TemplateCampaignsSection() {
-  const { user } = useCurrentUser();
-  const { data: campaigns = [], isLoading, refetch } = useWaCampaigns();
-  const createCampaign = useCreateWaCampaign();
-  const deleteCampaign = useDeleteWaCampaign();
-  const { data: contacts = [] } = useContacts();
-
-  const [building, setBuilding] = useState(false);
-  const [detailId, setDetailId] = useState<string | null>(null);
-  const [step, setStep]             = useState(0);
-  const [selTemplate, setSelTemplate] = useState<CrmWaTemplate | null>(null);
-  const [varMap, setVarMap]         = useState<WaVarMap>({});
-  const [audienceType, setAudienceType] = useState<"all" | "include" | "exclude">("all");
-  const [filters, setFilters]       = useState<WaAudienceFilter[]>([]);
-  const [campName, setCampName]     = useState("");
-  const [sending, setSending]       = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
-
-  const resetBuilder = () => { setStep(0); setSelTemplate(null); setVarMap({}); setAudienceType("all"); setFilters([]); setCampName(""); setSending(false); };
-
-  const canNext = () => {
-    if (step === 0) return !!selTemplate;
-    if (step === 1) { if (!selTemplate) return false; const nums = extractVarNums(selTemplate.body_text); return nums.every(n => { const e = varMap[String(n)]; if (!e) return false; if (e.source === "fixed" && !e.value.trim()) return false; return true; }); }
-    if (step === 2) return audienceType === "all" || filters.length > 0;
-    if (step === 3) return !!campName.trim();
-    return false;
-  };
-
-  const handleSend = async () => {
-    if (!selTemplate || !campName.trim()) return;
-    setSending(true);
-    try {
-      const campaign = await createCampaign.mutateAsync({ template_id: selTemplate.id, name: campName.trim(), variable_map: varMap, audience_type: audienceType, audience_filters: filters });
-      const { data: { session } } = await supabase.auth.getSession();
-      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-wa-campaign`, { method: "POST", headers: { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" }, body: JSON.stringify({ campaign_id: campaign.id }) });
-      const js = await res.json();
-      if (js.ok) { toast.success(`Enviado: ${js.sent} enviados, ${js.failed} fallidos de ${js.total}`); refetch(); setBuilding(false); resetBuilder(); setDetailId(campaign.id); }
-      else { toast.error(js.error === "waba_not_configured" ? "Configura tu WABA en la sección Conexión" : js.error === "already_processed" ? "Esta campaña ya fue procesada" : js.error ?? "Error al enviar", { duration: 8000 }); }
-    } catch { toast.error("Error de conexión"); }
-    finally { setSending(false); }
-  };
-
-  const detailCampaign = useMemo(() => campaigns.find(c => c.id === detailId), [campaigns, detailId]);
-  if (detailCampaign) return <CampaignDetail campaign={detailCampaign} onBack={() => setDetailId(null)} />;
-
-  if (building) return (
-    <div className="space-y-4">
-      <div className="flex items-center gap-2">
-        <button onClick={() => { setBuilding(false); resetBuilder(); }} className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground"><ArrowLeft size={14} /></button>
-        <h2 className="text-sm font-semibold">Nueva campaña de plantilla</h2>
-      </div>
-      <StepBar current={step} />
-      {step === 0 && <StepTemplate selected={selTemplate} onSelect={t => { setSelTemplate(t); setVarMap({}); }} />}
-      {step === 1 && selTemplate && <StepVariables template={selTemplate} varMap={varMap} onChange={setVarMap} />}
-      {step === 2 && <StepAudience audienceType={audienceType} filters={filters} contacts={contacts} onTypeChange={t => { setAudienceType(t); if (t === "all") setFilters([]); }} onFiltersChange={setFilters} />}
-      {step === 3 && selTemplate && <StepReview template={selTemplate} varMap={varMap} audienceType={audienceType} filters={filters} campaignName={campName} onNameChange={setCampName} contacts={contacts} />}
-      <div className="flex gap-2 pt-2 border-t">
-        {step > 0 && <button type="button" onClick={() => setStep(s => s - 1 as any)} className="flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-sm text-muted-foreground hover:bg-muted transition-colors"><ChevronLeft size={14} /> Anterior</button>}
-        <div className="flex-1" />
-        {step < 3 ? (
-          <button type="button" onClick={() => setStep(s => s + 1 as any)} disabled={!canNext()} className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40">Siguiente <ChevronRight size={14} /></button>
-        ) : (
-          <button type="button" onClick={handleSend} disabled={!canNext() || sending} className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-40">
-            {sending ? <><Loader2 size={13} className="animate-spin" /> Enviando...</> : <><Send size={13} /> Enviar campaña</>}
-          </button>
-        )}
-      </div>
-    </div>
-  );
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold">Campañas con plantilla</p>
-          <p className="text-xs text-muted-foreground">{campaigns.length} campaña{campaigns.length !== 1 ? "s" : ""} · Solo plantillas Marketing aprobadas</p>
-        </div>
-        <button type="button" onClick={() => { setBuilding(true); resetBuilder(); }} className="h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors flex items-center gap-1.5"><Plus size={12} /> Nueva</button>
-      </div>
-      {isLoading ? (
-        <div className="space-y-2">{[1, 2].map(i => <div key={i} className="h-14 rounded-xl bg-muted animate-pulse" />)}</div>
-      ) : !campaigns.length ? (
-        <div className="text-center py-12 space-y-2"><Megaphone size={28} className="mx-auto text-muted-foreground/30" /><p className="text-sm text-muted-foreground">Aún no has enviado ninguna campaña</p></div>
-      ) : (
-        <div className="space-y-2">
-          {campaigns.map(c => (
-            <div key={c.id} className="rounded-xl border border-border bg-card overflow-hidden">
-              <div className="flex items-center gap-2 px-3 py-2.5">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5 flex-wrap"><span className="text-sm font-medium truncate">{c.name}</span>{statusBadge(c.status)}</div>
-                  <p className="text-xs text-muted-foreground mt-0.5"><span className="font-mono">{c.crm_wa_templates?.name ?? "—"}</span>{c.total_contacts != null && <> · {c.sent_count}/{c.total_contacts} enviados{c.failed_count > 0 && `, ${c.failed_count} fallidos`}</>}{" · "}{relativeTime(c.created_at)}</p>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {(c.status === "completed" || c.status === "failed" || c.status === "processing") && <button type="button" onClick={() => setDetailId(c.id)} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors" title="Ver detalle"><Eye size={13} /></button>}
-                  {c.status === "draft" && <button type="button" onClick={() => setDeleteTarget({ id: c.id, name: c.name })} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 size={13} /></button>}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      <DeleteConfirmDialog
-        open={!!deleteTarget}
-        onOpenChange={open => { if (!open) setDeleteTarget(null); }}
-        description={`Se eliminará la campaña "${deleteTarget?.name}" permanentemente.`}
-        isPending={deleteCampaign.isPending}
-        onConfirm={async () => {
-          if (!deleteTarget) return;
-          await deleteCampaign.mutateAsync(deleteTarget.id);
-          setDeleteTarget(null);
-          toast.success("Campaña eliminada");
-        }}
-      />
-    </div>
-  );
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // ── SECCIÓN 2: DENTRO DE 24H (Mensajes libres) ────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Country / Timezone data ───────────────────────────────────────────────────
-
-const PHONE_TIMEZONE: Record<string, string> = {
-  "1":"America/New_York","52":"America/Mexico_City","34":"Europe/Madrid",
-  "57":"America/Bogota","54":"America/Argentina/Buenos_Aires","55":"America/Sao_Paulo",
-  "56":"America/Santiago","51":"America/Lima","58":"America/Caracas",
-  "591":"America/La_Paz",
-  "593":"America/Guayaquil","595":"America/Asuncion","598":"America/Montevideo",
-  "502":"America/Guatemala","503":"America/El_Salvador","504":"America/Tegucigalpa",
-  "505":"America/Managua","506":"America/Costa_Rica","507":"America/Panama",
-  "53":"America/Havana",
-  "44":"Europe/London","33":"Europe/Paris","49":"Europe/Berlin","39":"Europe/Rome",
-  "351":"Europe/Lisbon","31":"Europe/Amsterdam","61":"Australia/Sydney",
-  "64":"Pacific/Auckland","81":"Asia/Tokyo","82":"Asia/Seoul","86":"Asia/Shanghai",
-  "91":"Asia/Kolkata","971":"Asia/Dubai","972":"Asia/Jerusalem","966":"Asia/Riyadh",
-  "20":"Africa/Cairo","27":"Africa/Johannesburg","234":"Africa/Lagos",
-};
-
-const COUNTRY_INFO: Record<string, { name: string; flag: string }> = {
-  "1":  { name: "USA/Canadá",       flag: "🇺🇸" },
-  "52": { name: "México",           flag: "🇲🇽" },
-  "34": { name: "España",           flag: "🇪🇸" },
-  "57": { name: "Colombia",         flag: "🇨🇴" },
-  "54": { name: "Argentina",        flag: "🇦🇷" },
-  "55": { name: "Brasil",           flag: "🇧🇷" },
-  "56": { name: "Chile",            flag: "🇨🇱" },
-  "51": { name: "Perú",             flag: "🇵🇪" },
-  "58": { name: "Venezuela",        flag: "🇻🇪" },
-  "591":{ name: "Bolivia",           flag: "🇧🇴" },
-  "593":{ name: "Ecuador",          flag: "🇪🇨" },
-  "595":{ name: "Paraguay",         flag: "🇵🇾" },
-  "598":{ name: "Uruguay",          flag: "🇺🇾" },
-  "502":{ name: "Guatemala",        flag: "🇬🇹" },
-  "503":{ name: "El Salvador",      flag: "🇸🇻" },
-  "504":{ name: "Honduras",         flag: "🇭🇳" },
-  "505":{ name: "Nicaragua",        flag: "🇳🇮" },
-  "506":{ name: "Costa Rica",       flag: "🇨🇷" },
-  "507":{ name: "Panamá",           flag: "🇵🇦" },
-  "53": { name: "Cuba",             flag: "🇨🇺" },
-  "44": { name: "Reino Unido",      flag: "🇬🇧" },
-  "33": { name: "Francia",          flag: "🇫🇷" },
-  "49": { name: "Alemania",         flag: "🇩🇪" },
-  "39": { name: "Italia",           flag: "🇮🇹" },
-  "351":{ name: "Portugal",         flag: "🇵🇹" },
-  "31": { name: "Países Bajos",     flag: "🇳🇱" },
-  "61": { name: "Australia",        flag: "🇦🇺" },
-  "64": { name: "Nueva Zelanda",    flag: "🇳🇿" },
-  "81": { name: "Japón",            flag: "🇯🇵" },
-  "82": { name: "Corea del Sur",    flag: "🇰🇷" },
-  "86": { name: "China",            flag: "🇨🇳" },
-  "91": { name: "India",            flag: "🇮🇳" },
-  "971":{ name: "Emiratos Árabes",  flag: "🇦🇪" },
-  "972":{ name: "Israel",           flag: "🇮🇱" },
-  "966":{ name: "Arabia Saudita",   flag: "🇸🇦" },
-  "20": { name: "Egipto",           flag: "🇪🇬" },
-  "27": { name: "Sudáfrica",        flag: "🇿🇦" },
-  "234":{ name: "Nigeria",          flag: "🇳🇬" },
-};
 
 const TIMEZONES = [
   { value: "America/Bogota",                 label: "Colombia (UTC-5)" },
@@ -597,16 +327,6 @@ const TIMEZONES = [
   { value: "UTC",                            label: "UTC" },
 ];
 
-function getPhonePrefix(phone: string): string {
-  const d = phone.replace(/\D/g, "");
-  for (const len of [3, 2, 1]) {
-    const p = d.slice(0, len);
-    if (PHONE_TIMEZONE[p]) return p;
-  }
-  return "unknown";
-}
-
-// Converts "YYYY-MM-DD"+"HH:MM" in a given IANA timezone to a UTC ISO string
 function toUtcIso(date: string, time: string, timezone: string): string {
   const nominal = new Date(`${date}T${time}:00Z`);
   const fmt = new Intl.DateTimeFormat("en-US", {
@@ -621,36 +341,6 @@ function toUtcIso(date: string, time: string, timezone: string): string {
   ).getTime();
   const offsetMs = nominal.getTime() - tzApparentMs;
   return new Date(new Date(`${date}T${time}:00Z`).getTime() + offsetMs).toISOString();
-}
-
-const INSTANT_STEPS = ["Mensaje", "Audiencia", "Programación", "Confirmar"];
-function InstantStepBar({ current }: { current: number }) {
-  return (
-    <div className="mb-5 space-y-2">
-      {/* Circles + connectors — siempre en una fila sin texto para evitar desbordamiento */}
-      <div className="flex items-center">
-        {INSTANT_STEPS.map((_, idx) => (
-          <div key={idx} className="flex items-center flex-1 last:flex-none">
-            <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold shrink-0 transition-all ${
-              idx < current  ? "bg-primary text-primary-foreground" :
-              idx === current ? "border-2 border-primary text-primary bg-background" :
-                               "border border-muted-foreground/30 text-muted-foreground/40 bg-background"
-            }`}>
-              {idx < current ? <CheckCircle2 size={11} /> : idx + 1}
-            </div>
-            {idx < INSTANT_STEPS.length - 1 && (
-              <div className={`flex-1 h-px mx-1 ${idx < current ? "bg-primary" : "bg-border"}`} />
-            )}
-          </div>
-        ))}
-      </div>
-      {/* Solo el nombre del paso actual — sin truncar nada */}
-      <p className="text-[11px] text-center">
-        <span className="font-semibold text-foreground">{INSTANT_STEPS[current]}</span>
-        <span className="text-muted-foreground"> · {current + 1} de {INSTANT_STEPS.length}</span>
-      </p>
-    </div>
-  );
 }
 
 function InstantCampaignDetail({ campaign, onBack }: { campaign: CrmWaInstantCampaign; onBack: () => void }) {
@@ -677,10 +367,17 @@ function InstantCampaignDetail({ campaign, onBack }: { campaign: CrmWaInstantCam
           {" · "}{relativeTime(campaign.created_at)}
         </p>
       </div>
-      <div className="rounded-xl border border-border bg-muted/20 p-3">
-        <p className="text-[10px] text-muted-foreground mb-1 font-medium">Mensaje enviado</p>
-        <p className="text-sm whitespace-pre-wrap">{campaign.message_text}</p>
-      </div>
+      <SentContent>
+        {(() => {
+          const parts = campaignPartsOf(campaign);
+          if (!parts.length) return <p className="text-xs text-muted-foreground">Sin contenido registrado.</p>;
+          return (
+            <div className="space-y-2">
+              {parts.map(p => <SentPart key={p.id} part={p} />)}
+            </div>
+          );
+        })()}
+      </SentContent>
       <div className="grid grid-cols-3 gap-3">
         {[{ label: "Total", value: campaign.total_contacts ?? "—", cls: "text-foreground" }, { label: "Enviados", value: campaign.sent_count, cls: "text-green-600 dark:text-green-400" }, { label: "Fallidos", value: campaign.failed_count, cls: "text-red-600 dark:text-red-400" }].map(s => (
           <div key={s.label} className="rounded-xl border border-border bg-muted/20 p-3 text-center"><p className={`text-xl font-bold ${s.cls}`}>{s.value}</p><p className="text-[10px] text-muted-foreground mt-0.5">{s.label}</p></div>
@@ -708,665 +405,734 @@ function InstantCampaignDetail({ campaign, onBack }: { campaign: CrmWaInstantCam
 
 // ── Media upload field ────────────────────────────────────────────────────────
 
-type WaMediaKind = "image" | "video" | "audio";
+// ─── Piezas compartidas por los pasos 2 y 3 ──────────────────────────────────
 
-function MediaUploadField({
-  mediaType, value, onChange, userId,
-}: {
-  mediaType: WaMediaKind;
-  value: string;
-  onChange: (url: string) => void;
-  userId: string;
+type MsgKind = "template" | "free";
+
+/** Días entre hoy y la fecha elegida. 0 = hoy mismo. */
+function daysUntil(dateStr: string): number {
+  if (!dateStr) return 0;
+  const target = new Date(`${dateStr}T00:00:00`).getTime();
+  const today  = new Date(new Date().toDateString()).getTime();
+  return Math.max(0, Math.round((target - today) / 86_400_000));
+}
+
+/**
+ * Aviso de que la audiencia de un mensaje libre se recalcula al enviar. Se
+ * muestra igual en el paso "Cuándo" y en el resumen: es justo donde el usuario
+ * ve una lista de nombres y podría creer que son los destinatarios definitivos.
+ */
+function WindowRecalcNotice({ windowHours, reachNow, daysAhead }: {
+  windowHours: number; reachNow: number; daysAhead: number;
 }) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
+  const strong = daysAhead >= 1;
+  return (
+    <div className={`flex items-start gap-2 p-2.5 rounded-lg border ${
+      strong
+        ? "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/40"
+        : "bg-secondary/40 border-border"
+    }`}>
+      <AlertCircle size={13} className={`shrink-0 mt-0.5 ${strong ? "text-amber-600" : "text-muted-foreground"}`} />
+      <p className={`text-[11px] leading-relaxed ${strong ? "text-amber-700 dark:text-amber-400" : "text-muted-foreground"}`}>
+        Un mensaje libre solo puede llegar a quien te haya escrito en las últimas {windowHours}h,
+        y eso <strong>se vuelve a calcular en el momento del envío</strong>.
+        {strong
+          ? ` Los ${reachNow} de ahora ya no estarán en ventana dentro de ${daysAhead} día${daysAhead !== 1 ? "s" : ""}: llegará a quien esté activo ese día, que puede ser mucha gente distinta o nadie.`
+          : ` Ahora mismo serían ${reachNow}, pero puede variar hasta la hora de envío.`}
+      </p>
+    </div>
+  );
+}
 
-  const accept = mediaType === "image"
-    ? "image/jpeg,image/png,image/webp"
-    : mediaType === "video"
-    ? "video/mp4,video/3gpp"
-    : "audio/ogg,audio/mpeg,audio/mp4,audio/aac,audio/amr";
+// ─────────────────────────────────────────────────────────────────────────────
+// ── PASO 2: CÓMO LLEGAS ───────────────────────────────────────────────────────
+//
+// Aquí muere la vieja separación "Pasado 24h / Dentro 24h". No son dos lugares:
+// son la misma campaña con distinto tipo de mensaje, y la regla de Meta se
+// expresa como el alcance de cada opción en vez de como un tab que hay que
+// entender antes de empezar.
+// ─────────────────────────────────────────────────────────────────────────────
 
-  const handleFile = async (file: File) => {
-    setUploading(true);
-    try {
-      const ext = file.name.split(".").pop()?.toLowerCase() ?? "bin";
-      const path = `wa-campaigns/${userId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`;
-      const { error } = await supabase.storage.from("form-uploads").upload(path, file, { upsert: false });
-      if (error) { toast.error("Error al subir archivo: " + error.message); return; }
-      const { data: { publicUrl } } = supabase.storage.from("form-uploads").getPublicUrl(path);
-      onChange(publicUrl);
-    } catch (e: any) {
-      toast.error("Error al subir archivo");
-    } finally {
-      setUploading(false);
-    }
-  };
-
-  const label = mediaType === "image" ? "imagen" : mediaType === "video" ? "video" : "audio";
-  const Icon = mediaType === "image" ? Image : mediaType === "video" ? Video : Mic;
+function StepChannel({
+  kind, onKindChange, reachTotal, reachFree, windowHours, onWindowHoursChange,
+}: {
+  kind: MsgKind; onKindChange: (k: MsgKind) => void;
+  reachTotal: number; reachFree: number;
+  windowHours: number; onWindowHoursChange: (h: number) => void;
+}) {
+  const OPTIONS = [
+    { id: "template" as const, icon: <Megaphone size={15} />, title: "Plantilla aprobada",
+      reach: reachTotal, note: "Llega a toda la audiencia · con costo por mensaje entregado" },
+    { id: "free" as const, icon: <Zap size={15} />, title: "Mensaje libre",
+      reach: reachFree, note: "Solo a quien te escribió recientemente · gratis" },
+  ];
 
   return (
-    <div className="space-y-1.5">
-      <input ref={inputRef} type="file" accept={accept} className="hidden"
-        onChange={e => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ""; }} />
-      {value ? (
-        <div className="flex items-center gap-2.5 p-2.5 rounded-xl border border-border bg-muted/20">
-          {mediaType === "image" ? (
-            <img src={value} alt="" className="h-14 w-14 object-cover rounded-lg shrink-0" />
-          ) : (
-            <div className="w-12 h-12 rounded-lg bg-muted flex items-center justify-center shrink-0">
-              <Icon size={18} className="text-muted-foreground" />
+    <div className="space-y-4">
+      <div className="space-y-2">
+        {OPTIONS.map(o => (
+          <button key={o.id} type="button" onClick={() => onKindChange(o.id)}
+            className={`w-full flex items-start gap-2.5 p-3 rounded-xl border text-left ${
+              kind === o.id ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/40 hover:bg-muted/20"
+            }`}>
+            <span className={`mt-0.5 shrink-0 ${kind === o.id ? "text-primary" : "text-muted-foreground"}`}>{o.icon}</span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">{o.title}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Llega a <strong className="text-foreground">{o.reach}</strong> · {o.note}
+              </p>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {/* El recorte de tiempo recorta la audiencia, así que va aquí y no con el
+          contenido: es parte de "a cuántos llegas". */}
+      {kind === "free" && (
+        <div className="space-y-1.5 p-3 rounded-xl bg-muted/20 border border-border">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold">¿Hace cuánto te escribieron?</p>
+            <span className="text-xs font-bold shrink-0">Últimas {windowHours}h</span>
+          </div>
+          <input type="range" min={1} max={24} step={1} value={windowHours}
+            onChange={e => onWindowHoursChange(Number(e.target.value))}
+            className="w-full accent-primary" />
+          <p className="text-[10px] text-muted-foreground/70 leading-relaxed">
+            24h es el máximo que permite Meta para mensajes libres — bájalo si quieres alcanzar
+            solo a los más recientes.
+          </p>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 p-3 rounded-xl bg-secondary/30 border border-border">
+        <Users size={14} className="text-primary shrink-0" />
+        <p className="text-xs text-muted-foreground">
+          Llegará a <strong className="text-foreground">{kind === "template" ? reachTotal : reachFree} destinatario{(kind === "template" ? reachTotal : reachFree) !== 1 ? "s" : ""}</strong>
+          {kind === "template" ? " · con costo por mensaje entregado" : " · sin costo"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── PASO 3: MENSAJE ───────────────────────────────────────────────────────────
+// Solo contenido. Quién lo recibe ya quedó decidido en el paso anterior.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function StepContent({
+  kind, template, onTemplateChange, varMap, onVarMapChange, part, onPartChange, userId,
+}: {
+  kind: MsgKind;
+  template: CrmWaTemplate | null; onTemplateChange: (t: CrmWaTemplate) => void;
+  varMap: WaVarMap; onVarMapChange: (m: WaVarMap) => void;
+  part: WaCampaignPart; onPartChange: (p: WaCampaignPart) => void;
+  userId: string;
+}) {
+  if (kind === "template") {
+    return (
+      <div className="space-y-4">
+        <StepTemplate selected={template} onSelect={onTemplateChange} />
+        {template && (
+          <div className="pt-1 border-t border-border">
+            <p className="text-xs font-semibold text-muted-foreground mb-2 mt-3">Variables</p>
+            <StepVariables template={template} varMap={varMap} onChange={onVarMapChange} />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <MessageEditor part={part} onChange={onPartChange} userId={userId} />
+      <PartPreview part={part} />
+    </div>
+  );
+}
+
+// ── PASO 3: CUÁNDO ────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+
+function StepWhen({
+  sendMode, onSendModeChange, schedDate, onSchedDateChange, schedTime, onSchedTimeChange,
+  tzMode, onTzModeChange, userTz, onUserTzChange, tzOptions, schedInPast,
+  isFree, windowHours, reachNow,
+}: {
+  sendMode: "instant" | "scheduled"; onSendModeChange: (m: "instant" | "scheduled") => void;
+  schedDate: string; onSchedDateChange: (d: string) => void;
+  schedTime: string; onSchedTimeChange: (t: string) => void;
+  tzMode: "user" | "contact"; onTzModeChange: (m: "user" | "contact") => void;
+  userTz: string; onUserTzChange: (tz: string) => void;
+  tzOptions: { value: string; label: string }[];
+  schedInPast: boolean;
+  isFree: boolean; windowHours: number; reachNow: number;
+}) {
+  const daysAhead = daysUntil(schedDate);
+  return (
+    <div className="space-y-4">
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground">¿Cuándo se envía?</p>
+        {([
+          { id: "instant" as const,  title: "Ahora",
+            note: "Sale en cuanto confirmes." },
+          { id: "scheduled" as const, title: "Programar",
+            note: "Eliges día y hora. La audiencia se recalcula en el momento del envío." },
+        ]).map(m => (
+          <button key={m.id} type="button" onClick={() => onSendModeChange(m.id)}
+            className={`w-full flex items-start gap-2.5 p-3 rounded-xl border text-left ${
+              sendMode === m.id ? "border-primary bg-primary/5 ring-1 ring-primary/30" : "border-border hover:border-primary/40 hover:bg-muted/20"
+            }`}>
+            <span className={`mt-0.5 shrink-0 ${sendMode === m.id ? "text-primary" : "text-muted-foreground"}`}>
+              {m.id === "instant" ? <Zap size={15} /> : <Calendar size={15} />}
+            </span>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium">{m.title}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">{m.note}</p>
+            </div>
+          </button>
+        ))}
+      </div>
+
+      {sendMode === "scheduled" && (
+        <div className="space-y-3 p-3 rounded-xl bg-muted/20 border border-border">
+          {/* La zona horaria va primero: cambia el significado de la hora que se
+              elige justo debajo. Preguntarla después obligaba a releer. */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">1 · ¿En qué horario?</label>
+            {([
+              { id: "user" as const,    title: "La misma hora para todos", note: "Sale de una sola vez, en la zona horaria que elijas." },
+              { id: "contact" as const, title: "Hora local de cada contacto", note: "Sale por tandas, según va dando la hora en el país de cada número." },
+            ]).map(t => (
+              <label key={t.id} className={`flex items-start gap-2.5 cursor-pointer p-2.5 rounded-xl border ${tzMode === t.id ? "border-primary/50 bg-primary/5" : "border-border"}`}>
+                <input type="radio" name="tzMode" checked={tzMode === t.id} onChange={() => onTzModeChange(t.id)} className="mt-0.5 accent-primary shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium">{t.title}</p>
+                  <p className="text-[10px] text-muted-foreground">{t.note}</p>
+                </div>
+              </label>
+            ))}
+
+            {tzMode === "user" && (
+              <select value={userTz} onChange={e => onUserTzChange(e.target.value)}
+                className="w-full h-9 px-2 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30">
+                {tzOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            )}
+          </div>
+
+          <div className="space-y-1.5 pt-1 border-t border-border">
+            <label className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">2 · ¿Qué día y a qué hora?</label>
+            <div className="flex gap-2">
+              <div className="flex-1 space-y-1">
+                <input type="date" value={schedDate} onChange={e => onSchedDateChange(e.target.value)}
+                  className="w-full h-9 px-2 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+              </div>
+              <div className="flex-1 space-y-1">
+                <input type="time" value={schedTime} onChange={e => onSchedTimeChange(e.target.value)}
+                  className="w-full h-9 px-2 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+              </div>
+            </div>
+            <p className="text-[10px] text-muted-foreground/70">
+              {tzMode === "contact"
+                ? "A cada contacto le llega a esa hora en su propio país."
+                : `Hora de ${userTz}.`}
+            </p>
+          </div>
+
+          {/* La ventana de 24h es móvil: al programar, los destinatarios de hoy no
+              son los del día del envío. Callarlo haría que el usuario creyera
+              que le llega a las personas que vio en el paso anterior. */}
+          {isFree && (
+            <WindowRecalcNotice windowHours={windowHours} reachNow={reachNow} daysAhead={daysAhead} />
+          )}
+
+          {schedInPast && (
+            <div className="flex items-start gap-2 p-2.5 rounded-lg bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-800/40">
+              <AlertCircle size={13} className="text-red-500 shrink-0 mt-0.5" />
+              <p className="text-[11px] text-red-700 dark:text-red-400">Esa fecha y hora ya pasaron.</p>
             </div>
           )}
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-medium truncate">{label.charAt(0).toUpperCase() + label.slice(1)} subido</p>
-            <p className="text-[10px] text-muted-foreground truncate">{value.split("/").pop()}</p>
-          </div>
-          <button type="button" onClick={() => onChange("")}
-            className="p-1 rounded-lg hover:bg-muted transition-colors text-muted-foreground shrink-0">
-            <XCircle size={14} />
-          </button>
         </div>
-      ) : (
-        <button type="button" onClick={() => inputRef.current?.click()} disabled={uploading}
-          className="w-full flex flex-col items-center justify-center gap-2 h-24 rounded-xl border-2 border-dashed border-border hover:border-primary/50 hover:bg-muted/20 transition-all text-muted-foreground disabled:opacity-50 cursor-pointer">
-          {uploading
-            ? <Loader2 size={20} className="animate-spin" />
-            : <Upload size={20} />}
-          <span className="text-xs">{uploading ? "Subiendo..." : `Seleccionar ${label}`}</span>
-        </button>
       )}
     </div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ── PASO 4: REVISAR ───────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
 
-function InstantCampaignsSection() {
+function StepReview({
+  kind, template, varMap, part, windowHours,
+  audienceType, filters, match, recipients, sendMode, schedDate, schedTime, tzMode, userTz,
+  campaignName, onNameChange,
+}: {
+  kind: MsgKind; template: CrmWaTemplate | null; varMap: WaVarMap;
+  part: WaCampaignPart; windowHours: number;
+  audienceType: "all" | "include" | "exclude"; filters: WaAudienceFilter[];
+  match: WaAudienceMatch; recipients: AudienceMember[];
+  sendMode: "instant" | "scheduled"; schedDate: string; schedTime: string;
+  tzMode: "user" | "contact"; userTz: string;
+  campaignName: string; onNameChange: (n: string) => void;
+}) {
+  const [showList, setShowList] = useState(false);
+
+  // Un mensaje libre programado NO va a los que están en la lista: la ventana
+  // se reevalúa al enviar. Hay que decirlo justo donde se ven los nombres.
+  const windowRecalcs = kind === "free" && sendMode === "scheduled";
+
+  const audienceLabel =
+    audienceType === "all"     ? "Todos"
+  : audienceType === "include" ? `Solo incluir (${filters.length} filtro${filters.length !== 1 ? "s" : ""})`
+  :                              `Todos menos (${filters.length} filtro${filters.length !== 1 ? "s" : ""})`;
+
+  return (
+    <div className="space-y-4">
+      <div className="space-y-1.5">
+        <label className="text-xs font-semibold text-muted-foreground">Nombre del envío</label>
+        <input
+          value={campaignName}
+          onChange={e => onNameChange(e.target.value)}
+          placeholder="Ej: Promo de septiembre"
+          className="w-full h-9 px-3 rounded-xl border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30"
+        />
+        <p className="text-[10px] text-muted-foreground/70">Solo para que lo reconozcas en la lista. El contacto no lo ve.</p>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-3 space-y-2 text-xs">
+        <div className="flex justify-between gap-3">
+          <span className="text-muted-foreground shrink-0">Audiencia</span>
+          <span className="font-medium text-right">{audienceLabel}</span>
+        </div>
+        {filters.length > 0 && (
+          <>
+            <div className="flex flex-wrap gap-1 justify-end">
+              {filters.map((f, i) => (
+                <span key={i} className="bg-primary/8 border border-primary/20 text-primary px-2 py-0.5 rounded-full text-[10px]">{filterLabel(f)}</span>
+              ))}
+            </div>
+            {filters.length > 1 && (
+              <div className="flex justify-between gap-3">
+                <span className="text-muted-foreground shrink-0">Combinación</span>
+                <span className="font-medium text-right">
+                  {match === "all" ? "Debe cumplirlos todos" : "Basta con cumplir uno"}
+                </span>
+              </div>
+            )}
+          </>
+        )}
+        <div className="flex justify-between gap-3">
+          <span className="text-muted-foreground shrink-0">Destinatarios</span>
+          <span className="font-medium text-right">{recipients.length}</span>
+        </div>
+        <div className="flex justify-between gap-3 pt-2 border-t border-border">
+          <span className="text-muted-foreground shrink-0">Mensaje</span>
+          <span className="font-medium text-right">
+            {kind === "template"
+              ? `Plantilla · ${template?.name ?? "—"}`
+              : `Libre · ${PART_TYPES.find(t => t.id === part.type)?.label ?? part.type} · últimas ${windowHours}h`}
+          </span>
+        </div>
+        {kind === "template" && Object.keys(varMap).length > 0 && (
+          <div className="flex justify-between gap-3">
+            <span className="text-muted-foreground shrink-0">Variables</span>
+            <span className="font-medium text-right">{Object.keys(varMap).length} configurada{Object.keys(varMap).length !== 1 ? "s" : ""}</span>
+          </div>
+        )}
+        <div className="flex justify-between gap-3 pt-2 border-t border-border">
+          <span className="text-muted-foreground shrink-0">Cuándo</span>
+          <span className="font-medium text-right">
+            {sendMode === "instant"
+              ? "Ahora"
+              : tzMode === "contact"
+                ? `${schedDate} a las ${schedTime}, hora local de cada contacto`
+                : `${schedDate} a las ${schedTime} (${userTz})`}
+          </span>
+        </div>
+      </div>
+
+      {/* Quiénes son exactamente. El backend recalcula al enviar con los mismos
+          criterios, así que esta lista es la definitiva salvo que algo cambie
+          entre ahora y el envío — y con un mensaje libre programado eso no es
+          una excepción rara, es lo que va a pasar seguro. */}
+      {recipients.length > 0 && (
+        <div className="rounded-xl border border-border overflow-hidden">
+          <button type="button" onClick={() => setShowList(v => !v)}
+            className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-muted/30 transition-colors text-left">
+            <Users size={13} className="text-primary shrink-0" />
+            <span className="text-xs font-medium flex-1">
+              Ver quiénes reciben ({recipients.length})
+              {windowRecalcs && (
+                <span className="block text-[10px] font-normal text-amber-600 dark:text-amber-400 mt-0.5">
+                  Esta lista cambiará: se recalcula al enviar
+                </span>
+              )}
+            </span>
+            {showList ? <ChevronUp size={13} className="text-muted-foreground" /> : <ChevronDown size={13} className="text-muted-foreground" />}
+          </button>
+
+          {showList && (
+            <div className="border-t border-border">
+              {windowRecalcs && (
+                <div className="p-2.5 border-b border-border">
+                  <WindowRecalcNotice windowHours={windowHours} reachNow={recipients.length} daysAhead={daysUntil(schedDate)} />
+                </div>
+              )}
+              <div className="max-h-56 overflow-y-auto divide-y divide-border">
+                {recipients.slice(0, LIST_PREVIEW).map(m => (
+                  <div key={m.phoneKey} className="flex items-center gap-2 px-3 py-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-medium truncate">{m.name || "Sin nombre"}</p>
+                      <p className="text-[10px] text-muted-foreground font-mono truncate">{m.phone}</p>
+                    </div>
+                    {!m.contactId && (
+                      <span className="text-[9px] text-muted-foreground/70 border border-border rounded-full px-1.5 py-0.5 shrink-0">
+                        sin ficha
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {recipients.length > LIST_PREVIEW && (
+                <p className="px-3 py-2 text-[10px] text-muted-foreground border-t border-border">
+                  y {recipients.length - LIST_PREVIEW} más
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {kind === "template" ? (
+        <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/40">
+          <Info size={13} className="text-amber-600 shrink-0 mt-0.5" />
+          <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
+            Meta cobra <strong>cada mensaje de plantilla entregado</strong>, no la conversación: la tarifa depende del país
+            del destinatario y de la categoría de la plantilla. Revisa los precios en Plantillas.
+          </p>
+        </div>
+      ) : (
+        <div className="flex items-start gap-2 p-3 rounded-xl bg-secondary/40 border border-border">
+          <Info size={13} className="text-muted-foreground shrink-0 mt-0.5" />
+          <p className="text-[11px] text-muted-foreground leading-relaxed">
+            Este envío es <strong className="text-foreground">gratuito</strong> para Meta. La ventana de 24h se evalúa en el momento del envío real, no ahora.
+          </p>
+        </div>
+      )}
+
+      {kind === "free" && <PartPreview part={part} />}
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ── COMPONENTE PRINCIPAL: Envíos Masivos ──────────────────────────────────────
+//
+// Un solo wizard: Audiencia → Mensaje → Cuándo → Revisar.
+//
+// El tipo de mensaje decide en qué tabla aterriza el envío (crm_wa_campaigns
+// para plantillas, crm_wa_instant_campaigns para mensajes libres) porque su
+// runtime es distinto — pero eso es un detalle de implementación que el usuario
+// nunca ve: para él es una sola lista de envíos.
+// ─────────────────────────────────────────────────────────────────────────────
+
+type AnyCampaign =
+  | { kind: "template"; row: CrmWaCampaign }
+  | { kind: "free";     row: CrmWaInstantCampaign };
+
+export default function CrmWaCampaigns() {
   const { user } = useCurrentUser();
-  const { data: campaigns = [], isLoading, refetch } = useInstantCampaigns();
-  const { data: waLabels = [] } = useWaLabels();
   const { data: businessProfile } = useBusinessProfile();
-  const createCampaign = useCreateInstantCampaign();
-  const deleteCampaign = useDeleteInstantCampaign();
 
-  const [building, setBuilding]   = useState(false);
-  const [detailId, setDetailId]   = useState<string | null>(null);
-  const [step, setStep]           = useState(0);
-  const [sending, setSending]     = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<{ id: string; name: string } | null>(null);
+  const { data: tplCampaigns = [],  isLoading: loadingTpl,  refetch: refetchTpl }  = useWaCampaigns();
+  const { data: freeCampaigns = [], isLoading: loadingFree, refetch: refetchFree } = useInstantCampaigns();
+  const deleteTpl  = useDeleteWaCampaign();
+  const deleteFree = useDeleteInstantCampaign();
+  const createTpl  = useCreateWaCampaign();
+  const createFree = useCreateInstantCampaign();
 
-  // Step 0: Mensaje
-  const [campName, setCampName]       = useState("");
-  const [msgText, setMsgText]         = useState("");
-  const [mediaType, setMediaType]     = useState<"none" | "image" | "video" | "audio">("none");
-  const [mediaUrl, setMediaUrl]       = useState("");
+  const [building, setBuilding] = useState(false);
+  const [step, setStep]         = useState(0);
+  const [sending, setSending]   = useState(false);
+  const [detail, setDetail]     = useState<AnyCampaign | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<AnyCampaign | null>(null);
 
-  // Step 1: Audiencia
-  const [windowHours, setWindowHours]         = useState(23);
-  const [selCountryCodes, setSelCountryCodes] = useState<string[]>([]);
-  const [selLabelIds, setSelLabelIds]         = useState<string[]>([]);
+  // Paso 1 — Audiencia
+  const [audienceType, setAudienceType] = useState<"all" | "include" | "exclude">("all");
+  const [filters, setFilters]           = useState<WaAudienceFilter[]>([]);
+  const [audienceMatch, setAudienceMatch] = useState<WaAudienceMatch>("any");
 
-  // Step 2: Programación
-  const [sendMode, setSendMode] = useState<"instant" | "scheduled">("instant");
+  // Paso 2 — Mensaje
+  const [msgKind, setMsgKind]       = useState<MsgKind>("template");
+  const [selTemplate, setSelTemplate] = useState<CrmWaTemplate | null>(null);
+  const [varMap, setVarMap]         = useState<WaVarMap>({});
+  const [part, setPart]             = useState<WaCampaignPart>(() => newPart("text"));
+  const [windowHours, setWindowHours] = useState(24);
+
+  // Paso 4 — Cuándo
+  const [sendMode, setSendMode]   = useState<"instant" | "scheduled">("instant");
   const [schedDate, setSchedDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [schedTime, setSchedTime] = useState("10:00");
   const [tzMode, setTzMode]       = useState<"user" | "contact">("user");
   const [userTz, setUserTz]       = useState("UTC");
 
-  // Sync userTz with business profile timezone once loaded
+  // Paso 5 — Revisar
+  const [campName, setCampName] = useState("");
+
   useEffect(() => {
     if (businessProfile?.timezone) setUserTz(businessProfile.timezone);
   }, [businessProfile?.timezone]);
 
-  // Active conversations (with label_ids) for live filtering
-  const { data: activeConvs = [] } = useWaActiveConversations(windowHours);
+  // Todos los datos de audiencia (universo, sin-teléfono e índices de filtros)
+  // salen del mismo sitio que en Seguimiento Automático.
+  const { base, phoneless, ctx, activeKeys } = useAudienceData(windowHours);
 
-  // Countries with at least one active conversation
-  const availableCountries = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const c of activeConvs) {
-      const prefix = getPhonePrefix(c.phone);
-      if (prefix !== "unknown" && COUNTRY_INFO[prefix]) {
-        counts[prefix] = (counts[prefix] ?? 0) + 1;
-      }
-    }
-    return Object.entries(counts)
-      .sort((a, b) => b[1] - a[1])
-      .map(([prefix, count]) => ({ prefix, count, ...COUNTRY_INFO[prefix] }));
-  }, [activeConvs]);
+  const audience = useMemo(
+    () => estimateAudience(base, audienceType, filters, ctx, audienceMatch),
+    [base, audienceType, filters, ctx, audienceMatch],
+  );
+  // El mensaje libre solo alcanza a quien esté dentro de la ventana elegida.
+  const freeMembers = useMemo(
+    () => audience.filter(m => activeKeys.has(m.phoneKey)),
+    [audience, activeKeys],
+  );
 
-  // Live filtered count reflecting both country AND label filters
-  const filteredConvs = useMemo((): ActiveConv[] => {
-    let result = activeConvs;
-    if (selCountryCodes.length > 0) {
-      result = result.filter(c => selCountryCodes.includes(getPhonePrefix(c.phone)));
-    }
-    if (selLabelIds.length > 0) {
-      result = result.filter(c => selLabelIds.some(lid => c.label_ids.includes(lid)));
-    }
-    return result;
-  }, [activeConvs, selCountryCodes, selLabelIds]);
-
-  // Human-readable audience summary for the counter line
-  const audienceSummary = useMemo(() => {
-    const total = activeConvs.length;
-    const filtered = filteredConvs.length;
-    if (total === 0) return "Sin conversaciones activas en esta ventana";
-    const countPart = <><span className="font-semibold text-foreground">{filtered}</span>{filtered !== total ? <span className="text-muted-foreground/60"> de {total}</span> : null}</>;
-    // Show country hint when no country filter and only one country exists
-    const countryHint = selCountryCodes.length === 0 && availableCountries.length === 1
-      ? ` · ${availableCountries[0].flag} ${availableCountries[0].name}`
-      : selCountryCodes.length > 0
-        ? ` · ${selCountryCodes.map(cc => COUNTRY_INFO[cc]?.flag).join(" ")}`
-        : "";
-    const labelHint = selLabelIds.length > 0 ? " · etiquetas (OR)" : "";
-    return <>{countPart} conversaciones activas{countryHint}{labelHint}</>;
-  }, [activeConvs, filteredConvs, selCountryCodes, selLabelIds, availableCountries]);
-
-  const audienceType = useMemo((): "all" | "labels" | "countries" | "combined" => {
-    const hasLabels = selLabelIds.length > 0;
-    const hasCountries = selCountryCodes.length > 0;
-    if (hasLabels && hasCountries) return "combined";
-    if (hasLabels) return "labels";
-    if (hasCountries) return "countries";
-    return "all";
-  }, [selLabelIds, selCountryCodes]);
-
-  // True when the scheduled date+time is in the past (blocks Next / Submit)
-  const schedInPast = useMemo(() => {
-    if (sendMode !== "scheduled" || !schedDate || !schedTime) return false;
-    try {
-      return new Date(toUtcIso(schedDate, schedTime, userTz)) <= new Date();
-    } catch { return false; }
-  }, [sendMode, schedDate, schedTime, userTz]);
-
-  // Timezone options: ensure business profile tz is always selectable
   const tzOptions = useMemo(() => {
     const inList = TIMEZONES.some(t => t.value === userTz);
     if (inList || !businessProfile?.timezone) return TIMEZONES;
     return [{ value: businessProfile.timezone, label: `Tu negocio (${businessProfile.timezone})` }, ...TIMEZONES];
   }, [businessProfile?.timezone, userTz]);
 
+  const schedInPast = useMemo(() => {
+    if (sendMode !== "scheduled" || !schedDate || !schedTime) return false;
+    try { return new Date(toUtcIso(schedDate, schedTime, userTz)) <= new Date(); }
+    catch { return false; }
+  }, [sendMode, schedDate, schedTime, userTz]);
+
   const resetBuilder = () => {
-    setStep(0); setCampName(""); setMsgText(""); setWindowHours(23);
-    setMediaType("none"); setMediaUrl("");
-    setSelCountryCodes([]); setSelLabelIds([]);
+    setStep(0); setAudienceType("all"); setFilters([]); setAudienceMatch("any");
+    setMsgKind("template"); setSelTemplate(null); setVarMap({});
+    setPart(newPart("text")); setWindowHours(24);
     setSendMode("instant"); setSchedDate(new Date().toISOString().slice(0, 10));
-    setSchedTime("10:00"); setTzMode("user"); setSending(false);
-    setUserTz(businessProfile?.timezone ?? "UTC");
+    setSchedTime("10:00"); setTzMode("user"); setUserTz(businessProfile?.timezone ?? "UTC");
+    setCampName(""); setSending(false);
   };
 
   const canNext = () => {
-    if (step === 0) {
-      if (!campName.trim()) return false;
-      if (mediaType === "none") return msgText.trim().length >= 5;
-      if (!mediaUrl.trim()) return false;
-      return true; // image/video caption optional; audio no text needed
-    }
+    if (step === 0) return audienceType === "all" || filters.length > 0;
+    // Paso 2 (cómo llegas): siempre hay una opción marcada, nada que validar.
     if (step === 1) return true;
     if (step === 2) {
+      if (msgKind === "template") return !!selTemplate;
+      // El mensaje tiene que llevar algo.
+      return part.type === "text" ? (part.text ?? "").trim().length > 0
+           : part.type === "link" ? (part.link_url ?? "").trim().length > 0
+           : (part.url ?? "").trim().length > 0;
+    }
+    if (step === 3) {
       if (sendMode === "instant") return true;
       if (!schedDate || !schedTime) return false;
       return !schedInPast;
     }
-    return true;
+    return campName.trim().length > 0;
+  };
+
+  const invokeSend = async (fn: string, campaignId: string) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/${fn}`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ campaign_id: campaignId }),
+    });
+    return res.json();
   };
 
   const handleSubmit = async () => {
     if (!campName.trim()) return;
-    if (mediaType === "none" && msgText.trim().length < 5) return;
-    if (mediaType !== "none" && !mediaUrl.trim()) return;
-    if (sendMode === "scheduled" && schedInPast) {
-      toast.error("La hora programada ya pasó. Elige una hora futura.", { duration: 6000 });
-      return;
-    }
     setSending(true);
     try {
+      // Programación: modo A guarda el instante UTC; modo B guarda fecha+hora
+      // local y deja que el scheduler calcule el UTC por zona de cada contacto.
       let scheduledAt: string | null = null;
       let targetDate: string | null = null;
       let targetLocalTime: string | null = null;
-      let status: CrmWaInstantCampaign["status"] = "draft";
-
       if (sendMode === "scheduled") {
         if (tzMode === "user") {
           scheduledAt = toUtcIso(schedDate, schedTime, userTz);
         } else {
-          // Mode B: store target date+time; scheduler computes per-tz UTC
           targetDate = schedDate;
           targetLocalTime = schedTime;
-          // scheduled_at = start of that date (UTC) so scheduler wakes up in time
           scheduledAt = `${schedDate}T00:00:00.000Z`;
         }
-        status = "scheduled";
       }
-
-      const campaign = await createCampaign.mutateAsync({
-        name: campName.trim(),
-        message_text: mediaType === "audio" ? "" : msgText.trim(),
-        media_type: mediaType === "none" ? null : mediaType,
-        media_url: mediaType === "none" ? null : mediaUrl.trim(),
-        window_hours: windowHours,
-        label_ids: selLabelIds,
-        country_codes: selCountryCodes,
-        audience_type: audienceType,
+      const scheduleFields = {
         send_mode: sendMode,
         timezone_mode: sendMode === "scheduled" ? tzMode : null,
         target_local_time: targetLocalTime,
         target_date: targetDate,
         user_timezone: sendMode === "scheduled" && tzMode === "user" ? userTz : null,
         scheduled_at: scheduledAt,
-        status,
-      });
+        status: (sendMode === "scheduled" ? "scheduled" : "draft") as "scheduled" | "draft",
+      };
 
-      if (sendMode === "instant") {
-        const { data: { session } } = await supabase.auth.getSession();
-        const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/send-wa-instant`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${session?.access_token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ campaign_id: campaign.id }),
+      let campaignId: string;
+      let created: AnyCampaign;
+
+      if (msgKind === "template") {
+        if (!selTemplate) return;
+        const row = await createTpl.mutateAsync({
+          template_id: selTemplate.id,
+          name: campName.trim(),
+          variable_map: varMap,
+          audience_type: audienceType,
+          audience_filters: filters,
+          audience_match: audienceMatch,
+          ...scheduleFields,
         });
-        const js = await res.json();
-        if (js.ok) {
-          toast.success(`Envío completado: ${js.sent} enviados, ${js.failed} fallidos de ${js.total} conversaciones`);
-          refetch();
-          setBuilding(false);
-          resetBuilder();
-          setDetailId(campaign.id);
-        } else {
-          toast.error(
-            js.error === "waba_not_configured" ? "Configura tu WABA en la sección Conexión"
-            : js.error === "already_processed" ? "Esta campaña ya fue procesada"
-            : js.error ?? "Error al enviar",
-            { duration: 8000 },
-          );
-        }
+        campaignId = row.id;
+        created = { kind: "template", row };
       } else {
-        toast.success("Campaña programada. Se enviará en el momento indicado.");
-        refetch();
-        setBuilding(false);
-        resetBuilder();
+        const row = await createFree.mutateAsync({
+          name: campName.trim(),
+          // parts es la fuente de verdad; los campos sueltos quedan como legado.
+          parts: [part],
+          message_text: "",
+          media_type: null,
+          media_url: null,
+          window_hours: windowHours,
+          label_ids: [],
+          country_codes: [],
+          audience_type: audienceType,
+          audience_filters: filters,
+          audience_match: audienceMatch,
+          ...scheduleFields,
+        });
+        campaignId = row.id;
+        created = { kind: "free", row };
       }
-    } catch { toast.error("Error de conexión"); }
-    finally { setSending(false); }
+
+      if (sendMode === "scheduled") {
+        toast.success("Envío programado");
+        refetchTpl(); refetchFree();
+        setBuilding(false); resetBuilder();
+        return;
+      }
+
+      const js = await invokeSend(msgKind === "template" ? "send-wa-campaign" : "send-wa-instant", campaignId);
+      if (js.ok) {
+        // Un envío grande no cabe en una invocación: el backend manda un lote y
+        // deja el resto en cola. No es un error — el cron lo continúa solo.
+        if (js.done === false) {
+          toast.success(
+            `Enviando: ${js.sent} de ${js.total}. Los ${js.remaining} restantes salen en segundo plano, puedes cerrar esta ventana.`,
+            { duration: 10000 },
+          );
+        } else {
+          toast.success(`Envío completado: ${js.sent} enviados, ${js.failed} fallidos de ${js.total}`);
+        }
+        refetchTpl(); refetchFree();
+        setBuilding(false); resetBuilder();
+        setDetail(created);
+      } else {
+        toast.error(
+          js.error === "waba_not_configured" ? "Configura tu WABA en la sección Conexión"
+          : js.error === "already_processed" ? "Este envío ya fue procesado"
+          : js.error ?? "Error al enviar",
+          { duration: 8000 },
+        );
+      }
+    } catch {
+      toast.error("Error de conexión");
+    } finally {
+      setSending(false);
+    }
   };
 
-  const detailCampaign = useMemo(() => campaigns.find(c => c.id === detailId), [campaigns, detailId]);
-  if (detailCampaign) return <InstantCampaignDetail campaign={detailCampaign} onBack={() => setDetailId(null)} />;
+  // ── Detalle ────────────────────────────────────────────────────────────────
+  if (detail?.kind === "template") return <CampaignDetail campaign={detail.row} onBack={() => setDetail(null)} />;
+  if (detail?.kind === "free")     return <InstantCampaignDetail campaign={detail.row} onBack={() => setDetail(null)} />;
 
+  // ── Builder ────────────────────────────────────────────────────────────────
   if (building) return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <button onClick={() => { setBuilding(false); resetBuilder(); }} className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground"><ArrowLeft size={14} /></button>
-        <h2 className="text-sm font-semibold">Nuevo envío dentro de 24h</h2>
+        {/* La flecha retrocede un paso; solo cancela si ya estás en el primero.
+            Perder todo el envío por tocar "atrás" en el paso 4 era demasiado
+            castigo para un gesto que en cualquier otra pantalla es inofensivo. */}
+        <button
+          onClick={() => { if (step === 0) { setBuilding(false); resetBuilder(); } else setStep(s => s - 1); }}
+          title={step === 0 ? "Cancelar" : "Paso anterior"}
+          className="p-1.5 rounded-lg hover:bg-muted transition-colors text-muted-foreground">
+          <ArrowLeft size={14} />
+        </button>
+        <h2 className="text-sm font-semibold flex-1 truncate">Nuevo envío masivo</h2>
+        {/* Salir del todo tiene su propio botón, explícito y siempre en el mismo sitio. */}
+        <button
+          onClick={() => { setBuilding(false); resetBuilder(); }}
+          title="Cancelar envío"
+          className="p-1.5 rounded-lg hover:bg-destructive/10 hover:text-destructive transition-colors text-muted-foreground shrink-0">
+          <XCircle size={15} />
+        </button>
       </div>
-      <InstantStepBar current={step} />
 
-      {/* ── Step 0: Mensaje ─────────────────────────────────────────────────── */}
+      <StepBar steps={STEPS} current={step} />
+
+      <p className="text-[11px] text-muted-foreground -mt-1">{STEP_HINTS[step]}</p>
+
       {step === 0 && (
-        <div className="space-y-4">
-          <div className="space-y-1.5">
-            <label className="text-xs font-semibold text-muted-foreground">Nombre del envío *</label>
-            <input value={campName} onChange={e => setCampName(e.target.value)} placeholder="ej. Seguimiento clientes activos"
-              className="w-full h-9 px-3 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all" />
-          </div>
-
-          {/* Media selector */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground">Tipo de contenido</label>
-            <div className="grid grid-cols-4 gap-1.5">
-              {([
-                { value: "none",  icon: <Send size={13} />,  label: "Solo texto" },
-                { value: "image", icon: <Image size={13} />, label: "Imagen" },
-                { value: "video", icon: <Video size={13} />, label: "Video" },
-                { value: "audio", icon: <Mic size={13} />,   label: "Audio" },
-              ] as const).map(opt => (
-                <button key={opt.value} type="button"
-                  onClick={() => { setMediaType(opt.value); setMediaUrl(""); }}
-                  className={`flex flex-col items-center gap-1 py-2.5 rounded-xl border text-xs font-medium transition-all ${
-                    mediaType === opt.value
-                      ? "border-primary bg-primary/5 text-primary ring-1 ring-primary/30"
-                      : "border-border hover:border-primary/40 text-muted-foreground"
-                  }`}
-                >
-                  {opt.icon}
-                  <span className="text-[10px]">{opt.label}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Media upload */}
-          {mediaType !== "none" && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">
-                Archivo de {mediaType === "image" ? "imagen" : mediaType === "video" ? "video" : "audio"} *
-              </label>
-              <MediaUploadField
-                mediaType={mediaType}
-                value={mediaUrl}
-                onChange={setMediaUrl}
-                userId={user?.id ?? ""}
-              />
-            </div>
-          )}
-
-          {/* Mensaje / Caption */}
-          {mediaType !== "audio" && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-muted-foreground">
-                {mediaType === "none" ? "Mensaje a enviar *" : "Pie de foto / caption"} {mediaType !== "none" && <span className="font-normal">(opcional)</span>}
-              </label>
-              <textarea value={msgText} onChange={e => setMsgText(e.target.value)}
-                rows={mediaType === "none" ? 5 : 3}
-                placeholder={mediaType === "none"
-                  ? "Hola! Queremos recordarte que...\n\nEscribe aquí tu mensaje libre. No necesita aprobación de Meta."
-                  : "Escribe un pie de foto o descripción (opcional)..."}
-                className="w-full px-3 py-2.5 rounded-lg border border-border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all resize-none leading-relaxed" />
-              {mediaType === "none" && <p className="text-[10px] text-muted-foreground">{msgText.length} caracteres · Límite sugerido: 1024</p>}
-            </div>
-          )}
-
-          {/* Vista previa */}
-          {(msgText.trim() || (mediaType !== "none" && mediaUrl.trim())) && (
-            <div className="space-y-1">
-              <p className="text-[10px] text-muted-foreground font-medium">Vista previa:</p>
-              <div className="rounded-xl bg-[#e5ddd5] dark:bg-[#1a1a2e] p-3">
-                <div className="bg-white dark:bg-[#202c33] rounded-xl px-3 py-2.5 shadow-sm space-y-1.5">
-                  {mediaType === "image" && mediaUrl.trim() && (
-                    <img src={mediaUrl} alt="" className="w-full rounded-lg object-cover max-h-48" />
-                  )}
-                  {mediaType === "video" && mediaUrl.trim() && (
-                    <div className="rounded-lg overflow-hidden bg-muted/30 flex items-center justify-center h-28 text-muted-foreground/50 text-xs border border-border/50">
-                      <Video size={20} className="mr-1.5" /> video adjunto
-                    </div>
-                  )}
-                  {mediaType === "audio" && mediaUrl.trim() && (
-                    <div className="rounded-lg bg-muted/30 flex items-center gap-2 px-3 py-2 text-muted-foreground/70 text-xs border border-border/50">
-                      <Mic size={14} /> nota de voz
-                    </div>
-                  )}
-                  {msgText.trim() && <p className="text-sm whitespace-pre-wrap leading-snug">{msgText}</p>}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
+        <StepAudience
+          audienceType={audienceType} filters={filters} base={base} phoneless={phoneless} ctx={ctx}
+          match={audienceMatch}
+          onTypeChange={t => { setAudienceType(t); if (t === "all") setFilters([]); }}
+          onFiltersChange={setFilters}
+          onMatchChange={setAudienceMatch}
+        />
       )}
 
-      {/* ── Step 1: Audiencia ───────────────────────────────────────────────── */}
       {step === 1 && (
-        <div className="space-y-5">
-          {/* Ventana */}
-          <div className="space-y-2">
-            <label className="text-xs font-semibold text-muted-foreground">Ventana de actividad</label>
-            <p className="text-[11px] text-muted-foreground/70">Solo se enviará a conversaciones donde el contacto haya escrito en las últimas {windowHours} horas.</p>
-            <div className="flex items-center gap-3">
-              <div className="flex-1 space-y-1">
-                <input type="range" min={1} max={23} step={1} value={windowHours}
-                  onChange={e => setWindowHours(Number(e.target.value))} className="w-full accent-primary" />
-                <div className="flex justify-between text-[10px] text-muted-foreground/60 px-0.5">
-                  <span>1h</span><span>6h</span><span>12h</span><span>18h</span><span>23h</span>
-                </div>
-              </div>
-              <span className="text-sm font-bold w-20 text-right shrink-0">Últimas {windowHours}h</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground">{audienceSummary}</p>
-          </div>
-
-          {/* Filtro por País */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5">
-              <Globe size={12} className="text-muted-foreground" />
-              <label className="text-xs font-semibold text-muted-foreground">Filtrar por país <span className="font-normal">(opcional)</span></label>
-            </div>
-            {availableCountries.length === 0 ? (
-              activeConvs.length === 0
-                ? <p className="text-[11px] text-muted-foreground/60 italic">No hay conversaciones activas en esta ventana.</p>
-                : <p className="text-[11px] text-muted-foreground/60 italic">Los números de estos contactos no tienen prefijo internacional identificado.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {availableCountries.map(({ prefix, name, flag, count }) => {
-                  const sel = selCountryCodes.includes(prefix);
-                  return (
-                    <button key={prefix} type="button"
-                      onClick={() => setSelCountryCodes(prev => sel ? prev.filter(c => c !== prefix) : [...prev, prefix])}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${sel ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-                      <span>{flag}</span>{name}
-                      <span className={`text-[10px] ${sel ? "text-primary/70" : "text-muted-foreground/60"}`}>({count})</span>
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {selCountryCodes.length > 0 && (
-              <button type="button" onClick={() => setSelCountryCodes([])}
-                className="text-[11px] text-muted-foreground hover:text-foreground underline-offset-2 hover:underline">
-                Limpiar selección
-              </button>
-            )}
-          </div>
-
-          {/* Filtro por Etiqueta */}
-          <div className="space-y-2">
-            <div className="flex items-center gap-1.5">
-              <Tag size={12} className="text-muted-foreground" />
-              <label className="text-xs font-semibold text-muted-foreground">Filtrar por etiqueta <span className="font-normal">(opcional)</span></label>
-            </div>
-            {waLabels.length === 0 ? (
-              <p className="text-[11px] text-muted-foreground/60 italic">No tienes etiquetas creadas aún.</p>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {waLabels.map(l => {
-                  const sel = selLabelIds.includes(l.id);
-                  return (
-                    <button key={l.id} type="button"
-                      onClick={() => setSelLabelIds(prev => sel ? prev.filter(id => id !== l.id) : [...prev, l.id])}
-                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-all ${sel ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:border-primary/40"}`}>
-                      <Tag size={10} style={{ color: l.color }} />{l.name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-            {selCountryCodes.length > 0 && selLabelIds.length > 0 && (
-              <p className="text-[11px] text-blue-600 dark:text-blue-400">Los filtros se combinan (AND): solo recibirán el mensaje quienes cumplan ambos.</p>
-            )}
-          </div>
-        </div>
+        <StepChannel
+          kind={msgKind} onKindChange={setMsgKind}
+          reachTotal={audience.length} reachFree={freeMembers.length}
+          windowHours={windowHours} onWindowHoursChange={setWindowHours}
+        />
       )}
 
-      {/* ── Step 2: Programación ────────────────────────────────────────────── */}
       {step === 2 && (
-        <div className="space-y-5">
-          {/* Enviar ahora vs Programar */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-muted-foreground">¿Cuándo enviar?</p>
-            <div className="grid grid-cols-2 gap-2">
-              {(["instant", "scheduled"] as const).map(m => (
-                <button key={m} type="button" onClick={() => setSendMode(m)}
-                  className={`flex items-center justify-center gap-2 h-10 rounded-xl text-xs font-semibold border transition-all ${
-                    sendMode === m
-                      ? "bg-primary text-primary-foreground border-primary shadow-sm"
-                      : "bg-background text-muted-foreground border-border hover:border-primary/50 hover:text-foreground"
-                  }`}>
-                  {m === "instant" ? <><Zap size={13} /> Enviar ahora</> : <><Calendar size={13} /> Programar</>}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {sendMode === "scheduled" && (
-            <>
-              {/* Fecha y hora — grid para alineación exacta */}
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold text-muted-foreground">Fecha y hora</p>
-                <div className="grid grid-cols-[1fr_auto] gap-2">
-                  <input type="date" value={schedDate} min={new Date().toLocaleDateString("en-CA")}
-                    onChange={e => setSchedDate(e.target.value)}
-                    className={`h-9 px-3 rounded-lg border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all w-full ${schedInPast ? "border-destructive focus:border-destructive" : "border-border focus:border-primary"}`} />
-                  <input type="time" value={schedTime} onChange={e => setSchedTime(e.target.value)}
-                    className={`h-9 px-3 rounded-lg border bg-background text-base md:text-sm outline-none focus:ring-2 focus:ring-primary/30 transition-all w-32 ${schedInPast ? "border-destructive focus:border-destructive" : "border-border focus:border-primary"}`} />
-                </div>
-                {schedInPast && (
-                  <p className="text-[11px] text-destructive flex items-center gap-1 mt-1">
-                    <AlertCircle size={11} /> Esta hora ya pasó. Elige una fecha y hora futuras.
-                  </p>
-                )}
-              </div>
-
-              {/* Zona horaria — divs en lugar de labels para evitar conflicto con select interno */}
-              <div className="space-y-1.5">
-                <p className="text-xs font-semibold text-muted-foreground">Zona horaria del envío</p>
-                <div className="space-y-2">
-
-                  {/* Modo A: mi zona horaria */}
-                  <div
-                    onClick={() => setTzMode("user")}
-                    className={`cursor-pointer p-3 rounded-xl border transition-all ${tzMode === "user" ? "border-primary/50 bg-primary/5" : "border-border hover:bg-muted/20"}`}>
-                    <div className="flex items-start gap-2.5">
-                      <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${tzMode === "user" ? "border-primary" : "border-muted-foreground/40"}`}>
-                        {tzMode === "user" && <div className="w-2 h-2 rounded-full bg-primary" />}
-                      </div>
-                      <div className="flex-1 min-w-0 space-y-1.5">
-                        <p className="text-sm font-medium leading-none">Mi zona horaria</p>
-                        <p className="text-[11px] text-muted-foreground">Todos reciben el mensaje al mismo instante.</p>
-                      </div>
-                    </div>
-                    {tzMode === "user" && (
-                      <div className="mt-2.5 ml-6 space-y-1.5" onClick={e => e.stopPropagation()}>
-                        <select value={userTz} onChange={e => setUserTz(e.target.value)}
-                          className="w-full h-9 px-2 rounded-lg border border-border bg-background text-base md:text-xs outline-none focus:ring-2 focus:ring-primary/30">
-                          {tzOptions.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                        </select>
-                        {schedDate && schedTime && (
-                          <p className="text-[10px] text-primary font-medium">
-                            Se envía el {schedDate} a las {schedTime} · {tzOptions.find(t => t.value === userTz)?.label ?? userTz}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Modo B: hora local de cada contacto */}
-                  <div
-                    onClick={() => setTzMode("contact")}
-                    className={`cursor-pointer p-3 rounded-xl border transition-all ${tzMode === "contact" ? "border-primary/50 bg-primary/5" : "border-border hover:bg-muted/20"}`}>
-                    <div className="flex items-start gap-2.5">
-                      <div className={`mt-0.5 w-4 h-4 rounded-full border-2 shrink-0 flex items-center justify-center transition-colors ${tzMode === "contact" ? "border-primary" : "border-muted-foreground/40"}`}>
-                        {tzMode === "contact" && <div className="w-2 h-2 rounded-full bg-primary" />}
-                      </div>
-                      <div className="flex-1 min-w-0 space-y-1">
-                        <p className="text-sm font-medium leading-none">Hora local de cada contacto</p>
-                        <p className="text-[11px] text-muted-foreground">
-                          Cada persona recibe el mensaje a las {schedTime} de su propia zona horaria.
-                        </p>
-                        {tzMode === "contact" && availableCountries.length > 0 && (
-                          <div className="flex flex-wrap gap-1 pt-0.5">
-                            {(selCountryCodes.length > 0
-                              ? availableCountries.filter(c => selCountryCodes.includes(c.prefix))
-                              : availableCountries.slice(0, 5)
-                            ).map(c => (
-                              <span key={c.prefix} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded-md">
-                                {c.flag} <span className="font-medium">{schedTime}</span>
-                              </span>
-                            ))}
-                            {selCountryCodes.length === 0 && availableCountries.length > 5 && (
-                              <span className="text-[10px] text-muted-foreground/60">+{availableCountries.length - 5} más</span>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-
-                </div>
-              </div>
-            </>
-          )}
-        </div>
+        <StepContent
+          kind={msgKind}
+          template={selTemplate} onTemplateChange={t => { setSelTemplate(t); setVarMap({}); }}
+          varMap={varMap} onVarMapChange={setVarMap}
+          part={part} onPartChange={setPart}
+          userId={user?.id ?? ""}
+        />
       )}
 
-      {/* ── Step 3: Confirmar ───────────────────────────────────────────────── */}
       {step === 3 && (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3 text-xs">
-            <div className="flex justify-between items-start gap-2">
-              <span className="text-muted-foreground shrink-0">Nombre</span>
-              <span className="font-semibold text-right">{campName}</span>
-            </div>
-            <div className="flex justify-between items-start gap-2">
-              <span className="text-muted-foreground shrink-0">Ventana</span>
-              <span className="font-semibold">Últimas {windowHours}h</span>
-            </div>
-            <div className="flex justify-between items-start gap-2">
-              <span className="text-muted-foreground shrink-0">Países</span>
-              <span className="font-semibold text-right">
-                {selCountryCodes.length === 0 ? "Todos" : selCountryCodes.map(cc => `${COUNTRY_INFO[cc]?.flag} ${COUNTRY_INFO[cc]?.name}`).join(", ")}
-              </span>
-            </div>
-            <div className="flex justify-between items-start gap-2">
-              <span className="text-muted-foreground shrink-0">Etiquetas</span>
-              <span className="font-semibold text-right">
-                {selLabelIds.length === 0 ? "Todas" : selLabelIds.map(id => waLabels.find(l => l.id === id)?.name).filter(Boolean).join(", ")}
-              </span>
-            </div>
-            <div className="flex justify-between items-start gap-2">
-              <span className="text-muted-foreground shrink-0">Envío</span>
-              <span className="font-semibold text-right">
-                {sendMode === "instant" ? "Ahora" : tzMode === "contact"
-                  ? `${schedDate} a las ${schedTime} (hora local de cada contacto)`
-                  : `${schedDate} a las ${schedTime} (${TIMEZONES.find(t => t.value === userTz)?.label ?? userTz})`}
-              </span>
-            </div>
-            <div className="flex justify-between items-start gap-2">
-              <span className="text-muted-foreground shrink-0">Audiencia estimada</span>
-              <span className="font-semibold">{filteredConvs.length} conversaciones activas</span>
-            </div>
-          </div>
-          <div className="space-y-1">
-            <p className="text-[10px] text-muted-foreground font-medium">Contenido:</p>
-            <div className="rounded-xl bg-[#e5ddd5] dark:bg-[#1a1a2e] p-3">
-              <div className="bg-white dark:bg-[#202c33] rounded-xl px-3 py-2.5 shadow-sm space-y-1.5">
-                {mediaType === "image" && mediaUrl && (
-                  <div className="rounded-lg bg-muted/30 flex items-center justify-center h-20 text-muted-foreground/50 text-xs border border-border/50">
-                    <Image size={16} className="mr-1.5" /> imagen adjunta
-                  </div>
-                )}
-                {mediaType === "video" && mediaUrl && (
-                  <div className="rounded-lg bg-muted/30 flex items-center justify-center h-20 text-muted-foreground/50 text-xs border border-border/50">
-                    <Video size={16} className="mr-1.5" /> video adjunto
-                  </div>
-                )}
-                {mediaType === "audio" && mediaUrl && (
-                  <div className="rounded-lg bg-muted/30 flex items-center gap-2 px-3 py-2 text-muted-foreground/70 text-xs border border-border/50">
-                    <Mic size={12} /> nota de voz
-                  </div>
-                )}
-                {msgText.trim() && <p className="text-sm whitespace-pre-wrap leading-snug">{msgText}</p>}
-              </div>
-            </div>
-          </div>
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-blue-50 dark:bg-blue-900/10 border border-blue-200 dark:border-blue-800/30">
-            <Info size={13} className="text-blue-600 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-blue-700 dark:text-blue-400 leading-relaxed">
-              Este envío es <strong>gratuito</strong> para Meta (dentro de la ventana de 24h). La ventana se evalúa al momento del envío real.
-            </p>
-          </div>
-          <div className="flex items-start gap-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-900/10 border border-amber-200 dark:border-amber-800/30">
-            <AlertCircle size={13} className="text-amber-600 shrink-0 mt-0.5" />
-            <p className="text-[11px] text-amber-700 dark:text-amber-400 leading-relaxed">
-              {sendMode === "instant"
-                ? "Una vez iniciado el envío no se puede cancelar."
-                : "Puedes cancelar la campaña programada desde la lista antes de que se ejecute."}
-            </p>
-          </div>
-        </div>
+        <StepWhen
+          sendMode={sendMode} onSendModeChange={setSendMode}
+          schedDate={schedDate} onSchedDateChange={setSchedDate}
+          schedTime={schedTime} onSchedTimeChange={setSchedTime}
+          tzMode={tzMode} onTzModeChange={setTzMode}
+          userTz={userTz} onUserTzChange={setUserTz}
+          tzOptions={tzOptions} schedInPast={schedInPast}
+          isFree={msgKind === "free"} windowHours={windowHours} reachNow={freeMembers.length}
+        />
       )}
 
-      {/* Navigation */}
-      <div className="flex gap-2 pt-2 border-t">
+      {step === 4 && (
+        <StepReview
+          kind={msgKind} template={selTemplate} varMap={varMap}
+          part={part} windowHours={windowHours}
+          audienceType={audienceType} filters={filters} match={audienceMatch}
+          recipients={msgKind === "template" ? audience : freeMembers}
+          sendMode={sendMode} schedDate={schedDate} schedTime={schedTime}
+          tzMode={tzMode} userTz={userTz}
+          campaignName={campName} onNameChange={setCampName}
+        />
+      )}
+
+      <div className="flex items-center gap-2 pt-2 border-t border-border">
         {step > 0 && (
           <button type="button" onClick={() => setStep(s => s - 1)}
             className="flex items-center gap-1.5 h-9 px-4 rounded-lg border border-border text-sm text-muted-foreground hover:bg-muted transition-colors">
@@ -1374,18 +1140,18 @@ function InstantCampaignsSection() {
           </button>
         )}
         <div className="flex-1" />
-        {step < 3 ? (
+        {step < 4 ? (
           <button type="button" onClick={() => setStep(s => s + 1)} disabled={!canNext()}
             className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40">
             Siguiente <ChevronRight size={14} />
           </button>
         ) : sendMode === "instant" ? (
-          <button type="button" onClick={handleSubmit} disabled={sending}
+          <button type="button" onClick={handleSubmit} disabled={sending || !canNext()}
             className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-green-600 text-white text-sm font-semibold hover:bg-green-700 transition-colors disabled:opacity-40">
             {sending ? <><Loader2 size={13} className="animate-spin" /> Enviando...</> : <><Zap size={13} /> Enviar ahora</>}
           </button>
         ) : (
-          <button type="button" onClick={handleSubmit} disabled={sending}
+          <button type="button" onClick={handleSubmit} disabled={sending || !canNext()}
             className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40">
             {sending ? <><Loader2 size={13} className="animate-spin" /> Guardando...</> : <><Calendar size={13} /> Programar</>}
           </button>
@@ -1394,56 +1160,77 @@ function InstantCampaignsSection() {
     </div>
   );
 
-  // ── Campaign list ────────────────────────────────────────────────────────────
+  // ── Lista unificada ────────────────────────────────────────────────────────
+  const all: AnyCampaign[] = [
+    ...tplCampaigns.map(row  => ({ kind: "template" as const, row })),
+    ...freeCampaigns.map(row => ({ kind: "free" as const,     row })),
+  ].sort((a, b) => (a.row.created_at < b.row.created_at ? 1 : -1));
+
+  const isLoading = loadingTpl || loadingFree;
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-sm font-semibold">Envíos dentro de 24h</p>
-          <p className="text-xs text-muted-foreground">{campaigns.length} envío{campaigns.length !== 1 ? "s" : ""} · Mensajes libres a conversaciones activas</p>
+      <div className="flex items-start gap-2 p-3 rounded-xl bg-secondary/40 border border-border">
+        <Info size={13} className="text-muted-foreground shrink-0 mt-0.5" />
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          <strong className="text-foreground">Regla de 24h de Meta:</strong> si un contacto te escribió en las últimas 24h puedes responderle con cualquier mensaje (gratis hasta el 1 oct 2026). Pasado ese tiempo solo puedes contactarlo con <strong>plantillas aprobadas</strong> (con costo por cada mensaje entregado).
+        </p>
+      </div>
+
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold">Envíos</p>
+          <p className="text-xs text-muted-foreground">{all.length} envío{all.length !== 1 ? "s" : ""}</p>
         </div>
         <button type="button" onClick={() => { setBuilding(true); resetBuilder(); }}
-          className="h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors flex items-center gap-1.5">
+          className="h-8 px-3 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors flex items-center gap-1.5 shrink-0">
           <Plus size={12} /> Nuevo
         </button>
       </div>
+
       {isLoading ? (
         <div className="space-y-2">{[1, 2].map(i => <div key={i} className="h-14 rounded-xl bg-muted animate-pulse" />)}</div>
-      ) : !campaigns.length ? (
+      ) : !all.length ? (
         <div className="text-center py-12 space-y-2">
-          <Zap size={28} className="mx-auto text-muted-foreground/30" />
+          <Send size={28} className="mx-auto text-muted-foreground/30" />
           <p className="text-sm text-muted-foreground">Sin envíos todavía</p>
-          <p className="text-xs text-muted-foreground/70">Envía mensajes libres a tus conversaciones activas sin necesidad de plantilla</p>
+          <p className="text-xs text-muted-foreground/70">Elige una audiencia, escribe el mensaje y decide cuándo sale</p>
         </div>
       ) : (
         <div className="space-y-2">
-          {campaigns.map(c => (
-            <div key={c.id} className="rounded-xl border border-border bg-card overflow-hidden">
+          {all.map(c => (
+            <div key={`${c.kind}-${c.row.id}`} className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="flex items-center gap-2 px-3 py-2.5">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-sm font-medium truncate">{c.name}</span>
-                    {statusBadge(c.status)}
+                    <span className="text-sm font-medium truncate">{c.row.name}</span>
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                      c.kind === "template"
+                        ? "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400"
+                        : "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                    }`}>
+                      {c.kind === "template" ? <Megaphone size={9} /> : <Zap size={9} />}
+                      {c.kind === "template" ? "Plantilla" : "Libre"}
+                    </span>
+                    {statusBadge(c.row.status)}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">
-                    Ventana: {c.window_hours}h
-                    {c.country_codes?.length > 0 && ` · ${c.country_codes.map(cc => COUNTRY_INFO[cc]?.flag ?? cc).join(" ")}`}
-                    {c.label_ids?.length > 0 && ` · ${c.label_ids.length} etiqueta${c.label_ids.length !== 1 ? "s" : ""}`}
-                    {c.status === "scheduled" && c.scheduled_at && ` · Programado: ${new Date(c.scheduled_at).toLocaleDateString("es-ES")} ${new Date(c.scheduled_at).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })}`}
-                    {c.total_contacts != null && ` · ${c.sent_count}/${c.total_contacts} enviados`}
-                    {" · "}{relativeTime(c.created_at)}
+                    {c.row.status === "scheduled" && c.row.scheduled_at &&
+                      `Programado: ${new Date(c.row.scheduled_at).toLocaleDateString("es-ES")} · `}
+                    {c.row.total_contacts != null && `${c.row.sent_count}/${c.row.total_contacts} enviados · `}
+                    {relativeTime(c.row.created_at)}
                   </p>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">
-                  {(c.status === "completed" || c.status === "failed" || c.status === "processing") && (
-                    <button type="button" onClick={() => setDetailId(c.id)}
+                  {(c.row.status === "completed" || c.row.status === "failed" || c.row.status === "processing") && (
+                    /* En 'processing' el detalle es útil: muestra el avance lote a lote */
+                    <button type="button" onClick={() => setDetail(c)}
                       className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors">
                       <Eye size={13} />
                     </button>
                   )}
-                  {c.status !== "processing" && (
-                    <button type="button"
-                      onClick={() => setDeleteTarget({ id: c.id, name: c.name })}
+                  {c.row.status !== "processing" && (
+                    <button type="button" onClick={() => setDeleteTarget(c)}
                       className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors">
                       <Trash2 size={13} />
                     </button>
@@ -1454,82 +1241,20 @@ function InstantCampaignsSection() {
           ))}
         </div>
       )}
+
       <DeleteConfirmDialog
         open={!!deleteTarget}
         onOpenChange={open => { if (!open) setDeleteTarget(null); }}
-        description={`Se eliminará la campaña "${deleteTarget?.name}" permanentemente.`}
-        isPending={deleteCampaign.isPending}
+        description={`Se eliminará el envío "${deleteTarget?.row.name}" permanentemente.`}
+        isPending={deleteTpl.isPending || deleteFree.isPending}
         onConfirm={async () => {
           if (!deleteTarget) return;
-          await deleteCampaign.mutateAsync(deleteTarget.id);
+          if (deleteTarget.kind === "template") await deleteTpl.mutateAsync(deleteTarget.row.id);
+          else                                  await deleteFree.mutateAsync(deleteTarget.row.id);
           setDeleteTarget(null);
-          toast.success("Campaña eliminada");
+          toast.success("Envío eliminado");
         }}
       />
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// ── COMPONENTE PRINCIPAL: Envío Masivo con 2 tabs ─────────────────────────────
-// ─────────────────────────────────────────────────────────────────────────────
-
-export default function CrmWaCampaigns() {
-  const [activeTab, setActiveTab] = useState<"pasado24" | "dentro24" | "automatizar">("pasado24");
-
-  return (
-    <div className="space-y-4">
-      {/* Explicación de la regla META */}
-      {activeTab !== "automatizar" && (
-        <div className="flex items-start gap-2 p-3 rounded-xl bg-secondary/40 border border-border">
-          <Info size={13} className="text-muted-foreground shrink-0 mt-0.5" />
-          <p className="text-[11px] text-muted-foreground leading-relaxed">
-            <strong className="text-foreground">Regla de 24h de Meta:</strong> Si un contacto te escribió en las últimas 24h, puedes responderle con cualquier mensaje (gratis). Pasado ese tiempo, solo puedes contactarlos usando <strong>plantillas aprobadas</strong> por Meta (con costo por conversación).
-          </p>
-        </div>
-      )}
-
-      {/* Tabs */}
-      <div className="grid grid-cols-3 bg-muted/50 rounded-2xl border border-border p-1 gap-1">
-        {([
-          { id: "pasado24",    icon: <Megaphone size={16} />, label: "Pasado 24h",   sub: "Plantillas" },
-          { id: "dentro24",   icon: <Zap size={16} />,       label: "Dentro 24h",   sub: "Mensajes libres" },
-          { id: "automatizar",icon: <Bot size={16} />,        label: "Automatizar",  sub: "Secuencias auto" },
-        ] as const).map(tab => (
-          <button
-            key={tab.id} type="button"
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex flex-col items-center justify-center gap-1 py-3 rounded-xl transition-all ${
-              activeTab === tab.id
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground hover:bg-background/60"
-            }`}
-          >
-            {tab.icon}
-            <span className="text-[11px] font-semibold leading-none">{tab.label}</span>
-            <span className={`text-[9px] leading-none ${activeTab === tab.id ? "text-primary-foreground/70" : "text-muted-foreground/60"}`}>{tab.sub}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Tab: Pasado 24h */}
-      {activeTab === "pasado24" && (
-        <div>
-          <p className="text-[11px] text-muted-foreground/70 mb-3">Envío masivo usando plantillas aprobadas por Meta. Útil para reactivar contactos que no han escrito recientemente.</p>
-          <TemplateCampaignsSection />
-        </div>
-      )}
-
-      {/* Tab: Dentro de 24h */}
-      {activeTab === "dentro24" && (
-        <div>
-          <p className="text-[11px] text-muted-foreground/70 mb-3">Envío libre a conversaciones activas. No requiere plantilla ni aprobación. Solo aplica mientras el contacto esté dentro de la ventana de 24h.</p>
-          <InstantCampaignsSection />
-        </div>
-      )}
-
-      {/* Tab: Automatizar */}
-      {activeTab === "automatizar" && <CrmWaAutomations />}
     </div>
   );
 }

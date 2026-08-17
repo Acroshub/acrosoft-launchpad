@@ -5,14 +5,13 @@ import {
   CheckCircle2, AlertTriangle, Copy, Trash2, X, Eye, EyeOff,
   Check, ChevronRight, ChevronLeft, ChevronDown, ChevronUp, MoreVertical, Zap, Clock, Calendar, Phone, Sparkles, Lock,
   User, Upload, Bell, Tag, Plus, Pencil, UserPlus, Search, Paperclip, CreditCard, BadgeCheck, XCircle, CheckCheck,
-  GitBranch, ArrowLeft, Megaphone, Smile, StickyNote, Star, Archive, LayoutGrid, ExternalLink, Reply,
-  Image as ImageIcon, FileVideo, Music2, Globe,
+  GitBranch, ArrowLeft, Smile, StickyNote, Star, Archive, LayoutGrid, ExternalLink, Reply,
+  Image as ImageIcon, FileVideo, Globe,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { usePushSubscriptionStatus, useSubscribeToPush, isPushSupported } from "@/hooks/usePushNotifications";
 import {
   useAIAgentConfig, useUpsertAIAgentConfig,
@@ -29,7 +28,7 @@ import {
   useCalendars,
   useAiPendingSales, useUpdateSale,
   useAppointments, useContacts,
-  useWaSequences, useUpsertWaSequence, useDeleteWaSequence,
+  useWaSequences, useDeleteWaSequence, useWaAutomations,
   useWaFlows, useUpsertWaFlow, useDeleteWaFlow, useToggleWaFlow,
   useInsertLog,
   useCourses,
@@ -44,9 +43,13 @@ import {
 import { FLOW_COUNTRY_OPTIONS, FLOW_COUNTRY_BY_CODE } from "@/lib/countries";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import CrmWaTemplates from "@/components/crm/CrmWaTemplates";
-import CrmWaCampaigns from "@/components/crm/CrmWaCampaigns";
+import CrmWaOutbound from "@/components/crm/CrmWaOutbound";
+import { sequenceDeleteWarning, SequenceViewer } from "@/components/crm/wa/sequences";
+import { SequenceEditor } from "@/components/crm/wa/SequenceEditor";
+import { toDraftSequence, type DraftSequence } from "@/components/crm/wa/sequence-model";
 import { supabase } from "@/lib/supabase";
-import type { WaLastMessage, CrmWaFlowCountrySequence, CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale, CrmAppointment, CrmContact, CrmWaSequence, SequenceStep, SequenceStepOption, SequenceStepMedia, CrmWaFlow, CrmWaFlowFinalAction, CrmQuickReply } from "@/lib/supabase";
+import { useWaMediaUrl, isWaMediaUrl, resolveWaMediaUrl } from "@/lib/wa-media";
+import type { WaLastMessage, CrmWaFlowCountrySequence, CrmWaConversation, CrmWaMessage, CrmStaff, CrmSale, CrmAppointment, CrmContact, CrmWaSequence, CrmWaFlow, CrmWaFlowFinalAction, CrmQuickReply } from "@/lib/supabase";
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { formatAmount } from "@/lib/currencies";
@@ -1005,34 +1008,6 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 
 // ─── Sequence + Flow Builder helpers ─────────────────────────────────────────
 
-type DraftSequence = { id?: string; name: string; steps: SequenceStep[]; status?: "draft" | "published" };
-
-// Abre una secuencia guardada para editarla: se edita SIEMPRE el borrador si existe (draft_steps),
-// que es el trabajo autoguardado más reciente; `steps` es la versión publicada que sigue corriendo
-// en las conversaciones reales mientras tanto.
-function toDraftSequence(seq: CrmWaSequence): DraftSequence {
-  return { id: seq.id, name: seq.name, steps: seq.draft_steps ?? seq.steps, status: seq.status };
-}
-
-const BRANCH_COLORS = [
-  { bar: "bg-emerald-400", pill: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20", border: "border-emerald-400/30", bg: "bg-emerald-500/5", text: "text-emerald-600 dark:text-emerald-400", hex: "#34d399" },
-  { bar: "bg-rose-400",    pill: "bg-rose-400/10 text-rose-500 dark:text-rose-400 border-rose-400/20",             border: "border-rose-400/30",    bg: "bg-rose-400/5",    text: "text-rose-500 dark:text-rose-400",     hex: "#fb7185" },
-  { bar: "bg-blue-400",    pill: "bg-blue-500/10 text-blue-600 dark:text-blue-400 border-blue-500/20",             border: "border-blue-400/30",    bg: "bg-blue-400/5",    text: "text-blue-600 dark:text-blue-400",     hex: "#60a5fa" },
-  { bar: "bg-amber-400",   pill: "bg-amber-400/10 text-amber-600 dark:text-amber-400 border-amber-400/20",         border: "border-amber-400/30",   bg: "bg-amber-400/5",   text: "text-amber-600 dark:text-amber-400",   hex: "#fbbf24" },
-  { bar: "bg-purple-400",  pill: "bg-purple-500/10 text-purple-600 dark:text-purple-400 border-purple-500/20",     border: "border-purple-400/30",  bg: "bg-purple-400/5",  text: "text-purple-600 dark:text-purple-400", hex: "#c084fc" },
-];
-
-// Geometría del árbol horizontal de la secuencia
-const SEQ_TREE_NODE_W = 148;
-const SEQ_TREE_NODE_H = 40; // caja "cabecera" (índice + tipo + preview) — igual para todos los nodos
-const SEQ_TREE_COL_PITCH = 190;
-// Preview de botones debajo de los nodos Pregunta (mockup del mensaje interactivo final de WhatsApp)
-const SEQ_TREE_PILL_H = 16;
-const SEQ_TREE_MAX_PILLS = 3; // igual al máximo de botones reales que admite una pregunta
-// Alto de fila: cabecera + hasta 3 pills de botón + margen — así ningún nodo Pregunta se superpone
-// con el carril de abajo, sin importar cuántos botones tenga.
-const SEQ_TREE_ROW_PITCH = SEQ_TREE_NODE_H + SEQ_TREE_MAX_PILLS * SEQ_TREE_PILL_H + 12;
-
 type DraftFlow = {
   id?: string
   name: string
@@ -1108,883 +1083,6 @@ function newDraftFlow(): DraftFlow {
 
 // COUNTRY_OPTIONS es ahora dinámico vía useSupportedCountries() — ver hook abajo
 
-const STEP_TYPE_LABELS = {
-  message: "Texto", question: "Pregunta",
-  image: "Imagen", video: "Video", audio: "Audio", file: "Archivo", link: "Link",
-} as const;
-
-const STEP_TYPE_ICONS = {
-  message: MessageSquare, question: GitBranch, link: ExternalLink,
-  image: ImageIcon, video: FileVideo, audio: Music2, file: Paperclip,
-} as const;
-
-// Orden en el que se muestran los tipos al crear un paso nuevo o cambiar el tipo de uno existente.
-const STEP_TYPE_ORDER = ["message", "question", "link", "image", "video", "audio", "file"] as const;
-
-// WhatsApp Cloud API soporta estos formatos solamente
-const STEP_ACCEPT = {
-  image: "image/jpeg,image/png,.jpg,.jpeg,.png",
-  video: "video/mp4,video/3gpp,.mp4,.3gp",
-  audio: "audio/aac,audio/mp4,audio/mpeg,audio/amr,audio/ogg,audio/x-m4a,.aac,.m4a,.mp3,.amr,.ogg",
-  file: ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.zip,.rar,.7z",
-} as const;
-
-const WA_FORMAT_HINT: Partial<Record<SequenceStep["type"], string>> = {
-  image: "JPG o PNG · máx 5 MB",
-  video: "MP4 con codec H.264 · máx 16 MB (no MOV, no HEVC)",
-  audio: "MP3, AAC, OGG, AMR o M4A · máx 16 MB",
-  file: "PDF, Word, Excel, ZIP · máx 100 MB",
-};
-
-// Lee los primeros bytes del archivo para detectar el formato real (ignora extensión)
-async function readMagicBytes(file: File): Promise<Uint8Array> {
-  return new Promise(resolve => {
-    const reader = new FileReader();
-    reader.onload = e => resolve(new Uint8Array(e.target?.result as ArrayBuffer));
-    reader.readAsArrayBuffer(file.slice(0, 12));
-  });
-}
-
-// Devuelve el MIME type real del archivo según sus magic bytes, o null si no se puede detectar
-function detectRealMime(bytes: Uint8Array): string | null {
-  // MP3: ID3 tag o sync word FF Fx
-  if (bytes[0] === 0x49 && bytes[1] === 0x44 && bytes[2] === 0x33) return "audio/mpeg";
-  if (bytes[0] === 0xFF && (bytes[1] & 0xE0) === 0xE0) return "audio/mpeg";
-  // OGG
-  if (bytes[0] === 0x4F && bytes[1] === 0x67 && bytes[2] === 0x67 && bytes[3] === 0x53) return "audio/ogg";
-  // FTYP box (MP4 / M4A / MOV / 3GP) — offset 4
-  if (bytes[4] === 0x66 && bytes[5] === 0x74 && bytes[6] === 0x79 && bytes[7] === 0x70) {
-    const brand = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
-    if (brand === "qt  ") return "video/quicktime";           // MOV — no soportado
-    if (brand.startsWith("M4A") || brand.startsWith("M4B")) return "audio/mp4"; // M4A
-    if (brand === "3gp5" || brand === "3gp4" || brand === "3g2a") return "video/3gpp";
-    return "video/mp4"; // isom, mp42, avc1, dash, etc.
-  }
-  // JPEG
-  if (bytes[0] === 0xFF && bytes[1] === 0xD8) return "image/jpeg";
-  // PNG
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47) return "image/png";
-  return null;
-}
-
-// MIME types aceptados por WhatsApp Cloud API
-const WA_VALID_MIME: Partial<Record<SequenceStep["type"], Set<string>>> = {
-  image: new Set(["image/jpeg", "image/png"]),
-  video: new Set(["video/mp4", "video/3gpp"]),
-  audio: new Set(["audio/aac", "audio/mp4", "audio/mpeg", "audio/amr", "audio/ogg"]),
-};
-
-const MEDIA_TYPES = new Set(["image", "video", "audio", "file"]);
-const LINK_TYPE = "link";
-
-function newStep(type: SequenceStep["type"]): SequenceStep {
-  return {
-    id: crypto.randomUUID(),
-    type,
-    text: "",
-    // Sin botones por defecto — en el modelo árbol-primero, los botones de una pregunta se crean
-    // desde el "+" del lienzo (así siempre hay una rama visible detrás de cada opción del editor).
-    options: type === "question" ? [] : undefined,
-    media: MEDIA_TYPES.has(type) ? [] : undefined,
-    // Arista saliente explícita desde el minuto cero (null = todavía no lleva a ningún lado): una
-    // pregunta no la usa, cualquier otro paso siempre la tiene guardada, nunca deducida.
-    next_step_id: null,
-  };
-}
-
-// ─── Modelo de datos de una secuencia: DAG explícito ─────────────────────────
-// Una secuencia es UNA LISTA DE NODOS + ARISTAS GUARDADAS POR ID, y nada más:
-//
-//   · cada paso tiene un `id` (UUID) que nace con él y muere con él — nunca se recicla ni se
-//     reasigna, así que una conexión vieja jamás puede "caer" sobre un paso nuevo;
-//   · un paso normal tiene UNA arista saliente: `next_step_id` (id del siguiente, o null = fin
-//     de esta rama). Siempre está guardada: no se deduce de nada;
-//   · un paso Pregunta NO usa `next_step_id`: tiene una arista por botón (`options[].next_step_id`).
-//     El botón es la ETIQUETA de la arista, no un nodo — una pregunta con 3 botones es 1 nodo con
-//     3 salidas, no 4 nodos. (Un botón sin destino se dibuja como un recuadro punteado "+ crear
-//     paso", pero eso es solo el hueco de una arista sin terminar, no un nodo guardado.);
-//   · varios padres pueden apuntar al mismo id (reconvergencia): por eso es un DAG y no un árbol.
-//     Lo único prohibido es cerrar un ciclo, y de eso se encarga `canConnectForward`;
-//   · la raíz es `steps[0]`. El orden del arreglo NO significa nada más: los pasos nuevos se
-//     agregan SIEMPRE al final y nunca se reordenan. Gracias a eso el número visible de un paso
-//     ("Paso 5") no cambia porque se haya creado otro en cualquier otra rama, y el índice que el
-//     backend guarda en `crm_wa_conversations.flow_step` sigue apuntando al mismo paso mientras
-//     una conversación está en curso.
-//
-// Antes, las conexiones de los pasos normales NO se guardaban: se recalculaban en cada cambio a
-// partir de la posición en el arreglo y de rangos de "ramas" inferidos por índice. Esa derivación
-// era la causa raíz de que crear, conectar o borrar un paso reescribiera en silencio conexiones
-// de OTRAS ramas. Ya no existe: lo que está guardado es el grafo.
-
-// Único punto donde se toca data legada: se ejecuta UNA vez, al abrir la secuencia.
-//   · rellena el `id` de botones guardados antes de que ese campo existiera (toda la lógica
-//     identifica botones por id, nunca por texto ni por posición);
-//   · materializa como arista explícita el enlace de los pasos legados que no la tenían (el
-//     runtime viejo avanzaba al siguiente del arreglo: se guarda exactamente eso);
-//   · limpia referencias colgantes — un id que apunta a un paso que ya no existe pasa a null,
-//     nunca queda una conexión "fantasma" a un paso borrado;
-//   · descarta los marcadores del modelo viejo (`shared`, `next_step_pinned`), que ya no se leen.
-function normalizeSequenceSteps(rawSteps: SequenceStep[]): SequenceStep[] {
-  const ids = new Set(rawSteps.map(s => s.id));
-  const resolve = (id: string | null | undefined): string | null => (id && ids.has(id) ? id : null);
-  return rawSteps.map((s, i) => {
-    const step: SequenceStep = { ...s };
-    delete step.shared;
-    delete step.next_step_pinned;
-    if (step.options) {
-      step.options = step.options.map(o => ({ ...o, id: o.id || crypto.randomUUID(), next_step_id: resolve(o.next_step_id) }));
-    }
-    if (step.type === "question") {
-      step.next_step_id = null; // una pregunta navega por sus botones: su arista propia no se usa
-    } else {
-      step.next_step_id = step.next_step_id === undefined
-        ? (rawSteps[i + 1]?.id ?? null) // legado sin enlace explícito: el runtime avanzaba por índice
-        : resolve(step.next_step_id);
-    }
-    return step;
-  });
-}
-
-function getStepPreview(s: SequenceStep, maxLen: number): string | null {
-  if (s.type === "message" || s.type === "question") return s.text?.trim().slice(0, maxLen) || null;
-  if (s.type === "link") return s.link_url?.slice(0, maxLen) || null;
-  return s.media?.[0]?.name?.slice(0, maxLen) || null;
-}
-
-// Ids de pasos alcanzables desde la raíz (steps[0]) siguiendo las aristas reales — mismo criterio
-// de "hijos" que usa buildSequenceGraph (opciones de pregunta / next_step_id). Se usa para detectar
-// si una reconexión o un borrado dejaría contenido sin conexión ("rama suelta").
-function getReachableStepIds(steps: SequenceStep[]): Set<string> {
-  const seen = new Set<string>();
-  if (steps.length === 0) return seen;
-  const byId = new Map(steps.map(s => [s.id, s]));
-  const stack = [steps[0].id];
-  while (stack.length > 0) {
-    const id = stack.pop()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const s = byId.get(id);
-    if (!s) continue;
-    if (s.type === "question") {
-      for (const o of s.options ?? []) {
-        if (o.label.trim() && o.next_step_id && byId.has(o.next_step_id)) stack.push(o.next_step_id);
-      }
-    } else if (s.next_step_id && byId.has(s.next_step_id)) {
-      stack.push(s.next_step_id);
-    }
-  }
-  return seen;
-}
-
-// Devuelve `steps` con el botón `optionId` de `questionId` reapuntado a `newTargetId` (o
-// desenlazado si es null) — identidad por el id propio del botón, nunca por posición ni por
-// texto (2 botones pueden compartir texto, y borrar uno del medio corre los índices).
-function stepsWithRewiredOption(steps: SequenceStep[], questionId: string, optionId: string, newTargetId: string | null): SequenceStep[] {
-  return steps.map(s => s.id !== questionId ? s : {
-    ...s,
-    options: s.options?.map(o => o.id === optionId ? { ...o, next_step_id: newTargetId } : o),
-  });
-}
-
-// Identidad de UNA arista concreta del grafo — la de un botón de pregunta, o la única saliente de
-// un paso normal. Se usa tanto para crearla la primera vez como para cambiar su destino o quitarla
-// después, siempre desde el mismo lugar (tocar el círculo al final de la línea), nunca arrastrando
-// — más simple y funciona igual en mobile.
-type EdgeManageSource =
-  | { kind: "option"; questionId: string; optionId: string }
-  | { kind: "step"; stepId: string };
-
-// Devuelve `steps` con la arista `source` apuntando a `newTargetId` (o desconectada si es null).
-// No toca ninguna otra arista: reapuntar una conexión nunca puede robarle un padre a un paso, así
-// que un destino con 2+ padres (reconvergencia) simplemente suma o pierde uno.
-function stepsWithEdgeTarget(steps: SequenceStep[], source: EdgeManageSource, newTargetId: string | null): SequenceStep[] {
-  return source.kind === "option"
-    ? stepsWithRewiredOption(steps, source.questionId, source.optionId, newTargetId)
-    : steps.map(s => s.id === source.stepId ? { ...s, next_step_id: newTargetId } : s);
-}
-
-// Quita `removeIds` del grafo y borra TODA referencia a ellos desde cualquier padre (aristas de
-// botones y aristas normales por igual): un id borrado se reemplaza por su reemplazo en `redirect`
-// si lo tiene, o pasa a null. Nunca queda un padre apuntando a un paso que ya no existe.
-function stepsWithoutIds(steps: SequenceStep[], removeIds: Set<string>, redirect?: Map<string, string | null>): SequenceStep[] {
-  const resolve = (id: string | null | undefined): string | null => {
-    if (!id) return null;
-    if (!removeIds.has(id)) return id;
-    return redirect?.get(id) ?? null;
-  };
-  return steps.filter(s => !removeIds.has(s.id)).map(s => ({
-    ...s,
-    options: s.options?.map(o => ({ ...o, next_step_id: resolve(o.next_step_id) })),
-    next_step_id: resolve(s.next_step_id),
-  }));
-}
-
-// Borra `stepId` junto con los `discardedIds` que se pierden con él, y reconecta hacia
-// `successorId` (o desconecta, si es null) todo lo que apuntaba al paso borrado. Si el borrado era
-// la raíz, `successorId` pasa a ocupar su lugar como nuevo primer paso.
-function stepsAfterDeleting(steps: SequenceStep[], stepId: string, discardedIds: string[], successorId: string | null): SequenceStep[] {
-  const removeIds = new Set([stepId, ...discardedIds]);
-  if (successorId) removeIds.delete(successorId); // el paso que se conserva nunca se borra
-  const wasRoot = steps[0]?.id === stepId;
-  const cleaned = stepsWithoutIds(steps, removeIds, new Map([[stepId, successorId]]));
-  return wasRoot ? stepsWithRoot(cleaned, successorId) : cleaned;
-}
-
-// Deja a `rootId` en la posición 0 sin alterar el orden relativo del resto — la raíz de la
-// secuencia es, por convención, `steps[0]` (es donde arranca el runtime, con flow_step = 0). Solo
-// hace falta al borrar el primer paso: en cualquier otro caso el arreglo nunca se reordena.
-function stepsWithRoot(steps: SequenceStep[], rootId: string | null): SequenceStep[] {
-  if (!rootId) return steps;
-  const idx = steps.findIndex(s => s.id === rootId);
-  if (idx <= 0) return steps;
-  return [steps[idx], ...steps.slice(0, idx), ...steps.slice(idx + 1)];
-}
-
-// ¿Se puede conectar sourceId → targetId? Solo si targetId ya está en un nivel ESTRICTAMENTE más
-// profundo que sourceId en el árbol actual — nunca el mismo nivel, nunca uno anterior. Esto solo
-// alcanza para garantizar que nunca se forme un ciclo: un ancestro real siempre tiene un nivel
-// menor que su descendiente (cada conexión suma +1 de profundidad), así que cualquier candidato
-// que pudiera cerrar un ciclo queda automáticamente descartado por este único chequeo.
-function canConnectForward(nodes: SeqGraphNode[], sourceId: string, targetId: string): boolean {
-  if (sourceId === targetId) return false;
-  const source = nodes.find(n => n.id === sourceId);
-  const target = nodes.find(n => n.id === targetId);
-  if (!source || !target) return false;
-  return target.depth > source.depth;
-}
-
-// ─── Árbol visual de la secuencia como grafo ─────────────────────────────────
-// Construido siguiendo los enlaces reales (next_step_id / options[].next_step_id) en vez de
-// cortar el arreglo por índices — así un paso de reconvergencia (con varios "padres") se
-// dibuja UNA sola vez con varias líneas entrando, sin duplicarse nunca en el árbol.
-type SeqGraphNode = {
-  id: string;
-  step: SequenceStep | null; // null = placeholder de botón sin enlazar
-  depth: number;
-  lane: number;
-  pending?: boolean;
-  pendingLabel?: string;
-  pendingOptionId?: string; // id propio del botón origen — identidad estable para crear/enlazar,
-  // nunca la posición ni el texto del botón (pueden cambiar o repetirse)
-  mergeCount: number; // cuántas conexiones entrantes tiene (>1 = punto de reconvergencia)
-};
-// colorIdx: posición entre los botones con texto — solo para asignar color/orden visual al pill,
-// NUNCA para identidad (2+ botones pueden compartir label y su índice cambia al borrar otro).
-// optionId: id propio del botón origen (solo en aristas que salen de una pregunta) — identidad
-// real para crear/enlazar/arrastrar.
-type SeqGraphEdge = { fromId: string; toId: string; label?: string; colorIdx?: number; optionId?: string };
-
-// Cuántos botones (labeled) muestra el mockup de un nodo Pregunta en el lienzo — al menos 1
-// (una fila "Sin botones" cuando todavía no tiene ninguno), acotado a SEQ_TREE_MAX_PILLS.
-function nodeQuestionPillCount(node: SeqGraphNode): number {
-  if (node.pending || !node.step || node.step.type !== "question") return 0;
-  const labeled = (node.step.options ?? []).filter(o => o.label.trim()).length;
-  return Math.min(Math.max(labeled, 1), SEQ_TREE_MAX_PILLS);
-}
-
-// Alto real de la caja de un nodo en el lienzo — la cabecera sola para pasos normales y
-// placeholders, o cabecera + preview de botones para preguntas. Compartido entre el render y el
-// hit-test del arrastre de conexiones para que nunca queden desincronizados.
-function nodeBoxHeight(node: SeqGraphNode): number {
-  const pills = nodeQuestionPillCount(node);
-  return pills === 0 ? SEQ_TREE_NODE_H : SEQ_TREE_NODE_H + pills * SEQ_TREE_PILL_H;
-}
-
-// Punto vertical de donde sale una línea: si el origen es una pregunta y la arista es una de sus
-// opciones (colorIdx definido), sale del pill de ESE botón específico en el mockup — no del
-// centro genérico del nodo — para que se vea de qué botón exacto sale cada conexión.
-function edgeSourceY(from: SeqGraphNode, colorIdx: number | undefined): number {
-  const base = from.lane * SEQ_TREE_ROW_PITCH;
-  const pills = nodeQuestionPillCount(from);
-  if (colorIdx === undefined || pills === 0) return base + SEQ_TREE_NODE_H / 2;
-  const pillIdx = Math.min(colorIdx, pills - 1);
-  return base + SEQ_TREE_NODE_H + pillIdx * SEQ_TREE_PILL_H + SEQ_TREE_PILL_H / 2;
-}
-
-// ¿Esta arista del grafo es la que identifica `source`? Un paso normal tiene una sola saliente;
-// una pregunta tiene una por botón, y ahí lo que la distingue es el id del botón.
-function edgeMatchesSource(edge: SeqGraphEdge, source: EdgeManageSource): boolean {
-  return source.kind === "option"
-    ? edge.fromId === source.questionId && edge.optionId === source.optionId
-    : edge.fromId === source.stepId && edge.optionId === undefined;
-}
-
-// Conexiones que llegan a un mismo paso, ordenadas de ARRIBA hacia ABAJO por la altura real desde
-// la que sale cada una en el lienzo. Este orden es la única referencia que tiene el usuario para
-// saber "cuál es cuál" cuando 2+ ramas terminan en el mismo paso, así que se calcula UNA vez acá y
-// lo usan por igual el lienzo (para repartir los puntos de llegada) y el diálogo de gestión (para
-// listar los caminos): si los dos no coincidieran exactamente, sería posible borrar el camino
-// equivocado creyendo que se borra otro.
-function incomingEdgesInVisualOrder(
-  graph: { nodes: SeqGraphNode[]; edges: SeqGraphEdge[] },
-  targetId: string,
-): { edge: SeqGraphEdge; index: number }[] {
-  const sourceY = (e: SeqGraphEdge): number => {
-    const from = graph.nodes.find(n => n.id === e.fromId);
-    return from ? edgeSourceY(from, e.colorIdx) : 0;
-  };
-  return graph.edges
-    .map((edge, index) => ({ edge, index }))
-    .filter(e => e.edge.toId === targetId)
-    .sort((a, b) => sourceY(a.edge) - sourceY(b.edge) || a.index - b.index);
-}
-
-// Separación vertical entre los puntos de llegada de varias conexiones a un mismo paso — se achica
-// si son muchas, para que todas sigan cayendo dentro de la caja del nodo destino.
-function edgePortGap(count: number): number {
-  // 16 = un poco más que el diámetro del círculo (r=7), para que no se toquen entre sí; 40 = alto
-  // de la cabecera del nodo, para que ni el primero ni el último se salgan de la caja.
-  return Math.min(16, 40 / Math.max(count - 1, 1));
-}
-
-// Mini-mapa de las conexiones que llegan a un paso, con la que se está por cambiar o borrar
-// resaltada y las demás atenuadas. Va en el diálogo de gestión: leer "Paso 2 · botón X → Paso 6"
-// obliga a reconstruir mentalmente el dibujo, y con varias ramas cayendo en el mismo paso es
-// justo donde es fácil borrar la equivocada. El orden de las filas es el MISMO de arriba hacia
-// abajo que el de los círculos en el lienzo.
-function EdgeTargetPreview({ steps, graph, source }: {
-  steps: SequenceStep[];
-  graph: { nodes: SeqGraphNode[]; edges: SeqGraphEdge[] };
-  source: EdgeManageSource;
-}) {
-  const targetId = graph.edges.find(e => edgeMatchesSource(e, source))?.toId;
-  const target = targetId ? steps.find(s => s.id === targetId) : null;
-  if (!targetId || !target) return null;
-
-  const incoming = incomingEdgesInVisualOrder(graph, targetId);
-  const ROW_H = 52;
-  const height = Math.max(incoming.length * ROW_H, ROW_H);
-  const targetPreview = getStepPreview(target, 22);
-  const targetIdx = steps.findIndex(s => s.id === targetId);
-
-  const rowColor = (edge: SeqGraphEdge) =>
-    edge.colorIdx !== undefined ? BRANCH_COLORS[edge.colorIdx % BRANCH_COLORS.length].hex : "currentColor";
-
-  return (
-    <div className="rounded-lg border border-border bg-secondary/20 p-2">
-      <p className="text-[9px] text-muted-foreground/70 mb-1">
-        {incoming.length > 1
-          ? `${incoming.length} caminos terminan en este mismo paso — el resaltado es el que estás tocando`
-          : "Este es el camino que estás tocando"}
-      </p>
-      <div className="flex items-center">
-        {/* Los pasos DE DONDE viene cada camino, dibujados como las tarjetas del lienzo: ver el paso
-            padre completo (y no solo su número) es lo que hace reconocible cuál se está por tocar. */}
-        <div className="flex-1 min-w-0 flex flex-col">
-          {incoming.map(({ edge, index }) => {
-            const from = steps.find(s => s.id === edge.fromId);
-            const fromIdx = steps.findIndex(s => s.id === edge.fromId);
-            const fromPreview = from ? getStepPreview(from, 20) : null;
-            const isThisOne = edgeMatchesSource(edge, source);
-            return (
-              <div key={index} className="flex items-center min-w-0" style={{ height: ROW_H }}>
-                <div
-                  className={`w-full min-w-0 rounded-md border px-2 py-1 ${
-                    isThisOne ? "border-primary bg-primary/5" : "border-border/50 bg-background/50 opacity-45"
-                  }`}
-                >
-                  <p className="text-[9px] font-semibold truncate">
-                    Paso {fromIdx + 1} · {from ? STEP_TYPE_LABELS[from.type] : "—"}
-                  </p>
-                  {fromPreview && <p className="text-[9px] text-muted-foreground/70 truncate">{fromPreview}</p>}
-                  {edge.label && (
-                    <p className="text-[9px] font-medium truncate" style={{ color: rowColor(edge) }}>
-                      botón "{edge.label}"
-                    </p>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <svg width={30} height={height} className="shrink-0">
-          {incoming.map(({ edge, index }, i) => {
-            const y = i * ROW_H + ROW_H / 2;
-            const cy = height / 2;
-            const isThisOne = edgeMatchesSource(edge, source);
-            return (
-              <path
-                key={index}
-                d={`M0,${y} C15,${y} 15,${cy} 30,${cy}`}
-                fill="none"
-                stroke={rowColor(edge)}
-                strokeWidth={isThisOne ? 2 : 1}
-                strokeOpacity={isThisOne ? 1 : 0.25}
-              />
-            );
-          })}
-        </svg>
-        <div className="shrink-0 max-w-[42%] rounded-md border border-primary/50 bg-background px-2 py-1">
-          <p className="text-[9px] font-semibold truncate">Paso {targetIdx + 1} · {STEP_TYPE_LABELS[target.type]}</p>
-          {targetPreview && <p className="text-[9px] text-muted-foreground/70 truncate">{targetPreview}</p>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// Descripción de "dónde" se está creando un paso nuevo desde el árbol — se resuelve recién
-// cuando el usuario elige el tipo en el selector, en vez de crear directo con tipo "message".
-type PendingStepCreate =
-  | { kind: "first" }
-  | { kind: "after"; afterStepId: string }
-  // optionId identifica la arista exacta cuando el origen es una pregunta — 2 botones de la misma
-  // pregunta pueden apuntar al mismo destino, y solo se debe intercalar el paso en uno de ellos.
-  | { kind: "edge"; fromId: string; toId: string; optionId?: string }
-  | { kind: "option"; questionStepId: string; optionId: string };
-
-function buildSequenceGraph(steps: SequenceStep[]): { nodes: SeqGraphNode[]; edges: SeqGraphEdge[]; maxDepth: number; maxLane: number } {
-  if (steps.length === 0) return { nodes: [], edges: [], maxDepth: 0, maxLane: 0 };
-  const byId = new Map(steps.map(s => [s.id, s]));
-
-  type Child = { id: string; label?: string; colorIdx?: number; pending?: boolean; optionId?: string };
-  const children = new Map<string, Child[]>();
-  for (const s of steps) {
-    if (s.type === "question") {
-      const labeled = (s.options ?? []).filter(o => o.label.trim());
-      const list: Child[] = labeled.map((o, oi) => {
-        if (o.next_step_id && byId.has(o.next_step_id)) {
-          return { id: o.next_step_id, label: o.label, colorIdx: oi, optionId: o.id };
-        }
-        // El id sintético del placeholder usa el id REAL del botón (no su posición) — así sigue
-        // siendo el mismo nodo aunque se borre/agregue otro botón antes en la lista.
-        return { id: `__pending__${s.id}__${o.id}`, label: o.label, colorIdx: oi, pending: true, optionId: o.id };
-      });
-      if (list.length > 0) children.set(s.id, list);
-    } else if (s.next_step_id && byId.has(s.next_step_id)) {
-      children.set(s.id, [{ id: s.next_step_id }]);
-    }
-  }
-
-  const rootId = steps[0].id;
-
-  // Profundidad por relajación (tipo Bellman-Ford, acotado): correcto incluso con reconvergencias
-  // o loops (un botón que enlaza hacia un paso anterior), sin importar el orden de visita.
-  const depth = new Map<string, number>([[rootId, 0]]);
-  for (let iter = 0; iter < steps.length + 1; iter++) {
-    let changed = false;
-    for (const [fromId, kids] of children) {
-      if (!depth.has(fromId)) continue;
-      const d = depth.get(fromId)!;
-      for (const kid of kids) {
-        const nd = d + 1;
-        if (!depth.has(kid.id) || nd > depth.get(kid.id)!) { depth.set(kid.id, nd); changed = true; }
-      }
-    }
-    if (!changed) break;
-  }
-  // Pasos nunca alcanzados (huérfanos) — no deberían existir, pero por seguridad no se ocultan.
-  for (const s of steps) if (!depth.has(s.id)) depth.set(s.id, 0);
-
-  // Carriles: árbol centrado (post-orden) — cada nodo se ubica en el promedio de los carriles de
-  // los hijos que "posee" (los que solo él enlaza), así que el primer paso y cada bifurcación
-  // quedan centrados respecto a todo lo que cuelga de ellos. Un hijo ya reclamado por otra rama
-  // (reconvergencia) NO participa en el promedio de este nodo — ni siquiera con su carril ya
-  // calculado: si contara, un padre cuyo único hijo es un nodo compartido quedaría "pegado" al
-  // carril de ese nodo (y potencialmente superpuesto con el otro padre que sí lo posee), en vez
-  // de mantener su propia posición independiente y solo dibujar una línea hacia el destino
-  // compartido. Las hojas (y los nodos sin ningún hijo PROPIO) reciben carriles consecutivos en
-  // el orden de recorrido.
-  const lane = new Map<string, number>();
-  const owned = new Set<string>([rootId]);
-  const visiting = new Set<string>();
-  let nextLeafLane = 0;
-  const computeLane = (id: string): number => {
-    if (lane.has(id)) return lane.get(id)!;
-    visiting.add(id);
-    const kids = children.get(id) ?? [];
-    const ownedLanes: number[] = [];
-    for (const kid of kids) {
-      if (visiting.has(kid.id)) continue; // enlace hacia un ancestro (loop) — no se centra sobre sí mismo
-      if (owned.has(kid.id)) continue; // ya lo posee otro padre — no mueve mi propia posición
-      owned.add(kid.id);
-      ownedLanes.push(computeLane(kid.id));
-    }
-    visiting.delete(id);
-    const myLane = ownedLanes.length > 0
-      ? ownedLanes.reduce((a, b) => a + b, 0) / ownedLanes.length
-      : nextLeafLane++;
-    lane.set(id, myLane);
-    return myLane;
-  };
-  computeLane(rootId);
-  for (const s of steps) if (!lane.has(s.id)) lane.set(s.id, nextLeafLane++);
-
-  // Aristas + conteo de entrantes (para marcar puntos de reconvergencia)
-  const edges: SeqGraphEdge[] = [];
-  const incoming = new Map<string, number>();
-  for (const [fromId, kids] of children) {
-    for (const kid of kids) {
-      edges.push({ fromId, toId: kid.id, label: kid.label, colorIdx: kid.colorIdx, optionId: kid.optionId });
-      incoming.set(kid.id, (incoming.get(kid.id) ?? 0) + 1);
-    }
-  }
-
-  const nodes: SeqGraphNode[] = steps.map(s => ({
-    id: s.id, step: s, depth: depth.get(s.id) ?? 0, lane: lane.get(s.id) ?? 0,
-    mergeCount: incoming.get(s.id) ?? 0,
-  }));
-  // Placeholders de botones sin enlazar
-  for (const [, kids] of children) {
-    for (const kid of kids) {
-      if (kid.pending && !nodes.some(n => n.id === kid.id)) {
-        nodes.push({
-          id: kid.id, step: null, depth: depth.get(kid.id) ?? 0, lane: lane.get(kid.id) ?? 0,
-          pending: true, pendingLabel: kid.label, pendingOptionId: kid.optionId, mergeCount: 0,
-        });
-      }
-    }
-  }
-
-  const maxDepth = nodes.reduce((acc, n) => Math.max(acc, n.depth), 0);
-  const maxLane = nodes.reduce((acc, n) => Math.max(acc, n.lane), 0);
-  return { nodes, edges, maxDepth, maxLane };
-}
-
-// Panel de edición de un solo paso — reemplaza el antiguo item de lista arrastrable: en el modelo
-// árbol-primero no hay reordenar por drag, así que este componente es solo el contenido del paso
-// seleccionado en el árbol (sin manija de arrastre ni menú de "mover a otra rama").
-function StepEditorPanel({
-  step, allSteps, onChange, onRemove, onDeleteOption, userId,
-}: {
-  step: SequenceStep; allSteps: SequenceStep[];
-  onChange: (s: SequenceStep) => void; onRemove: () => void; onDeleteOption: (optionId: string) => void; userId: string;
-}) {
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const stepIdx = allSteps.findIndex(s => s.id === step.id);
-
-  const isMedia = MEDIA_TYPES.has(step.type);
-
-  const handleTypeChange = (newType: SequenceStep["type"]) => {
-    const nowMedia = MEDIA_TYPES.has(newType);
-    const wasQuestion = step.type === "question";
-    const isQuestion = newType === "question";
-    let newOptions = isQuestion ? (step.options ?? []) : step.options;
-    let newNextStepId = step.next_step_id ?? null;
-    // Un paso normal navega por `next_step_id` y una Pregunta por sus botones: al cambiar de tipo
-    // hay que trasvasar la conexión de un lado al otro, o la rama que colgaba de este paso queda
-    // suelta en silencio.
-    if (isQuestion && !wasQuestion && (newOptions?.length ?? 0) === 0 && newNextStepId && allSteps.some(s => s.id === newNextStepId)) {
-      newOptions = [{ id: crypto.randomUUID(), label: "Opción 1", next_step_id: newNextStepId }];
-    }
-    if (isQuestion) newNextStepId = null; // una pregunta no usa su arista propia
-    if (!isQuestion && wasQuestion && !newNextStepId) {
-      // Al dejar de ser Pregunta se conserva el destino del primer botón enlazado (los botones no
-      // se borran: si vuelve a ser Pregunta, sus ramas siguen ahí intactas).
-      newNextStepId = (step.options ?? []).find(o => o.label.trim() && o.next_step_id && allSteps.some(s => s.id === o.next_step_id))?.next_step_id ?? null;
-    }
-    onChange({
-      ...step,
-      type: newType,
-      next_step_id: newNextStepId,
-      // No se borran los botones al salir de "Pregunta" — quedan guardados sin usarse (el resto
-      // del código solo los lee cuando type === "question") y se restauran solos si se vuelve a
-      // "Pregunta", en vez de perder las ramas ya armadas y dejar sus pasos huérfanos en el árbol.
-      options: newOptions,
-      // Mismo criterio que options: no se pierde el archivo ya subido por pasar por otro tipo
-      // de paso y volver — solo se usa cuando el tipo actual es de medios.
-      media: nowMedia ? (step.media ?? []) : step.media,
-    });
-  };
-
-  const handleFiles = async (files: FileList) => {
-    if (!userId) return;
-    setUploading(true);
-    try {
-      const added: SequenceStepMedia[] = [];
-      for (const file of Array.from(files)) {
-        // Detectar formato real leyendo magic bytes (ignora extensión renombrada)
-        const magic = await readMagicBytes(file);
-        const realMime = detectRealMime(magic);
-
-        // Si detectamos MOV (QuickTime), bloquearlo aunque la extensión diga .mp4
-        if (realMime === "video/quicktime") {
-          toast.error(
-            `"${file.name}" es un video MOV/QuickTime — WhatsApp no lo soporta aunque tenga extensión .mp4.\n\nConverti el video a MP4 verdadero (H.264) con QuickTime → Exportar como → 1080p, o usa un convertidor online.`,
-            { duration: 8000 },
-          );
-          continue;
-        }
-
-        // Usar el MIME real si lo detectamos; si no, confiar en file.type pero normalizarlo
-        const effectiveMime = realMime ?? file.type;
-        // Normalizar variantes de M4A → audio/mp4 (es lo que WhatsApp acepta)
-        const normalizedMime = (effectiveMime === "audio/x-m4a" || effectiveMime === "audio/m4a")
-          ? "audio/mp4"
-          : effectiveMime;
-
-        const validMimes = WA_VALID_MIME[step.type];
-        if (validMimes && normalizedMime && !validMimes.has(normalizedMime)) {
-          toast.error(
-            `Formato no compatible con WhatsApp: "${file.name}" (${normalizedMime})\nUsa: ${WA_FORMAT_HINT[step.type]}`,
-            { duration: 6000 },
-          );
-          continue;
-        }
-
-        const safeName = file.name.replace(/\s+/g, "_").replace(/[^a-zA-Z0-9._\-]/g, "_");
-        const path = `wa-sequences/${userId}/${step.id}/${Date.now()}_${safeName}`;
-        const { error } = await supabase.storage.from("form-uploads").upload(path, file, { contentType: normalizedMime || file.type, upsert: true });
-        if (error) { toast.error(`Error al subir ${file.name}: ${error.message}`); continue; }
-        const { data: { publicUrl } } = supabase.storage.from("form-uploads").getPublicUrl(path);
-        added.push({ url: publicUrl, name: file.name, mime_type: normalizedMime || file.type });
-      }
-      // Reemplazar (no acumular): WhatsApp solo envía 1 archivo por mensaje
-      if (added.length) onChange({ ...step, media: added });
-    } finally { setUploading(false); }
-  };
-
-  const setOption = (i: number, patch: Partial<SequenceStepOption>) => {
-    const opts = [...(step.options ?? [])];
-    opts[i] = { ...opts[i], ...patch };
-    onChange({ ...step, options: opts });
-  };
-
-  // "Sin enlazar" incluye next_step_id null y next_step_id colgante (apunta a un paso ya borrado).
-  const hasUnlinkedOption = step.type === "question" && (step.options ?? []).some(o => o.label.trim() && (!o.next_step_id || !allSteps.some(s => s.id === o.next_step_id)));
-
-  return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center gap-2 py-2 px-3 border-b border-border/60">
-        <span className="text-[11px] font-medium text-muted-foreground shrink-0">Paso {stepIdx + 1}</span>
-        <select
-          value={step.type}
-          onChange={e => handleTypeChange(e.target.value as SequenceStep["type"])}
-          className="ml-1 h-6 px-1.5 text-base md:text-[10px] rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-primary/30"
-        >
-          {STEP_TYPE_ORDER.map(t => (
-            <option key={t} value={t}>{STEP_TYPE_LABELS[t]}</option>
-          ))}
-        </select>
-        {hasUnlinkedOption && (
-          <span title="Hay un botón que todavía no lleva a ningún paso" className="ml-auto w-2 h-2 rounded-full bg-amber-500 shrink-0" />
-        )}
-        <button onClick={onRemove} className={`${hasUnlinkedOption ? "" : "ml-auto"} p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors`}>
-          <Trash2 size={12} />
-        </button>
-      </div>
-
-      {/* Body */}
-      <div className="p-3 space-y-2">
-        {/* Texto del mensaje */}
-        {step.type === "message" && (
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-medium text-muted-foreground">Mensaje</label>
-            <textarea
-              value={step.text ?? ""}
-              onChange={e => onChange({ ...step, text: e.target.value })}
-              placeholder="Texto del mensaje…"
-              rows={2}
-              className="w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-            />
-            <div
-              role="switch"
-              aria-checked={!!step.ai_enhance}
-              onClick={() => onChange({ ...step, ai_enhance: !step.ai_enhance })}
-              className="flex items-center gap-2 cursor-pointer select-none w-fit group"
-            >
-              <div className={`relative w-8 h-4 rounded-full border transition-colors shrink-0 ${step.ai_enhance ? "bg-primary border-primary" : "bg-muted border-border"}`}>
-                <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform duration-150 ${step.ai_enhance ? "translate-x-4" : "translate-x-0"}`} />
-              </div>
-              <span className={`flex items-center gap-1 text-[10px] transition-colors ${step.ai_enhance ? "text-primary font-medium" : "text-muted-foreground/60"}`}>
-                <Sparkles size={9} />
-                IA personaliza al enviar
-              </span>
-            </div>
-            {step.ai_enhance && (
-              <p className="text-[9px] text-muted-foreground/70 leading-relaxed ml-10">
-                La IA adapta el texto según el contexto de la conversación antes de enviarlo.
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* Texto de la pregunta (sin toggle IA — el texto es estructural para el routing) */}
-        {step.type === "question" && (
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-medium text-muted-foreground">Pregunta</label>
-            <textarea
-              value={step.text ?? ""}
-              onChange={e => onChange({ ...step, text: e.target.value })}
-              placeholder="Texto de la pregunta…"
-              rows={2}
-              className="w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-            />
-          </div>
-        )}
-
-        {/* Opciones para pregunta */}
-        {step.type === "question" && (
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-medium text-muted-foreground">Botones</label>
-            {(step.options ?? []).map((opt, i) => {
-              // Mismo índice de color que usa el árbol (BRANCH_COLORS por posición entre las
-              // opciones CON texto) — así el color de cada fila coincide con el de su rama en el lienzo.
-              const labeledBefore = (step.options ?? []).slice(0, i).filter(o => o.label.trim()).length;
-              const branchColor = opt.label.trim() ? BRANCH_COLORS[labeledBefore % BRANCH_COLORS.length] : null;
-              return (
-              <div key={opt.id} className={`rounded-lg border p-2 space-y-1.5 ${branchColor ? `${branchColor.border} ${branchColor.bg}` : "border-border/50 bg-secondary/20"}`}>
-                <label className={`text-[10px] font-medium ${branchColor ? branchColor.text : "text-muted-foreground/70"}`}>Opción {i + 1}</label>
-                {/* Fila 1: número + input + contador + eliminar */}
-                <div className="flex items-center gap-1.5">
-                  <span className={`text-[10px] w-4 shrink-0 font-medium ${branchColor ? branchColor.text : "text-muted-foreground/70"}`}>{i + 1}.</span>
-                  <input
-                    value={opt.label}
-                    onChange={e => setOption(i, { label: e.target.value.slice(0, 20) })}
-                    maxLength={20}
-                    placeholder={`Texto del botón ${i + 1}`}
-                    className="flex-1 h-7 px-2 text-base md:text-xs rounded-md border border-input bg-background focus:outline-none focus:ring-1 focus:ring-primary/20 min-w-0"
-                  />
-                  <span className={`text-[10px] tabular-nums shrink-0 ${opt.label.length >= 18 ? "text-amber-500" : "text-muted-foreground/65"}`}>
-                    {opt.label.length}/20
-                  </span>
-                  <button onClick={() => onDeleteOption(opt.id)}
-                    className="p-0.5 text-muted-foreground/65 hover:text-destructive shrink-0">
-                    <X size={11} />
-                  </button>
-                </div>
-                {/* Destino — de solo lectura: el enlace se arma desde el árbol (clic en el placeholder
-                    pendiente o arrastrando la conexión), no desde este editor */}
-                <div className="flex items-center gap-1.5 pl-5">
-                  {(() => {
-                    if (!opt.next_step_id || !allSteps.some(s => s.id === opt.next_step_id)) {
-                      return (
-                        <span className="text-[10px] text-amber-600 dark:text-amber-400 flex items-center gap-1">
-                          ⚠ Falta decir a dónde lleva — conéctala arriba
-                        </span>
-                      );
-                    }
-                    const target = allSteps.find(s => s.id === opt.next_step_id);
-                    const targetIdx = target ? allSteps.indexOf(target) : -1;
-                    const preview = target && (
-                      (target.type === "question" || target.type === "message") ? target.text?.trim().slice(0, 24)
-                      : target.type === "link" ? target.link_url?.slice(0, 24)
-                      : target.media?.[0]?.name?.slice(0, 20) ?? null
-                    );
-                    return (
-                      <span className="text-[10px] text-muted-foreground flex items-center gap-1 truncate">
-                        <ChevronRight size={10} className="shrink-0" />
-                        {target ? `Paso ${targetIdx + 1} · ${STEP_TYPE_LABELS[target.type]}${preview ? `: ${preview}` : ""}` : "Paso eliminado"}
-                      </span>
-                    );
-                  })()}
-                </div>
-              </div>
-              );
-            })}
-            {(step.options?.length ?? 0) === 0 && (
-              <p className="text-[10px] text-muted-foreground/50 italic">Sin botones todavía — agrégalos con el "+" amarillo de esta pregunta, arriba.</p>
-            )}
-            <p className="text-[10px] text-muted-foreground/65">Botones interactivos · máx. 3 · 20 caracteres c/u</p>
-          </div>
-        )}
-
-        {/* Link con botón CTA */}
-        {step.type === LINK_TYPE && (
-          <div className="space-y-1.5">
-            <label className="text-[10px] font-medium text-muted-foreground">URL del link</label>
-            <input
-              value={step.link_url ?? ""}
-              onChange={e => onChange({ ...step, link_url: e.target.value })}
-              placeholder="https://ejemplo.com"
-              type="url"
-              className="w-full h-7 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-            />
-            <label className="text-[10px] font-medium text-muted-foreground">Texto del botón (CTA)</label>
-            <div className="flex items-center gap-2">
-              <input
-                value={step.link_label ?? ""}
-                onChange={e => onChange({ ...step, link_label: e.target.value.slice(0, 20) })}
-                maxLength={20}
-                placeholder="Texto del botón"
-                className="flex-1 h-7 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 min-w-0"
-              />
-              <span className={`text-[10px] tabular-nums shrink-0 ${(step.link_label?.length ?? 0) >= 18 ? "text-amber-500" : "text-muted-foreground/65"}`}>
-                {step.link_label?.length ?? 0}/20
-              </span>
-            </div>
-            <p className="text-[10px] text-muted-foreground/65">Botón CTA WhatsApp · el receptor lo toca y abre el link</p>
-          </div>
-        )}
-
-        {/* Media: imagen / video / audio / archivo */}
-        {isMedia && (
-          <>
-            {/* Lista de archivos subidos */}
-            {(step.media ?? []).length > 0 && (
-              <div className="space-y-1">
-                {(step.media ?? []).map((m, i) => (
-                  <div key={i} className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg border border-border/60 bg-secondary/30">
-                    <Paperclip size={11} className="text-muted-foreground/70 shrink-0" />
-                    <span className="flex-1 text-xs truncate text-muted-foreground">{m.name}</span>
-                    <button onClick={() => onChange({ ...step, media: (step.media ?? []).filter((_, j) => j !== i) })}
-                      className="p-0.5 text-muted-foreground/65 hover:text-destructive shrink-0">
-                      <X size={11} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            {/* Botón subir */}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={STEP_ACCEPT[step.type] ?? "*"}
-              className="hidden"
-              onChange={e => { if (e.target.files?.length) handleFiles(e.target.files); e.target.value = ""; }}
-            />
-            <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="flex items-center justify-center gap-1.5 w-full h-8 rounded-lg border border-dashed border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors disabled:opacity-50"
-            >
-              {uploading ? <Loader2 size={11} className="animate-spin" /> : <Upload size={11} />}
-              {uploading ? "Subiendo…" : `+ Agregar ${STEP_TYPE_LABELS[step.type].toLowerCase()}`}
-            </button>
-            {WA_FORMAT_HINT[step.type] && (
-              <p className="text-[10px] text-center text-muted-foreground/70">
-                WhatsApp: {WA_FORMAT_HINT[step.type]}
-              </p>
-            )}
-            {/* Caption opcional (no aplica para audio) */}
-            {step.type !== "audio" && (
-              <div className="space-y-1.5">
-                <label className="text-[10px] font-medium text-muted-foreground">Caption (opcional)</label>
-                <Textarea
-                  value={step.text ?? ""}
-                  onChange={e => onChange({ ...step, text: e.target.value })}
-                  placeholder="Caption / texto acompañante (opcional)"
-                  rows={2}
-                  className="w-full min-h-0 px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
-                />
-                {step.text?.trim() && (
-                  <div
-                    role="switch"
-                    aria-checked={!!step.ai_enhance}
-                    onClick={() => onChange({ ...step, ai_enhance: !step.ai_enhance })}
-                    className="flex items-center gap-2 cursor-pointer select-none w-fit"
-                  >
-                    <div className={`relative w-8 h-4 rounded-full border transition-colors shrink-0 ${step.ai_enhance ? "bg-primary border-primary" : "bg-muted border-border"}`}>
-                      <span className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-transform duration-150 ${step.ai_enhance ? "translate-x-4" : "translate-x-0"}`} />
-                    </div>
-                    <span className={`flex items-center gap-1 text-[10px] transition-colors ${step.ai_enhance ? "text-primary font-medium" : "text-muted-foreground/60"}`}>
-                      <Sparkles size={9} />
-                      IA personaliza al enviar
-                    </span>
-                  </div>
-                )}
-              </div>
-            )}
-          </>
-        )}
-
-      </div>
-    </div>
-  );
-}
-
 // ─── Settings Panel (slide-over) ──────────────────────────────────────────────
 const LABEL_COLORS = [
   "#6366f1","#8b5cf6","#ec4899","#ef4444","#f97316",
@@ -2004,7 +1102,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const upsertQuickReply            = useUpsertQuickReply();
   const deleteQuickReply            = useDeleteQuickReply();
   const { data: sequences = [] } = useWaSequences();
-  const upsertSequence           = useUpsertWaSequence();
   const deleteSequence           = useDeleteWaSequence();
   const { data: flows = [] }       = useWaFlows();
   const upsertFlow                 = useUpsertWaFlow();
@@ -2015,6 +1112,10 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [pendingDeleteFlowId, setPendingDeleteFlowId] = useState<string | null>(null);
   const [deletingFlow, setDeletingFlow]               = useState(false);
   const [pendingDeleteSeqId, setPendingDeleteSeqId]   = useState<string | null>(null);
+  // Para avisar si la secuencia que se va a borrar la usa algún seguimiento.
+  const { data: automations = [] } = useWaAutomations();
+  // Ver la secuencia sin abrir el editor — mismo lienzo, sin nada que tocar.
+  const [viewingSeq, setViewingSeq] = useState<CrmWaSequence | null>(null);
   const [deletingSeq, setDeletingSeq]                 = useState(false);
   // Wizard unificado de Flujos: null = lista; 1|2|3 = paso del wizard abierto
   const [flowWizardStep, setFlowWizardStep] = useState<1 | 2 | 3 | null>(null);
@@ -2068,7 +1169,10 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   // null = paso 2 muestra la lista de secuencias; no-null = paso 2 muestra el editor de una secuencia.
   // assignTo = qué hacer al publicarla: "global" la asigna como la secuencia del flujo, "country"
   // abre su grilla de países para asignársela a alguno, null es solo editarla.
-  const [seqEditorOpen, setSeqEditorOpen] = useState<{ assignTo: "global" | "country" | null } | null>(null);
+  const [seqEditorOpen, setSeqEditorOpen] = useState<{
+    assignTo: "global" | "country" | null;
+    initial: DraftSequence;
+  } | null>(null);
   const [savingFlowStep, setSavingFlowStep] = useState(false);
 
   const handleDeleteFlow = async () => {
@@ -2089,19 +1193,9 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     const seq = sequences.find(s => s.id === pendingDeleteSeqId);
     setDeletingSeq(true);
     try {
-      // `crm_wa_flows.sequence_id` tiene FK ON DELETE SET NULL, pero `country_sequences` es JSONB y
-      // no la tiene: sin esta limpieza quedan flujos apuntando a una secuencia que ya no existe, y
-      // el runtime deja de responder a los contactos de ese país sin ningún aviso.
-      const affected = flows.filter(f => (f.country_sequences ?? []).some(cs => cs.sequence_id === pendingDeleteSeqId));
-      for (const f of affected) {
-        await upsertFlow.mutateAsync({
-          id: f.id, name: f.name, trigger_text: f.trigger_text, sequence_id: f.sequence_id,
-          final_action: f.final_action, is_active: f.is_active, trigger_once: f.trigger_once ?? true,
-          flow_trigger_type: (f.flow_trigger_type === "new_conversation" ? "new_conversation" : "intent"),
-          country_sequences: (f.country_sequences ?? []).filter(cs => cs.sequence_id !== pendingDeleteSeqId),
-          status: f.status ?? "published", draft_step: f.draft_step ?? 3,
-        });
-      }
+      // La limpieza de las referencias en `country_sequences` (JSONB, sin FK) vive
+      // dentro de useDeleteWaSequence: se borra también desde Seguimiento y Envíos
+      // y tenía que pasar lo mismo mires desde donde mires.
       await deleteSequence.mutateAsync(pendingDeleteSeqId);
       // Si la secuencia eliminada estaba asignada en el flujo que se está editando ahora mismo, se limpia la referencia.
       setEditingFlow(f => f && f.sequence_id === pendingDeleteSeqId ? { ...f, sequence_id: null } : f);
@@ -2112,59 +1206,15 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     finally { setDeletingSeq(false); }
   };
 
-  const openSeqEditor = (assignTo: "global" | "country" | null, existing?: DraftSequence) => {
-    setEditingSeq(existing
-      ? { ...existing, steps: normalizeSequenceSteps(existing.steps) }
-      : { name: "", steps: [], status: "draft" });
-    setTreeSelectedStepId(null);
-    setPickingTarget(null);
-    autosaveSnapshot.current = null; // se rellena en el primer render: abrir no debe disparar un guardado
-    autosavePending.current = false;
-    setDraftSaveState("idle");
-    setSeqEditorOpen({ assignTo });
+  const openSeqEditor = (assignTo: "global" | "country" | null, existing?: CrmWaSequence) => {
+    setSeqEditorOpen({
+      assignTo,
+      initial: existing ? toDraftSequence(existing) : { name: "", steps: [], status: "draft" },
+    });
   };
 
-  const closeSeqEditor = () => {
-    setSeqEditorOpen(null);
-    setEditingSeq(null);
-    setPickingTarget(null); // el modo conexión no debe sobrevivir a cerrar el editor
-    autosaveSnapshot.current = null;
-    autosavePending.current = false;
-    setDraftSaveState("idle");
-  };
+  const closeSeqEditor = () => setSeqEditorOpen(null);
 
-
-  const handleSaveSequence = async () => {
-    if (!editingSeq || !editingSeq.name.trim()) { toast.error("Ponle un nombre a la secuencia"); return; }
-    if (sequenceIssues.length > 0) {
-      toast.error(
-        sequenceIssues.length === 1
-          ? `Falta conectar una respuesta: ${sequenceIssues[0].text}`
-          : `Faltan ${sequenceIssues.length} respuestas por conectar:\n${sequenceIssues.map(i => `· ${i.text}`).join("\n")}`,
-        { duration: 6000 },
-      );
-      return;
-    }
-    setSavingFlowStep(true);
-    try {
-      // Publicar: recién acá el borrador pasa a ser la versión que corre en las conversaciones.
-      const saved = await upsertSequence.mutateAsync({
-        id: editingSeq.id, name: editingSeq.name,
-        steps: editingSeq.steps, draft_steps: null, status: "published",
-      });
-      if (seqEditorOpen?.assignTo === "global") {
-        setEditingFlow(f => f ? { ...f, sequence_id: saved.id } : f);
-      } else if (seqEditorOpen?.assignTo === "country") {
-        // Se abre su grilla de países: acabar de crearla y no ver dónde asignarla dejaba el
-        // trabajo a medias, sin ninguna pista de cuál era el paso siguiente.
-        setExpandedCountrySeqId(saved.id);
-      }
-      toast.success(editingSeq.status === "published" ? "Secuencia actualizada" : "Secuencia publicada");
-      closeSeqEditor();
-    } catch (e: any) {
-      toast.error(e?.message?.slice(0, 120) ?? "Error al guardar la secuencia");
-    } finally { setSavingFlowStep(false); }
-  };
 
   const startNewFlow = () => {
     setTriggerValidation(null);
@@ -2173,7 +1223,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setCountryRows([]);
     setExpandedCountrySeqId(null);
     setSeqEditorOpen(null);
-    setEditingSeq(null);
     setFlowWizardStep(1);
   };
 
@@ -2191,7 +1240,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setCountryRows(groupCountrySequences(flow.country_sequences ?? []));
     setExpandedCountrySeqId(null);
     setSeqEditorOpen(null);
-    setEditingSeq(null);
     setFlowWizardStep(flow.status === "draft" ? ((flow.draft_step as 1 | 2 | 3) || 1) : 1);
   };
 
@@ -2199,7 +1247,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setFlowWizardStep(null);
     setEditingFlow(null);
     setSeqEditorOpen(null);
-    setEditingSeq(null);
   };
 
   const handleFlowStep1Continue = async () => {
@@ -2293,56 +1340,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const { data: allProducts = [] } = useProducts();
   const { data: allServices = [] } = useServices();
   const { data: allCourses  = [] } = useCourses();
-  const [editingSeq, setEditingSeq] = useState<DraftSequence | null>(null);
-  // Autoguardado del borrador: la instantánea es lo último que quedó guardado (o lo que había al
-  // abrir), para no reescribir en la base cada vez que el componente se vuelve a renderizar.
-  const autosaveSnapshot = useRef<string | null>(null);
-  const autosaveInFlight = useRef(false);
-  // Un cambio hecho MIENTRAS se está guardando se anota acá: sin esto se perdía hasta la siguiente
-  // edición (el guardado en curso marcaba como guardada una instantánea ya vieja y el efecto no se
-  // volvía a disparar solo). El tick fuerza esa nueva vuelta.
-  const autosavePending = useRef(false);
-  const [autosaveTick, setAutosaveTick] = useState(0);
-  const [draftSaveState, setDraftSaveState] = useState<"idle" | "saving" | "saved">("idle");
-
-  // Autoguardado en borrador: cada cambio del editor se persiste solo, con un respiro de 1,2 s para
-  // no escribir en cada tecla. Escribe SIEMPRE en `draft_steps`, nunca en `steps` — así una secuencia
-  // que un flujo activo ya está usando sigue corriendo su versión publicada mientras se la edita, y
-  // el trabajo a medio hacer (con botones sin conectar incluidos) nunca llega a un cliente real.
-  useEffect(() => {
-    if (!seqEditorOpen || !editingSeq) return;
-    const snapshot = JSON.stringify({ name: editingSeq.name, steps: editingSeq.steps });
-    if (autosaveSnapshot.current === null) { autosaveSnapshot.current = snapshot; return; }
-    if (autosaveSnapshot.current === snapshot) return;
-    // Todavía no hay nada que valga la pena guardar (secuencia recién abierta y vacía).
-    if (!editingSeq.name.trim() && editingSeq.steps.length === 0) return;
-
-    const timer = setTimeout(async () => {
-      // Dos guardados en paralelo sin id crearían DOS secuencias, y con id podrían llegar fuera de
-      // orden: se deja pasar solo uno por vez y el que quedó afuera se reintenta al terminar.
-      if (autosaveInFlight.current) { autosavePending.current = true; return; }
-      autosaveInFlight.current = true;
-      setDraftSaveState("saving");
-      try {
-        const saved = await upsertSequence.mutateAsync({
-          id: editingSeq.id,
-          name: editingSeq.name.trim() || "Secuencia sin nombre",
-          draft_steps: editingSeq.steps,
-          // Una secuencia nueva nace como borrador: no debe poder asignarse a un flujo hasta publicarse.
-          ...(editingSeq.id ? {} : { status: "draft" as const }),
-        });
-        autosaveSnapshot.current = snapshot;
-        if (!editingSeq.id) setEditingSeq(seq => seq ? { ...seq, id: saved.id, status: saved.status } : seq);
-        setDraftSaveState("saved");
-      } catch {
-        setDraftSaveState("idle"); // se reintenta con el próximo cambio
-      } finally {
-        autosaveInFlight.current = false;
-        if (autosavePending.current) { autosavePending.current = false; setAutosaveTick(t => t + 1); }
-      }
-    }, 1200);
-    return () => clearTimeout(timer);
-  }, [editingSeq, seqEditorOpen, autosaveTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const { data: catalogs = [] } = useCatalogs();
   const { data: catalogProductsMap = new Map() } = useCatalogProductsMap();
   const { data: calendars = [] } = useCalendars();
@@ -2408,7 +1405,9 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
   const [improvingHintEdit, setImprovingHintEdit]     = useState(false);
   const [improvingRemoveNew, setImprovingRemoveNew]   = useState(false);
   const [improvingRemoveEdit, setImprovingRemoveEdit] = useState(false);
-  const [section, setSection]             = useState<"conexion"|"agente"|"perfil"|"etiquetas"|"respuestas"|"flujos"|"plantillas"|"campanias">("conexion");
+  // "perfil" y "plantillas" son sub-secciones ocultas: no aparecen en SECTIONS,
+  // se entra a ellas desde dentro de otra sección y el back devuelve al padre.
+  const [section, setSection]             = useState<"conexion"|"agente"|"perfil"|"etiquetas"|"respuestas"|"flujos"|"seguimiento"|"plantillas">("conexion");
   const [mobileShowSection, setMobileShowSection] = useState(false);
   const initialized                       = useRef(false);
   // Evita que los toggles animen "encendiéndose" al cargar la config guardada — la transición
@@ -2424,398 +1423,6 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     spCoursesMode: "none", spSelectedCourseIds: [] as string[], agentPersonalitySP: "",
     responseLengthSP: "normal", emojiLevelSP: "poco", doUpsell: false, applyDiscounts: true,
   }));
-
-  // Una rama = una arista saliente de una pregunta, es decir un botón con texto. `targetId` null
-  // significa que ese botón todavía no tiene destino (se dibuja como el recuadro "+ crear paso").
-  // Todo por id: ni índices del arreglo ni el texto del botón (dos botones pueden repetirlo).
-  const activeBranches = useMemo(() => {
-    type Branch = { label: string; questionId: string; optionId: string; targetId: string | null };
-    if (!editingSeq) return [] as Branch[];
-    const ids = new Set(editingSeq.steps.map(s => s.id));
-    const result: Branch[] = [];
-    for (const s of editingSeq.steps) {
-      if (s.type !== "question") continue;
-      for (const o of s.options ?? []) {
-        if (!o.label.trim()) continue;
-        result.push({
-          label: o.label,
-          questionId: s.id,
-          optionId: o.id,
-          // Una referencia colgante (a un paso ya borrado) cuenta como "sin destino": mejor
-          // mostrarla como rama pendiente que como un callejón sin salida invisible.
-          targetId: o.next_step_id && ids.has(o.next_step_id) ? o.next_step_id : null,
-        });
-      }
-    }
-    return result;
-  }, [editingSeq]);
-
-  // Salidas de una pregunta que no llevan a ningún paso. En WhatsApp esto le deja al contacto un
-  // botón que, al tocarlo, no responde nada y corta la conversación en seco — así que bloquean el
-  // guardado en vez de publicarse rotas. Cada issue apunta al botón exacto para poder resolverlo
-  // de un toque desde el aviso.
-  const sequenceIssues = useMemo(() => {
-    if (!editingSeq) return [] as { questionId: string; optionId?: string; text: string }[];
-    const stepNumber = new Map(editingSeq.steps.map((s, i) => [s.id, i + 1]));
-    const issues: { questionId: string; optionId?: string; text: string }[] = [];
-    for (const s of editingSeq.steps) {
-      if (s.type !== "question") continue;
-      const branches = activeBranches.filter(b => b.questionId === s.id);
-      if (branches.length === 0) {
-        // Sin ningún botón con texto la pregunta no tiene salidas: el contacto responde y no pasa nada.
-        issues.push({ questionId: s.id, text: `Paso ${stepNumber.get(s.id)} · la pregunta no tiene botones` });
-        continue;
-      }
-      for (const b of branches) {
-        if (!b.targetId) {
-          issues.push({ questionId: s.id, optionId: b.optionId, text: `Paso ${stepNumber.get(s.id)} · botón "${b.label}" sin respuesta` });
-        }
-      }
-    }
-    return issues;
-  }, [editingSeq, activeBranches]);
-
-  // Paso seleccionado en el árbol — su editor se muestra debajo (modelo árbol-primero: ya no
-  // hay lista lineal con drag-and-drop, el árbol ES el lienzo principal).
-  const [treeSelectedStepId, setTreeSelectedStepId] = useState<string | null>(null);
-  const flashStep = (id: string) => setTreeSelectedStepId(id);
-
-  // Qué paso se está creando desde el árbol — se resuelve al elegir el tipo en el selector
-  // (ver <PendingStepCreate>), en vez de crear directo con tipo "message" por defecto.
-  const [pendingStepCreate, setPendingStepCreate] = useState<PendingStepCreate | null>(null);
-  // Punto del árbol desde el que se puede crear un paso NUEVO o CONECTAR a uno ya existente
-  // (comparte un nodo resultado con otra rama, sin duplicar contenido) — tocar un botón
-  // pendiente, o el "+" de continuar tras un nodo hoja, abren el mismo flujo de elección.
-  type ConnectFlowSource =
-    | { kind: "option"; questionStepId: string; optionId: string }
-    | { kind: "after"; afterStepId: string };
-  const [pendingConnectFlow, setPendingConnectFlow] = useState<ConnectFlowSource | null>(null);
-  // Conexión YA existente que se tocó (el círculo al final de la línea) — igual que
-  // pendingConnectFlow pero para gestionar un enlace que ya tiene destino: cambiarlo o quitarlo.
-  // Se toca en vez de arrastrar — más simple y funciona igual en mobile.
-  const [pendingEdgeManage, setPendingEdgeManage] = useState<EdgeManageSource | null>(null);
-  // "Modo conexión": elegir el paso destino tocándolo DIRECTO EN EL LIENZO en vez de buscarlo en
-  // una lista. Mientras está activo, el árbol resalta con un halo los pasos a los que sí se puede
-  // conectar, atenúa el resto y desactiva el resto de acciones — conectar es una operación
-  // espacial ("de acá hasta allá"), y verla sobre el mismo dibujo evita tener que traducir
-  // mentalmente entre "Paso 6" de una lista y el nodo del árbol.
-  // currentTargetId: destino actual al cambiar una conexión ya existente (no se ofrece de nuevo).
-  const [pickingTarget, setPickingTarget] = useState<{ source: EdgeManageSource; currentTargetId: string | null } | null>(null);
-  // Paso a eliminar cuando tiene contenido en el árbol que depende solo de él (una rama entera,
-  // o lo que sigue después de la cabeza de una rama) — se pide elegir entre borrar todo o
-  // unificar (borrar solo este paso y conectar directo lo anterior con lo siguiente).
-  // unifySuccessorId: string | null = unificar disponible, conecta a ese id (o a nada si null);
-  // undefined = unificar no está disponible (el paso tiene 2+ ramas reales, sin un único "siguiente").
-  const [pendingDeleteStep, setPendingDeleteStep] = useState<{
-    id: string; cascadeIds: string[]; unifySuccessorId: string | null | undefined;
-    branchOptions?: { label: string; successorId: string; discardedIds: string[] }[];
-  } | null>(null);
-  // Botón a eliminar cuando tiene un paso enlazado que depende solo de él.
-  const [pendingDeleteOption, setPendingDeleteOption] = useState<{ questionId: string; optionId: string; orphanIds: string[] } | null>(null);
-
-  // Crea un paso nuevo y lo enlaza al toque a un botón de pregunta que todavía no tiene
-  // destino — evita el ida-y-vuelta de crear el paso abajo y luego volver a la pregunta
-  // para enlazarlo.
-  const createLinkedStepForOption = (questionStepId: string, optionId: string, type: SequenceStep["type"]) => {
-    const inserted = newStep(type);
-    setEditingSeq(seq => seq ? {
-      ...seq,
-      // Se agrega al final (el arreglo nunca se reordena) y se enlaza por el id propio del botón,
-      // nunca por texto ni posición: 2 botones de una misma pregunta pueden tener el mismo texto.
-      steps: stepsWithRewiredOption([...seq.steps, inserted], questionStepId, optionId, inserted.id),
-    } : seq);
-    flashStep(inserted.id);
-  };
-
-  // Primer paso de una secuencia vacía — dispara el prompt inicial cuando aún no hay árbol.
-  const createFirstStep = (type: SequenceStep["type"]) => {
-    const inserted = newStep(type);
-    setEditingSeq(s => s ? { ...s, steps: [inserted] } : s);
-    flashStep(inserted.id);
-  };
-
-  // Agrega un paso a continuación de uno existente (nodo "hoja" del árbol, sin hijos aún): nodo
-  // nuevo al final del arreglo + arista explícita desde `afterStepId` hacia él. Nada más se toca,
-  // así que ningún otro paso cambia de número ni de conexiones.
-  const insertStepAfter = (afterStepId: string, type: SequenceStep["type"]) => {
-    const inserted = newStep(type);
-    setEditingSeq(seq => seq ? {
-      ...seq,
-      steps: [...seq.steps, inserted].map(s => s.id === afterStepId ? { ...s, next_step_id: inserted.id } : s),
-    } : seq);
-    flashStep(inserted.id);
-  };
-
-  // Aplica (crea, cambia o quita) el destino de una conexión manejable — un solo lugar usado
-  // tanto para enlazarla la primera vez (desde un botón pendiente o un paso hoja) como para
-  // cambiarla o quitarla después (tocando el círculo al final de la línea ya existente). Fijar
-  // el enlace de un paso normal (`kind: "step"`) no inserta ningún nodo de más: el paso que ya
-  // llevaba a `afterStepId`/`stepId` sigue enlazado exactamente igual, esto solo agrega o mueve
-  // la conexión saliente de este paso puntual — puede terminar con 2+ padres en el destino.
-  const applyEdgeTarget = (source: EdgeManageSource, newTargetId: string | null) => {
-    setEditingSeq(seq => seq ? { ...seq, steps: stepsWithEdgeTarget(seq.steps, source, newTargetId) } : seq);
-    if (newTargetId) flashStep(source.kind === "option" ? source.questionId : source.stepId);
-  };
-
-  // Ids que quedarían sin conexión si se cambia o quita esta conexión — mismo criterio de "rama
-  // suelta" que ya usan el borrado de pasos y de botones.
-  const computeEdgeChangeOrphans = (source: EdgeManageSource, newTargetId: string | null): string[] => {
-    if (!editingSeq) return [];
-    const before = getReachableStepIds(editingSeq.steps);
-    const after = getReachableStepIds(stepsWithEdgeTarget(editingSeq.steps, source, newTargetId));
-    return [...before].filter(id => !after.has(id));
-  };
-
-  // Describe "de cuál conexión estamos hablando" en texto plano — imprescindible cuando 2+ ramas
-  // comparten un nodo resultado, para no depender de adivinar cuál círculo es cuál en el lienzo.
-  const describeEdgeSource = (source: EdgeManageSource): { text: string; currentTargetId: string | null } | null => {
-    if (!editingSeq) return null;
-    const fromStepId = source.kind === "option" ? source.questionId : source.stepId;
-    const fromStep = editingSeq.steps.find(s => s.id === fromStepId);
-    if (!fromStep) return null;
-    const fromIdx = editingSeq.steps.indexOf(fromStep);
-    const fromPreview = getStepPreview(fromStep, 26);
-    const option = source.kind === "option" ? fromStep.options?.find(o => o.id === source.optionId) : null;
-    const currentTargetId = source.kind === "option" ? (option?.next_step_id ?? null) : (fromStep.next_step_id ?? null);
-    const toStep = currentTargetId ? editingSeq.steps.find(s => s.id === currentTargetId) : null;
-    const toIdx = toStep ? editingSeq.steps.indexOf(toStep) : -1;
-    const toPreview = toStep ? getStepPreview(toStep, 26) : null;
-    const fromLabel = `Paso ${fromIdx + 1}${option ? ` · botón "${option.label}"` : ""} (${STEP_TYPE_LABELS[fromStep.type]}${fromPreview ? `: ${fromPreview}` : ""})`;
-    const toLabel = toStep ? `Paso ${toIdx + 1} (${STEP_TYPE_LABELS[toStep.type]}${toPreview ? `: ${toPreview}` : ""})` : "todavía sin conectar";
-    return { text: `${fromLabel} → ${toLabel}`, currentTargetId };
-  };
-
-  // Intercala un paso nuevo en medio de una conexión ya existente (el "+" sobre la línea): el
-  // nodo nuevo se agrega al final del arreglo, la arista `from → to` pasa a apuntarle, y él toma
-  // `to` como destino. Si el paso intercalado es una Pregunta no puede heredar `to` por su arista
-  // propia (una pregunta navega por botones), así que nace con un botón que va a `to` — si no, todo
-  // lo que colgaba de esa conexión quedaría suelto.
-  const insertStepOnEdge = (fromId: string, toId: string, optionId: string | undefined, type: SequenceStep["type"]) => {
-    const base = newStep(type);
-    const inserted: SequenceStep = type === "question"
-      ? { ...base, options: [{ id: crypto.randomUUID(), label: "Opción 1", next_step_id: toId }] }
-      : { ...base, next_step_id: toId };
-    setEditingSeq(seq => {
-      if (!seq) return seq;
-      if (!seq.steps.some(s => s.id === toId)) return seq;
-      const steps = [...seq.steps, inserted];
-      return {
-        ...seq,
-        steps: optionId
-          ? stepsWithRewiredOption(steps, fromId, optionId, inserted.id)
-          : steps.map(st => st.id === fromId && st.next_step_id === toId ? { ...st, next_step_id: inserted.id } : st),
-      };
-    });
-    flashStep(inserted.id);
-  };
-
-  // Resuelve la creación pendiente una vez el usuario elige el tipo de paso en el selector.
-  const resolvePendingStepCreate = (type: SequenceStep["type"]) => {
-    const pending = pendingStepCreate;
-    if (!pending) return;
-    setPendingStepCreate(null);
-    if (pending.kind === "first") createFirstStep(type);
-    else if (pending.kind === "after") insertStepAfter(pending.afterStepId, type);
-    else if (pending.kind === "edge") insertStepOnEdge(pending.fromId, pending.toId, pending.optionId, type);
-    else if (pending.kind === "option") createLinkedStepForOption(pending.questionStepId, pending.optionId, type);
-  };
-
-  // Calcula qué pasa si se elimina un paso:
-  // - `cascadeIds`: ids que dependen únicamente de él (todas sus ramas, si es una pregunta con
-  //   ramas reales; o lo que sigue después de él, si es la cabeza de una rama) — se pierden con
-  //   él si se elige "eliminar todo".
-  // - `unifySuccessorId`: a qué paso reconectar lo anterior si en vez de eso se elige "unificar"
-  //   (borrar SOLO este paso, sin tocar el resto): un id concreto, `null` si no tiene siguiente
-  //   (queda sin conectar), o `undefined` si no hay un único "siguiente" posible (pregunta con
-  //   2+ ramas reales — ahí no se ofrece unificar liso, sino `branchOptions`).
-  // - `branchOptions`: solo si es una pregunta con 2+ ramas reales — una opción por rama para
-  //   CONSERVARLA (reconectando lo anterior directo a ella, sin importar si es una cadena larga
-  //   sin bifurcaciones o una sub-rama con más preguntas adentro) mientras se descartan las demás.
-  const computeDeletionImpact = (stepId: string): {
-    cascadeIds: string[];
-    unifySuccessorId: string | null | undefined;
-    branchOptions?: { label: string; successorId: string; discardedIds: string[] }[];
-  } => {
-    if (!editingSeq) return { cascadeIds: [], unifySuccessorId: undefined };
-    const steps = editingSeq.steps;
-    const step = steps.find(s => s.id === stepId);
-    if (!step) return { cascadeIds: [], unifySuccessorId: undefined };
-
-    // Basado en alcanzabilidad real del grafo (mismo mecanismo que las validaciones de "rama
-    // suelta" del borrado de botones y el arrastre de conexiones) en vez de rangos de índices del
-    // arreglo — más simple y sin los casos límite de la versión anterior (que necesitó un parche
-    // especial tras un bug real donde un id que una rama elegía CONSERVAR terminaba también en su
-    // propia lista de descarte).
-    const reachableBefore = getReachableStepIds(steps);
-    // Simula "borrar este paso y reconectar lo que apuntaba a él hacia `successorId`" (o
-    // desconectarlo si es null) — sirve tanto para "eliminar todo" (successorId=null) como para
-    // calcular, por cada rama posible, qué queda huérfano si esa rama es la que se conserva.
-    const reachableIfRewiredTo = (successorId: string | null): Set<string> =>
-      getReachableStepIds(stepsAfterDeleting(steps, stepId, [], successorId));
-
-    const reachableAfterFullDelete = reachableIfRewiredTo(null);
-    const cascadeIds = [...reachableBefore].filter(id => id !== stepId && !reachableAfterFullDelete.has(id));
-
-    let unifySuccessorId: string | null | undefined;
-    let branchOptions: { label: string; successorId: string; discardedIds: string[] }[] | undefined;
-
-    if (step.type === "question") {
-      // Destinos distintos: 2 botones que llevan al mismo paso son una sola opción de "conservar".
-      const realBranches = activeBranches
-        .filter(b => b.questionId === stepId && b.targetId)
-        .filter((b, i, arr) => arr.findIndex(x => x.targetId === b.targetId) === i);
-      if (realBranches.length === 1) {
-        unifySuccessorId = realBranches[0].targetId ?? null;
-      } else if (realBranches.length > 1) {
-        unifySuccessorId = undefined;
-        branchOptions = realBranches.map(b => {
-          const successorId = b.targetId!;
-          const reachableKeepingThis = reachableIfRewiredTo(successorId);
-          const discardedIds = [...reachableBefore].filter(id => id !== stepId && id !== successorId && !reachableKeepingThis.has(id));
-          return { label: b.label, successorId, discardedIds };
-        });
-      } else {
-        unifySuccessorId = null; // pregunta sin ramas reales — no tiene "siguiente"
-      }
-    } else {
-      unifySuccessorId = step.next_step_id ?? null;
-    }
-
-    return { cascadeIds, unifySuccessorId, branchOptions };
-  };
-
-  // Elimina un paso: siempre quita `stepId` + `discardedIds` (lo que se pierde con él), y
-  // reconecta cualquier opción que apuntara a `stepId` hacia `successorId` (o la desenlaza si es
-  // `null`). Cubre los 3 casos del diálogo: "eliminar todo" (discardedIds = cascadeIds,
-  // successorId = null), "unificar" (discardedIds = [], successorId = unifySuccessorId) y
-  // "conservar esta rama" (discardedIds = las otras ramas, successorId = la rama elegida).
-  const deleteStepWithRewire = (stepId: string, discardedIds: string[], successorId: string | null) => {
-    setEditingSeq(s => s ? { ...s, steps: stepsAfterDeleting(s.steps, stepId, discardedIds, successorId) } : s);
-    setTreeSelectedStepId(successorId);
-    setPendingDeleteStep(null);
-  };
-
-  // Ids que dependen únicamente de un botón específico (no del paso Pregunta completo) — se
-  // pierden si se borra ese botón desde el editor. Mismo criterio de "rama suelta" que ya se usa
-  // al borrar un paso o al reconectar una conexión por arrastre.
-  const computeOptionDeletionOrphans = (questionId: string, optionId: string): string[] => {
-    if (!editingSeq) return [];
-    const before = getReachableStepIds(editingSeq.steps);
-    const hypothetical = editingSeq.steps.map(st => st.id !== questionId ? st : { ...st, options: (st.options ?? []).filter(o => o.id !== optionId) });
-    const after = getReachableStepIds(hypothetical);
-    return [...before].filter(id => !after.has(id));
-  };
-
-  // Quita el botón `optionId` de `questionId` y, si tenía contenido que dependía solo de él,
-  // también ese contenido — así nunca queda una rama suelta invisible en el árbol.
-  const deleteOptionWithCascade = (questionId: string, optionId: string, orphanIds: string[]) => {
-    setEditingSeq(s => {
-      if (!s) return s;
-      const withOptionRemoved = s.steps.map(st => st.id !== questionId ? st : { ...st, options: (st.options ?? []).filter(o => o.id !== optionId) });
-      return { ...s, steps: stepsWithoutIds(withOptionRemoved, new Set(orphanIds)) };
-    });
-    setPendingDeleteOption(null);
-  };
-
-  // Agrega un botón nuevo a una pregunta directo desde el árbol (sin abrir su editor) — queda
-  // sin enlazar (aparece como placeholder pendiente) y se selecciona la pregunta para que el
-  // usuario le ponga un texto real al botón desde su panel de edición.
-  const addOptionToQuestion = (questionId: string) => {
-    setEditingSeq(seq => {
-      if (!seq) return seq;
-      const steps = seq.steps.map(s => {
-        if (s.id !== questionId) return s;
-        // Evita repetir un texto ya usado (ej. tras borrar "Opción 1" y agregar uno nuevo, el
-        // conteo simple volvería a proponer "Opción 2" si ya existe) — 2 botones con el mismo
-        // texto confunden al usuario final de WhatsApp, aunque ya no rompan el enlazado interno.
-        const existingLabels = new Set((s.options ?? []).map(o => o.label));
-        let n = (s.options?.length ?? 0) + 1;
-        while (existingLabels.has(`Opción ${n}`)) n++;
-        return { ...s, options: [...(s.options ?? []), { id: crypto.randomUUID(), label: `Opción ${n}`, next_step_id: null }] };
-      });
-      return { ...seq, steps };
-    });
-    setTreeSelectedStepId(questionId);
-  };
-
-  const sequenceGraph = useMemo(() => {
-    if (!editingSeq || editingSeq.steps.length === 0) return null;
-    return buildSequenceGraph(editingSeq.steps);
-  }, [editingSeq]);
-
-  // Punto de llegada de cada conexión sobre la caja del paso destino: cuando varias terminan en el
-  // mismo paso se reparten en vertical, EN EL MISMO ORDEN de arriba hacia abajo en que salen sus
-  // orígenes (ver incomingEdgesInVisualOrder) — así el círculo de más arriba siempre corresponde a
-  // la rama de más arriba, y el diálogo de gestión lista los caminos en ese mismo orden.
-  const edgePorts = useMemo(() => {
-    const ports = new Map<number, number>(); // índice de arista → desplazamiento vertical
-    if (!sequenceGraph) return ports;
-    for (const targetId of new Set(sequenceGraph.edges.map(e => e.toId))) {
-      const incoming = incomingEdgesInVisualOrder(sequenceGraph, targetId);
-      if (incoming.length < 2) continue;
-      const gap = edgePortGap(incoming.length);
-      incoming.forEach(({ index }, i) => ports.set(index, (i - (incoming.length - 1) / 2) * gap));
-    }
-    return ports;
-  }, [sequenceGraph]);
-
-  // Geometría de cada arista, calculada una sola vez: la usan las DOS capas del lienzo (las líneas,
-  // que van detrás de los nodos, y los controles tocables, que van siempre delante).
-  const edgeGeometry = useMemo(() => {
-    if (!sequenceGraph) return [];
-    return sequenceGraph.edges.flatMap((edge, ei) => {
-      const from = sequenceGraph.nodes.find(n => n.id === edge.fromId);
-      const to = sequenceGraph.nodes.find(n => n.id === edge.toId);
-      if (!from || !to) return [];
-      const sx = from.depth * SEQ_TREE_COL_PITCH + SEQ_TREE_NODE_W;
-      const sy = edgeSourceY(from, edge.colorIdx);
-      const tx = to.depth * SEQ_TREE_COL_PITCH;
-      // Varias conexiones pueden terminar en el mismo paso. En vez de superponerlas en un único
-      // punto (donde solo la de encima sería tocable), cada una llega a su propio punto sobre el
-      // borde del destino, repartidos de arriba hacia abajo en el orden visual de sus orígenes.
-      const py = to.lane * SEQ_TREE_ROW_PITCH + SEQ_TREE_NODE_H / 2 + (edgePorts.get(ei) ?? 0);
-      return [{
-        edge, ei, to,
-        sx, sy, tx, py,
-        midX: (sx + tx) / 2,
-        midY: (sy + py) / 2,
-        color: edge.colorIdx !== undefined ? BRANCH_COLORS[edge.colorIdx % BRANCH_COLORS.length].hex : "currentColor",
-      }];
-    });
-  }, [sequenceGraph, edgePorts]);
-
-  // Pasos a los que se puede conectar mientras el lienzo está en modo conexión: solo los de un
-  // nivel estrictamente más profundo que el origen (ver canConnectForward — con eso alcanza para
-  // que nunca se pueda cerrar un ciclo), y nunca el destino que esa conexión ya tiene.
-  const pickableTargetIds = useMemo(() => {
-    if (!pickingTarget || !sequenceGraph) return new Set<string>();
-    const sourceId = pickingTarget.source.kind === "option" ? pickingTarget.source.questionId : pickingTarget.source.stepId;
-    return new Set(
-      sequenceGraph.nodes
-        .filter(n => !n.pending && n.id !== pickingTarget.currentTargetId && canConnectForward(sequenceGraph.nodes, sourceId, n.id))
-        .map(n => n.id),
-    );
-  }, [pickingTarget, sequenceGraph]);
-
-  // Abre el modo conexión para una arista concreta, cerrando el diálogo desde el que se llamó.
-  const startPickingTarget = (source: EdgeManageSource, currentTargetId: string | null) => {
-    setPendingConnectFlow(null);
-    setPendingEdgeManage(null);
-    setPickingTarget({ source, currentTargetId });
-  };
-
-  // Confirma el destino tocado en el lienzo. La validación de "rama suelta" es la misma que tenía
-  // la lista: si mover esta conexión dejaría contenido sin forma de llegar, no se aplica.
-  const confirmPickedTarget = (targetId: string) => {
-    if (!pickingTarget) return;
-    const orphaned = computeEdgeChangeOrphans(pickingTarget.source, targetId);
-    if (orphaned.length > 0) {
-      toast.error(`Si conectas aquí, ${orphaned.length} paso${orphaned.length !== 1 ? "s quedarían" : " quedaría"} sin forma de llegar. Reconéctalo${orphaned.length !== 1 ? "s" : ""} o bórralo${orphaned.length !== 1 ? "s" : ""} primero.`);
-      return;
-    }
-    applyEdgeTarget(pickingTarget.source, targetId);
-    setPickingTarget(null);
-  };
 
   // Perfil de WhatsApp
   const [bio, setBio]                     = useState("");
@@ -3244,8 +1851,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     { id: "etiquetas" as const,   label: "Etiquetas",   icon: Tag,       desc: "Gestionar etiquetas" },
     { id: "respuestas" as const,  label: "Respuestas Rápidas", icon: Zap, desc: "/ atajos de respuesta rápida" },
     { id: "flujos" as const,      label: "Flujos",      icon: GitBranch, desc: "Automatiza conversaciones paso a paso" },
-    { id: "plantillas" as const,  label: "Plantillas",  icon: Megaphone, desc: "Remarketing fuera de 24h" },
-    { id: "campanias" as const,   label: "Envío Masivo", icon: Send,     desc: "Envíos pasados y dentro de 24h" },
+    { id: "seguimiento" as const, label: "Seguimiento y Envíos", icon: Send, desc: "Seguimientos automáticos y envíos masivos" },
   ];
 
   return (
@@ -3263,191 +1869,18 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         onConfirm={handleDeleteSeq}
         isPending={deletingSeq}
         description={(() => {
-          const inUse = flows.filter(f =>
-            f.sequence_id === pendingDeleteSeqId || (f.country_sequences ?? []).some(cs => cs.sequence_id === pendingDeleteSeqId),
-          );
-          if (inUse.length === 0) return "Se eliminará la secuencia permanentemente. Ningún flujo la está usando.";
-          return `Se eliminará permanentemente. La está usando ${inUse.length === 1 ? "el flujo" : "los flujos"} ${inUse.map(f => `"${f.name}"`).join(", ")}${inUse.some(f => f.is_active && f.status === "published") ? " —que está activo ahora mismo—" : ""}, y ${inUse.length === 1 ? "dejará" : "dejarán"} de enviar estos mensajes.`;
+          // Mismo texto que en Seguimiento Automático: una secuencia es
+          // compartida, así que borrarla desde aquí la borra también de allí.
+          const inFlows = flows
+            .filter(f => f.sequence_id === pendingDeleteSeqId || (f.country_sequences ?? []).some(cs => cs.sequence_id === pendingDeleteSeqId))
+            .map(f => f.name);
+          const inFollowups = automations
+            .filter(a => a.sequence_id === pendingDeleteSeqId)
+            .map(a => a.name);
+          return sequenceDeleteWarning({ flows: inFlows, followups: inFollowups, total: inFlows.length + inFollowups.length });
         })()}
       />
-      <Dialog open={!!pendingStepCreate} onOpenChange={open => !open && setPendingStepCreate(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-base">¿Qué tipo de paso quieres crear?</DialogTitle>
-          </DialogHeader>
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            {STEP_TYPE_ORDER.map(t => {
-              const Icon = STEP_TYPE_ICONS[t];
-              return (
-                <button
-                  key={t}
-                  onClick={() => resolvePendingStepCreate(t)}
-                  className="flex flex-col items-center gap-1.5 py-3 rounded-xl border border-border hover:border-primary/50 hover:bg-primary/5 transition-colors text-xs font-medium"
-                >
-                  <Icon size={18} className="text-muted-foreground" />
-                  {STEP_TYPE_LABELS[t]}
-                </button>
-              );
-            })}
-          </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={!!pendingConnectFlow} onOpenChange={open => !open && setPendingConnectFlow(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-base">¿Qué sigue después de esto?</DialogTitle>
-          </DialogHeader>
-          <div className="flex flex-col gap-2 pt-1">
-            <button
-              onClick={() => {
-                if (!pendingConnectFlow) return;
-                setPendingStepCreate(pendingConnectFlow.kind === "option"
-                  ? { kind: "option", questionStepId: pendingConnectFlow.questionStepId, optionId: pendingConnectFlow.optionId }
-                  : { kind: "after", afterStepId: pendingConnectFlow.afterStepId });
-                setPendingConnectFlow(null);
-              }}
-              className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
-            >
-              Crear paso nuevo
-            </button>
-            <button
-              onClick={() => {
-                if (!pendingConnectFlow) return;
-                startPickingTarget(
-                  pendingConnectFlow.kind === "option"
-                    ? { kind: "option", questionId: pendingConnectFlow.questionStepId, optionId: pendingConnectFlow.optionId }
-                    : { kind: "step", stepId: pendingConnectFlow.afterStepId },
-                  null,
-                );
-              }}
-              className="h-10 px-4 rounded-xl border border-primary/40 text-primary text-xs font-medium hover:bg-primary/5 transition-colors"
-            >
-              Llevar a un paso que ya existe
-            </button>
-            <button
-              onClick={() => setPendingConnectFlow(null)}
-              className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors"
-            >
-              Cancelar
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={!!pendingEdgeManage} onOpenChange={open => !open && setPendingEdgeManage(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-base">¿Qué quieres hacer con este camino?</DialogTitle>
-          </DialogHeader>
-          {pendingEdgeManage && editingSeq && sequenceGraph && (
-            <EdgeTargetPreview steps={editingSeq.steps} graph={sequenceGraph} source={pendingEdgeManage} />
-          )}
-          <div className="flex flex-col gap-2 pt-1">
-            <button
-              onClick={() => {
-                if (!pendingEdgeManage) return;
-                startPickingTarget(pendingEdgeManage, describeEdgeSource(pendingEdgeManage)?.currentTargetId ?? null);
-              }}
-              className="h-10 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 transition-opacity"
-            >
-              Cambiar a dónde lleva
-            </button>
-            <button
-              onClick={() => {
-                if (!pendingEdgeManage) return;
-                const orphaned = computeEdgeChangeOrphans(pendingEdgeManage, null);
-                if (orphaned.length > 0) {
-                  toast.error(`Si quitas esta conexión, ${orphaned.length} paso${orphaned.length !== 1 ? "s quedarían" : " quedaría"} sin forma de llegar. Bórralo${orphaned.length !== 1 ? "s" : ""} primero.`);
-                  return;
-                }
-                applyEdgeTarget(pendingEdgeManage, null);
-                setPendingEdgeManage(null);
-              }}
-              className="h-10 px-4 rounded-xl border border-destructive/40 text-destructive text-xs font-medium hover:bg-destructive/5 transition-colors"
-            >
-              Quitar este camino
-            </button>
-            <button
-              onClick={() => setPendingEdgeManage(null)}
-              className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors"
-            >
-              Cancelar
-            </button>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={!!pendingDeleteStep} onOpenChange={open => !open && setPendingDeleteStep(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-base">Después de este paso hay más contenido</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-1">
-            <p className="text-sm text-muted-foreground">
-              {pendingDeleteStep?.branchOptions
-                ? `Esta pregunta abre ${pendingDeleteStep.branchOptions.length} caminos distintos. Puedes quedarte con uno (sigue completo y se conecta directo con lo anterior) y eliminar los demás, o eliminar todo.`
-                : pendingDeleteStep?.unifySuccessorId !== undefined
-                ? `Hay ${pendingDeleteStep?.cascadeIds.length ?? 0} paso${pendingDeleteStep && pendingDeleteStep.cascadeIds.length !== 1 ? "s" : ""} que dependen solo de este. Puedes eliminar solo este paso y conectar directo lo anterior con lo siguiente, o eliminar todo junto con él.`
-                : `Este paso abre varios caminos, así que no hay uno solo con el que continuar. Si sigues, se eliminarán todos (${pendingDeleteStep?.cascadeIds.length ?? 0} pasos).`}
-            </p>
-            <div className="flex flex-col gap-2">
-              {pendingDeleteStep?.branchOptions?.map(opt => (
-                <button
-                  key={opt.successorId}
-                  onClick={() => pendingDeleteStep && deleteStepWithRewire(pendingDeleteStep.id, opt.discardedIds, opt.successorId)}
-                  className="h-9 px-4 rounded-xl border border-primary/40 text-primary text-xs font-medium hover:bg-primary/5 transition-colors truncate"
-                >
-                  Quedarme solo con "{opt.label}"
-                </button>
-              ))}
-              {pendingDeleteStep?.unifySuccessorId !== undefined && (
-                <button
-                  onClick={() => pendingDeleteStep && deleteStepWithRewire(pendingDeleteStep.id, [], pendingDeleteStep.unifySuccessorId ?? null)}
-                  className="h-9 px-4 rounded-xl border border-primary/40 text-primary text-xs font-medium hover:bg-primary/5 transition-colors"
-                >
-                  Eliminar solo este paso y unir lo de antes con lo de después
-                </button>
-              )}
-              <button
-                onClick={() => pendingDeleteStep && deleteStepWithRewire(pendingDeleteStep.id, pendingDeleteStep.cascadeIds, null)}
-                className="h-9 px-4 rounded-xl bg-destructive text-destructive-foreground text-xs font-medium hover:opacity-90 transition-opacity"
-              >
-                Eliminar todo ({pendingDeleteStep ? pendingDeleteStep.cascadeIds.length + 1 : 0} pasos)
-              </button>
-              <button
-                onClick={() => setPendingDeleteStep(null)}
-                className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
-      <Dialog open={!!pendingDeleteOption} onOpenChange={open => !open && setPendingDeleteOption(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-base">Este botón lleva a otros pasos</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 pt-1">
-            <p className="text-sm text-muted-foreground">
-              Hay {pendingDeleteOption?.orphanIds.length ?? 0} paso{pendingDeleteOption && pendingDeleteOption.orphanIds.length !== 1 ? "s" : ""} que dependen solo de este botón — si lo eliminas, se eliminarán junto con él.
-            </p>
-            <div className="flex flex-col gap-2">
-              <button
-                onClick={() => pendingDeleteOption && deleteOptionWithCascade(pendingDeleteOption.questionId, pendingDeleteOption.optionId, pendingDeleteOption.orphanIds)}
-                className="h-9 px-4 rounded-xl bg-destructive text-destructive-foreground text-xs font-medium hover:opacity-90 transition-opacity"
-              >
-                Eliminar botón y {pendingDeleteOption?.orphanIds.length ?? 0} paso{pendingDeleteOption && pendingDeleteOption.orphanIds.length !== 1 ? "s" : ""}
-              </button>
-              <button
-                onClick={() => setPendingDeleteOption(null)}
-                className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors"
-              >
-                Cancelar
-              </button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <SequenceViewer seq={viewingSeq} onClose={() => setViewingSeq(null)} />
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative z-10 w-full sm:max-w-lg bg-card h-full flex shadow-2xl border-l overflow-hidden">
 
@@ -3593,13 +2026,19 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
           {/* Section header */}
           <div className="px-4 py-3 border-b flex items-center gap-1 shrink-0">
             <button
-              onClick={() => setMobileShowSection(false)}
+              onClick={() => {
+                // Sub-sección oculta: el back devuelve a su sección padre, no a la lista
+                if (section === "plantillas") setSection("seguimiento");
+                else setMobileShowSection(false);
+              }}
               className="min-w-[40px] min-h-[40px] flex items-center justify-center rounded-xl hover:bg-secondary transition-colors -ml-1.5"
             >
               <ChevronLeft size={18} className="text-muted-foreground" />
             </button>
             <h2 className="text-sm font-semibold flex-1 truncate">
-              {section === "perfil" ? "Perfil WhatsApp" : SECTIONS.find(s => s.id === section)?.label ?? "Configuración"}
+              {section === "perfil"     ? "Perfil WhatsApp"
+             : section === "plantillas" ? "Plantillas"
+             : SECTIONS.find(s => s.id === section)?.label ?? "Configuración"}
             </h2>
             {section === "respuestas" && (
               <button
@@ -4872,7 +3311,10 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                                           </span>
                                         </span>
                                       </button>
-                                      <button onClick={() => openSeqEditor(flowUsageMode, toDraftSequence(seq))} title="Editar" className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0">
+                                      <button onClick={() => setViewingSeq(seq)} title="Ver la secuencia" className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0">
+                                        <Eye size={11} />
+                                      </button>
+                                      <button onClick={() => openSeqEditor(flowUsageMode, seq)} title="Editar" className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0">
                                         <Pencil size={11} />
                                       </button>
                                       <button onClick={() => setPendingDeleteSeqId(seq.id)} title="Eliminar" className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors shrink-0">
@@ -4964,388 +3406,22 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
                             </div>
                           </>
                         ) : (
-                          <>
-                            <div className="flex items-center gap-2">
-                              <button onClick={closeSeqEditor} className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
-                                <ArrowLeft size={14} />
-                              </button>
-                              <span className="text-xs font-medium">{editingSeq?.status === "published" ? "Editar secuencia" : "Nueva secuencia"}</span>
-                              {/* Estado del autoguardado: los cambios nunca se pierden aunque se cierre
-                                  a medias, pero siguen siendo un borrador hasta tocar Publicar. */}
-                              <span className="ml-auto text-[10px] text-muted-foreground/60 flex items-center gap-1 shrink-0">
-                                {draftSaveState === "saving" && <><Loader2 size={10} className="animate-spin" /> Guardando…</>}
-                                {draftSaveState === "saved" && <><Check size={10} /> Borrador guardado</>}
-                              </span>
-                            </div>
-
-                            <div className="space-y-1">
-                              <label className="text-xs font-medium text-muted-foreground">Nombre</label>
-                              <input
-                                value={editingSeq?.name ?? ""}
-                                onChange={e => setEditingSeq(s => s ? { ...s, name: e.target.value } : s)}
-                                placeholder="ej: Presentación Paquete Gold"
-                                className="w-full h-8 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                              />
-                            </div>
-
-                      {/* ── Mapa de la secuencia + editor del paso elegido — un solo elemento ── */}
-                      <div className="rounded-lg border border-border overflow-hidden">
-                        <div className="px-3 py-2 bg-secondary/20 border-b border-border/40">
-                          <div className="flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
-                            <GitBranch size={11} />
-                            Tu secuencia
-                            {sequenceGraph && sequenceGraph.nodes.length > 0 && (
-                              <span className="text-[9px] font-normal opacity-50">
-                                {editingSeq.steps.length} paso{editingSeq.steps.length !== 1 ? "s" : ""}
-                                {activeBranches.filter(b => b.targetId).length > 0 && ` · ${activeBranches.filter(b => b.targetId).length} respuesta${activeBranches.filter(b => b.targetId).length !== 1 ? "s" : ""}`}
-                              </span>
-                            )}
-                            {sequenceIssues.length > 0 && (
-                              <span className="ml-auto flex items-center gap-1 text-[9px] font-semibold text-destructive shrink-0">
-                                <AlertTriangle size={10} />
-                                {sequenceIssues.length} sin conectar
-                              </span>
-                            )}
-                          </div>
-                          {sequenceGraph && sequenceGraph.nodes.length > 0 && !pickingTarget && (
-                            <p className="text-[9.5px] text-muted-foreground/60 mt-0.5">
-                              Así ve tu cliente la conversación, de izquierda a derecha. Toca un paso para editarlo abajo, o un "+" para agregar el siguiente.
-                            </p>
-                          )}
-                        </div>
-                        {/* Modo conexión: el lienzo mismo es el selector de destino. */}
-                        {pickingTarget && (
-                          <div className="px-3 py-2 bg-primary/10 border-b border-primary/30 flex items-center gap-2">
-                            <div className="min-w-0 flex-1">
-                              <p className="text-[10px] font-semibold text-primary">
-                                {pickableTargetIds.size > 0
-                                  ? "Toca el paso al que quieres llevar la conversación"
-                                  : "Todavía no hay un paso al que puedas llevarla"}
-                              </p>
-                              <p className="text-[9px] text-muted-foreground truncate">
-                                {pickableTargetIds.size > 0
-                                  ? describeEdgeSource(pickingTarget.source)?.text
-                                  : "La conversación solo puede seguir hacia adelante. Mejor crea un paso nuevo aquí."}
-                              </p>
-                            </div>
-                            <button
-                              onClick={() => setPickingTarget(null)}
-                              className="h-7 px-2.5 rounded-lg border border-border bg-background text-[10px] text-muted-foreground hover:bg-secondary transition-colors shrink-0"
-                            >
-                              Cancelar
-                            </button>
-                          </div>
-                        )}
-                        {/* Aviso de respuestas sin conectar — cada línea lleva de un toque al botón
-                            exacto que falta resolver, en vez de dejar al usuario buscarlo en el árbol. */}
-                        {sequenceIssues.length > 0 && !pickingTarget && (
-                          <div className="px-3 py-2 bg-destructive/10 border-b border-destructive/20 space-y-1">
-                            <p className="text-[10px] font-semibold text-destructive flex items-center gap-1">
-                              <AlertTriangle size={11} className="shrink-0" />
-                              No puedes guardar hasta conectar {sequenceIssues.length === 1 ? "esta respuesta" : "estas respuestas"}
-                            </p>
-                            {sequenceIssues.map(issue => (
-                              <button
-                                key={`${issue.questionId}-${issue.optionId ?? "sin-botones"}`}
-                                onClick={() => {
-                                  setTreeSelectedStepId(issue.questionId);
-                                  if (issue.optionId) {
-                                    setPendingConnectFlow({ kind: "option", questionStepId: issue.questionId, optionId: issue.optionId });
-                                  }
-                                }}
-                                className="w-full flex items-center gap-1.5 text-left text-[10px] text-destructive/90 hover:text-destructive hover:underline"
-                              >
-                                <ChevronRight size={10} className="shrink-0" />
-                                <span className="truncate">{issue.text}</span>
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                        {sequenceGraph && sequenceGraph.nodes.length > 0 ? (
-                          <div
-                            className="bg-secondary/10 overflow-auto"
-                            style={{ maxHeight: 340 }}
-                          >
-                            <div
-                              className="relative"
-                              style={{
-                                width: (sequenceGraph.maxDepth + 1) * SEQ_TREE_COL_PITCH + SEQ_TREE_NODE_W + 40,
-                                // ROW_PITCH ya reserva espacio para el nodo Pregunta más alto posible (3 botones),
-                                // así que un carril extra + margen alcanza para lo que quede en el último carril.
-                                height: (sequenceGraph.maxLane + 1) * SEQ_TREE_ROW_PITCH + 16,
-                                margin: 12,
-                              }}
-                            >
-                              <svg className="absolute inset-0 overflow-visible pointer-events-none" width="100%" height="100%">
-                                {edgeGeometry.map(({ edge, ei, sx, sy, tx, py, midX, color }) => (
-                                  <g key={ei}>
-                                    <path
-                                      d={`M${sx},${sy} C${midX},${sy} ${midX},${py} ${tx},${py}`}
-                                      stroke={color}
-                                      strokeOpacity={edge.colorIdx !== undefined ? 0.8 : 0.3}
-                                      strokeWidth={1.5}
-                                      fill="none"
-                                    />
-                                    {/* Etiqueta junto al destino (no a la salida de la pregunta) — como cada opción
-                                        normalmente termina en un paso distinto, las etiquetas de una misma pregunta
-                                        quedan naturalmente separadas en vez de apiladas en un solo punto. */}
-                                    {edge.label && (
-                                      <text x={tx - 14} y={py - 7} textAnchor="end" fontSize="8" fontWeight="700" fill={color} fontFamily="system-ui, sans-serif">
-                                        {edge.label}
-                                      </text>
-                                    )}
-                                  </g>
-                                ))}
-                              </svg>
-                              {sequenceGraph.nodes.map(node => {
-                                const x = node.depth * SEQ_TREE_COL_PITCH;
-                                const y = node.lane * SEQ_TREE_ROW_PITCH;
-                                if (node.pending) {
-                                  const parentEdge = sequenceGraph.edges.find(e => e.toId === node.id);
-                                  return (
-                                    <button
-                                      key={node.id}
-                                      onClick={() => parentEdge && node.pendingOptionId && setPendingConnectFlow({ kind: "option", questionStepId: parentEdge.fromId, optionId: node.pendingOptionId })}
-                                      disabled={!!pickingTarget}
-                                      title={`El botón "${node.pendingLabel}" todavía no lleva a ningún paso — tócalo para conectarlo o crear el paso que sigue`}
-                                      className={`absolute flex flex-col items-center justify-center gap-0.5 rounded-lg border border-dashed border-destructive/50 bg-destructive/5 text-[8px] text-destructive px-2 text-center leading-tight transition-all ${
-                                        pickingTarget ? "opacity-25" : "hover:bg-destructive/10 hover:border-destructive/70"
-                                      }`}
-                                      style={{ left: x, top: y, width: SEQ_TREE_NODE_W, height: SEQ_TREE_NODE_H }}
-                                    >
-                                      <span className="font-semibold flex items-center gap-1"><AlertTriangle size={8} className="shrink-0" /> sin respuesta</span>
-                                      <span className="opacity-70">toca para conectar</span>
-                                    </button>
-                                  );
-                                }
-                                const step = node.step!;
-                                const isQ = step.type === "question";
-                                const isLeaf = !isQ && !sequenceGraph.edges.some(e => e.fromId === node.id);
-                                const canAddOption = isQ && (step.options?.filter(o => o.label.trim()).length ?? 0) < SEQ_TREE_MAX_PILLS;
-                                const isSelected = step.id === treeSelectedStepId;
-                                const preview = getStepPreview(step, 30);
-                                const stepIdx = editingSeq.steps.findIndex(s => s.id === step.id);
-                                const boxH = nodeBoxHeight(node);
-                                const labeledOptions = isQ ? (step.options ?? []).filter(o => o.label.trim()).slice(0, SEQ_TREE_MAX_PILLS) : [];
-                                // Modo conexión: solo los destinos válidos quedan vivos (halo que late), el resto
-                                // se atenúa y no responde — el usuario ve de una cuáles son sus opciones reales.
-                                const isPickable = !!pickingTarget && pickableTargetIds.has(step.id);
-                                const isPickBlocked = !!pickingTarget && !isPickable;
-                                // Mismo color de borde para la cabecera y el mockup de botones debajo — para que
-                                // se lean como una sola tarjeta, no dos elementos apilados.
-                                const stateBorderClass = isPickable ? "border-primary" : isSelected ? "border-primary" : isQ ? "border-amber-400/50" : "border-border/70";
-                                return (
-                                  <div
-                                    key={node.id}
-                                    className={`absolute transition-opacity ${isPickBlocked ? "opacity-25" : ""}`}
-                                    style={{ left: x, top: y, width: SEQ_TREE_NODE_W, height: boxH }}
-                                  >
-                                    <button
-                                      onClick={() => pickingTarget ? confirmPickedTarget(step.id) : setTreeSelectedStepId(step.id)}
-                                      disabled={isPickBlocked}
-                                      title={
-                                        isPickable ? "Llevar la conversación hasta aquí"
-                                        : isPickBlocked ? "Aquí no: la conversación avanza hacia adelante, no puede volver a un paso anterior"
-                                        : node.mergeCount > 1 ? "Varias respuestas terminan en este mismo paso"
-                                        : undefined
-                                      }
-                                      className={`absolute inset-x-0 top-0 flex flex-col justify-center gap-0.5 border px-2.5 py-1 text-left transition-colors overflow-hidden ${isQ ? "rounded-t-lg" : "rounded-lg"} ${
-                                        isPickable ? "border-2 border-primary bg-primary/10 motion-safe:animate-connect-pulse"
-                                        : isSelected ? "border-primary ring-2 ring-primary/25 bg-primary/5"
-                                        : isQ ? "border-amber-400/50 bg-amber-400/5"
-                                        : "border-border/70 bg-background"
-                                      } ${isPickBlocked ? "cursor-not-allowed" : "hover:border-primary/50 hover:bg-primary/5"}`}
-                                      style={{ height: SEQ_TREE_NODE_H, animationDelay: isPickable ? `${(node.depth * 2 + node.lane) * 90}ms` : undefined }}
-                                    >
-                                      <div className="flex items-center gap-1">
-                                        <span className="text-[8px] text-muted-foreground/60 tabular-nums shrink-0">{stepIdx + 1}</span>
-                                        <span className={`text-[9px] font-semibold shrink-0 ${isQ ? "text-amber-500 dark:text-amber-400" : "text-foreground/80"}`}>{STEP_TYPE_LABELS[step.type]}</span>
-                                        {node.mergeCount > 1 && <span className="ml-auto text-[8px] text-muted-foreground/50 shrink-0">⤵</span>}
-                                      </div>
-                                      {preview && <span className="text-[8.5px] text-muted-foreground/65 truncate">{preview}</span>}
-                                    </button>
-                                    {/* Mockup de los botones de respuesta — se parece al mensaje interactivo real de
-                                        WhatsApp, para que se entienda de un vistazo que una Pregunta trae botones. */}
-                                    {isQ && (
-                                      <div
-                                        className={`absolute inset-x-0 rounded-b-lg border-x border-b overflow-hidden bg-background ${stateBorderClass}`}
-                                        style={{ top: SEQ_TREE_NODE_H }}
-                                      >
-                                        {labeledOptions.length === 0 ? (
-                                          <div className="flex items-center justify-center px-2 text-[8px] text-muted-foreground/40 italic" style={{ height: SEQ_TREE_PILL_H }}>
-                                            Sin botones
-                                          </div>
-                                        ) : labeledOptions.map((o, oi) => {
-                                          const color = BRANCH_COLORS[oi % BRANCH_COLORS.length];
-                                          return (
-                                            <div
-                                              key={oi}
-                                              title={o.label}
-                                              className={`flex items-center justify-center px-2 truncate ${oi > 0 ? "border-t border-border/40" : ""} ${color.text}`}
-                                              style={{ height: SEQ_TREE_PILL_H }}
-                                            >
-                                              <span className="text-[8px] font-medium truncate">{o.label}</span>
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                    {isLeaf && !pickingTarget && (
-                                      <button
-                                        onClick={() => setPendingConnectFlow({ kind: "after", afterStepId: step.id })}
-                                        title="Agregar o conectar el siguiente paso"
-                                        className="absolute top-1/2 -right-3 -translate-y-1/2 w-5 h-5 rounded-full bg-primary text-primary-foreground text-[11px] font-bold flex items-center justify-center hover:bg-primary/90 transition-colors shadow"
-                                      >
-                                        +
-                                      </button>
-                                    )}
-                                    {canAddOption && !pickingTarget && (
-                                      <button
-                                        onClick={() => addOptionToQuestion(step.id)}
-                                        title="Agregar otro botón a esta pregunta"
-                                        className="absolute -bottom-2.5 right-2 w-5 h-5 rounded-full bg-amber-500 text-white text-[11px] font-bold flex items-center justify-center hover:bg-amber-600 transition-colors shadow"
-                                      >
-                                        +
-                                      </button>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                              {/* Controles de las conexiones, DESPUÉS de los nodos y con z-index: el círculo de
-                                  editar se apoya sobre el borde del paso destino, así que si se dibujara con las
-                                  líneas (detrás) la caja del nodo le taparía la mitad y quedaría medio oculto.
-                                  El svg no captura clics; solo los grupos tocables los reactivan. */}
-                              {!pickingTarget && (
-                                <svg className="absolute inset-0 overflow-visible pointer-events-none z-10" width="100%" height="100%">
-                                  {edgeGeometry.map(({ edge, ei, to, tx, py, midX, midY, color }) => (
-                                    <g key={ei}>
-                                      {/* "+" para intercalar un paso a la mitad de esta conexión */}
-                                      {!to.pending && (
-                                        <g
-                                          onClick={() => setPendingStepCreate({ kind: "edge", fromId: edge.fromId, toId: edge.toId, optionId: edge.optionId })}
-                                          style={{ cursor: "pointer", pointerEvents: "auto" }}
-                                        >
-                                          <circle cx={midX} cy={midY} r={7} fill="hsl(var(--card))" stroke={color} strokeOpacity={0.6} strokeWidth={1} />
-                                          <text x={midX} y={midY + 3} textAnchor="middle" fontSize="10" fontWeight="700" fill={color} fillOpacity={0.8}>+</text>
-                                        </g>
-                                      )}
-                                      {/* Tocar para cambiar o quitar el destino de esta conexión (en vez de
-                                          arrastrar — más simple y funciona igual en mobile). */}
-                                      {!to.pending && (
-                                        <g
-                                          onClick={() => setPendingEdgeManage(edge.optionId !== undefined
-                                            ? { kind: "option", questionId: edge.fromId, optionId: edge.optionId }
-                                            : { kind: "step", stepId: edge.fromId })}
-                                          style={{ cursor: "pointer", pointerEvents: "auto" }}
-                                        >
-                                          <circle cx={tx} cy={py} r={7} fill="hsl(var(--card))" stroke={color} strokeWidth={1.5} />
-                                          {/* El lápiz hace evidente que el círculo se toca para editar este camino
-                                              — sin él parecía el remate decorativo de la línea. */}
-                                          <Pencil x={tx - 4} y={py - 4} width={8} height={8} stroke={color} strokeWidth={2.5} />
-                                        </g>
-                                      )}
-                                    </g>
-                                  ))}
-                                </svg>
-                              )}
-                            </div>
-                          </div>
-                        ) : (
-                          <div className="flex flex-col items-center justify-center gap-2 py-8 bg-secondary/10">
-                            <p className="text-[11px] text-muted-foreground/60 italic">Sin pasos todavía</p>
-                            <button
-                              onClick={() => setPendingStepCreate({ kind: "first" })}
-                              className="h-8 px-3 rounded-lg border border-dashed border-muted-foreground/40 bg-secondary/40 text-muted-foreground text-xs font-medium flex items-center gap-1.5 hover:bg-secondary/70 hover:border-muted-foreground/60 transition-colors"
-                            >
-                              <Plus size={12} /> Crear primer paso
-                            </button>
-                          </div>
-                        )}
-
-                        {/* ── Zona Edición: panel del paso seleccionado en el árbol de arriba ── */}
-                        <div className="flex items-center gap-1.5 px-3 py-2 text-[11px] font-medium text-muted-foreground bg-secondary/20 border-y border-border/40">
-                          <Pencil size={11} />
-                          {treeSelectedStepId && editingSeq.steps.some(s => s.id === treeSelectedStepId)
-                            ? `Contenido del paso ${editingSeq.steps.findIndex(s => s.id === treeSelectedStepId) + 1}`
-                            : "Contenido del paso"}
-                        </div>
-                        <div className="bg-card p-3">
-                          {treeSelectedStepId && editingSeq.steps.some(s => s.id === treeSelectedStepId) ? (
-                            <StepEditorPanel
-                              step={editingSeq.steps.find(s => s.id === treeSelectedStepId)!}
-                              allSteps={editingSeq.steps}
-                              onChange={updated => setEditingSeq(s => {
-                                if (!s) return s;
-                                const newSteps = s.steps.map(st => st.id === updated.id ? updated : st);
-                                return { ...s, steps: newSteps };
-                              })}
-                              onRemove={() => {
-                                if (!treeSelectedStepId) return;
-                                const impact = computeDeletionImpact(treeSelectedStepId);
-                                if (impact.cascadeIds.length > 0) {
-                                  setPendingDeleteStep({ id: treeSelectedStepId, ...impact });
-                                  return;
-                                }
-                                deleteStepWithRewire(treeSelectedStepId, [], null);
-                              }}
-                              onDeleteOption={optionId => {
-                                if (!treeSelectedStepId) return;
-                                const orphanIds = computeOptionDeletionOrphans(treeSelectedStepId, optionId);
-                                if (orphanIds.length > 0) {
-                                  setPendingDeleteOption({ questionId: treeSelectedStepId, optionId, orphanIds });
-                                  return;
-                                }
-                                setEditingSeq(s => {
-                                  if (!s) return s;
-                                  const steps = s.steps.map(st => st.id !== treeSelectedStepId ? st : { ...st, options: (st.options ?? []).filter(o => o.id !== optionId) });
-                                  return { ...s, steps };
-                                });
-                              }}
-                              userId={user?.id ?? ""}
-                            />
-                          ) : (
-                            <p className="text-[11px] text-muted-foreground/50 italic text-center py-3">
-                              {sequenceGraph && sequenceGraph.nodes.length > 0
-                                ? 'Toca un paso de arriba para editar su contenido aquí, o crea uno nuevo con los "+".'
-                                : "Crea el primer paso para empezar a editarlo aquí."}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                            {/* El botón sigue habilitado a propósito: al tocarlo el aviso dice cuál es
-                                el botón que falta conectar, en vez de quedar muerto sin explicación. */}
-                            {sequenceIssues.length === 0 && (
-                              <p className="text-[10px] text-muted-foreground/60 pt-1">
-                                {editingSeq?.status === "published"
-                                  ? "Tus cambios se guardan solos como borrador. La versión que reciben tus clientes es la última publicada."
-                                  : "Tus cambios se guardan solos como borrador. Publícala para poder usarla en un flujo."}
-                              </p>
-                            )}
-                            {sequenceIssues.length > 0 && (
-                              <p className="flex items-center gap-1 text-[10px] font-medium text-destructive pt-1">
-                                <AlertTriangle size={11} className="shrink-0" />
-                                {sequenceIssues.length === 1
-                                  ? "Hay 1 respuesta sin conectar — revísala arriba para poder guardar"
-                                  : `Hay ${sequenceIssues.length} respuestas sin conectar — revísalas arriba para poder guardar`}
-                              </p>
-                            )}
-                            <div className="flex gap-2 pt-1">
-                              <button onClick={closeSeqEditor} className="h-9 px-4 rounded-xl border text-xs text-muted-foreground hover:bg-secondary transition-colors">
-                                Cancelar
-                              </button>
-                              <button
-                                onClick={handleSaveSequence}
-                                disabled={savingFlowStep}
-                                className={`flex-1 h-9 rounded-xl text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity ${
-                                  sequenceIssues.length > 0 ? "bg-primary/40 text-primary-foreground" : "bg-primary text-primary-foreground"
-                                }`}
-                              >
-                                {savingFlowStep ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}
-                                {editingSeq?.status === "published" ? "Guardar cambios" : "Publicar secuencia"}
-                              </button>
-                            </div>
-                          </>
+                          /* El editor vive en wa/SequenceEditor: una secuencia se comparte entre
+                             Flujos, Seguimientos y Envíos, así que se edita igual desde los tres. */
+                          <SequenceEditor
+                            initial={seqEditorOpen.initial}
+                            userId={user?.id ?? ""}
+                            onClose={closeSeqEditor}
+                            onPublished={saved => {
+                              if (seqEditorOpen.assignTo === "global") {
+                                setEditingFlow(f => f ? { ...f, sequence_id: saved.id } : f);
+                              } else if (seqEditorOpen.assignTo === "country") {
+                                // Se abre su grilla de países: acabar de crearla y no ver dónde asignarla dejaba
+                                // el trabajo a medias, sin ninguna pista de cuál era el paso siguiente.
+                                setExpandedCountrySeqId(saved.id);
+                              }
+                            }}
+                          />
                         )}
                       </>
                     )}
@@ -5419,14 +3495,16 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
             />
           )}
 
-          {/* ── Campañas ── */}
-          {section === "campanias" && <CrmWaCampaigns />}
+          {/* ── Seguimiento y Envíos ── */}
+          {section === "seguimiento" && (
+            <CrmWaOutbound onOpenTemplates={() => setSection("plantillas")} />
+          )}
 
           </div>{/* end inner padding wrapper */}
           </div>{/* end scrollable area */}
 
           {/* Footer — fijo en la base, fuera del scroll */}
-          {section !== "perfil" && section !== "etiquetas" && section !== "respuestas" && section !== "flujos" && section !== "plantillas" && section !== "campanias" && (
+          {section !== "perfil" && section !== "etiquetas" && section !== "respuestas" && section !== "flujos" && section !== "plantillas" && section !== "seguimiento" && (
             <div className="px-5 py-4 border-t shrink-0">
               <Button
                 onClick={handleSave}
@@ -5452,6 +3530,65 @@ function DeliveryTick({ status }: { status?: string }) {
   if (status === "failed")   return <AlertTriangle size={10} className="text-red-300 shrink-0" />;
   return <CheckCheck size={10} className={status === "read" ? "text-[#53bdeb] shrink-0" : "text-white/60 shrink-0"} />;
 }
+
+// ─── Multimedia de WhatsApp ───────────────────────────────────────────────────
+// La entrante vive en un bucket privado y necesita URL firmada; la saliente es
+// pública (Meta la descarga por URL). useWaMediaUrl distingue el caso y devuelve
+// las públicas de inmediato, sin parpadeo.
+
+const WaMediaImage = ({ url }: { url: string }) => {
+  const { src, pending } = useWaMediaUrl(url);
+
+  if (pending) {
+    return (
+      <div className="w-[260px] h-[160px] bg-black/[0.06] animate-pulse" style={{ borderRadius: "inherit" }} />
+    );
+  }
+  if (!src) {
+    return (
+      <div className="w-[260px] h-[160px] bg-black/[0.06] flex items-center justify-center" style={{ borderRadius: "inherit" }}>
+        <span className="text-[11px] text-muted-foreground">Imagen no disponible</span>
+      </div>
+    );
+  }
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer">
+      <img src={src} alt="Imagen"
+        className="w-full max-w-[260px] object-cover block"
+        style={{ maxHeight: 200, borderRadius: "inherit" }} />
+    </a>
+  );
+};
+
+const WaMediaAnchor = ({ url, className, children }: { url: string; className?: string; children: React.ReactNode }) => {
+  const { src, pending } = useWaMediaUrl(url);
+
+  // Mientras se firma (o si no se pudo), se mantiene el mismo bloque pero sin
+  // enlace: así no cambia el layout ni se ofrece un enlace roto.
+  if (!src) {
+    return <div className={`${className ?? ""} ${pending ? "opacity-60" : "opacity-40"}`}>{children}</div>;
+  }
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer" className={className}>
+      {children}
+    </a>
+  );
+};
+
+const GalleryPhoto = ({ url }: { url: string }) => {
+  const { src, pending } = useWaMediaUrl(url);
+
+  if (!src) {
+    return <div className={`aspect-square bg-secondary block ${pending ? "animate-pulse" : ""}`} />;
+  }
+  return (
+    <a href={src} target="_blank" rel="noopener noreferrer"
+      className="aspect-square overflow-hidden bg-secondary block">
+      <img src={src} alt="" loading="lazy"
+        className="w-full h-full object-cover hover:opacity-90 transition-opacity" />
+    </a>
+  );
+};
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch, onMsgContextMenu, replyToMsg, contactName }: { msg: CrmWaMessage; highlight?: boolean; searchMatch?: boolean; isActiveSearchMatch?: boolean; onMsgContextMenu?: (msg: CrmWaMessage, x: number, y: number) => void; replyToMsg?: CrmWaMessage; contactName?: string }) => {
@@ -5522,6 +3659,18 @@ const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch, onMsg
               ? "bg-[#1877F2] text-white rounded-tr-sm shadow-sm"
               : "bg-[#00a884] text-white rounded-tr-sm shadow-sm"
         }`}>
+          {/* Qué disparó este mensaje. Sin esto, un paso de secuencia, un
+              seguimiento y un envío masivo se leían igual que una respuesta de la
+              IA, y no había forma de saber qué salió solo. */}
+          {msg.origin && (
+            <div className="flex items-center gap-1 px-3.5 pt-2 -mb-1">
+              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9.5px] font-semibold uppercase tracking-wide bg-white/20 text-white/90 border border-white/25">
+                {msg.origin === "flow"       && <><GitBranch size={8} /> Flujo</>}
+                {msg.origin === "automation" && <><Clock size={8} /> Seguimiento</>}
+                {msg.origin === "campaign"   && <><Send size={8} /> Envío masivo</>}
+              </span>
+            </div>
+          )}
           {/* Quoted reply (B19-13) */}
           {(replyToMsg || msg.replied_to_preview) && (
             <div
@@ -5551,22 +3700,18 @@ const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch, onMsg
           )}
           {/* Imagen */}
           {msg.media_type === "image" && msg.media_url && (
-            <a href={msg.media_url} target="_blank" rel="noopener noreferrer">
-              <img src={msg.media_url} alt="Imagen"
-                className="w-full max-w-[260px] object-cover block"
-                style={{ maxHeight: 200, borderRadius: "inherit" }} />
-            </a>
+            <WaMediaImage url={msg.media_url} />
           )}
           {/* Documento */}
           {msg.media_type === "document" && msg.media_url && (
             <div>
-              <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+              <WaMediaAnchor url={msg.media_url}
                 className={`flex items-center gap-2.5 px-3.5 py-3 font-medium ${isIncoming ? "text-primary" : "text-white"}`}>
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base ${isIncoming ? "bg-primary/10" : "bg-white/20"}`}>
                   📄
                 </div>
                 <span className="text-sm truncate">{displayContent.replace(/^\[PDF: /, "").replace(/\]$/, "")}</span>
-              </a>
+              </WaMediaAnchor>
               {msg.send_error && (
                 <div className={`flex items-center gap-1 px-3.5 pb-2 text-[10px] ${isIncoming ? "text-destructive" : "text-red-300"}`}>
                   <AlertTriangle size={9} />
@@ -5578,13 +3723,13 @@ const MessageBubble = ({ msg, highlight, searchMatch, isActiveSearchMatch, onMsg
           {/* Video */}
           {msg.media_type === "video" && msg.media_url && (
             <div>
-              <a href={msg.media_url} target="_blank" rel="noopener noreferrer"
+              <WaMediaAnchor url={msg.media_url}
                 className={`flex items-center gap-2.5 px-3.5 py-3 font-medium ${isIncoming ? "text-primary" : "text-white"}`}>
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 text-base ${isIncoming ? "bg-primary/10" : "bg-white/20"}`}>
                   📹
                 </div>
                 <span className="text-sm truncate">{displayContent !== "[video]" ? displayContent : "Video"}</span>
-              </a>
+              </WaMediaAnchor>
               {msg.send_error && (
                 <div className={`flex items-center gap-1 px-3.5 pb-2 text-[10px] ${isIncoming ? "text-destructive" : "text-red-300"}`}>
                   <AlertTriangle size={9} />
@@ -5757,20 +3902,7 @@ function MediaGalleryPanel({
           <div className="flex-1 overflow-y-auto" style={{ overscrollBehavior: "contain" }}>
             <div className="grid grid-cols-3 gap-0.5 p-0.5">
               {photos.map(m => (
-                <a
-                  key={m.id}
-                  href={m.media_url!}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="aspect-square overflow-hidden bg-secondary block"
-                >
-                  <img
-                    src={m.media_url!}
-                    alt=""
-                    loading="lazy"
-                    className="w-full h-full object-cover hover:opacity-90 transition-opacity"
-                  />
-                </a>
+                <GalleryPhoto key={m.id} url={m.media_url!} />
               ))}
             </div>
           </div>
@@ -5789,11 +3921,9 @@ function MediaGalleryPanel({
                 day: "2-digit", month: "short", year: "numeric",
               });
               return (
-                <a
+                <WaMediaAnchor
                   key={m.id}
-                  href={m.media_url!}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                  url={m.media_url!}
                   className="flex items-center gap-3 px-4 py-3 hover:bg-secondary/40 transition-colors group"
                 >
                   <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
@@ -5806,7 +3936,7 @@ function MediaGalleryPanel({
                   <span className="text-xs text-primary opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
                     Abrir →
                   </span>
-                </a>
+                </WaMediaAnchor>
               );
             })}
           </div>
@@ -6948,7 +5078,24 @@ const ChatPanel = ({
             toast.success("Transcripción copiada");
           }}
           onOpenMedia={() => {
-            if (ctxMenu.msg.media_url) window.open(ctxMenu.msg.media_url, "_blank", "noopener,noreferrer");
+            const url = ctxMenu.msg.media_url;
+            if (!url) return;
+            if (!isWaMediaUrl(url)) {
+              window.open(url, "_blank", "noopener,noreferrer");
+              return;
+            }
+            // Multimedia entrante: hay que firmar la URL, pero abrir la pestaña
+            // después del await la bloquearía el navegador (ya no es un gesto del
+            // usuario). Se abre vacía ahora y se navega al llegar la firma.
+            // Sin "noopener" en las features porque entonces open() devuelve null;
+            // se corta la referencia a mano.
+            const win = window.open("", "_blank");
+            if (win) win.opener = null;
+            resolveWaMediaUrl(url).then(signed => {
+              if (!win) return;
+              if (signed) win.location.href = signed;
+              else { win.close(); toast.error("No se pudo abrir el archivo"); }
+            });
           }}
           onCreateNote={() => {
             setIsInternalMode(true);
