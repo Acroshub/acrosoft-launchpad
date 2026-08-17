@@ -22,6 +22,11 @@ verify_jwt = false
 # verify_jwt false — invocado por pg_cron, no lleva JWT de usuario
 verify_jwt = false
 
+[functions.wa-inbox-retry]
+# verify_jwt false — invocado por pg_cron cada minuto. Se protege con
+# requireInternal contra SUPABASE_SERVICE_ROLE_KEY.
+verify_jwt = false
+
 [functions.wa-health-check]
 # verify_jwt false — invocado por pg_cron cada 5 min. Se protege con
 # requireInternal contra SUPABASE_SERVICE_ROLE_KEY, igual que las demás.

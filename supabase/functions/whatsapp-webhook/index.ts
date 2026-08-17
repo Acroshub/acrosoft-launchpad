@@ -3,6 +3,7 @@ import { crypto } from "https://deno.land/std@0.208.0/crypto/mod.ts";
 import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
 import { encodeBase64 } from "https://deno.land/std@0.208.0/encoding/base64.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
+import { isInternalCall } from "../_shared/internal-auth.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -127,10 +128,19 @@ async function handlePost(req: Request): Promise<Response> {
     }
   }
 
-  if (!config?.app_secret) return new Response("ok", { status: 200 });
+  // Replay interno: wa-inbox-retry reenvía aquí un aviso guardado en la bandeja
+  // para reprocesarlo por el mismo camino ya probado en producción. No tenemos la
+  // firma original de Meta, así que se autoriza con el service role key, igual que
+  // el resto de llamadas internas. Meta jamás manda ese key, así que esto no abre
+  // ninguna puerta: sigue siendo imposible entrar sin firma válida desde fuera.
+  const esReplayInterno = isInternalCall(req);
 
-  const valid = await verifySignature(rawBody, signatureHeader, config.app_secret);
-  if (!valid) return new Response("invalid signature", { status: 401 });
+  if (!esReplayInterno) {
+    if (!config?.app_secret) return new Response("ok", { status: 200 });
+    const valid = await verifySignature(rawBody, signatureHeader, config.app_secret);
+    if (!valid) return new Response("invalid signature", { status: 401 });
+  }
+  if (!config) return new Response("ok", { status: 200 });
 
   if (isTemplateEvent) {
     // Process template status updates async
@@ -139,9 +149,12 @@ async function handlePost(req: Request): Promise<Response> {
     );
   } else {
     // Respond 200 immediately, process messages async
-    processPayload(payload, config.user_id, config.is_active, config.access_token ?? "").catch((err) =>
-      console.error("[webhook] error procesando payload:", err)
-    );
+    const work = processPayload(payload, config.user_id, config.is_active, config.access_token ?? "")
+      .catch((err) => console.error("[webhook] error procesando payload:", err));
+    // En el replay interno sí se espera el resultado: quien reintenta necesita
+    // saber si esta vez salió bien, y al otro lado no hay ningún Meta vigilando
+    // la latencia del endpoint.
+    if (esReplayInterno) await work;
   }
 
   return new Response(JSON.stringify({ ok: true }), {
@@ -184,6 +197,92 @@ async function processTemplateStatusUpdates(payload: any, tenantUserId: string):
   }
 }
 
+// ─── Bandeja de entrada ───────────────────────────────────────────────────────
+// El aviso de Meta se guarda ANTES de procesarlo. Si el procesamiento falla, la
+// fila se queda 'pending' y wa-inbox-retry la reintenta cada minuto. A Meta se le
+// responde 200 siempre, pase lo que pase: devolverle errores puede hacer que
+// limite o bloquee las cuentas de WhatsApp de los clientes SaaS.
+//
+// Esta fila sustituye a la de crm_wa_webhook_dedup, así que no añade escrituras:
+// hace de deduplicación y de respaldo a la vez.
+
+/** Devuelve true si hay que procesar el mensaje, false si ya está atendido. */
+async function claimInbox(msg: any, tenantUserId: string, contactName: string | null): Promise<boolean> {
+  const waMessageId = String(msg?.id ?? "");
+  if (!waMessageId) return true; // sin id no hay nada que deduplicar
+
+  const { error } = await supabase.from("crm_wa_inbox").insert({
+    wa_message_id: waMessageId,
+    tenant_user_id: tenantUserId,
+    contact_name: contactName,
+    payload: msg,
+  });
+  if (!error) return true;
+
+  if (error.code === "23505") {
+    // Ya existe: o Meta lo reenvió y ya está hecho, o es un reintento nuestro.
+    const { data } = await supabase
+      .from("crm_wa_inbox").select("status").eq("wa_message_id", waMessageId).maybeSingle();
+    if (data?.status === "pending") return true;
+    console.log(`[webhook] ${waMessageId} ya atendido (${data?.status ?? "?"}), ignorando`);
+    return false;
+  }
+
+  // No se pudo reclamar por otro motivo. Se procesa igual: perder el mensaje es
+  // peor que arriesgar un reproceso, y crm_wa_messages.wa_message_id es único,
+  // así que la base impide duplicarlo.
+  console.error("[webhook] no se pudo reclamar en la bandeja:", error);
+  await supabase.from("crm_wa_health_events").insert({
+    kind: "inbox_claim_failed",
+    tenant_user_id: tenantUserId,
+    detail: `${error.code ?? ""} ${error.message ?? ""}`.trim().slice(0, 300),
+  }).then(() => {}, () => {});
+  return true;
+}
+
+/** Marca atendido. Se llama en cuanto el mensaje queda guardado, no al final. */
+async function markInboxDone(waMessageId: string): Promise<void> {
+  if (!waMessageId) return;
+  await supabase.from("crm_wa_inbox")
+    .update({ status: "done", processed_at: new Date().toISOString(), last_error: null })
+    .eq("wa_message_id", waMessageId);
+}
+
+/** Anota el fallo; la fila sigue 'pending' y wa-inbox-retry volverá a intentarlo. */
+async function markInboxFailed(waMessageId: string, err: unknown): Promise<void> {
+  if (!waMessageId) return;
+  await supabase.from("crm_wa_inbox")
+    .update({ last_error: String(err).slice(0, 500), last_attempt_at: new Date().toISOString() })
+    .eq("wa_message_id", waMessageId)
+    .eq("status", "pending"); // jamás revertir uno ya marcado 'done'
+}
+
+/** Aviso de que el mensaje quedó guardado. Ver saveIncoming. */
+type OnSaved = () => Promise<void>;
+
+/**
+ * Guarda el mensaje entrante y marca la bandeja como atendida en el acto.
+ *
+ * Devuelve false si el mensaje YA estaba guardado (índice único sobre
+ * wa_message_id). Eso significa que esto es un reproceso de algo ya atendido:
+ * hay que darlo por hecho pero NO volver a invocar a la IA, o el cliente
+ * recibiría dos respuestas.
+ */
+async function saveIncoming(row: Record<string, unknown>, onSaved: OnSaved): Promise<boolean> {
+  const { error } = await supabase.from("crm_wa_messages").insert(row);
+  if (error) {
+    if (error.code === "23505") {
+      console.log(`[webhook] ${row.wa_message_id} ya estaba guardado, no se reprocesa`);
+      await onSaved();
+      return false;
+    }
+    // Se lanza: el mensaje NO se guardó. La bandeja lo deja pending y se reintenta.
+    throw new Error(`no se pudo guardar el mensaje: ${error.code ?? ""} ${error.message ?? ""}`);
+  }
+  await onSaved();
+  return true;
+}
+
 // ─── Async payload processing ─────────────────────────────────────────────────
 async function processPayload(payload: any, tenantUserId: string, isActive: boolean, accessToken: string): Promise<void> {
   for (const entry of payload.entry ?? []) {
@@ -221,30 +320,68 @@ async function processPayload(payload: any, tenantUserId: string, isActive: bool
           console.log(`[webhook] mensaje de grupo ignorado (from=${msgFrom})`);
           continue;
         }
-        await handleIncomingMessage(msg, nameByPhone.get(msg.from) ?? null, tenantUserId, isActive, accessToken);
+
+        const contactName = nameByPhone.get(msg.from) ?? null;
+        const reclamado = await claimInbox(msg, tenantUserId, contactName);
+        if (!reclamado) continue;
+
+        const waMessageId = String(msg?.id ?? "");
+        let guardado = false;
+        try {
+          await handleIncomingMessage(
+            msg, contactName, tenantUserId, isActive, accessToken,
+            async () => { await markInboxDone(waMessageId); guardado = true; },
+          );
+        } catch (err) {
+          console.error(`[webhook] fallo procesando ${waMessageId}:`, err);
+          // Si ya estaba guardado, el mensaje está a salvo y NO se reintenta: un
+          // reintento volvería a invocar a la IA y el cliente recibiría dos
+          // respuestas. Que la IA falle después ya lo cubre wa_ai_not_replying.
+          if (!guardado) await markInboxFailed(waMessageId, err);
+        }
       }
     }
   }
 }
 
+/**
+ * Procesa un mensaje entrante.
+ *
+ * Contrato con la bandeja de entrada:
+ *  - Llama a `onSaved()` en cuanto el mensaje queda a salvo, y también cuando el
+ *    mensaje no aplica (tipo no soportado, sin contenido): en ambos casos no hay
+ *    nada más que hacer con él.
+ *  - LANZA si algo falla de verdad. Sin excepción el fallo pasaría por éxito y la
+ *    bandeja daría por atendido un mensaje perdido — que es exactamente el bug
+ *    que esto viene a arreglar.
+ */
 async function handleIncomingMessage(
   msg: any,
   contactName: string | null,
   tenantUserId: string,
   isActive: boolean,
   accessToken: string,
+  onSaved: OnSaved,
 ): Promise<void> {
   const waMessageId = msg.id;
   const phone = msg.from;
   const msgType: string = msg.type;
 
+  // ── Simulacro de fallo, solo para pruebas ──
+  // Inerte salvo que exista el secreto WA_TEST_FAIL_TARGET con el formato exacto
+  // "<tenant_user_id>:<telefono>". Permite comprobar que la bandeja retiene y
+  // reintenta de verdad sin romper nada: cualquier otro número —y el mismo número
+  // escribiéndole a otro cliente SaaS— sigue su curso normal. El tenant va en la
+  // clave a propósito: un mismo teléfono puede tener conversación abierta con
+  // varios clientes a la vez.
+  const testFailTarget = Deno.env.get("WA_TEST_FAIL_TARGET");
+  if (testFailTarget && testFailTarget === `${tenantUserId}:${phone}`) {
+    throw new Error(`[simulacro] fallo forzado para ${phone} (WA_TEST_FAIL_TARGET)`);
+  }
+
   // ── Audio/Voice: download → transcribe → invoke agent ──
   if (msgType === "audio" || msgType === "voice") {
-    const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
-    if (dedupErr) return;
-
     const conv = await upsertConversation(tenantUserId, phone, contactName);
-    if (!conv) return;
 
     let transcription: string | null = null;
     const mediaId: string | undefined = msg[msgType]?.id;
@@ -253,14 +390,15 @@ async function handleIncomingMessage(
       if (media) transcription = await transcribeAudio(media.buffer, media.mimeType);
     }
 
-    await supabase.from("crm_wa_messages").insert({
+    const nuevo = await saveIncoming({
       conversation_id: conv.id,
       role: "user",
       content: transcription ?? "[Mensaje de voz]",
       media_type: "audio",
       transcription,
       wa_message_id: waMessageId,
-    });
+    }, onSaved);
+    if (!nuevo) return;
     await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
     await maybeInvokeAgent(conv, tenantUserId, phone, isActive, { preview: transcription ?? "[Mensaje de voz]", contact_name: contactName });
@@ -270,18 +408,15 @@ async function handleIncomingMessage(
   // ── Text ──
   if (msgType === "text") {
     const text = msg.text?.body;
-    if (!text) return;
-
-    const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
-    if (dedupErr) return;
+    if (!text) { await onSaved(); return; }   // no aplica: nada que guardar
 
     console.log(`[webhook] ← texto de ${phone}: "${text.slice(0, 60)}"`);
     const conv = await upsertConversation(tenantUserId, phone, contactName);
-    if (!conv) return;
 
-    await supabase.from("crm_wa_messages").insert({
+    const nuevo = await saveIncoming({
       conversation_id: conv.id, role: "user", content: text, wa_message_id: waMessageId,
-    });
+    }, onSaved);
+    if (!nuevo) return;
     await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
     await maybeInvokeAgent(conv, tenantUserId, phone, isActive, { preview: text, contact_name: contactName });
@@ -292,14 +427,10 @@ async function handleIncomingMessage(
   if (msgType === "image") {
     const mediaId = msg.image?.id;
     const caption = msg.image?.caption ?? "";
-    if (!mediaId) return;
-
-    const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
-    if (dedupErr) return;
+    if (!mediaId) { await onSaved(); return; }   // no aplica
 
     console.log(`[webhook] ← imagen de ${phone} (media_id: ${mediaId})`);
     const conv = await upsertConversation(tenantUserId, phone, contactName);
-    if (!conv) return;
 
     let mediaUrl: string | null = null;
     let mediaBase64: string | null = null;
@@ -316,14 +447,15 @@ async function handleIncomingMessage(
       }
     }
 
-    await supabase.from("crm_wa_messages").insert({
+    const nuevo = await saveIncoming({
       conversation_id: conv.id,
       role: "user",
       content: caption || "[Imagen]",
       media_type: "image",
       media_url: mediaUrl,
       wa_message_id: waMessageId,
-    });
+    }, onSaved);
+    if (!nuevo) return;
     await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
     await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {
@@ -343,15 +475,12 @@ async function handleIncomingMessage(
     const filename: string = msg.document?.filename ?? "documento";
     if (!mediaId || !mimeType.includes("pdf")) {
       console.log(`[webhook] documento no PDF (${mimeType}), ignorando`);
+      await onSaved();   // no aplica: no se reintenta
       return;
     }
 
-    const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
-    if (dedupErr) return;
-
     console.log(`[webhook] ← PDF de ${phone}: ${filename}`);
     const conv = await upsertConversation(tenantUserId, phone, contactName);
-    if (!conv) return;
 
     let mediaUrl: string | null = null;
     let mediaBase64: string | null = null;
@@ -365,14 +494,15 @@ async function handleIncomingMessage(
       }
     }
 
-    await supabase.from("crm_wa_messages").insert({
+    const nuevo = await saveIncoming({
       conversation_id: conv.id,
       role: "user",
       content: `[PDF: ${filename}]`,
       media_type: "document",
       media_url: mediaUrl,
       wa_message_id: waMessageId,
-    });
+    }, onSaved);
+    if (!nuevo) return;
     await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
 
     await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {
@@ -390,19 +520,16 @@ async function handleIncomingMessage(
     const buttonReply = msg.interactive?.button_reply;
     const listReply   = msg.interactive?.list_reply;
     const text = buttonReply?.title ?? listReply?.title ?? "";
-    if (!text) return;
-
-    const { error: dedupErr } = await supabase.from("crm_wa_webhook_dedup").insert({ wa_message_id: waMessageId });
-    if (dedupErr) return;
+    if (!text) { await onSaved(); return; }   // no aplica
 
     console.log(`[webhook] ← button reply de ${phone}: "${text}"`);
     const conv = await upsertConversation(tenantUserId, phone, contactName);
-    if (!conv) return;
 
-    await supabase.from("crm_wa_messages").insert({
+    const nuevo = await saveIncoming({
       conversation_id: conv.id, role: "user", content: text, wa_message_id: waMessageId,
       button_reply_id: buttonReply?.id ?? null,
-    });
+    }, onSaved);
+    if (!nuevo) return;
     await supabase.rpc("increment_conversation_unread", { p_conv_id: conv.id });
     await maybeInvokeAgent(conv, tenantUserId, phone, isActive, {
       button_reply_id: buttonReply?.id,
@@ -412,7 +539,9 @@ async function handleIncomingMessage(
     return;
   }
 
+  // Tipo no soportado: no es un fallo, no hay nada que reintentar.
   console.log(`[webhook] tipo no soportado: ${msgType}, ignorando`);
+  await onSaved();
 }
 
 // ─── Groq Whisper transcription ──────────────────────────────────────────────
@@ -478,7 +607,10 @@ async function upsertConversation(userId: string, phone: string, contactName: st
       tenant_user_id: userId,
       detail: `${error.code ?? ""} ${error.message ?? ""}`.trim().slice(0, 300),
     }).then(() => {}, () => {}); // nunca debe tumbar el webhook
-    return null;
+    // Se lanza en vez de devolver null: así el mensaje se queda 'pending' en la
+    // bandeja y se reintenta. Antes se hacía `return null` y quien llamaba hacía
+    // `if (!conv) return;` — el mensaje se perdía en silencio.
+    throw new Error(`no se pudo crear la conversación: ${error.code ?? ""} ${error.message ?? ""}`);
   }
 
   // Conversación sin contacto vinculado: enlazar uno existente por teléfono o, si el tenant

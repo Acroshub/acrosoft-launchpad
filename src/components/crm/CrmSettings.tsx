@@ -1557,6 +1557,8 @@ const ALERT_FALLBACK_TITLES: Record<string, string> = {
   wa_ai_not_replying:       "La IA dejó de responder",
   wa_webhook_disconnected:  "WhatsApp desconectado de Meta",
   wa_followups_stuck:       "Seguimientos automáticos atascados",
+  wa_inbox_discarded:       "Mensajes perdidos definitivamente",
+  wa_inbox_stuck:           "Mensajes esperando sin procesarse",
   cache_filler_insufficient:"Relleno de caché insuficiente",
 };
 

@@ -39,7 +39,26 @@ type Finding = {
   /** Explicación en lenguaje claro: es lo que se lee en la notificación. */
   body: string;
   detail?: Record<string, unknown>;
+  /**
+   * Nivel de urgencia, para problemas que empeoran con el tiempo. Cuando sube,
+   * se vuelve a notificar en el acto aunque no haya pasado la hora de silencio:
+   * un problema que lleva seis horas sin resolverse no merece el mismo aviso que
+   * uno de veinte minutos.
+   */
+  nivel?: number;
 };
+
+/** Cuánto aguanta la bandeja reintentando antes de descartar. Ver wa-inbox-retry. */
+const VENTANA_HORAS = 46;
+
+function duracionLegible(ms: number): string {
+  const min = Math.round(ms / 60_000);
+  if (min < 60) return `${min} minutos`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h < 24) return m ? `${h} h ${m} min` : `${h} horas`;
+  return `${Math.floor(h / 24)} días y ${h % 24} h`;
+}
 
 // ─── Detecciones ──────────────────────────────────────────────────────────────
 
@@ -216,9 +235,117 @@ async function checkStuckFollowups(labels: Map<string, string>): Promise<Finding
     tenantUserId: tenant,
     tenantLabel: labels.get(tenant) ?? null,
     title: "Seguimientos automáticos atascados",
-    body: `${n} seguimiento${n === 1 ? "" : "s"} tenían que haber salido hace más de 20 minutos y siguen en cola. El proceso que los envía no está avanzando, así que esos clientes no reciben su mensaje de recuperación.`,
+    body: n === 1
+      ? `Un seguimiento tenía que haber salido hace más de 20 minutos y sigue en cola. El proceso que los envía no está avanzando, así que ese cliente no recibe su mensaje de recuperación.`
+      : `${n} seguimientos tenían que haber salido hace más de 20 minutos y siguen en cola. El proceso que los envía no está avanzando, así que esos clientes no reciben su mensaje de recuperación.`,
     detail: { en_cola: n },
   }));
+}
+
+/** 6. Mensajes que la bandeja de entrada ya no pudo salvar. Lo más grave. */
+async function checkInboxDiscarded(labels: Map<string, string>): Promise<Finding[]> {
+  const since = new Date(Date.now() - 60 * 60_000).toISOString();
+  const { data } = await supabase
+    .from("crm_wa_inbox")
+    .select("tenant_user_id, last_error")
+    .eq("status", "failed")
+    .gte("processed_at", since);
+
+  if (!data?.length) return [];
+
+  const byTenant = new Map<string, { n: number; err: string }>();
+  for (const r of data) {
+    const key = r.tenant_user_id ?? "global";
+    const prev = byTenant.get(key);
+    byTenant.set(key, { n: (prev?.n ?? 0) + 1, err: r.last_error ?? prev?.err ?? "" });
+  }
+
+  return [...byTenant].map(([tenant, { n, err }]) => ({
+    kind: "wa_inbox_discarded",
+    severity: "critical" as const,
+    tenantUserId: tenant === "global" ? null : tenant,
+    tenantLabel: labels.get(tenant) ?? null,
+    title: "Mensajes perdidos definitivamente",
+    body: n === 1
+      ? `Un mensaje de un cliente no se pudo procesar en unas 46 horas de reintentos, así que se descartó. Ese cliente escribió y nadie lo verá nunca en el CRM. Hay que revisar qué está fallando y contactarlo a mano. Motivo: ${err || "desconocido"}`
+      : `${n} mensajes de clientes no se pudieron procesar en unas 46 horas de reintentos, así que se descartaron. Esos clientes escribieron y nadie los verá nunca en el CRM. Hay que revisar qué está fallando y contactarlos a mano. Motivo: ${err || "desconocido"}`,
+    detail: { descartados: n, error: err.slice(0, 300) },
+  }));
+}
+
+/**
+ * 7. Hay mensajes esperando en la bandeja desde hace rato.
+ *
+ * Cubre dos situaciones que piden lo mismo — mirar por qué no se procesan:
+ *   a) la causa de fondo sigue rota y los reintentos siguen fallando;
+ *   b) `wa-inbox-retry` dejó de correr y nadie los está reintentando.
+ *
+ * Es además lo que mantiene el aviso vivo durante una avería larga. Los
+ * reintentos se espacian hasta horas, así que `wa_messages_not_saved` —que mira
+ * solo los últimos 10 minutos— se cerraría sola entre intento e intento y daría
+ * la falsa impresión de que ya está resuelto. Esta alerta no se cierra hasta que
+ * la bandeja queda vacía de verdad.
+ *
+ * A los 20 minutos un mensaje ya ha fallado unas tres veces: no es un tropiezo.
+ */
+async function checkInboxStuck(labels: Map<string, string>): Promise<Finding[]> {
+  const cutoff = new Date(Date.now() - 20 * 60_000).toISOString();
+  const { data } = await supabase
+    .from("crm_wa_inbox")
+    .select("tenant_user_id, created_at")
+    .eq("status", "pending")
+    .lt("created_at", cutoff);
+
+  if (!data?.length) return [];
+
+  const byTenant = new Map<string, { n: number; masViejoMs: number }>();
+  for (const r of data) {
+    const key = r.tenant_user_id ?? "global";
+    const edad = Date.now() - new Date(r.created_at as string).getTime();
+    const prev = byTenant.get(key);
+    byTenant.set(key, {
+      n: (prev?.n ?? 0) + 1,
+      masViejoMs: Math.max(prev?.masViejoMs ?? 0, edad),
+    });
+  }
+
+  return [...byTenant].map(([tenant, { n, masViejoMs }]) => {
+    const horas = masViejoMs / 3_600_000;
+    const restantes = Math.round(Math.max(0, VENTANA_HORAS - horas));
+    const desde = duracionLegible(masViejoMs);
+
+    /** Elige singular o plural. Toda la concordancia del texto sale de aquí. */
+    const p = (sing: string, plur: string) => (n === 1 ? sing : plur);
+
+    // El aviso sube de tono según pasa el tiempo. A las 2 h ya está claro que no
+    // se va a arreglar solo; a las 6 h queda menos de un día de margen.
+    const nivel = horas >= 6 ? 3 : horas >= 2 ? 2 : 1;
+
+    const title =
+      nivel === 3 ? "🚨 MUY URGENTE: mensajes a punto de perderse" :
+      nivel === 2 ? "⚠️ URGENTE: mensajes sin procesar hace horas" :
+                    "Mensajes esperando sin procesarse";
+
+    const comun = `${p("Un mensaje de un cliente lleva", `${n} mensajes de clientes llevan`)} ${desde} en la bandeja sin poder procesarse. ${p("Sigue guardado y se reintenta solo", "Siguen guardados y se reintentan solos")}, así que en cuanto se arregle la causa ${p("entrará", "entrarán")} al chat sin que hagas nada.`;
+
+    const body =
+      nivel === 1
+        ? `${comun} Hasta entonces ${p("ese cliente escribió y no aparece", "esos clientes escribieron y no aparecen")} en el CRM. Hay que averiguar qué está fallando.`
+        : nivel === 2
+        ? `URGENTE. ${comun} Pero ${p("lleva", "llevan")} ${desde} fallando: esto ya NO se va a arreglar solo, el problema de fondo sigue ahí. Quedan unas ${restantes} horas antes de que ${p("se descarte y se pierda", "empiecen a descartarse y se pierdan")} para siempre. Hay que revisarlo ya.`
+        : `MUY URGENTE. ${comun} ${p("Lleva", "Llevan")} ${desde} fallando y quedan solo unas ${restantes} horas antes de que ${p("se descarte y se pierda", "se descarten y se pierdan")} definitivamente. Si nadie arregla la causa antes de ese plazo, ${p("ese cliente desaparece", "esos clientes desaparecen")} sin dejar rastro en el CRM. Hay que atenderlo ahora.`;
+
+    return {
+      kind: "wa_inbox_stuck",
+      severity: "critical" as const,
+      tenantUserId: tenant === "global" ? null : tenant,
+      tenantLabel: labels.get(tenant) ?? null,
+      title,
+      body,
+      detail: { esperando: n, esperando_desde: desde, horas_restantes: restantes, nivel },
+      nivel,
+    };
+  });
 }
 
 // ─── Alta, repetición y cierre de alertas ─────────────────────────────────────
@@ -226,7 +353,7 @@ async function checkStuckFollowups(labels: Map<string, string>): Promise<Finding
 async function raise(finding: Finding, adminId: string | null): Promise<"nueva" | "repetida" | "silenciada"> {
   let q = supabase
     .from("crm_admin_alerts")
-    .select("id, occurrences, notified_at")
+    .select("id, occurrences, notified_at, metadata")
     .eq("type", finding.kind)
     .is("resolved_at", null);
   q = finding.tenantUserId ? q.eq("user_id", finding.tenantUserId) : q.is("user_id", null);
@@ -250,14 +377,22 @@ async function raise(finding: Finding, adminId: string | null): Promise<"nueva" 
     return "nueva";
   }
 
-  const debeReNotificar =
-    !existing.notified_at || Date.now() - new Date(existing.notified_at).getTime() > RENOTIFY_MS;
+  // Si el problema ha subido de nivel (lleva más tiempo sin resolverse), se avisa
+  // en el acto aunque no haya pasado la hora de silencio: es información nueva.
+  const nivelPrevio = Number((existing.metadata as Record<string, unknown> | null)?.nivel ?? 0);
+  const subioNivel = (finding.nivel ?? 0) > nivelPrevio;
+
+  const debeReNotificar = subioNivel
+    || !existing.notified_at
+    || Date.now() - new Date(existing.notified_at).getTime() > RENOTIFY_MS;
 
   await supabase.from("crm_admin_alerts")
     .update({
       occurrences: (existing.occurrences ?? 1) + 1,
       last_occurred_at: now,
+      title: finding.title,      // el título cambia al escalar de urgencia
       message: finding.body,
+      metadata: finding.detail ?? {},
       ...(debeReNotificar ? { notified_at: now } : {}),
     })
     .eq("id", existing.id);
@@ -281,7 +416,8 @@ async function resolveGone(vigentes: Finding[], adminId: string | null): Promise
   const vivos = new Set(vigentes.map(f => `${f.kind}::${f.tenantUserId ?? "global"}`));
   const gestionados = [
     "wa_messages_not_saved", "wa_send_failures", "wa_ai_not_replying",
-    "wa_webhook_disconnected", "wa_followups_stuck",
+    "wa_webhook_disconnected", "wa_followups_stuck", "wa_inbox_discarded",
+    "wa_inbox_stuck",
   ];
 
   const { data: abiertas } = await supabase
@@ -342,6 +478,8 @@ Deno.serve(async (req: Request) => {
       ...(await checkAiNotReplying(labels)),
       ...(await checkWebhookSubscription(activos, labels)),
       ...(await checkStuckFollowups(labels)),
+      ...(await checkInboxDiscarded(labels)),
+      ...(await checkInboxStuck(labels)),
     ];
 
     const resultados: Record<string, string> = {};
