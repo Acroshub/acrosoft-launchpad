@@ -13,6 +13,8 @@ import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import PaymentMethodsEditor, { PaymentMethodsDraftEditor } from "@/components/shared/PaymentMethodsEditor";
 
 import { CURRENCIES, formatAmount } from "@/lib/currencies";
+import { CharCounter } from "@/components/ui/char-counter";
+import { DESCRIPTION_MAX_CHARS } from "@/lib/limits";
 const fmtSvc = (amount: number, currency?: string | null) => formatAmount(amount, currency);
 
 const INTERVAL_OPTIONS = [
@@ -330,13 +332,22 @@ const ServiceEditor = ({
         />
       </div>
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Descripción</label>
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-xs font-medium text-muted-foreground">Descripción</label>
+          <CharCounter value={description} max={DESCRIPTION_MAX_CHARS} />
+        </div>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
+          maxLength={DESCRIPTION_MAX_CHARS}
           className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 resize-none"
           placeholder="Describe brevemente qué incluye este servicio"
         />
+        {description.length > DESCRIPTION_MAX_CHARS && (
+          <p className="text-[10px] text-destructive">
+            Esta descripción se guardó antes del límite actual. Puedes dejarla como está, pero si la editas tendrás que recortarla a {DESCRIPTION_MAX_CHARS.toLocaleString("es")} caracteres para poder guardar.
+          </p>
+        )}
       </div>
     </div>
   );

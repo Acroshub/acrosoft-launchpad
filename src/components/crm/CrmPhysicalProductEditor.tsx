@@ -18,6 +18,8 @@ import {
 } from "@/hooks/useCrmData";
 import type { CrmProduct, CrmProductVariant, CrmPaymentMethod, CrmPrice } from "@/lib/supabase";
 import PriceListEditor, { type PriceEntry } from "@/components/crm/PriceListEditor";
+import { CharCounter } from "@/components/ui/char-counter";
+import { DESCRIPTION_MAX_CHARS } from "@/lib/limits";
 import FaqEditor, { type FaqEntry } from "@/components/crm/FaqEditor";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import PaymentMethodsEditor, { PaymentMethodsDraftEditor } from "@/components/shared/PaymentMethodsEditor";
@@ -552,7 +554,7 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
   const { data: memberCatalogIds = [], refetch: refetchCatalogIds } = useProductCatalogIds(product?.id ?? null);
 
   const [saving, setSaving] = useState(false);
-  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+  const [autoSaveStatus, setAutoSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const [name, setName]               = useState(d?.name ?? initialProduct?.name ?? "");
@@ -682,7 +684,7 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
         setProduct(updated);
         setAutoSaveStatus("saved");
         setTimeout(() => setAutoSaveStatus("idle"), 2000);
-      } catch { setAutoSaveStatus("idle"); }
+      } catch { setAutoSaveStatus("error"); }
     }, 800);
     return () => clearTimeout(saveTimer.current);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -767,9 +769,17 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
         <Input value={name} onChange={e => setName(e.target.value)} className="h-10 text-base md:text-sm" placeholder="Ej: Pantalón de mezclilla" />
       </div>
       <div className="space-y-1.5">
-        <label className="text-xs font-medium text-muted-foreground">Descripción</label>
-        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} placeholder="Describe tu producto..."
+        <div className="flex items-center justify-between gap-2">
+          <label className="text-xs font-medium text-muted-foreground">Descripción</label>
+          <CharCounter value={description} max={DESCRIPTION_MAX_CHARS} />
+        </div>
+        <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} maxLength={DESCRIPTION_MAX_CHARS} placeholder="Describe tu producto..."
           className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-base md:text-sm resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+        {description.length > DESCRIPTION_MAX_CHARS && (
+          <p className="text-[10px] text-destructive">
+            Esta descripción se guardó antes del límite actual. Puedes dejarla como está, pero si la editas tendrás que recortarla a {DESCRIPTION_MAX_CHARS.toLocaleString("es")} caracteres para poder guardar.
+          </p>
+        )}
       </div>
       <FaqEditor value={faqs} onChange={handleFaqsChange} />
       <div className="space-y-1.5">
@@ -1089,8 +1099,10 @@ export default function CrmPhysicalProductEditor({ initialProduct, fromCatalogId
           <p className="text-sm text-muted-foreground px-2 -ml-2">Configura los detalles de este producto</p>
         </div>
         {autoSaveStatus !== "idle" && (
-          <span className="text-xs text-muted-foreground flex items-center gap-1.5">
-            {autoSaveStatus === "saving" ? <><Loader2 size={11} className="animate-spin" />Guardando...</> : <><span className="text-green-500 font-semibold">✓</span> Guardado</>}
+          <span className={`text-xs flex items-center gap-1.5 ${autoSaveStatus === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+            {autoSaveStatus === "saving" ? <><Loader2 size={11} className="animate-spin" />Guardando...</>
+              : autoSaveStatus === "error" ? <>No se pudo guardar</>
+              : <><span className="text-green-500 font-semibold">✓</span> Guardado</>}
           </span>
         )}
       </div>

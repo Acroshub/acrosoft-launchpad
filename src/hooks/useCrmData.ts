@@ -1925,7 +1925,26 @@ export const useUpsertAIAgentConfig = () => {
  * reconectar). React Query pausa el intervalo con la pestaña en segundo plano,
  * así que solo corre mientras alguien está mirando.
  */
+/**
+ * Respaldo de Realtime para las LISTAS (conversaciones activas, archivadas y
+ * previews). Cada vuelta trae todas las conversaciones del tenant, así que el
+ * intervalo es largo: Realtime ya cubre la actualización inmediata y esto solo
+ * repara una desincronización. `staleTime` igual al intervalo evita además que
+ * cada vuelta a la pestaña dispare una descarga completa.
+ */
+const WA_LIST_REFETCH_MS = 15 * 60_000;
+
+/**
+ * Respaldo para los mensajes del chat abierto. Más corto que el de las listas:
+ * son pocas filas y un retraso acá sí se nota si Realtime falla.
+ */
 const WA_FALLBACK_REFETCH_MS = 5 * 60_000;
+
+/**
+ * Columnas que la bandeja realmente consume. Va como literal (no concatenado)
+ * porque supabase-js infiere el tipo del resultado analizando este string.
+ */
+const WA_CONVERSATION_LIST_COLUMNS = "id, user_id, phone, contact_name, contact_profile_pic, mode, active_flow_id, active_sequence_id, flow_step, assigned_to, last_message_at, created_at, unread_count, is_favorite, is_archived, ai_typing" as const;
 
 export const useWaConversations = (userId?: string) => {
   const { user } = useCurrentUser();
@@ -1935,7 +1954,11 @@ export const useWaConversations = (userId?: string) => {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("crm_wa_conversations")
-        .select("*")
+        // Columnas explícitas en vez de "*": la lista se recarga cada 5 min y al
+        // enfocar la ventana, con todas las conversaciones del tenant en cada
+        // vuelta, así que cada columna de más se paga muchas veces al día.
+        // `triggered_flow_ids` no lo usa el frontend y es de las más pesadas.
+        .select(WA_CONVERSATION_LIST_COLUMNS)
         .eq("user_id", effectiveId!)
         .eq("is_archived", false)
         .order("last_message_at", { ascending: false, nullsFirst: false });
@@ -1943,7 +1966,8 @@ export const useWaConversations = (userId?: string) => {
       return (data ?? []) as CrmWaConversation[];
     },
     enabled: !!effectiveId,
-    refetchInterval: WA_FALLBACK_REFETCH_MS,
+    refetchInterval: WA_LIST_REFETCH_MS,
+    staleTime: WA_LIST_REFETCH_MS,
     refetchOnWindowFocus: true,
   });
 };
@@ -1969,7 +1993,8 @@ export const useWaLastMessages = (userId?: string) => {
       return byConversation;
     },
     enabled: !!effectiveId,
-    refetchInterval: WA_FALLBACK_REFETCH_MS,
+    refetchInterval: WA_LIST_REFETCH_MS,
+    staleTime: WA_LIST_REFETCH_MS,
     refetchOnWindowFocus: true,
   });
 };
@@ -1990,7 +2015,8 @@ export const useArchivedWaConversations = (userId?: string) => {
       return (data ?? []) as CrmWaConversation[];
     },
     enabled: !!effectiveId,
-    refetchInterval: WA_FALLBACK_REFETCH_MS,
+    refetchInterval: WA_LIST_REFETCH_MS,
+    staleTime: WA_LIST_REFETCH_MS,
     refetchOnWindowFocus: true,
   });
 };
@@ -2059,6 +2085,8 @@ export const useWaMessages = (conversationId: string | null) => {
     enabled: !!user && !!conversationId,
     // Sin polling: el historial se trae entero al abrir el chat y a partir de
     // ahí `useWaRealtime` va agregando cada mensaje nuevo desde el evento.
+    // Respaldo más corto que el de las listas: son pocas filas por chat y un
+    // mensaje que tarda en aparecer se nota mucho más que una lista desfasada.
     refetchInterval: WA_FALLBACK_REFETCH_MS,
     refetchOnWindowFocus: true,
   });

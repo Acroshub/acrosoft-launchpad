@@ -54,6 +54,8 @@ import type { WaLastMessage, CrmWaFlowCountrySequence, CrmWaConversation, CrmWaM
 import { useCurrentUser, useStaffPermissions } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { formatAmount } from "@/lib/currencies";
+import { CharCounter } from "@/components/ui/char-counter";
+import { AGENT_PROMPT_MAX_CHARS } from "@/lib/limits";
 // ─── Emoji Picker inline (B19-8) ─────────────────────────────────────────────
 // ─── Emoji Picker (B19-8) — carga dinámica para evitar crash del bundle ───────
 const EmojiPickerLazy = lazy(() => import("@emoji-mart/react"));
@@ -853,8 +855,11 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
 
             {/* Prompt adicional libre */}
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-muted-foreground">Prompt - Instrucciones Adicionales <span className="text-[10px] text-muted-foreground">(opcional — se añaden al final)</span></label>
-              <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4}
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-xs font-medium text-muted-foreground">Prompt - Instrucciones Adicionales <span className="text-[10px] text-muted-foreground">(opcional — se añaden al final)</span></label>
+                <CharCounter value={systemPrompt} max={AGENT_PROMPT_MAX_CHARS} />
+              </div>
+              <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4} maxLength={AGENT_PROMPT_MAX_CHARS}
                 className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
             </div>
 
@@ -2511,8 +2516,16 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
               {/* Instrucciones adicionales */}
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-muted-foreground">Prompt - Instrucciones Adicionales <span className="text-[10px] text-muted-foreground">(opcional)</span></label>
-                <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
+                <div className="flex items-center justify-between gap-2">
+                  <label className="text-xs font-medium text-muted-foreground">Prompt - Instrucciones Adicionales <span className="text-[10px] text-muted-foreground">(opcional)</span></label>
+                  <CharCounter value={systemPrompt} max={AGENT_PROMPT_MAX_CHARS} />
+                </div>
+                <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} maxLength={AGENT_PROMPT_MAX_CHARS} className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
+                {systemPrompt.length > AGENT_PROMPT_MAX_CHARS && (
+                  <p className="text-[10px] text-destructive">
+                    Este prompt se guardó antes del límite actual. Puedes dejarlo como está, pero si lo editas tendrás que recortarlo a {AGENT_PROMPT_MAX_CHARS.toLocaleString("es")} caracteres para poder guardar.
+                  </p>
+                )}
               </div>
             </div>
           )}
