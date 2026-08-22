@@ -614,6 +614,7 @@ export type CrmAIAgentConfig = {
   agent_faq: Array<{ q: string; a: string }> | null
   use_business_faq: boolean
   agent_extra_prompt: string | null
+  system_prompt_max_chars: number
   scheduling_calendar_id: string | null
   profile_picture_url: string | null
   agent_about: string | null

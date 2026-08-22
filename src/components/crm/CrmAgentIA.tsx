@@ -251,6 +251,7 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
   const [agentName, setAgentName]       = useState(existingConfig?.agent_name ?? "Asistente");
   const [systemPrompt, setSystemPrompt] = useState(existingConfig?.system_prompt ?? "");
   const promptRef = useRef<HTMLTextAreaElement>(null);
+  const promptMaxChars = existingConfig?.system_prompt_max_chars ?? AGENT_PROMPT_MAX_CHARS;
 
   // Step 2 — Config estratégica B15-1
   const [agentPersonality, setAgentPersonality]   = useState(existingConfig?.agent_personality ?? "");
@@ -857,9 +858,9 @@ const SetupWizard = ({ onComplete }: { onComplete: () => void }) => {
             <div className="space-y-1.5">
               <div className="flex items-center justify-between gap-2">
                 <label className="text-xs font-medium text-muted-foreground">Prompt - Instrucciones Adicionales <span className="text-[10px] text-muted-foreground">(opcional — se añaden al final)</span></label>
-                <CharCounter value={systemPrompt} max={AGENT_PROMPT_MAX_CHARS} />
+                <CharCounter value={systemPrompt} max={promptMaxChars} />
               </div>
-              <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4} maxLength={AGENT_PROMPT_MAX_CHARS}
+              <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={4} maxLength={promptMaxChars}
                 className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
             </div>
 
@@ -1097,6 +1098,7 @@ const LABEL_COLORS = [
 
 const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisconnect: () => void }) => {
   const { data: config } = useAIAgentConfig();
+  const promptMaxChars = config?.system_prompt_max_chars ?? AGENT_PROMPT_MAX_CHARS;
   const { data: businessProfile } = useBusinessProfile();
   const { permission: pushPermission, hasSubscription: pushHasSubscription, checked: pushChecked } = usePushSubscriptionStatus();
   const subscribePush = useSubscribeToPush();
@@ -2518,12 +2520,12 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between gap-2">
                   <label className="text-xs font-medium text-muted-foreground">Prompt - Instrucciones Adicionales <span className="text-[10px] text-muted-foreground">(opcional)</span></label>
-                  <CharCounter value={systemPrompt} max={AGENT_PROMPT_MAX_CHARS} />
+                  <CharCounter value={systemPrompt} max={promptMaxChars} />
                 </div>
-                <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} maxLength={AGENT_PROMPT_MAX_CHARS} className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
-                {systemPrompt.length > AGENT_PROMPT_MAX_CHARS && (
+                <Textarea ref={promptRef} value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} rows={5} maxLength={promptMaxChars} className="text-base md:text-xs font-mono resize-none leading-relaxed" placeholder="Restricciones específicas, información extra, casos especiales..." />
+                {systemPrompt.length > promptMaxChars && (
                   <p className="text-[10px] text-destructive">
-                    Este prompt se guardó antes del límite actual. Puedes dejarlo como está, pero si lo editas tendrás que recortarlo a {AGENT_PROMPT_MAX_CHARS.toLocaleString("es")} caracteres para poder guardar.
+                    Este prompt se guardó antes del límite actual. Puedes dejarlo como está, pero si lo editas tendrás que recortarlo a {promptMaxChars.toLocaleString("es")} caracteres para poder guardar.
                   </p>
                 )}
               </div>
