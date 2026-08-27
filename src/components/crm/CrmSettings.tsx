@@ -406,7 +406,7 @@ const PERM_GROUPS: { label: string; sections: PermSectionDef[] }[] = [
   {
     label: "IA",
     sections: [
-      { key: "perm_agente_ia", label: "WhatsApp IA (solo conversaciones)", actions: ["read"] },
+      { key: "perm_agente_ia", label: "WhatsApp IA (conversaciones y configuración del agente)", actions: ["read", "edit"] },
     ],
   },
   {
@@ -437,7 +437,7 @@ const DEFAULT_PERMS = (): Pick<CrmStaff,
   perm_formularios:         { read: false, edit: false, create: false, delete: false },
   perm_contactos:           { read: false, edit: false, create: false, delete: false },
   perm_recordatorios:       { read: false, create: false },
-  perm_agente_ia:           { read: false },
+  perm_agente_ia:           { read: false, edit: false },
 });
 
 // ─── Permission Matrix ────────────────────────────────────────────────────────
@@ -686,7 +686,7 @@ const StaffDialog = ({
           perm_formularios:         initial.perm_formularios,
           perm_contactos:           initial.perm_contactos,
           perm_recordatorios:       initial.perm_recordatorios,
-          perm_agente_ia:           initial.perm_agente_ia ?? { read: false },
+          perm_agente_ia:           initial.perm_agente_ia ?? { read: false, edit: false },
         }
       : DEFAULT_PERMS()
   );

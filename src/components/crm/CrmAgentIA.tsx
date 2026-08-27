@@ -1096,8 +1096,11 @@ const LABEL_COLORS = [
   "#eab308","#22c55e","#14b8a6","#3b82f6","#64748b",
 ];
 
-const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisconnect: () => void }) => {
-  const { data: config } = useAIAgentConfig();
+const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () => void; onDisconnect: () => void; targetUserId?: string }) => {
+  // targetUserId: cuando un staff con perm_agente_ia.edit abre este panel, es el
+  // user_id del dueño para el que trabaja — la config a leer/escribir es la suya,
+  // no la del staff logueado.
+  const { data: config } = useAIAgentConfig(targetUserId);
   const promptMaxChars = config?.system_prompt_max_chars ?? AGENT_PROMPT_MAX_CHARS;
   const { data: businessProfile } = useBusinessProfile();
   const { permission: pushPermission, hasSubscription: pushHasSubscription, checked: pushChecked } = usePushSubscriptionStatus();
@@ -1592,6 +1595,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
       } else if (pwdPrompt === "disconnect") {
         setDisconnecting(true);
         await upsert.mutateAsync({
+          targetUserId,
           phone_number_id: null,
           access_token: null,
           waba_id: null,
@@ -1612,7 +1616,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     const next = !isActive;
     setIsActive(next);
     try {
-      await upsert.mutateAsync({ is_active: next });
+      await upsert.mutateAsync({ targetUserId, is_active: next });
       toast.success(next ? "Asistente activado" : "Asistente desactivado");
     } catch {
       setIsActive(!next);
@@ -1641,6 +1645,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     setSaving(true);
     try {
       await upsert.mutateAsync({
+        targetUserId,
         phone_number_id: phoneNumberId || null,
         access_token: accessToken || null,
         waba_id: wabaId || null,
@@ -1684,7 +1689,10 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
 
       setSavedConexionAgenteSnapshot(currentConexionAgenteSnapshot);
       toast.success("Configuración guardada");
-    } catch { toast.error("Error al guardar"); }
+    } catch (e: any) {
+      console.error("[CrmAgentIA] error al guardar configuración:", e);
+      toast.error(e?.message?.slice(0, 140) ?? "Error al guardar");
+    }
     finally { setSaving(false); }
   };
 
@@ -1707,7 +1715,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
         setBio(resolvedBio);
         setSavedBio(resolvedBio);
         if (metaBio && metaBio !== config?.agent_about) {
-          upsert.mutateAsync({ agent_about: metaBio }).catch(() => {});
+          upsert.mutateAsync({ targetUserId, agent_about: metaBio }).catch(() => {});
         }
         // Foto: Supabase Storage es la fuente de verdad; Meta solo como fallback
         if (!config?.profile_picture_url) {
@@ -1724,7 +1732,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
       .then(r => r.json())
       .then(json => {
         if (json.verified_name && json.verified_name !== config?.verified_business_name) {
-          upsert.mutateAsync({ verified_business_name: json.verified_name }).catch(() => {});
+          upsert.mutateAsync({ targetUserId, verified_business_name: json.verified_name }).catch(() => {});
         }
       })
       .catch(() => {});
@@ -1736,7 +1744,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
     try {
       const trimmedName = agentName.trim() || "Asistente";
       if (trimmedName !== savedAgentName) {
-        await upsert.mutateAsync({ agent_name: trimmedName });
+        await upsert.mutateAsync({ targetUserId, agent_name: trimmedName });
         setAgentName(trimmedName);
         setSavedAgentName(trimmedName);
       }
@@ -1752,7 +1760,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
           });
           if (!res.ok) throw new Error(await res.text());
           // Guardar también en DB para persistencia local
-          await upsert.mutateAsync({ agent_about: bio });
+          await upsert.mutateAsync({ targetUserId, agent_about: bio });
           setSavedBio(bio);
         }
       }
@@ -1782,7 +1790,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
       const urlWithBust = `${publicUrl}?t=${Date.now()}`;
 
       // 2. Guardar en DB y mostrar en UI al instante
-      await upsert.mutateAsync({ profile_picture_url: urlWithBust });
+      await upsert.mutateAsync({ targetUserId, profile_picture_url: urlWithBust });
       setProfilePicUrl(urlWithBust);
 
       // 3. Subir a Meta (awaited — necesitamos saber si realmente llegó)
@@ -1818,6 +1826,7 @@ const SettingsPanel = ({ onClose, onDisconnect }: { onClose: () => void; onDisco
       const label = `${json.verified_name} · ${json.display_phone_number}`;
       setTestResult(label);
       await upsert.mutateAsync({
+        targetUserId,
         verified_phone: json.display_phone_number ?? null,
         verified_business_name: json.verified_name ?? null,
       }).catch(() => {});
@@ -5163,7 +5172,7 @@ const CrmAgentIA = ({
   const { data: labels = [] }        = useWaLabels(principalId);
   const { data: convLabelsMap = {} } = useAllConversationLabels(principalId);
   const { data: staffList = [] }     = useStaff();
-  const { staffRecord }              = useStaffPermissions();
+  const { staffRecord, can }         = useStaffPermissions();
   const { data: appointments = [] }  = useAppointments();
   const { data: allContacts = [] }   = useContacts();
   const staffMap = useMemo(() => Object.fromEntries(staffList.map(s => [s.id, s])), [staffList]);
@@ -5469,7 +5478,7 @@ const CrmAgentIA = ({
 
   return (
     <>
-      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onDisconnect={handleDisconnect} />}
+      {showSettings && <SettingsPanel onClose={() => setShowSettings(false)} onDisconnect={handleDisconnect} targetUserId={principalId} />}
 
       {/* Modal de confirmación para eliminar */}
       {deleteModalId && (
@@ -5546,7 +5555,7 @@ const CrmAgentIA = ({
               </div>
             </div>
           </div>
-          {!isStaff && (
+          {(!isStaff || can("agente_ia", "edit")) && (
             <button onClick={() => setShowSettings(true)} className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors" title="Configurar">
               <span className="relative inline-flex">
                 <Settings size={18} />

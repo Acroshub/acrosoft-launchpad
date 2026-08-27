@@ -1905,10 +1905,14 @@ export const useUpsertAIAgentConfig = () => {
   const qc = useQueryClient();
   const { user } = useCurrentUser();
   return useMutation({
-    mutationFn: async (updates: Partial<Omit<CrmAIAgentConfig, "id" | "user_id" | "created_at" | "updated_at" | "webhook_verify_token">>) => {
+    // targetUserId: cuando un staff edita el agente del dueño para el que trabaja,
+    // el guardado debe ir a la fila del dueño (y por tanto validarse contra SU
+    // límite de caracteres), no a la fila del staff logueado — de lo contrario el
+    // upsert escribe silenciosamente en la cuenta equivocada.
+    mutationFn: async ({ targetUserId, ...updates }: Partial<Omit<CrmAIAgentConfig, "id" | "user_id" | "created_at" | "updated_at" | "webhook_verify_token">> & { targetUserId?: string }) => {
       const { error } = await supabase
         .from("crm_ai_agent_config")
-        .upsert({ ...updates, user_id: user!.id }, { onConflict: "user_id" });
+        .upsert({ ...updates, user_id: targetUserId ?? user!.id }, { onConflict: "user_id" });
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_ai_agent_config"] }),
