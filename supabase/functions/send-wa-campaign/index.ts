@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildAudience, buildAudienceBase } from "../_shared/wa-audience.ts";
 import { requireInternalOrUser } from "../_shared/internal-auth.ts";
 import { filterByLocalTime, allTimezonesReached } from "../_shared/wa-timezone.ts";
+import { isBsuid, normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -43,7 +44,7 @@ function sleep(ms: number) {
 }
 
 function normalizePhone(phone: string): string {
-  return phone.replace(/\D/g, "");
+  return normalizeWaIdentifier(phone);
 }
 
 // ─── Variable resolution ──────────────────────────────────────────────────────
@@ -58,8 +59,12 @@ function resolveVariables(
     const entry = varMap[String(num)];
     if (!entry) return "";
     switch (entry.source) {
-      case "contact_field":
-        return String((contact as any)[entry.field] ?? "");
+      case "contact_field": {
+        const v = String((contact as any)[entry.field] ?? "");
+        // Un BSUID (ver wa-recipient.ts) no es un teléfono — no debe filtrarse
+        // tal cual al texto de la campaña que ve el cliente.
+        return entry.field === "phone" && isBsuid(v) ? "" : v;
+      }
       case "fixed":
         return String(entry.value ?? "");
       case "product_field": {
@@ -261,7 +266,7 @@ Deno.serve(async (req: Request) => {
   // resolverla. A quien nunca escribió se le crea: una plantilla ABRE el hilo en
   // el teléfono del contacto, y si aquí no existe, el operador ve llegar una
   // respuesta a un mensaje que no aparece por ningún lado.
-  const batchKeys = [...new Set(pending.map(r => normalizePhone(r.phone)).filter(p => p.length >= 7))];
+  const batchKeys = [...new Set(pending.map(r => normalizePhone(r.phone)).filter(p => isBsuid(p) || p.length >= 7))];
   const convByPhone = new Map<string, string>();
 
   if (batchKeys.length) {
@@ -278,7 +283,7 @@ Deno.serve(async (req: Request) => {
 
     const missing = pending.filter(r => {
       const k = normalizePhone(r.phone);
-      return k.length >= 7 && !convByPhone.has(k);
+      return (isBsuid(k) || k.length >= 7) && !convByPhone.has(k);
     });
     if (missing.length) {
       const seen = new Set<string>();
@@ -311,7 +316,7 @@ Deno.serve(async (req: Request) => {
 
     const phone = normalizePhone(row.phone);
 
-    if (phone.length < 7) {
+    if (!isBsuid(phone) && phone.length < 7) {
       await supabase.from("crm_wa_campaign_logs")
         .update({ status: "failed", error_message: "Número inválido", sent_at: new Date().toISOString() })
         .eq("id", row.id);
@@ -330,7 +335,7 @@ Deno.serve(async (req: Request) => {
 
     const msgPayload: any = {
       messaging_product: "whatsapp",
-      to: phone,
+      ...recipientField(phone),
       type: "template",
       template: {
         name:     template.name,

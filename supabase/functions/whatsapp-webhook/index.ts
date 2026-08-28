@@ -4,6 +4,7 @@ import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
 import { encodeBase64 } from "https://deno.land/std@0.208.0/encoding/base64.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 import { isInternalCall } from "../_shared/internal-auth.ts";
+import { isBsuid, normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -308,9 +309,14 @@ async function processPayload(payload: any, tenantUserId: string, isActive: bool
         }
       }
 
-      const nameByPhone = new Map<string, string | null>(
-        (value.contacts ?? []).map((c: any) => [c.wa_id, c.profile?.name ?? null])
-      );
+      // Indexado por wa_id (teléfono) y por user_id (BSUID) — Meta manda uno u
+      // otro según el cliente tenga o no el número visible. Ver wa-recipient.ts.
+      const nameByPhone = new Map<string, string | null>();
+      for (const c of value.contacts ?? []) {
+        const name = c.profile?.name ?? null;
+        if (c.wa_id)   nameByPhone.set(c.wa_id, name);
+        if (c.user_id) nameByPhone.set(c.user_id, name);
+      }
 
       for (const msg of value.messages ?? []) {
         // Ignorar mensajes de grupos de WhatsApp — @g.us es el sufijo de IDs de grupos en la Cloud API
@@ -321,7 +327,11 @@ async function processPayload(payload: any, tenantUserId: string, isActive: bool
           continue;
         }
 
-        const contactName = nameByPhone.get(msg.from) ?? null;
+        // BSUID (business-scoped user id): cuando Meta no manda el teléfono
+        // real (Click-to-WhatsApp Ads, usuario con username), usa esto en su
+        // lugar — sirve igual para responder, ver wa-recipient.ts.
+        const identifier = msg.from || msg.from_user_id || null;
+        const contactName = identifier ? (nameByPhone.get(identifier) ?? null) : null;
         const reclamado = await claimInbox(msg, tenantUserId, contactName);
         if (!reclamado) continue;
 
@@ -364,22 +374,25 @@ async function handleIncomingMessage(
   onSaved: OnSaved,
 ): Promise<void> {
   const waMessageId = msg.id;
-  const phone = msg.from;
+  // BSUID (business-scoped user id): algunos clics a WhatsApp desde anuncios
+  // de Instagram/Facebook (Click-to-WhatsApp Ads) o clientes con username de
+  // WhatsApp llegan sin el campo "from" estándar — en su lugar Meta manda
+  // "from_user_id" (ej. "PE.890226963914597"). No es un número de teléfono,
+  // pero sí sirve como destinatario para responder por Graph API (con
+  // "recipient" en vez de "to" — ver wa-recipient.ts), así que se usa igual
+  // que un teléfono en toda la cadena de conversación/envío.
+  const phone = msg.from || msg.from_user_id || null;
   const msgType: string = msg.type;
 
-  // ── Mensaje sin remitente identificable ──
-  // Algunos clics a WhatsApp desde anuncios de Instagram/Facebook (Click-to-
-  // WhatsApp Ads) llegan sin el campo "from" estándar — en su lugar Meta manda
-  // un "from_user_id" (ej. "PE.890226963914597") que NO es un número de
-  // teléfono utilizable para responder por Graph API. Sin número real no hay
-  // forma de contactar a este cliente desde el CRM: no es un fallo transitorio
-  // que se arregle reintentando, así que no se lanza — eso solo lo dejaría
-  // reintentando 46 horas para terminar perdiéndose igual. Se descarta en el
-  // acto y queda constancia en el log para poder identificar al anuncio de origen.
+  // ── Mensaje sin ningún identificador (ni from ni from_user_id) ──
+  // Caso extremo no documentado por Meta: sin nada que identifique al
+  // remitente no hay forma de crear conversación ni de responder. No es un
+  // fallo transitorio que se arregle reintentando, así que no se lanza — eso
+  // solo lo dejaría reintentando 46 horas para terminar perdiéndose igual.
   if (!phone) {
     console.error(
-      `[webhook] mensaje sin "from" (posible Click-to-WhatsApp Ad sin teléfono real) — ` +
-      `id=${waMessageId} from_user_id=${msg?.from_user_id ?? "?"} contacto=${contactName ?? "?"} ` +
+      `[webhook] mensaje sin "from" ni "from_user_id" — ` +
+      `id=${waMessageId} contacto=${contactName ?? "?"} ` +
       `referral=${JSON.stringify(msg?.referral ?? null).slice(0, 300)}`
     );
     await onSaved();
@@ -595,8 +608,9 @@ async function transcribeAudio(buffer: ArrayBuffer, mimeType: string): Promise<s
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 async function upsertConversation(userId: string, phone: string, contactName: string | null) {
-  // Normalizar teléfono: quitar "+" y espacios para comparación con crm_contacts
-  const normalizedPhone = phone.replace(/\D/g, "");
+  // Normalizar teléfono: quitar "+" y espacios para comparación con crm_contacts.
+  // Un BSUID (ver wa-recipient.ts) se deja intacto — no es un teléfono.
+  const normalizedPhone = normalizeWaIdentifier(phone);
 
   // Buscar contacto ya existente con este teléfono (para foto de perfil y para enlazarlo)
   const { data: contact } = await supabase
@@ -672,7 +686,7 @@ async function sendAutoReply(phone: string, text: string, tenantUserId: string, 
   await fetch(`https://graph.facebook.com/v21.0/${cfg.phone_number_id}/messages`, {
     method: "POST",
     headers: { Authorization: `Bearer ${cfg.access_token}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ messaging_product: "whatsapp", to: phone, type: "text", text: { body: text } }),
+    body: JSON.stringify({ messaging_product: "whatsapp", ...recipientField(phone), type: "text", text: { body: text } }),
   }).catch(() => {});
 
   await supabase.from("crm_wa_messages").insert({ conversation_id: conversationId, role: "assistant", content: text });
@@ -720,7 +734,9 @@ async function notifyNewMessage(tenantUserId: string, phone: string, contactName
 
   // 🤖 = responde la IA (modo AI/FLOW) — 🧑 = modo Manual, necesita respuesta humana.
   const modeEmoji = mode === "AI" || mode === "FLOW" ? "🤖" : "🧑";
-  const contactLabel = contactName ? `${contactName} (${phone})` : phone;
+  // Un BSUID (ver wa-recipient.ts) no tiene nada legible que mostrar en la notificación.
+  const phoneLabel = isBsuid(phone) ? "Usuario de WhatsApp" : phone;
+  const contactLabel = contactName ? `${contactName} (${phoneLabel})` : phoneLabel;
 
   await sendPushToUsers(supabase, userIds, {
     title: `${modeEmoji} ${contactLabel}`,

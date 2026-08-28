@@ -15,6 +15,8 @@
 // conversación. Eso es información, no un bug: la UI lo muestra explícito.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { normalizeWaIdentifier } from "./wa-recipient.ts";
+
 export type WaAudienceFilter =
   | { type: "tag";                    value: string }
   | { type: "wa_label";               labelId: string;    labelName: string }
@@ -46,7 +48,7 @@ export type AudienceMember = {
 };
 
 export function normalizePhone(phone: string): string {
-  return (phone ?? "").replace(/\D/g, "");
+  return normalizeWaIdentifier(phone ?? "");
 }
 
 // PostgREST corta en 1000 filas por defecto. Una audiencia real pasa de eso sin

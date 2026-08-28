@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { recipientField } from "../_shared/wa-recipient.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -114,7 +115,7 @@ Deno.serve(async (req: Request) => {
       waPayload = {
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: conv.phone,
+        ...recipientField(conv.phone),
         ...(replyWaMessageId ? { context: { message_id: replyWaMessageId } } : {}),
         type: "image",
         image: { link: media_url, ...(caption ? { caption } : {}) },
@@ -124,7 +125,7 @@ Deno.serve(async (req: Request) => {
       waPayload = {
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: conv.phone,
+        ...recipientField(conv.phone),
         ...(replyWaMessageId ? { context: { message_id: replyWaMessageId } } : {}),
         type: "video",
         video: { link: media_url, ...(caption ? { caption } : {}) },
@@ -135,7 +136,7 @@ Deno.serve(async (req: Request) => {
       waPayload = {
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: conv.phone,
+        ...recipientField(conv.phone),
         ...(replyWaMessageId ? { context: { message_id: replyWaMessageId } } : {}),
         type: "document",
         document: { link: media_url, filename: fname, ...(caption ? { caption } : {}) },
@@ -146,7 +147,7 @@ Deno.serve(async (req: Request) => {
     waPayload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
-      to: conv.phone,
+      ...recipientField(conv.phone),
       ...(replyWaMessageId ? { context: { message_id: replyWaMessageId } } : {}),
       type: "text",
       text: { preview_url: false, body: text!.trim() },

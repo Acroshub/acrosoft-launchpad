@@ -56,6 +56,7 @@ import { toast } from "sonner";
 import { formatAmount } from "@/lib/currencies";
 import { CharCounter } from "@/components/ui/char-counter";
 import { AGENT_PROMPT_MAX_CHARS } from "@/lib/limits";
+import { formatWaIdentifier, normalizeWaIdentifier } from "@/lib/wa-recipient";
 // ─── Emoji Picker inline (B19-8) ─────────────────────────────────────────────
 // ─── Emoji Picker (B19-8) — carga dinámica para evitar crash del bundle ───────
 const EmojiPickerLazy = lazy(() => import("@emoji-mart/react"));
@@ -4381,8 +4382,8 @@ const ChatPanel = ({
     await setMode.mutateAsync({ id: conv.id, mode: next });
   };
 
-  const contactInitial = (conv.contact_name ?? conv.phone)[0].toUpperCase();
-  const avatarBg = getAvatarColor(conv.contact_name ?? conv.phone);
+  const contactInitial = (conv.contact_name ?? formatWaIdentifier(conv.phone))[0].toUpperCase();
+  const avatarBg = getAvatarColor(conv.contact_name ?? formatWaIdentifier(conv.phone));
 
   return (
     <div className="flex flex-col h-full">
@@ -4402,7 +4403,7 @@ const ChatPanel = ({
           {conv.contact_profile_pic && (
             <img
               src={conv.contact_profile_pic}
-              alt={conv.contact_name ?? conv.phone}
+              alt={conv.contact_name ?? formatWaIdentifier(conv.phone)}
               className="absolute inset-0 w-full h-full object-cover"
               onError={e => { (e.currentTarget as HTMLImageElement).style.display = "none"; }}
             />
@@ -4412,7 +4413,7 @@ const ChatPanel = ({
         {/* Name + phone */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
-            <p className="text-sm font-semibold truncate leading-tight">{conv.contact_name ?? `+${conv.phone}`}</p>
+            <p className="text-sm font-semibold truncate leading-tight">{conv.contact_name ?? formatWaIdentifier(conv.phone)}</p>
             {conv.is_archived && (
               <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-secondary text-muted-foreground border">
                 Archivada
@@ -4420,7 +4421,7 @@ const ChatPanel = ({
             )}
           </div>
           <div className="flex items-center gap-1.5">
-            {conv.contact_name && <p className="text-[11px] text-muted-foreground truncate">+{conv.phone}</p>}
+            {conv.contact_name && <p className="text-[11px] text-muted-foreground truncate">{formatWaIdentifier(conv.phone)}</p>}
             {conv.contact_name && <span className="text-muted-foreground/40">·</span>}
             <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold shrink-0 ${
               conv.mode === "AI"
@@ -5178,7 +5179,7 @@ const CrmAgentIA = ({
   const staffMap = useMemo(() => Object.fromEntries(staffList.map(s => [s.id, s])), [staffList]);
 
   // Map convId → próxima cita (próximas 24h, solo cuando el teléfono del chat coincide con el contacto)
-  const normalizePhone = (p: string) => p.replace(/\D/g, "");
+  const normalizePhone = normalizeWaIdentifier;
   const upcomingApptByConvId = useMemo<Map<string, UpcomingAppt>>(() => {
     const nowMs = Date.now();
     const in24h = nowMs + 24 * 60 * 60 * 1000;
@@ -5850,14 +5851,14 @@ const CrmAgentIA = ({
                     // El badge se apaga solo cuando el chat está de verdad a la vista: en móvil,
                     // parado en la lista, un chat seleccionado que recibe mensajes sigue avisando.
                     const isUnread = unread > 0 && !(isSelected && chatPanelVisible);
-                    const convName = conv.contact_name ?? `+${conv.phone}`;
+                    const convName = conv.contact_name ?? formatWaIdentifier(conv.phone);
                     const convAvatarBg = getAvatarColor(convName);
                     const convLabels = convLabelsMap[conv.id] ?? [];
                     const preview = lastMessagePreview(lastMessages[conv.id]);
                     // El teléfono solo se repite si arriba se está mostrando el nombre del contacto.
                     const subtitle = hasPendingPayment
                       ? `💳 ${pendingSale?.product_name ?? pendingSale?.service_name ?? "Pago pendiente"} · ${formatSaleAmount(Number(pendingSale?.amount), pendingSale?.currency ?? null)}`
-                      : conv.contact_name ? `+${conv.phone}` : "";
+                      : conv.contact_name ? formatWaIdentifier(conv.phone) : "";
                     return (
                     <button
                       key={conv.id}
@@ -6059,12 +6060,12 @@ const CrmAgentIA = ({
                                   conv.mode === "AI" ? "bg-emerald-100 dark:bg-emerald-900/30" : "bg-amber-100 dark:bg-amber-900/30"
                                 }`}>
                                   <span className={`text-sm font-bold ${conv.mode === "AI" ? "text-emerald-700" : "text-amber-700"}`}>
-                                    {(conv.contact_name ?? conv.phone)[0].toUpperCase()}
+                                    {(conv.contact_name ?? formatWaIdentifier(conv.phone))[0].toUpperCase()}
                                   </span>
                                 </div>
                                 <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-semibold truncate">{conv.contact_name ?? `+${conv.phone}`}</p>
-                                  <p className="text-[11px] text-muted-foreground truncate">{conv.contact_name ? `+${conv.phone}` : formatTime(conv.last_message_at)}</p>
+                                  <p className="text-sm font-semibold truncate">{conv.contact_name ?? formatWaIdentifier(conv.phone)}</p>
+                                  <p className="text-[11px] text-muted-foreground truncate">{conv.contact_name ? formatWaIdentifier(conv.phone) : formatTime(conv.last_message_at)}</p>
                                 </div>
                                 <span className="text-[10px] text-muted-foreground shrink-0">{formatTime(conv.last_message_at)}</span>
                               </div>
@@ -6082,7 +6083,7 @@ const CrmAgentIA = ({
                           {msgMatches.map(msg => {
                             const conv = msg.crm_wa_conversations;
                             if (!conv) return null;
-                            const contactLabel = conv.contact_name ?? `+${conv.phone}`;
+                            const contactLabel = conv.contact_name ?? formatWaIdentifier(conv.phone);
                             const raw = msg.content;
                             const idx = raw.toLowerCase().indexOf(dq.toLowerCase());
                             const start = Math.max(0, idx - 25);

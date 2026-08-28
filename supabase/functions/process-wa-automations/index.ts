@@ -16,6 +16,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireInternal } from "../_shared/internal-auth.ts";
 import { buildAudience } from "../_shared/wa-audience.ts";
 import { normalizeUrl } from "../_shared/wa-url.ts";
+import { isBsuid, normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -61,8 +62,10 @@ function resolveVars(varMap: Record<string, any>, phone: string, contactName: st
   for (const key of keys) {
     const src = varMap[key];
     if (src?.source === "contact_field") {
-      if (src.field === "name") result.push(contactName ?? phone);
-      else if (src.field === "phone") result.push(phone);
+      // Un BSUID (ver wa-recipient.ts) no es un nombre ni un teléfono — no debe
+      // filtrarse tal cual al texto del mensaje que ve el cliente.
+      if (src.field === "name") result.push(contactName ?? (isBsuid(phone) ? "" : phone));
+      else if (src.field === "phone") result.push(isBsuid(phone) ? "" : phone);
       else result.push("");
     } else if (src?.source === "fixed") {
       result.push(src.value ?? "");
@@ -83,16 +86,16 @@ async function sendMessage(
   mediaType?: MediaType | null,
   mediaUrl?: string | null,
 ): Promise<{ ok: boolean; error?: string }> {
-  const to = phone.replace(/\D/g, "");
+  const to = normalizeWaIdentifier(phone);
   let body: object;
 
   if (mediaType && mediaUrl) {
     if (mediaType === "audio") {
-      body = { messaging_product: "whatsapp", recipient_type: "individual", to, type: "audio", audio: { link: mediaUrl } };
+      body = { messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(to), type: "audio", audio: { link: mediaUrl } };
     } else {
       const caption = text?.trim() || undefined;
       body = {
-        messaging_product: "whatsapp", recipient_type: "individual", to,
+        messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(to),
         type: mediaType,
         [mediaType]: { link: mediaUrl, ...(caption ? { caption } : {}) },
       };
@@ -100,7 +103,7 @@ async function sendMessage(
   } else {
     body = {
       messaging_product: "whatsapp", recipient_type: "individual",
-      to, type: "text", text: { body: text, preview_url: false },
+      ...recipientField(to), type: "text", text: { body: text, preview_url: false },
     };
   }
 
@@ -131,7 +134,7 @@ async function sendTemplate(
     headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       messaging_product: "whatsapp", recipient_type: "individual",
-      to: phone.replace(/\D/g, ""), type: "template",
+      ...recipientField(normalizeWaIdentifier(phone)), type: "template",
       template: {
         name: templateName,
         language: { code: templateLanguage ?? "es" },
@@ -172,23 +175,23 @@ function partSummary(part: Part): string {
 async function sendPart(
   phone: string, part: Part, phoneNumberId: string, accessToken: string,
 ): Promise<{ ok: boolean; error?: string }> {
-  const to = phone.replace(/\D/g, "");
+  const to = normalizeWaIdentifier(phone);
   let body: Record<string, unknown> | null = null;
 
   if (part.type === "text") {
     const text = (part.text ?? "").trim();
     if (!text) return { ok: false, error: "Mensaje vacío" };
-    body = { messaging_product: "whatsapp", recipient_type: "individual", to, type: "text", text: { body: text, preview_url: false } };
+    body = { messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(to), type: "text", text: { body: text, preview_url: false } };
   } else if (part.type === "link") {
     const url = normalizeUrl(part.link_url);
     const caption = (part.text ?? "").trim();
     if (!url) {
       const fallback = [caption, part.link_url].filter(Boolean).join("\n");
       if (!fallback) return { ok: false, error: "Enlace vacío" };
-      body = { messaging_product: "whatsapp", recipient_type: "individual", to, type: "text", text: { body: fallback, preview_url: true } };
+      body = { messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(to), type: "text", text: { body: fallback, preview_url: true } };
     } else {
       body = {
-        messaging_product: "whatsapp", recipient_type: "individual", to,
+        messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(to),
         type: "interactive",
         interactive: {
           type: "cta_url",
@@ -205,7 +208,7 @@ async function sendPart(
     const caption = (part.text ?? "").trim();
     if (caption && part.type !== "audio") media.caption = caption;
     if (part.type === "file" && part.name) media.filename = part.name;
-    body = { messaging_product: "whatsapp", recipient_type: "individual", to, type: waType, [waType]: media };
+    body = { messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(to), type: waType, [waType]: media };
   }
 
   const res = await fetch(`${GRAPH}/${phoneNumberId}/messages`, {
@@ -242,7 +245,7 @@ async function sendQuestionStep(
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       messaging_product: "whatsapp", recipient_type: "individual",
-      to: phone.replace(/\D/g, ""), type: "interactive",
+      ...recipientField(normalizeWaIdentifier(phone)), type: "interactive",
       interactive: {
         type: "button",
         body: { text: bodyText || "Elige una opción:" },

@@ -7,6 +7,27 @@
 // por eso las plantillas no podían programarse así.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import { isBsuid } from "./wa-recipient.ts";
+
+// Un BSUID (ver wa-recipient.ts) trae el código de país ISO 3166 de 2 letras
+// al inicio (ej. "PE.890226963914597" → Perú) — más directo que inferirlo de
+// un prefijo telefónico. Mismos países que PHONE_TIMEZONE, indexados por ISO2.
+export const ISO_COUNTRY_TIMEZONE: Record<string, string> = {
+  US: "America/New_York",   MX: "America/Mexico_City", ES: "Europe/Madrid",
+  CO: "America/Bogota",     AR: "America/Argentina/Buenos_Aires",
+  BR: "America/Sao_Paulo",  CL: "America/Santiago",     PE: "America/Lima",
+  VE: "America/Caracas",    BO: "America/La_Paz",       EC: "America/Guayaquil",
+  PY: "America/Asuncion",   UY: "America/Montevideo",   CU: "America/Havana",
+  GT: "America/Guatemala",  SV: "America/El_Salvador",  HN: "America/Tegucigalpa",
+  NI: "America/Managua",    CR: "America/Costa_Rica",   PA: "America/Panama",
+  GB: "Europe/London",      FR: "Europe/Paris",         DE: "Europe/Berlin",
+  IT: "Europe/Rome",        PT: "Europe/Lisbon",        NL: "Europe/Amsterdam",
+  AU: "Australia/Sydney",   NZ: "Pacific/Auckland",     JP: "Asia/Tokyo",
+  KR: "Asia/Seoul",         CN: "Asia/Shanghai",        IN: "Asia/Kolkata",
+  AE: "Asia/Dubai",         IL: "Asia/Jerusalem",       SA: "Asia/Riyadh",
+  EG: "Africa/Cairo",       ZA: "Africa/Johannesburg",  NG: "Africa/Lagos",
+};
+
 export const PHONE_TIMEZONE: Record<string, string> = {
   "1":   "America/New_York",
   "52":  "America/Mexico_City",
@@ -58,7 +79,12 @@ export function getPhonePrefix(phone: string): string {
 }
 
 export function getTimezoneFromPhone(phone: string): string {
-  return PHONE_TIMEZONE[getPhonePrefix(phone)] ?? "UTC";
+  const p = phone ?? "";
+  // BSUID: usar el código ISO2 que trae al inicio en vez de tratarlo como
+  // prefijo telefónico — de lo contrario siempre cae a "unknown"/UTC y el
+  // contacto queda retenido hasta que allTimezonesReached libera a todos.
+  if (isBsuid(p)) return ISO_COUNTRY_TIMEZONE[p.slice(0, 2).toUpperCase()] ?? "UTC";
+  return PHONE_TIMEZONE[getPhonePrefix(p)] ?? "UTC";
 }
 
 /** true cuando en esa zona ya son las targetTime del targetDate (o más tarde). */

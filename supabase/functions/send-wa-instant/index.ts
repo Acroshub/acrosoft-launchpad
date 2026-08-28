@@ -3,6 +3,7 @@ import { buildAudience } from "../_shared/wa-audience.ts";
 import { requireInternalOrUser } from "../_shared/internal-auth.ts";
 import { filterByLocalTime, allTimezonesReached } from "../_shared/wa-timezone.ts";
 import { normalizeUrl } from "../_shared/wa-url.ts";
+import { normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -132,7 +133,7 @@ function partPayload(part: Part, to: string): object | null {
     case "text": {
       const body = (part.text ?? "").trim();
       if (!body) return null;
-      return { messaging_product: "whatsapp", recipient_type: "individual", to, type: "text", text: { body, preview_url: false } };
+      return { messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(to), type: "text", text: { body, preview_url: false } };
     }
     case "link": {
       const raw  = (part.link_url ?? "").trim();
@@ -143,10 +144,10 @@ function partPayload(part: Part, to: string): object | null {
         // enlace en crudo que un botón que no abre nada.
         const fallback = [body, raw].filter(Boolean).join("\n");
         if (!fallback) return null;
-        return { messaging_product: "whatsapp", recipient_type: "individual", to, type: "text", text: { body: fallback, preview_url: true } };
+        return { messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(to), type: "text", text: { body: fallback, preview_url: true } };
       }
       return {
-        messaging_product: "whatsapp", recipient_type: "individual", to,
+        messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(to),
         type: "interactive",
         interactive: {
           type: "cta_url",
@@ -164,7 +165,7 @@ function partPayload(part: Part, to: string): object | null {
       const caption = (part.text ?? "").trim();
       if (caption && part.type !== "audio") media.caption = caption;
       if (part.type === "file" && part.name) media.filename = part.name;
-      return { messaging_product: "whatsapp", recipient_type: "individual", to, type: waType, [waType]: media };
+      return { messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(to), type: waType, [waType]: media };
     }
   }
 }
@@ -230,7 +231,7 @@ async function sendBatch(
     // quede sigue en 'pending' y lo retoma el cron.
     if (Date.now() - startedAt > BUDGET_MS) break;
 
-    const phone = (row.phone ?? "").replace(/\D/g, "");
+    const phone = normalizeWaIdentifier(row.phone ?? "");
     try {
       // Las partes salen en orden. Si una falla, el destinatario se marca
       // fallido y no se sigue con el resto: mandar la mitad de un mensaje

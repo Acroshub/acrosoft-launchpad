@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { recipientField } from "../_shared/wa-recipient.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -100,7 +101,7 @@ Deno.serve(async (req: Request) => {
         headers: { Authorization: `Bearer ${config.access_token}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           messaging_product: "whatsapp",
-          to: conv.phone.replace(/\D/g, ""),
+          ...recipientField(conv.phone),
           type: "text",
           text: { body: rejectMsg },
         }),

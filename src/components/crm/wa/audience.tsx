@@ -6,6 +6,7 @@ import {
   useSales, useAppointments, useWaConversationLabelLinks,
 } from "@/hooks/useCrmData";
 import type { WaAudienceFilter, WaAudienceMatch } from "@/lib/supabase";
+import { normalizeWaIdentifier } from "@/lib/wa-recipient";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Selección de audiencia para WhatsApp — compartida por Envíos Masivos y
@@ -132,7 +133,10 @@ export type AudienceMember = {
   tags: string[];
 };
 
-export const digits = (p: string) => (p ?? "").replace(/\D/g, "");
+// Un BSUID (ver src/lib/wa-recipient.ts) se deja intacto — reducirlo a
+// dígitos lo destruye y ya no compara igual con nada (ni con el envío real,
+// que sí lo respeta desde _shared/wa-audience.ts en el backend).
+export const digits = (p: string) => normalizeWaIdentifier(p ?? "");
 
 export function buildLocalBase(
   contacts: { id: string; name?: string | null; phone: string | null; tags?: string[] | null }[],

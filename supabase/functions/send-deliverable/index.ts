@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -28,9 +29,8 @@ function extractStoragePath(deliverableUrl: string): string | null {
   }
 }
 
-// Limpia el número de teléfono a solo dígitos
 function cleanPhone(phone: string): string {
-  return phone.replace(/\D/g, "");
+  return normalizeWaIdentifier(phone);
 }
 
 Deno.serve(async (req: Request) => {
@@ -152,7 +152,7 @@ Deno.serve(async (req: Request) => {
     waPayload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
-      to: recipientPhone,
+      ...recipientField(recipientPhone),
       type: "document",
       document: {
         link: signed.signedUrl,
@@ -168,7 +168,7 @@ Deno.serve(async (req: Request) => {
     waPayload = {
       messaging_product: "whatsapp",
       recipient_type: "individual",
-      to: recipientPhone,
+      ...recipientField(recipientPhone),
       type: "text",
       text: { preview_url: true, body: product.deliverable_text },
     };

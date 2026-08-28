@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireInternal } from "../_shared/internal-auth.ts";
+import { isBsuid, normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -271,8 +272,8 @@ Deno.serve(async (req) => {
           if (!template) {
             errors.push(`WA template ${reminder.whatsapp_template_id} not found`);
           } else {
-            const phone = String(reminder.recipient_phone).replace(/\D/g, "");
-            if (phone.length < 7) {
+            const phone = normalizeWaIdentifier(String(reminder.recipient_phone));
+            if (!isBsuid(phone) && phone.length < 7) {
               errors.push(`Número de teléfono inválido para WhatsApp: "${reminder.recipient_phone}"`);
             } else {
               const varMap = (reminder.whatsapp_variable_map as Record<string, any>) ?? {};
@@ -280,7 +281,7 @@ Deno.serve(async (req) => {
 
               const msgPayload: any = {
                 messaging_product: "whatsapp",
-                to: phone,
+                ...recipientField(phone),
                 type: "template",
                 template: {
                   name:     template.name,

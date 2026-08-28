@@ -3,6 +3,7 @@ import { logAiUsage } from "../_shared/ai-usage.ts";
 import { normalizeUrl } from "../_shared/wa-url.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 import { requireInternal } from "../_shared/internal-auth.ts";
+import { isBsuid, recipientField } from "../_shared/wa-recipient.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -111,6 +112,10 @@ interface PaymentMethodRow {
 }
 
 function getCurrencyFromPhone(phone: string): string | null {
+  // Un BSUID (ver wa-recipient.ts) no tiene prefijo telefónico que mapear —
+  // sin este guard el "." se pierde en el replace de abajo y el resultado
+  // queda a la suerte en vez de ser explícitamente "no se sabe".
+  if (isBsuid(phone)) return null;
   const cleaned = phone.replace(/[\s\-().]/g, "");
   const prefixMap: [string, string][] = [
     ["+593", "USD"], ["+591", "BOB"], ["+598", "USD"], ["+595", "USD"],
@@ -154,6 +159,10 @@ const COUNTRY_PREFIX_MAP: [string, string][] = [
 ];
 
 function getCountryCodeFromPhone(phone: string): string | null {
+  // BSUID: su código de país YA viene como ISO2 al inicio (ej. "PE.xxx" → PE)
+  // — no hace falta el mapeo de prefijo telefónico, y probarlo ahí solo puede
+  // dar un falso positivo si algún prefijo de 1-2 dígitos coincide por azar.
+  if (isBsuid(phone)) return phone.slice(0, 2).toUpperCase();
   const cleaned = phone.replace(/[\s\-().]/g, "");
   for (const [prefix, countryCode] of COUNTRY_PREFIX_MAP) {
     if (cleaned.startsWith(prefix)) return countryCode;
@@ -485,6 +494,9 @@ async function validateSlot(
 // Meta Cloud API devuelve números sin "+" (ej: 591701234567).
 // Usamos una tabla de prefijos de 1 y 2 dígitos; el resto se trata como 3 dígitos.
 function formatPhoneForCrm(waPhone: string): string {
+  // BSUID (ver wa-recipient.ts): no es un teléfono, no tiene sentido
+  // formatearlo como uno — se guarda tal cual.
+  if (isBsuid(waPhone)) return waPhone;
   const digits = waPhone.replace(/\D/g, "");
   if (!digits) return waPhone;
   const p1 = ["1", "7"];
@@ -551,9 +563,13 @@ async function bookAppointmentFromAgent(
         await supabase.from("crm_contacts").update({ name: contactName }).eq("id", contactId).eq("user_id", userId);
       }
     } else if (contactName || contactPhone) {
+      // Un BSUID (ver wa-recipient.ts) no es un nombre — "Cliente" ya está en
+      // PLACEHOLDER_NAMES arriba, así que en cuanto el cliente diga su nombre
+      // real el update de la línea 562 lo reemplaza sin problema.
+      const fallbackName = isBsuid(formattedPhone) ? "Cliente" : formattedPhone;
       const { data: newC } = await supabase
         .from("crm_contacts")
-        .insert({ user_id: userId, name: contactName || formattedPhone, phone: formattedPhone })
+        .insert({ user_id: userId, name: contactName || fallbackName, phone: formattedPhone })
         .select("id")
         .single();
       if (newC) contactId = newC.id;
@@ -989,7 +1005,7 @@ async function sendInteractiveQuestion(
   const payload = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
-    to: phone,
+    ...recipientField(phone),
     type: "interactive",
     interactive: {
       type: "button",
@@ -1118,7 +1134,7 @@ async function sendSequenceStep(
     const btnLabel = (step.link_label?.trim() || "Ver más").slice(0, 20);
     const bodyText = step.text?.trim() || url;
     const payload = {
-      messaging_product: "whatsapp", recipient_type: "individual", to: phone,
+      messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(phone),
       type: "interactive",
       interactive: {
         type: "cta_url",
@@ -1172,7 +1188,7 @@ async function sendSequenceStep(
     }
     if (step.type === "file" && step.media?.[0]?.name) mediaObj.filename = step.media[0].name;
     const payload: Record<string, unknown> = {
-      messaging_product: "whatsapp", recipient_type: "individual", to: phone, type: waType,
+      messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(phone), type: waType,
       [waType]: mediaObj,
     };
     const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${config.phone_number_id}/messages`, {
@@ -1202,7 +1218,7 @@ async function sendWhatsAppMessageRaw(
     method: "POST",
     headers: { Authorization: `Bearer ${config.access_token}`, "Content-Type": "application/json" },
     body: JSON.stringify({
-      messaging_product: "whatsapp", recipient_type: "individual", to: phone,
+      messaging_product: "whatsapp", recipient_type: "individual", ...recipientField(phone),
       type: "text", text: { preview_url: false, body: text },
     }),
   });
@@ -1379,7 +1395,7 @@ async function sendWhatsAppImage(phone: string, imageUrl: string, caption: strin
   const payload: Record<string, unknown> = {
     messaging_product: "whatsapp",
     recipient_type: "individual",
-    to: phone,
+    ...recipientField(phone),
     type: "image",
     image: { link: imageUrl, ...(caption ? { caption } : {}) },
   };
@@ -2757,7 +2773,7 @@ async function sendWhatsAppMessage(
       body: JSON.stringify({
         messaging_product: "whatsapp",
         recipient_type: "individual",
-        to: phone,
+        ...recipientField(phone),
         type: "text",
         text: { preview_url: false, body: text },
       }),
@@ -2788,7 +2804,7 @@ async function sendTypingIndicator(phone: string, config: AgentConfig): Promise<
         },
         body: JSON.stringify({
           messaging_product: "whatsapp",
-          to: phone,
+          ...recipientField(phone),
           type: "action",
           action: { type: "typing", duration: 60000 },
         }),
@@ -2970,6 +2986,9 @@ function makeSchedulingToolExecutor(
       // Si Claude no tiene nombre real → usar el nombre ya guardado en la conversación (si es válido)
       const contact_name = !isPlaceholder(rawName) ? rawName
         : (convContactName && !isPlaceholder(convContactName) ? convContactName : "");
+      // Un BSUID (ver wa-recipient.ts) no es un nombre — si no hay nombre real
+      // no se usa el identificador crudo como si lo fuera.
+      const contactNameForBooking = contact_name || (isBsuid(clientPhone) ? "Cliente" : clientPhone);
 
       const validation = await validateSlot(calendarId, date, hour, minute, rescheduleId);
 
@@ -2988,7 +3007,7 @@ function makeSchedulingToolExecutor(
 
       const bookResult = await bookAppointmentFromAgent(
         calendarId, userId, conversationId,
-        contact_name || clientPhone,
+        contactNameForBooking,
         clientPhone,
         date, hour, minute,
         notes || null,
@@ -3005,7 +3024,7 @@ function makeSchedulingToolExecutor(
           bookResult.appointmentId,
           bookResult.contactId ?? null,
           calendarId, userId,
-          contact_name || clientPhone, clientPhone,
+          contactNameForBooking, clientPhone,
           date, hour, minute,
         ).catch(() => {});
       }
