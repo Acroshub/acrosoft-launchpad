@@ -367,6 +367,25 @@ async function handleIncomingMessage(
   const phone = msg.from;
   const msgType: string = msg.type;
 
+  // ── Mensaje sin remitente identificable ──
+  // Algunos clics a WhatsApp desde anuncios de Instagram/Facebook (Click-to-
+  // WhatsApp Ads) llegan sin el campo "from" estándar — en su lugar Meta manda
+  // un "from_user_id" (ej. "PE.890226963914597") que NO es un número de
+  // teléfono utilizable para responder por Graph API. Sin número real no hay
+  // forma de contactar a este cliente desde el CRM: no es un fallo transitorio
+  // que se arregle reintentando, así que no se lanza — eso solo lo dejaría
+  // reintentando 46 horas para terminar perdiéndose igual. Se descarta en el
+  // acto y queda constancia en el log para poder identificar al anuncio de origen.
+  if (!phone) {
+    console.error(
+      `[webhook] mensaje sin "from" (posible Click-to-WhatsApp Ad sin teléfono real) — ` +
+      `id=${waMessageId} from_user_id=${msg?.from_user_id ?? "?"} contacto=${contactName ?? "?"} ` +
+      `referral=${JSON.stringify(msg?.referral ?? null).slice(0, 300)}`
+    );
+    await onSaved();
+    return;
+  }
+
   // ── Simulacro de fallo, solo para pruebas ──
   // Inerte salvo que exista el secreto WA_TEST_FAIL_TARGET con el formato exacto
   // "<tenant_user_id>:<telefono>". Permite comprobar que la bandeja retiene y
