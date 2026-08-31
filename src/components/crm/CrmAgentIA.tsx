@@ -1692,7 +1692,15 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
       toast.success("Configuración guardada");
     } catch (e: any) {
       console.error("[CrmAgentIA] error al guardar configuración:", e);
-      toast.error(e?.message?.slice(0, 140) ?? "Error al guardar");
+      const rawMsg: string = e?.message ?? "Error al guardar";
+      // El límite de caracteres es por-cuenta (ver system_prompt_max_chars) — si
+      // este toast lo muestra, casi siempre es porque se está editando con la
+      // cuenta equivocada (una cuenta propia distinta, con el límite por
+      // defecto) en vez de la del negocio que se quería configurar.
+      const hint = rawMsg.includes("no puede superar")
+        ? " — revisa que estés en la cuenta correcta (no una cuenta personal distinta)."
+        : "";
+      toast.error((rawMsg.slice(0, 140) + hint).slice(0, 180));
     }
     finally { setSaving(false); }
   };

@@ -1910,10 +1910,28 @@ export const useUpsertAIAgentConfig = () => {
     // límite de caracteres), no a la fila del staff logueado — de lo contrario el
     // upsert escribe silenciosamente en la cuenta equivocada.
     mutationFn: async ({ targetUserId, ...updates }: Partial<Omit<CrmAIAgentConfig, "id" | "user_id" | "created_at" | "updated_at" | "webhook_verify_token">> & { targetUserId?: string }) => {
-      const { error } = await supabase
+      const uid = targetUserId ?? user!.id;
+      // UPDATE primero, no upsert(): un upsert es un INSERT con ON CONFLICT DO
+      // UPDATE, y Postgres dispara el trigger BEFORE INSERT de la fila candidata
+      // ANTES de saber si habrá conflicto — como este payload nunca incluye
+      // system_prompt_max_chars, esa columna toma su DEFAULT (7000) en esa fila
+      // candidata, y el trigger de límite de caracteres compara contra ese
+      // default en vez del valor real ya guardado (ej. 15000 para un tenant con
+      // límite ampliado), rechazando guardados que sí deberían pasar. Un UPDATE
+      // directo nunca pasa por esa fase: el trigger ve el NEW con los valores
+      // reales de la fila existente.
+      const { data: updated, error: updateErr } = await supabase
         .from("crm_ai_agent_config")
-        .upsert({ ...updates, user_id: targetUserId ?? user!.id }, { onConflict: "user_id" });
-      if (error) throw error;
+        .update(updates)
+        .eq("user_id", uid)
+        .select("id");
+      if (updateErr) throw updateErr;
+      if (updated && updated.length > 0) return;
+      // No había fila para este user_id todavía (primera conexión) → crearla.
+      const { error: insertErr } = await supabase
+        .from("crm_ai_agent_config")
+        .insert({ ...updates, user_id: uid });
+      if (insertErr) throw insertErr;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["crm_ai_agent_config"] }),
   });
