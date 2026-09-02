@@ -24,6 +24,8 @@ const CoursePlayer = lazy(() => import("./pages/CoursePlayer.tsx"));
 const WebsitesCatalog = lazy(() => import("./pages/websites/WebsitesCatalog.tsx"));
 const WebsiteViewer = lazy(() => import("./pages/websites/WebsiteViewer.tsx"));
 const ClaseGratisTreeServiceGame = lazy(() => import("./pages/ClaseGratisTreeServiceGame.tsx"));
+const LlamadasAcros = lazy(() => import("./pages/LlamadasAcros.tsx"));
+const LlamadasAcrosGracias = lazy(() => import("./pages/LlamadasAcrosGracias.tsx"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -54,6 +56,8 @@ const App = () => (
             <Route path="/terms"   element={<TerminosPoliticas />} />
             <Route path="/oauth/google-calendar" element={<GoogleCalendarCallback />} />
             <Route path="/clase-gratis-tree-service-game" element={<ClaseGratisTreeServiceGame />} />
+            <Route path="/llamadas-acros" element={<LlamadasAcros />} />
+            <Route path="/llamadas-acros-gracias" element={<LlamadasAcrosGracias />} />
 
             {/* Client invitation setup — public (session comes from invite link) */}
             <Route path="/crm-setup" element={<CrmSetup />} />

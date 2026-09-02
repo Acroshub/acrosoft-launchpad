@@ -91,17 +91,41 @@ function isBlockedBySlots(
   });
 }
 
+function isValidSlug(s: unknown): s is string {
+  return typeof s === "string" && s.length > 0 && s.length <= 100 && /^[a-z0-9-]+$/i.test(s);
+}
+
+function isValidYear(y: unknown): y is number {
+  return typeof y === "number" && Number.isInteger(y) && y >= 2000 && y <= 2100;
+}
+
+function isValidMonthIndex(m: unknown): m is number {
+  return typeof m === "number" && Number.isInteger(m) && m >= 0 && m <= 11;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: PUBLIC_CORS_HEADERS });
 
-  // ── Rate limiting: 20 bookings per IP per hour ────────────────────────────────
+  let body: any;
+  try {
+    body = await req.json();
+  } catch {
+    return respond({ error: "JSON inválido" }, 400);
+  }
+
+  const action = body?.action as string | undefined;
+  const isReadRequest = action === "get_config" || action === "get_appointments";
+
+  // ── Rate limiting ──────────────────────────────────────────────────────────
+  // Leer el calendario (config/disponibilidad) ocurre en cada visita y en cada
+  // cambio de mes, así que tiene un límite más holgado que el de reservar.
   const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim()
     ?? req.headers.get("x-real-ip")
     ?? "unknown";
   const { data: allowed, error: rlErr } = await supabase.rpc("check_rate_limit", {
-    p_key: `crm-calendar-book:${clientIp}`,
+    p_key: isReadRequest ? `crm-calendar-read:${clientIp}` : `crm-calendar-book:${clientIp}`,
     p_window_seconds: 3600,
-    p_max_count: 20,
+    p_max_count: isReadRequest ? 120 : 20,
   });
   if (rlErr) console.error("rate_limit check error (non-blocking):", rlErr);
   if (allowed === false) {
@@ -111,8 +135,78 @@ Deno.serve(async (req) => {
     });
   }
 
+  // ── Configuración pública del calendario ────────────────────────────────────
+  // Antes el navegador leía crm_calendar_config, crm_appointments, crm_blocked_slots,
+  // crm_business_profile y crm_forms directo con la anon key. Esas políticas no podían
+  // distinguir "el calendario que estoy abriendo" del resto de calendarios de todos los
+  // tenants, así que se cerraron (ver anon hardening 2026-08-15). Ahora se sirve solo lo
+  // del calendar_id pedido, con las columnas justas — nada de google_token, reminder_rules
+  // ni el user_id del dueño.
+  if (action === "get_config") {
+    const { calendar_id } = body;
+    if (!isValidUUID(calendar_id) && !isValidSlug(calendar_id)) {
+      return respond({ error: "calendar_id inválido" }, 400);
+    }
+    const isUUID = isValidUUID(calendar_id);
+
+    const { data: calendar, error: calError } = await supabase
+      .from("crm_calendar_config")
+      .select("id, user_id, name, description, duration_min, buffer_min, min_advance_hours, max_future_days, availability, timezone, language, linked_form_id, facebook_pixel_id, slug")
+      .eq(isUUID ? "id" : "slug", calendar_id)
+      .single();
+
+    if (calError || !calendar) return respond({ error: "Calendario no encontrado" }, 404);
+
+    const [{ data: profile }, { data: blockedSlots }, formResult] = await Promise.all([
+      supabase
+        .from("crm_business_profile")
+        .select("color_primary, color_secondary, color_accent, logo_url, theme, timezone")
+        .eq("user_id", calendar.user_id)
+        .maybeSingle(),
+      supabase
+        .from("crm_blocked_slots")
+        .select("type, date, start_hour, start_minute, end_hour, end_minute, range_start, range_end")
+        .eq("calendar_id", calendar.id),
+      calendar.linked_form_id
+        ? supabase.from("crm_forms").select("fields").eq("id", calendar.linked_form_id).maybeSingle()
+        : Promise.resolve({ data: null }),
+    ]);
+
+    const { user_id: _userId, ...publicCalendar } = calendar as any;
+
+    return respond({
+      calendar: publicCalendar,
+      profile: profile ?? null,
+      blockedSlots: blockedSlots ?? [],
+      formFields: (formResult as any)?.data?.fields ?? null,
+    });
+  }
+
+  if (action === "get_appointments") {
+    const { calendar_id, year, month } = body;
+    if (!isValidUUID(calendar_id)) return respond({ error: "calendar_id inválido" }, 400);
+    if (!isValidYear(year) || !isValidMonthIndex(month)) {
+      return respond({ error: "year/month inválidos" }, 400);
+    }
+
+    const startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
+    const lastDay = new Date(year, month + 1, 0).getDate();
+    const endDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+
+    const { data: appointments, error: apptsError } = await supabase
+      .from("crm_appointments")
+      .select("date, hour, minute, duration_min")
+      .eq("calendar_id", calendar_id)
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .neq("status", "cancelled");
+
+    if (apptsError) return respond({ error: "Error al leer disponibilidad" }, 500);
+    return respond({ appointments: appointments ?? [] });
+  }
+
   try {
-    const { calendar_id, date, hour, minute: rawMinute, form_data, terms_accepted_at } = await req.json();
+    const { calendar_id, date, hour, minute: rawMinute, form_data, terms_accepted_at } = body;
     const minute: number = typeof rawMinute === "number" ? Math.floor(rawMinute) : 0;
 
     if (!isValidUUID(calendar_id))   return respond({ error: "calendar_id inválido" }, 400);

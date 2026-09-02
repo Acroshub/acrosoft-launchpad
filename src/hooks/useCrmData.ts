@@ -926,21 +926,6 @@ export const useDisconnectStripe = () => {
 
 // ─── PUBLIC HOOKS (no auth required) ──────────────────────────────────────────
 
-export const usePublicForm = (formId: string) =>
-  useQuery({
-    queryKey: ["public_form", formId],
-    queryFn: async () => {
-      const { data, error } = await supabasePublic
-        .from("crm_forms")
-        .select("*")
-        .eq("id", formId)
-        .single();
-      if (error) throw error;
-      return data as CrmForm;
-    },
-    enabled: !!formId,
-  });
-
 export const usePublicServices = (userId?: string | null, allowedIds?: string[]) =>
   useQuery({
     queryKey: ["public_services", userId, allowedIds?.join(",")],
@@ -978,19 +963,36 @@ export const useLandingProfile = () =>
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export type PublicCalendarBranding = { color_primary: string; color_secondary: string; color_accent: string; logo_url: string | null; theme: string; timezone: string | null };
+
+export type PublicCalendarConfig = {
+  calendar: CrmCalendarConfig;
+  profile: PublicCalendarBranding | null;
+  blockedSlots: CrmBlockedSlot[];
+  formFields: any[] | null;
+};
+
+/** Both go through the `crm-calendar-book` Edge Function (service role, scoped by calendar_id) —
+ *  RLS can't tell "the calendar I'm opening" from every calendar of every tenant, so anon
+ *  reads on crm_calendar_config/crm_appointments/crm_blocked_slots/crm_business_profile/crm_forms
+ *  were closed in the 2026-08-15 hardening. */
+const callCalendarBook = async (payload: Record<string, unknown>) => {
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/crm-calendar-book`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY },
+    body: JSON.stringify(payload),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json?.error ?? "Error de red");
+  return json;
+};
+
+/** One call fetches everything CalendarRenderer needs besides the current month's
+ *  appointments: calendar config, branding, blocked slots, and the linked form's fields. */
 export const usePublicCalendar = (calendarId: string) =>
   useQuery({
     queryKey: ["public_calendar", calendarId],
-    queryFn: async () => {
-      const isUUID = UUID_RE.test(calendarId);
-      const { data, error } = await supabasePublic
-        .from("crm_calendar_config")
-        .select("*")
-        .eq(isUUID ? "id" : "slug", calendarId)
-        .single();
-      if (error) throw error;
-      return data as CrmCalendarConfig;
-    },
+    queryFn: async () => (await callCalendarBook({ action: "get_config", calendar_id: calendarId })) as PublicCalendarConfig,
     enabled: !!calendarId,
   });
 
@@ -1003,52 +1005,10 @@ export const usePublicAppointments = (
     queryKey: ["public_appointments", calendarId, year, month],
     queryFn: async () => {
       if (!calendarId || year == null || month == null) return [];
-      const startDate = `${year}-${String(month + 1).padStart(2, "0")}-01`;
-      // Use the actual last day of the month — PostgreSQL rejects invalid dates like "2026-04-31"
-      const lastDay = new Date(year, month + 1, 0).getDate();
-      const endDate = `${year}-${String(month + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-      const { data, error } = await supabasePublic
-        .from("crm_appointments")
-        .select("date, hour, minute, duration_min, status")
-        .eq("calendar_id", calendarId)
-        .gte("date", startDate)
-        .lte("date", endDate)
-        .neq("status", "cancelled");
-      if (error) throw error;
-      return data as { date: string; hour: number; minute: number; duration_min: number; status: string }[];
+      const { appointments } = await callCalendarBook({ action: "get_appointments", calendar_id: calendarId, year, month });
+      return appointments as { date: string; hour: number; minute: number; duration_min: number }[];
     },
     enabled: !!calendarId && year != null && month != null,
-  });
-
-export const usePublicBlockedSlots = (calendarId?: string | null) =>
-  useQuery({
-    queryKey: ["public_blocked_slots", calendarId],
-    queryFn: async () => {
-      if (!calendarId) return [];
-      const { data, error } = await supabasePublic
-        .from("crm_blocked_slots")
-        .select("*")
-        .eq("calendar_id", calendarId);
-      if (error) throw error;
-      return data as CrmBlockedSlot[];
-    },
-    enabled: !!calendarId,
-  });
-
-export const usePublicBusinessProfile = (userId?: string | null) =>
-  useQuery({
-    queryKey: ["public_business_profile", userId],
-    queryFn: async () => {
-      if (!userId) return null;
-      const { data, error } = await supabasePublic
-        .from("crm_business_profile")
-        .select("color_primary, color_secondary, color_accent, logo_url, theme, timezone")
-        .eq("user_id", userId)
-        .maybeSingle();
-      if (error) return null; // Non-critical — fall back to defaults
-      return data as { color_primary: string; color_secondary: string; color_accent: string; logo_url: string | null; theme: string; timezone: string | null } | null;
-    },
-    enabled: !!userId,
   });
 
 // ─── CLIENT ACCOUNTS ──────────────────────────────────────────────────────────

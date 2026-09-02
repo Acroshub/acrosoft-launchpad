@@ -3,7 +3,7 @@ import PhoneInput from "@/components/shared/PhoneInput";
 import { ChevronLeft, ChevronRight, Loader2, Check, Clock, Calendar, Globe } from "lucide-react";
 import { widgetTranslations } from "@/i18n/widgets";
 import type { WidgetLang } from "@/hooks/useLangWidget";
-import { usePublicCalendar, usePublicAppointments, usePublicBlockedSlots, usePublicForm, usePublicBusinessProfile } from "@/hooks/useCrmData";
+import { usePublicCalendar, usePublicAppointments } from "@/hooks/useCrmData";
 import type { CrmBlockedSlot } from "@/lib/supabase";
 import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
 
@@ -192,7 +192,7 @@ const inputCls =
 
 interface BookingFormProps {
   calendarId: string;
-  linkedFormId: string | null;
+  formFields: any[] | null;
   selectedDate: string;
   selectedHour: number;
   selectedMinute: number;
@@ -208,7 +208,7 @@ interface BookingFormProps {
 
 const BookingForm = ({
   calendarId,
-  linkedFormId,
+  formFields,
   selectedDate,
   selectedHour,
   selectedMinute,
@@ -223,7 +223,6 @@ const BookingForm = ({
 }: BookingFormProps) => {
   const T  = widgetTranslations[lang].calendar;
   const TF = widgetTranslations[lang].form;
-  const { data: form } = usePublicForm(linkedFormId ?? "");
   const [values, setValues]           = useState<Record<string, string>>({});
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -238,12 +237,12 @@ const BookingForm = ({
   ], [T]);
 
   const fields = useMemo(() => {
-    if (!form?.fields) return defaultBookingFields;
-    const f = (form.fields as any[]).filter(
+    if (!formFields) return defaultBookingFields;
+    const f = (formFields as any[]).filter(
       (f: any) => ["text", "email", "phone", "textarea"].includes(f.type),
     );
     return f.length > 0 ? f : defaultBookingFields;
-  }, [form, defaultBookingFields]);
+  }, [formFields, defaultBookingFields]);
 
   const validateField = (field: any, value: string): string | null => {
     const trimmed = value?.trim() ?? "";
@@ -429,7 +428,16 @@ const BookingForm = ({
 
 // ─── Main CalendarRenderer ────────────────────────────────────────────────────
 
-const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; lang?: WidgetLang }) => {
+interface CalendarRendererProps {
+  calendarId: string;
+  lang?: WidgetLang;
+  /** Overrides the calendar's stored branding color (used by standalone campaign pages that need to match their own brand instead of the calendar owner's). */
+  primaryColorOverride?: string;
+  /** Called right after a booking succeeds, in addition to showing the built-in success step (e.g. to redirect to a dedicated thank-you page). */
+  onBookingSuccess?: (booking: { date: string; hour: number; minute: number; calendarTz: string; visitorTz: string; calendarName: string }) => void;
+}
+
+const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, onBookingSuccess }: CalendarRendererProps) => {
   const today = new Date();
   const [viewYear, setViewYear]   = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -438,25 +446,26 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
   const [step, setStep] = useState<"calendar" | "form" | "success">("calendar");
   const [visitorTz, setVisitorTz] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
 
-  const { data: calendar, isLoading } = usePublicCalendar(calendarId);
+  const { data: publicCalendar, isLoading } = usePublicCalendar(calendarId);
+  const calendar     = publicCalendar?.calendar;
+  const branding     = publicCalendar?.profile ?? null;
+  const blockedSlots = publicCalendar?.blockedSlots ?? [];
+  const formFields   = publicCalendar?.formFields ?? null;
   // URL param overrides stored language; stored language overrides default "es"
   const lang: WidgetLang = langProp ?? (calendar?.language as WidgetLang | undefined) ?? "es";
   const T = widgetTranslations[lang].calendar;
-  const userId = (calendar as any)?.user_id as string | undefined;
 
   // Always use the resolved UUID from the calendar record, not the raw prop.
   // The prop may be a slug (e.g. "acrosoft-pruebas"). Passing a slug to
-  // usePublicAppointments / usePublicBlockedSlots would make Supabase try to
-  // compare a text slug against a uuid column → 400 error.
+  // usePublicAppointments would make the Edge Function try to compare a text
+  // slug against a uuid column → validation error.
   const resolvedCalendarId = calendar?.id ?? null;
 
   const { data: appointments = [] } = usePublicAppointments(resolvedCalendarId, viewYear, viewMonth);
-  const { data: blockedSlots   = [] } = usePublicBlockedSlots(resolvedCalendarId);
-  const { data: branding } = usePublicBusinessProfile(userId);
   const isBranded   = branding?.theme === "branded";
   const brandLogo   = isBranded ? (branding?.logo_url ?? null) : null;
 
-  const primaryColor = branding?.color_primary ?? "#1877F2";
+  const primaryColor = primaryColorOverride ?? branding?.color_primary ?? "#1877F2";
 
   const pixelId = (calendar as any)?.facebook_pixel_id as string | null ?? null;
 
@@ -623,7 +632,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
     return (
       <BookingForm
         calendarId={resolvedCalendarId ?? calendarId}
-        linkedFormId={calendar.linked_form_id}
+        formFields={formFields}
         selectedDate={selectedDate}
         selectedHour={selectedSlot.hour}
         selectedMinute={selectedSlot.minute}
@@ -633,7 +642,17 @@ const CalendarRenderer = ({ calendarId, lang: langProp }: { calendarId: string; 
         primaryColor={primaryColor}
         calendarTz={calendarTz}
         visitorTz={visitorTz}
-        onSuccess={() => setStep("success")}
+        onSuccess={() => {
+          setStep("success");
+          onBookingSuccess?.({
+            date: selectedDate,
+            hour: selectedSlot.hour,
+            minute: selectedSlot.minute,
+            calendarTz,
+            visitorTz,
+            calendarName: calendar.name ?? T.appointmentName,
+          });
+        }}
         onBack={() => setStep("calendar")}
       />
     );
