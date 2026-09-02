@@ -10,7 +10,7 @@ const WA_MSG = "Quiero confirmar mi llamada gratuita. \nMi negocio se llama: \nT
 const waLink = `https://wa.me/${WA_NUMBER}?text=${encodeURIComponent(WA_MSG)}`;
 
 const CUENTAME = [
-  { icon: Building2, text: "Cómo se llama tu negocio de control de pestes." },
+  { icon: Building2, text: "Cómo se llama tu negocio de control de plagas." },
   { icon: MapPin, text: "En qué zonas de Florida opera tu negocio." },
   { icon: Info, text: "Algún otro dato extra que quieras contarme." },
 ];

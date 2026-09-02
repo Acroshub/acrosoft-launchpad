@@ -69,18 +69,13 @@ const LlamadasAcros = () => {
       ═══════════════════════════════════════════════════════════ */}
       <section id="agenda" className="pt-14 pb-6 md:pt-20 md:pb-8 scroll-mt-8">
         <div className="container mx-auto px-4 max-w-3xl text-center">
-          <p className="text-sm md:text-base font-bold text-[#8C1414] mb-5 leading-snug">
-            Solo para latinos dueños de empresas de control de plagas en Florida que facturan al menos $300,000 al año.
-          </p>
-          <p className="text-xs md:text-sm font-semibold text-[#14161F]/45 mb-3">
-            Un video de X minutos te muestra...
-          </p>
           <h1 className="font-poppins text-xl md:text-2xl font-bold leading-[1.3] mb-6">
-            Cómo conseguir <span className="text-[#8C1414]">un flujo constante de estimados cada semana</span> — sin
-            depender solo del boca a boca y sin lidiar con agencias de marketing que solo te cobran pero no te ayudan.
+            Cómo conseguir <span className="text-[#8C1414]">un flujo constante de estimados cada semana</span>, sin
+            depender de la suerte del boca a boca.
           </h1>
-          <p className="text-xs md:text-sm font-semibold text-[#14161F]/45 mb-8">
-            Funciona aún si eres un hombre muy ocupado.
+          <p className="text-xs md:text-sm font-bold text-[#8C1414] mb-8">
+            Exclusivo para latinos — dueños de empresas de control de plagas en Florida que facturan al menos
+            $300,000 al año.
           </p>
         </div>
 
@@ -107,12 +102,15 @@ const LlamadasAcros = () => {
 
           <div className="rounded-2xl bg-[#14161F] px-6 py-6 md:px-10 md:py-8 text-center lp-reveal">
             <h2 className="font-poppins text-xl md:text-2xl font-bold text-white leading-snug">
-              <span className="underline decoration-2 underline-offset-4">Último Paso:</span> Agenda tu Consultoría en
-              una llamada Gratis
+              <span className="underline decoration-2 underline-offset-4">Último Paso:</span> Agenda tu Llamada de
+              Consultoría Gratis
             </h2>
           </div>
           <p className="text-center text-sm md:text-base italic text-[#14161F]/60 max-w-lg mx-auto leading-relaxed">
-            20-30 minutos para conocer tu negocio y ver si mi “Método Estimados Sin Pausa” tiene sentido para ti.
+            20-30 minutos para conocer tu negocio y ver si mi “Método Estimados Sin Pausa” tiene sentido para ti.{" "}
+            <span className="font-bold not-italic text-[#8C1414]">
+              Este mes solo estoy tomando 3 negocios nuevos de control de plagas en Florida.
+            </span>
           </p>
           <div className="rounded-2xl border border-[#14161F]/10 bg-white p-5 md:p-8 shadow-sm lp-reveal">
             <CalendarRenderer
