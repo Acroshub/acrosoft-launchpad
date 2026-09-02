@@ -87,10 +87,10 @@ const LlamadasAcrosGracias = () => {
       <section className="pt-6 pb-16 md:pt-8 md:pb-20">
         <div className="container mx-auto px-4 max-w-2xl">
           <div className="rounded-2xl border border-[#14161F]/10 p-7 md:p-8">
-            <p className="flex items-center justify-center gap-2 font-poppins font-bold text-base mb-4">
-              <CalendarClock size={18} className="shrink-0 text-[#8C1414]" />
+            <h1 className="flex items-center justify-center gap-2 font-poppins font-bold text-2xl md:text-base mb-4">
+              <CalendarClock size={20} className="shrink-0 text-[#8C1414]" />
               Último paso: Ya casi completas todo...
-            </p>
+            </h1>
 
             <div className="h-2 rounded-full bg-[#14161F]/10 overflow-hidden mb-5">
               <div className="progress-fill h-full rounded-full" style={{ width: "90%" }} />
