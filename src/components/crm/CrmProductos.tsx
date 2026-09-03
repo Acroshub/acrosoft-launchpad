@@ -237,7 +237,13 @@ function ProductEditor({ initialProduct, onBack, canDelete = true, kind }: {
   const [images, setImages]               = useState<string[]>(d?.images ?? initialProduct?.images ?? []);
   const [delivType, setDelivType]         = useState<"file"|"text">(d?.delivType ?? initialProduct?.deliverable_type ?? "file");
   const [delivText, setDelivText]         = useState(d?.delivText ?? initialProduct?.deliverable_text ?? "");
-  const [delivUrl, setDelivUrl]           = useState(d?.delivUrl ?? initialProduct?.deliverable_url ?? "");
+  const [delivFiles, setDelivFiles]       = useState<{ url: string; filename: string }[]>(d?.delivFiles ?? initialProduct?.deliverable_files ?? []);
+  // Ref sincronizado con delivFiles para evitar closures obsoletos cuando se suben
+  // varios archivos seguidos (el for-loop de handleFilesSelected llama a la misma
+  // instancia de handleDelivUpload creada en este render, así que necesita leer el
+  // valor más reciente sin esperar al próximo render).
+  const delivFilesRef = useRef(delivFiles);
+  useEffect(() => { delivFilesRef.current = delivFiles; }, [delivFiles]);
   const [uploadingDeliv, setUploadingDeliv] = useState(false);
   const delivRef = useRef<HTMLInputElement>(null);
 
@@ -304,9 +310,9 @@ function ProductEditor({ initialProduct, onBack, canDelete = true, kind }: {
   useEffect(() => {
     if (!isNew || product?.id) return;
     sessionStorage.setItem(NEW_PRODUCT_DRAFT_KEY, JSON.stringify({
-      wizardStep, name, description, images, delivType, delivText, delivUrl, faqs,
+      wizardStep, name, description, images, delivType, delivText, delivFiles, faqs,
     }));
-  }, [wizardStep, name, description, images, delivType, delivText, delivUrl, faqs]);
+  }, [wizardStep, name, description, images, delivType, delivText, delivFiles, faqs]);
 
   // Once the product gets saved and has an ID: update localStorage so the
   // parent can restore to this product on next remount, and clear the draft.
@@ -324,7 +330,8 @@ function ProductEditor({ initialProduct, onBack, canDelete = true, kind }: {
     images,
     product_kind: kind,
     deliverable_type: delivType,
-    deliverable_url: delivType === "file" ? (delivUrl || null) : null,
+    deliverable_url: null,
+    deliverable_files: delivType === "file" ? delivFiles : [],
     deliverable_text: delivType === "text" ? (delivText || null) : null,
   });
 
@@ -358,27 +365,49 @@ function ProductEditor({ initialProduct, onBack, canDelete = true, kind }: {
   const handleDelivUpload = async (file: File) => {
     if (!product) return;
     const ALLOWED_MIME = ["application/pdf", "application/zip", "application/x-zip-compressed", "application/x-zip"];
-    if (!ALLOWED_MIME.includes(file.type)) { toast.error("Solo se permiten archivos PDF o ZIP"); return; }
-    if (file.size > 52428800) { toast.error("El archivo supera 50 MB"); return; }
+    if (!ALLOWED_MIME.includes(file.type)) { toast.error(`"${file.name}": solo se permiten archivos PDF o ZIP`); return; }
+    if (file.size > 52428800) { toast.error(`"${file.name}" supera 50 MB`); return; }
     setUploadingDeliv(true);
     try {
       const ext = file.name.split(".").pop()?.toLowerCase() ?? "pdf";
-      const path = `${user!.id}/${product.id}/${Date.now()}.${ext}`;
+      const path = `${user!.id}/${product.id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.${ext}`;
       const { error } = await supabase.storage.from("product-deliverables").upload(path, file, { upsert: true });
       if (error) throw error;
       // El bucket es privado — guardamos la URL pública como referencia de path,
       // la signed URL se genera en el edge function al momento del envío
       const { data } = supabase.storage.from("product-deliverables").getPublicUrl(path);
-      setDelivUrl(data.publicUrl);
-      await upsertProduct.mutateAsync({ id: product.id, name, deliverable_type: "file", deliverable_url: data.publicUrl });
+      const updated = [...delivFilesRef.current, { url: data.publicUrl, filename: file.name }];
+      setDelivFiles(updated);
+      delivFilesRef.current = updated;
+      await upsertProduct.mutateAsync({ id: product.id, name, deliverable_type: "file", deliverable_files: updated });
       toast.success("Archivo subido");
     } catch (e: any) { toast.error(e.message?.slice(0,80) ?? "Error"); }
     finally { setUploadingDeliv(false); }
   };
 
+  const handleFilesSelected = async (files: File[]) => {
+    for (const f of files) await handleDelivUpload(f);
+  };
+
+  const handleDelivRemove = async (index: number) => {
+    if (!product) return;
+    const updated = delivFilesRef.current.filter((_, i) => i !== index);
+    setDelivFiles(updated);
+    delivFilesRef.current = updated;
+    try {
+      await upsertProduct.mutateAsync({ id: product.id, name, deliverable_files: updated });
+      toast.success("Archivo eliminado");
+    } catch { toast.error("Error al eliminar el archivo"); }
+  };
+
   const handleDelivSave = async () => {
     if (!product) return;
-    await upsertProduct.mutateAsync({ id: product.id, name, deliverable_type: delivType, deliverable_url: delivType === "file" ? (delivUrl || null) : null, deliverable_text: delivType === "text" ? (delivText || null) : null });
+    await upsertProduct.mutateAsync({
+      id: product.id, name, deliverable_type: delivType,
+      deliverable_url: null,
+      deliverable_files: delivType === "file" ? delivFiles : [],
+      deliverable_text: delivType === "text" ? (delivText || null) : null,
+    });
     toast.success("Entregable guardado");
   };
 
@@ -476,32 +505,36 @@ function ProductEditor({ initialProduct, onBack, canDelete = true, kind }: {
       </div>
       {delivType === "file" && (
         <div className="space-y-2">
-          <input ref={delivRef} type="file" accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed" className="hidden"
-            onChange={e => { const f = e.target.files?.[0]; if (f) handleDelivUpload(f); e.target.value = ""; }} />
-          {delivUrl ? (
-            <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-secondary/40 border">
+          <input ref={delivRef} type="file" multiple accept=".pdf,.zip,application/pdf,application/zip,application/x-zip-compressed" className="hidden"
+            onChange={e => { const fs = Array.from(e.target.files ?? []); if (fs.length) handleFilesSelected(fs); e.target.value = ""; }} />
+          {delivFiles.map((f, i) => (
+            <div key={f.url} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-secondary/40 border">
               <FileText size={14} className="text-muted-foreground shrink-0" />
-              <span className="text-xs flex-1 text-muted-foreground">Archivo subido</span>
+              <span className="text-xs flex-1 truncate">{f.filename}</span>
               <button
                 onClick={async () => {
                   try {
-                    const url = new URL(delivUrl);
+                    const url = new URL(f.url);
                     const path = url.pathname.split("/product-deliverables/")[1];
                     const { data } = await supabase.storage.from("product-deliverables").createSignedUrl(path, 300);
                     if (data?.signedUrl) window.open(data.signedUrl, "_blank");
                   } catch { toast.error("No se pudo abrir el archivo"); }
                 }}
-                className="text-primary"
+                className="text-primary shrink-0"
               >
                 <ExternalLink size={13} />
               </button>
-              <button onClick={() => delivRef.current?.click()} className="text-xs text-muted-foreground hover:text-foreground">Reemplazar</button>
+              <button onClick={() => handleDelivRemove(i)} className="text-muted-foreground hover:text-destructive shrink-0">
+                <X size={13} />
+              </button>
             </div>
-          ) : (
-            <Button variant="outline" size="sm" onClick={() => delivRef.current?.click()} disabled={uploadingDeliv || !product} className="h-8 text-xs gap-1.5">
-              {uploadingDeliv ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
-              {uploadingDeliv ? "Subiendo..." : "Subir PDF o ZIP"}
-            </Button>
+          ))}
+          <Button variant="outline" size="sm" onClick={() => delivRef.current?.click()} disabled={uploadingDeliv || !product} className="h-8 text-xs gap-1.5">
+            {uploadingDeliv ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+            {uploadingDeliv ? "Subiendo..." : delivFiles.length > 0 ? "Añadir otro archivo" : "Subir PDF o ZIP"}
+          </Button>
+          {delivFiles.length > 1 && (
+            <p className="text-[10px] text-muted-foreground/60">Se enviarán los {delivFiles.length} archivos, uno por uno, al confirmar la venta.</p>
           )}
         </div>
       )}

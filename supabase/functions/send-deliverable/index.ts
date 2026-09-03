@@ -33,6 +33,32 @@ function cleanPhone(phone: string): string {
   return normalizeWaIdentifier(phone);
 }
 
+type DeliverableFile = { url: string; filename: string };
+
+async function sendWaMessage(
+  phoneNumberId: string,
+  accessToken: string,
+  payload: Record<string, unknown>,
+): Promise<{ ok: true; wa_message_id: string | null } | { ok: false; error: string }> {
+  const res = await fetch(
+    `https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/messages`,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  if (!res.ok) {
+    const errText = await res.text();
+    return { ok: false, error: `WhatsApp API error ${res.status}: ${errText}` };
+  }
+  const resJson = await res.json();
+  return { ok: true, wa_message_id: resJson?.messages?.[0]?.id ?? null };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return new Response("method not allowed", { status: 405, headers: corsHeaders });
@@ -87,7 +113,7 @@ Deno.serve(async (req: Request) => {
   // 2. Cargar el producto para obtener el entregable
   const { data: product, error: prodErr } = await supabase
     .from("crm_products")
-    .select("name, deliverable_type, deliverable_url, deliverable_text")
+    .select("name, deliverable_type, deliverable_url, deliverable_files, deliverable_text")
     .eq("id", sale.product_id)
     .single();
 
@@ -123,109 +149,92 @@ Deno.serve(async (req: Request) => {
 
   const recipientPhone = cleanPhone(conv.phone);
 
-  // 5. Construir el mensaje según tipo de entregable
-  let waPayload: Record<string, unknown>;
-
+  // 5. Construir y enviar los mensajes según tipo de entregable — un mensaje de
+  // documento por cada archivo si es "file" (soporta múltiples PDFs/ZIPs por producto)
   if (product.deliverable_type === "file") {
-    if (!product.deliverable_url) {
+    const files: DeliverableFile[] =
+      Array.isArray(product.deliverable_files) && product.deliverable_files.length > 0
+        ? product.deliverable_files
+        : product.deliverable_url
+        ? [{
+            url: product.deliverable_url,
+            filename: `${product.name.replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-")}.${(product.deliverable_url.split(".").pop() ?? "pdf").toLowerCase()}`,
+          }]
+        : [];
+
+    if (files.length === 0) {
       return new Response(JSON.stringify({ error: "deliverable file url missing" }), { status: 400, headers: corsHeaders });
     }
 
-    // Extraer el path de storage y generar signed URL temporal
-    const storagePath = extractStoragePath(product.deliverable_url);
-    if (!storagePath) {
-      return new Response(JSON.stringify({ error: "could not extract storage path" }), { status: 500, headers: corsHeaders });
+    for (const file of files) {
+      // Extraer el path de storage y generar signed URL temporal
+      const storagePath = extractStoragePath(file.url);
+      if (!storagePath) {
+        return new Response(JSON.stringify({ error: "could not extract storage path" }), { status: 500, headers: corsHeaders });
+      }
+
+      const { data: signed, error: signErr } = await supabase.storage
+        .from("product-deliverables")
+        .createSignedUrl(storagePath, SIGNED_URL_TTL);
+
+      if (signErr || !signed?.signedUrl) {
+        return new Response(JSON.stringify({ error: "could not generate signed url" }), { status: 500, headers: corsHeaders });
+      }
+
+      const sendResult = await sendWaMessage(config.phone_number_id, config.access_token, {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        ...recipientField(recipientPhone),
+        type: "document",
+        document: { link: signed.signedUrl, filename: file.filename },
+      });
+
+      if (!sendResult.ok) {
+        return new Response(JSON.stringify({ ok: false, error: sendResult.error }), { status: 502, headers: corsHeaders });
+      }
+
+      await supabase.from("crm_wa_messages").insert({
+        conversation_id: sale.wa_conversation_id,
+        role: "assistant",
+        content: file.filename,
+        media_type: "document",
+        media_url: file.url,
+        wa_message_id: sendResult.wa_message_id,
+        delivery_status: "sent",
+      });
     }
-
-    const { data: signed, error: signErr } = await supabase.storage
-      .from("product-deliverables")
-      .createSignedUrl(storagePath, SIGNED_URL_TTL);
-
-    if (signErr || !signed?.signedUrl) {
-      return new Response(JSON.stringify({ error: "could not generate signed url" }), { status: 500, headers: corsHeaders });
-    }
-
-    // Determinar extensión para el filename
-    const ext = storagePath.split(".").pop()?.toLowerCase() ?? "pdf";
-    const filename = `${product.name.replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-")}.${ext}`;
-
-    waPayload = {
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      ...recipientField(recipientPhone),
-      type: "document",
-      document: {
-        link: signed.signedUrl,
-        filename,
-      },
-    };
   } else {
     // deliverable_type === "text"
     if (!product.deliverable_text) {
       return new Response(JSON.stringify({ error: "deliverable text missing" }), { status: 400, headers: corsHeaders });
     }
 
-    waPayload = {
+    const sendResult = await sendWaMessage(config.phone_number_id, config.access_token, {
       messaging_product: "whatsapp",
       recipient_type: "individual",
       ...recipientField(recipientPhone),
       type: "text",
       text: { preview_url: true, body: product.deliverable_text },
-    };
-  }
-
-  // 6. Enviar por WhatsApp Graph API
-  const res = await fetch(
-    `https://graph.facebook.com/${GRAPH_VERSION}/${config.phone_number_id}/messages`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${config.access_token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(waPayload),
-    }
-  );
-
-  if (!res.ok) {
-    const errText = await res.text();
-    return new Response(
-      JSON.stringify({ ok: false, error: `WhatsApp API error ${res.status}: ${errText}` }),
-      { status: 502, headers: corsHeaders }
-    );
-  }
-
-  const resJson = await res.json();
-  const wa_message_id: string | null = resJson?.messages?.[0]?.id ?? null;
-
-  // 7. Marcar entregable como enviado en la venta
-  await supabase
-    .from("crm_sales")
-    .update({ deliverable_sent_at: new Date().toISOString() })
-    .eq("id", sale_id);
-
-  // 8. Registrar en historial de mensajes para que aparezca en el CRM
-  if (product.deliverable_type === "file") {
-    const ext = (product.deliverable_url ?? "").split(".").pop()?.toLowerCase() ?? "pdf";
-    const filename = `${product.name.replace(/[^a-zA-Z0-9\s]/g, "").trim().replace(/\s+/g, "-")}.${ext}`;
-    await supabase.from("crm_wa_messages").insert({
-      conversation_id: sale.wa_conversation_id,
-      role: "assistant",
-      content: filename,
-      media_type: "document",
-      media_url: product.deliverable_url,
-      wa_message_id,
-      delivery_status: "sent",
     });
-  } else if (product.deliverable_type === "text" && product.deliverable_text) {
+
+    if (!sendResult.ok) {
+      return new Response(JSON.stringify({ ok: false, error: sendResult.error }), { status: 502, headers: corsHeaders });
+    }
+
     await supabase.from("crm_wa_messages").insert({
       conversation_id: sale.wa_conversation_id,
       role: "assistant",
       content: product.deliverable_text,
-      wa_message_id,
+      wa_message_id: sendResult.wa_message_id,
       delivery_status: "sent",
     });
   }
+
+  // 6. Marcar entregable como enviado en la venta
+  await supabase
+    .from("crm_sales")
+    .update({ deliverable_sent_at: new Date().toISOString() })
+    .eq("id", sale_id);
 
   return new Response(JSON.stringify({ ok: true }), { status: 200, headers: corsHeaders });
 });

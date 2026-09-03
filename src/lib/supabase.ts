@@ -641,6 +641,7 @@ export type CrmProduct = {
   product_kind: 'fisico' | 'archivo'
   deliverable_type: 'file' | 'text' | null
   deliverable_url: string | null
+  deliverable_files: { url: string; filename: string }[]
   deliverable_text: string | null
   deliverable_sent_at: string | null
   is_active: boolean
