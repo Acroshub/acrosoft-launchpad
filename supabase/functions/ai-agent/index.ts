@@ -4,6 +4,7 @@ import { normalizeUrl } from "../_shared/wa-url.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 import { requireInternal } from "../_shared/internal-auth.ts";
 import { isBsuid, recipientField } from "../_shared/wa-recipient.ts";
+import { parseAndStripPayment, resolveVariant, resolvePlan, computeExpectedPriceAndCurrency } from "./payment-resolution.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -878,24 +879,6 @@ function parseAndStripContactData(text: string): { text: string; contactData: Re
   return {
     text: text.replace(match[0], "").trim(),
     contactData: Object.keys(data).length > 0 ? data : null,
-  };
-}
-
-// ─── Parsear marcador [PAYMENT_DETECTED|...] ─────────────────────────────────
-function parseAndStripPayment(text: string): {
-  text: string;
-  payment: { product_id: string; variant_id: string | null; amount: number; method_type: string } | null;
-} {
-  const match = text.match(/\[PAYMENT_DETECTED\|product_id:([^|\]]+)\|variant_id:([^|\]]+)\|amount:([^|\]]+)\|method_type:([^\]]+)\]/i);
-  if (!match) return { text, payment: null };
-  return {
-    text: text.replace(match[0], "").trim(),
-    payment: {
-      product_id: match[1].trim(),
-      variant_id: match[2].trim().toLowerCase() === "none" ? null : match[2].trim(),
-      amount: parseFloat(match[3]),
-      method_type: match[4].trim(),
-    },
   };
 }
 
@@ -2583,12 +2566,13 @@ async function buildSystemPrompt(
   // situación en que aplica, y son ~600 tokens que de otro modo se pagan siempre.
   let paymentInstruction = "";
   if (hasMedia && catalogSections.length > 0) {
-    const markerBlock = `- Al FINAL añade EXACTAMENTE (sin espacios extra): [PAYMENT_DETECTED|product_id:{id}|variant_id:{variant_id_o_none}|amount:{monto_numerico}|method_type:{tipo}]
-  · product_id: copia el valor exacto de [product_id:...] o [service_id:...] que aparece en el catálogo junto al producto/servicio identificado
-  · variant_id: si el producto tiene variantes listadas (ves [variant_id:...] en el catálogo), DEBES poner el variant_id de la variante que compró el cliente. Si el producto tiene una sola variante, usa siempre ese variant_id. Solo escribe "none" si el producto NO tiene variantes en absoluto.
-  · IMPORTANTE — no confundas variant_id con plan_id: [plan_id:...] identifica un plan de precio (no una variante). Aunque el catálogo muestre planes, si el producto no tiene [variant_id:...] listado escribe SIEMPRE "none" — nunca copies un plan_id en el campo variant_id.
+    const markerBlock = `- Al FINAL añade EXACTAMENTE (sin espacios extra): [PAYMENT_DETECTED|product_id:{id}|variant_id:{variant_id_o_none}|amount:{monto_numerico}|method_type:{tipo}|plan_id:{plan_id_o_none}]
+  · product_id: copia el valor exacto de [product_id:...], [service_id:...] o [course_id:...] que aparece en el catálogo junto al producto/servicio/curso identificado (siempre en el campo "product_id" del marcador, sin importar cuál de los tres es)
+  · variant_id: si el producto tiene variantes listadas (ves [variant_id:...] en el catálogo), DEBES poner el variant_id de la variante que compró el cliente. Si el producto tiene una sola variante, usa siempre ese variant_id. Solo escribe "none" si el producto NO tiene variantes en absoluto — nunca copies ahí un plan_id, son cosas distintas. Los cursos y servicios nunca tienen variantes: escribe "none".
   · amount: el número exacto visible en el comprobante, sin símbolo de moneda (ej: 25.00)
-  · method_type: "transfer" | "qr" | "cash" | "card" | "other"`;
+  · method_type: "transfer" | "qr" | "cash" | "card" | "other"
+  · plan_id: si el producto o curso muestra "Planes" en el catálogo (ves [plan_id:...] junto a un plan), pon el plan_id del plan que compró el cliente — es la única forma de registrar la venta en la moneda y precio correctos de ese plan. Si tiene un solo plan, usa siempre ese plan_id. Escribe "none" solo si no tiene planes de precio listados.
+  · CURSOS — el acceso se entrega por EMAIL, no por WhatsApp: antes de dar por válido el pago de un curso, asegúrate de tener el email del cliente en esta conversación (pídeselo si no lo diste todavía y agrega el marcador [CONTACT_DATA|email:...] como ya sabes hacer). Si el comprobante de un curso llega sin que tengas su email, pídeselo primero y NO agregues [PAYMENT_DETECTED] todavía — sin email no hay forma de darle acceso.`;
 
     paymentInstruction = config.auto_detect_payments
       ? `\n\nDETECCIÓN DE PAGOS — analiza visualmente la imagen recibida:
@@ -2604,7 +2588,7 @@ IMPORTANTE — lo que NO debes revisar:
 - Solo importa: ¿es un comprobante real? ¿el monto es correcto?
 
 Si ambos requisitos se cumplen:
-- Identifica el producto o servicio del catálogo al que corresponde (elige el más probable según la conversación).
+- Identifica el producto, servicio o curso del catálogo al que corresponde (elige el más probable según la conversación).
 - Responde brevemente (1-2 líneas): «¡Gracias! Comprobante recibido y verificado. Tu compra de [nombre_producto] está confirmada 🎉»
 ${markerBlock}
 
@@ -2624,7 +2608,7 @@ IMPORTANTE — lo que NO debes revisar:
 - Solo importa: ¿es un comprobante real?
 
 Si se cumple el requisito:
-- Identifica el producto o servicio del catálogo al que corresponde (elige el más probable según la conversación).
+- Identifica el producto, servicio o curso del catálogo al que corresponde (elige el más probable según la conversación).
 - Responde brevemente (1-2 líneas): «¡Gracias! Recibimos tu comprobante de [nombre_producto], lo estamos verificando y te confirmamos en breve.» (NUNCA digas que la compra ya está confirmada — todavía falta la revisión del equipo)
 ${markerBlock}
 
@@ -2827,6 +2811,43 @@ async function notifyOwnerPush(userId: string, title: string, body: string): Pro
   } catch (e) {
     console.error("[ai-agent] error enviando push de notificación:", e);
   }
+}
+
+// ─── Otorgar acceso a un curso vendido por el agente y disparar su código de
+// acceso — el acceso a cursos es por EMAIL (crm_course_access + OTP vía Resend,
+// ver request-course-access), no por WhatsApp: reusa exactamente el mismo
+// mecanismo que la página pública de acceso, en vez de reimplementar el OTP.
+async function grantCourseAccessAndNotify(
+  courseId: string, contactId: string | null, userId: string,
+  conversationId: string, phone: string, config: AgentConfig,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!contactId) return { ok: false, error: "sale has no contact" };
+
+  const { data: contact } = await supabase.from("crm_contacts").select("email").eq("id", contactId).maybeSingle();
+  const email = contact?.email?.trim().toLowerCase();
+  if (!email) return { ok: false, error: "contact has no email — course access requires one" };
+
+  const { data: course } = await supabase.from("crm_courses").select("slug, title").eq("id", courseId).maybeSingle();
+  if (!course) return { ok: false, error: "course not found" };
+
+  const { error: grantErr } = await supabase.from("crm_course_access")
+    .upsert({ course_id: courseId, email, granted_by: userId }, { onConflict: "course_id,email" });
+  if (grantErr) return { ok: false, error: `grant failed: ${grantErr.message}` };
+
+  const { error: otpErr } = await supabase.functions.invoke("request-course-access", {
+    body: { email, tenant_id: userId, course_slug: course.slug },
+  });
+  if (otpErr) return { ok: false, error: `otp request failed: ${otpErr.message}` };
+
+  try {
+    const msg = toWhatsAppFormat(`✅ ¡Acceso a *${course.title}* activado! Te enviamos tu código de acceso a *${email}* — revisa tu bandeja (y spam) para entrar.`);
+    await sendWhatsAppMessage(phone, msg, config);
+    await supabase.from("crm_wa_messages").insert({ conversation_id: conversationId, role: "assistant", content: msg, delivery_status: "sent" });
+  } catch (e: any) {
+    console.error("[ai-agent] error avisando por WhatsApp el acceso al curso:", e.message);
+  }
+
+  return { ok: true };
 }
 
 // ─── Transferir conversación a HUMAN y notificar al owner ─────────────────────
@@ -3801,11 +3822,13 @@ Deno.serve(async (req: Request) => {
           .eq("id", conversation_id)
           .single();
 
-        // Resolver si el UUID es un producto o un servicio — incluir precio y stock para validación
+        // Resolver si el UUID es un producto, un servicio o un curso — incluir
+        // precio y stock para validación. name:title alía la columna de crm_courses
+        // así itemInfo.name funciona igual sin importar cuál de los tres matcheó.
         const itemId = payment.product_id;
         const { data: productRow } = await supabase
           .from("crm_products")
-          .select("id, name, currency, price, discount_pct, stock_enabled, stock")
+          .select("id, name, currency, price, discount_pct, stock_enabled, stock, has_variants")
           .eq("id", itemId)
           .eq("user_id", config.user_id)
           .eq("is_active", true)
@@ -3823,68 +3846,114 @@ Deno.serve(async (req: Request) => {
           serviceRow = data;
         }
 
+        let courseRow: { id: string; name: string; currency: string | null; price: number; discount_pct: number | null } | null = null;
         if (!productRow && !serviceRow) {
+          const { data } = await supabase
+            .from("crm_courses")
+            .select("id, name:title, currency, price, discount_pct")
+            .eq("id", itemId)
+            .eq("user_id", config.user_id)
+            .eq("is_published", true)
+            .maybeSingle();
+          courseRow = data;
+        }
+
+        if (!productRow && !serviceRow && !courseRow) {
           console.error(`[ai-agent] item_id ${itemId} no existe/no está activo — venta no registrada`);
         } else {
           const isProduct = !!productRow;
-          const itemInfo = productRow ?? serviceRow!;
+          const isCourse = !!courseRow;
+          const itemInfo = productRow ?? serviceRow ?? courseRow!;
 
-          // Resolver variante con precio y stock reales
+          // Resolver variante y plan de precio con lógica pura y testeada (ver
+          // payment-resolution.ts / payment-resolution.test.ts — incidentes
+          // 2026-09-03: variant_id apuntando a un plan_id inexistente rompía el
+          // INSERT por FK y perdía la venta en silencio; productos que cotizan por
+          // Planes quedaban con expectedPrice=0 y el chequeo de monto sospechoso
+          // nunca corría; la moneda de la venta se guardaba en USD en vez de la
+          // moneda real del plan). Variante y plan se traen en paralelo — no
+          // dependen uno del otro.
           let variantName = "";
           let variantPrice: number | null = null;
           let variantStock: number | null = null;
-          if (isProduct) {
-            // Si Claude no detectó variante pero el producto tiene variantes, consultar todas
-            // y auto-seleccionar si hay solo una (caso común: 1 variante sin que el cliente la mencione)
-            let resolvedVariantId = payment.variant_id || null;
+          let planCurrency: string | null = null;
+          let planExpectedPrice: number | null = null;
+          let matchedPlanId: string | null = null;
+          let ambiguousPlan = false;
 
-            if (!resolvedVariantId) {
-              const { data: allVariants } = await supabase
-                .from("crm_product_variants")
+          if (isProduct) {
+            const [{ data: allVariants }, { data: allPlans }] = await Promise.all([
+              supabase.from("crm_product_variants")
                 .select("id, name, price_override, discount_pct, stock")
                 .eq("product_id", itemId)
-                .order("sort_order");
+                .order("sort_order"),
+              supabase.from("crm_product_plans")
+                .select("id, price, currency, discount_pct")
+                .eq("product_id", itemId)
+                .eq("is_active", true)
+                .order("sort_order"),
+            ]);
 
-              if (allVariants?.length === 1) {
-                // Único variante disponible → auto-seleccionar
-                resolvedVariantId = allVariants[0].id;
-                console.log(`[ai-agent] variante auto-seleccionada: ${resolvedVariantId} (única del producto)`);
-              }
-              // Si hay múltiples variantes y Claude no indicó cuál → variant_id queda null
+            const vRes = resolveVariant(allVariants ?? [], payment.variant_id, (itemInfo as any).price ?? 0, (itemInfo as any).discount_pct ?? 0);
+            if (vRes.invalidRequestedId) {
+              console.warn(`[ai-agent] variant_id ${payment.variant_id} no existe en crm_product_variants del producto ${itemId} — se ignora y se registra la venta sin variante`);
             }
+            // Refleja el resultado (null si no se resolvió) — nunca se deja un id inválido,
+            // o el INSERT de la venta revienta por FK y se pierde la venta completa en silencio.
+            payment.variant_id = vRes.variantId;
+            variantName = vRes.variantName;
+            variantPrice = vRes.variantPrice;
+            variantStock = vRes.variantStock;
+            if (vRes.variantId) console.log(`[ai-agent] variante resuelta: ${vRes.variantId}`);
 
-            if (resolvedVariantId) {
-              const { data: vRow } = await supabase
-                .from("crm_product_variants")
-                .select("name, price_override, discount_pct, stock")
-                .eq("id", resolvedVariantId)
-                .single();
-              if (vRow) {
-                // Actualizar payment.variant_id para que el stock se decremente correctamente
-                payment.variant_id = resolvedVariantId;
-                variantName = ` (${vRow.name})`;
-                // Precio final de la variante (misma lógica que el frontend)
-                const vBase = vRow.price_override != null ? vRow.price_override : (itemInfo as any).price;
-                const vDisc = (vRow.discount_pct ?? 0) > 0 ? (vRow.discount_pct ?? 0)
-                  : (vRow.price_override == null ? ((itemInfo as any).discount_pct ?? 0) : 0);
-                variantPrice = vDisc > 0 ? +(vBase * (1 - vDisc / 100)).toFixed(2) : vBase;
-                variantStock = vRow.stock ?? null;
-              } else {
-                // resolvedVariantId no corresponde a ninguna variante real (Claude confundió
-                // variant_id con plan_id, o la variante fue borrada) — no dejar un id inválido
-                // en payment.variant_id o el INSERT de la venta revienta por FK y se pierde
-                // la venta completa en silencio (incidente 2026-09-03: 0 ventas registradas
-                // pese a pago verificado, por variant_id apuntando a un plan_id inexistente).
-                console.warn(`[ai-agent] variant_id ${resolvedVariantId} no existe en crm_product_variants — se ignora y se registra la venta sin variante`);
-                payment.variant_id = null;
+            // El plan solo aplica si no hay ya un precio de variante resuelto — son
+            // mecanismos de precio distintos, y la variante ya trae su propio precio válido.
+            if (variantPrice == null) {
+              const pRes = resolvePlan(allPlans ?? [], payment.plan_id, payment.amount);
+              if (pRes.invalidRequestedId) {
+                console.warn(`[ai-agent] plan_id ${payment.plan_id} no existe (o no está activo) en crm_product_plans del producto ${itemId} — se ignora`);
               }
+              if (pRes.ambiguous) {
+                console.warn(`[ai-agent] producto ${itemId} tiene varios planes, Claude no indicó plan_id y el monto no distingue uno solo — forzando revisión manual`);
+                ambiguousPlan = true;
+              }
+              if (pRes.planId) console.log(`[ai-agent] plan resuelto: ${pRes.planId}`);
+              matchedPlanId = pRes.planId;
+              planCurrency = pRes.planCurrency;
+              planExpectedPrice = pRes.planPrice;
             }
+          } else if (isCourse) {
+            // Los cursos no tienen variantes — solo plan de precio, misma lógica y
+            // misma función pura que los planes de producto (crm_course_plans tiene
+            // exactamente la misma forma: id/price/currency/discount_pct).
+            const { data: allCoursePlans } = await supabase
+              .from("crm_course_plans")
+              .select("id, price, currency, discount_pct")
+              .eq("course_id", itemId)
+              .eq("is_active", true)
+              .order("sort_order");
+
+            const pRes = resolvePlan(allCoursePlans ?? [], payment.plan_id, payment.amount);
+            if (pRes.invalidRequestedId) {
+              console.warn(`[ai-agent] plan_id ${payment.plan_id} no existe (o no está activo) en crm_course_plans del curso ${itemId} — se ignora`);
+            }
+            if (pRes.ambiguous) {
+              console.warn(`[ai-agent] curso ${itemId} tiene varios planes, Claude no indicó plan_id y el monto no distingue uno solo — forzando revisión manual`);
+              ambiguousPlan = true;
+            }
+            if (pRes.planId) console.log(`[ai-agent] plan de curso resuelto: ${pRes.planId}`);
+            matchedPlanId = pRes.planId;
+            planCurrency = pRes.planCurrency;
+            planExpectedPrice = pRes.planPrice;
           }
 
-          // Precio esperado del ítem (producto base o variante)
-          const disc = (itemInfo as any).discount_pct ?? 0;
-          const basePrice = (itemInfo as any).price ?? 0;
-          const expectedPrice = variantPrice ?? (disc > 0 ? +(basePrice * (1 - disc / 100)).toFixed(2) : basePrice);
+          // Precio esperado y moneda final de la venta (variante > plan > producto/curso base)
+          const { expectedPrice, saleCurrency } = computeExpectedPriceAndCurrency({
+            variantPrice, planPrice: planExpectedPrice, planCurrency,
+            baseProductPrice: (itemInfo as any).price ?? 0,
+            baseProductDiscountPct: (itemInfo as any).discount_pct ?? 0,
+            baseProductCurrency: itemInfo.currency ?? null,
+          });
 
           // Validar stock antes de crear la venta (modelo B16-4)
           // has_variants=true → tracking por variante, ignorar product.stock_enabled
@@ -3917,6 +3986,14 @@ Deno.serve(async (req: Request) => {
               } catch {}
               return new Response(JSON.stringify({ ok: true, reason: "out_of_stock" }), { status: 200 });
             }
+          }
+
+          // Plan ambiguo (varios planes, ninguno identificable por plan_id ni por monto) →
+          // no hay nada confiable contra qué validar el monto, forzar revisión sin importar
+          // el resultado del chequeo de abajo (que ni siquiera puede correr: expectedPrice
+          // cae al precio base del producto, que para productos por plan suele ser 0).
+          if (ambiguousPlan) {
+            (payment as any)._forceReview = true;
           }
 
           // Validar que el monto reportado por Claude sea razonable (≥ 90% del precio esperado,
@@ -3984,12 +4061,15 @@ Deno.serve(async (req: Request) => {
             type: "initial",                                          // campo requerido, siempre "initial" para ventas IA
             product_id: isProduct ? itemId : null,
             product_variant_id: isProduct ? (payment.variant_id ?? null) : null,
+            product_plan_id: isProduct ? matchedPlanId : null,
             product_name: isProduct ? (itemInfo.name + variantName) : null,
-            service_id: !isProduct ? itemId : null,
-            service_name: !isProduct ? itemInfo.name : null,
+            service_id: (!isProduct && !isCourse) ? itemId : null,
+            service_name: (!isProduct && !isCourse) ? itemInfo.name : null,
+            course_plan_id: isCourse ? matchedPlanId : null,
+            course_name: isCourse ? itemInfo.name : null,
             wa_conversation_id: conversation_id,
             amount: payment.amount,
-            currency: itemInfo.currency ?? "USD",
+            currency: saleCurrency,
             status: saleStatus,
             is_ai_sale: true,
             is_paid: autoConfirm && !(payment as any)._forceReview,
@@ -4009,7 +4089,7 @@ Deno.serve(async (req: Request) => {
             .eq("amount", payment.amount)
             .gte("created_at", tenMinAgo);
           if (resolvedContactId) dupQ = dupQ.eq("contact_id", resolvedContactId);
-          dupQ = isProduct ? dupQ.eq("product_id", itemId) : dupQ.eq("service_id", itemId);
+          dupQ = isProduct ? dupQ.eq("product_id", itemId) : isCourse ? dupQ.eq("course_plan_id", matchedPlanId) : dupQ.eq("service_id", itemId);
           const { data: dupSale } = await dupQ.limit(1).maybeSingle();
 
           if (dupSale) {
@@ -4029,15 +4109,15 @@ Deno.serve(async (req: Request) => {
             console.log(`[ai-agent] venta creada: ${newSale.id} status:${saleStatus}`);
 
             const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-            const itemName = itemInfo.name ?? (isProduct ? "producto" : "servicio");
-            const amountFormatted = formatPrice(payment.amount, itemInfo.currency ?? null);
+            const itemName = itemInfo.name ?? (isProduct ? "producto" : isCourse ? "curso" : "servicio");
+            const amountFormatted = formatPrice(payment.amount, saleCurrency);
 
             const isConfirmed = saleStatus === "confirmed";
             const pushTitle = isConfirmed
               ? `✅ Venta confirmada: ${itemName}`
               : `⚠️ Pago pendiente de confirmación: ${itemName}`;
             const pushBody = isConfirmed
-              ? `${amountFormatted} — el entregable (si aplica) ya fue enviado al cliente por WhatsApp.`
+              ? `${amountFormatted} — el entregable o acceso (si aplica) ya fue enviado al cliente por WhatsApp.`
               : `${amountFormatted} — revisa los chats del Agente IA para confirmar o rechazar este pago.`;
 
             // Push fire-and-forget ANTES de Promise.allSettled — corre en paralelo con send-deliverable
@@ -4049,7 +4129,7 @@ Deno.serve(async (req: Request) => {
                 .catch(e => console.error("[ai-agent] analyze-sales-pattern error:", e.message));
             }
 
-            // Ejecutar en paralelo: entregable + stock
+            // Ejecutar en paralelo: entregable/acceso + stock
             await Promise.allSettled([
               // Entregable solo si la venta quedó confirmed (no pending_review por monto sospechoso)
               ...(isConfirmed && isProduct ? [
@@ -4067,6 +4147,21 @@ Deno.serve(async (req: Request) => {
                     console.log("[ai-agent] send-deliverable: ok");
                   }
                 }),
+              ] : []),
+
+              // Acceso a curso: otorgar en crm_course_access + disparar el OTP por email
+              // (ver grantCourseAccessAndNotify) — solo si la venta quedó confirmed.
+              ...(isConfirmed && isCourse ? [
+                grantCourseAccessAndNotify(itemId, resolvedContactId, config.user_id, conversation_id, phone, config as AgentConfig)
+                  .then(r => {
+                    if (!r.ok) {
+                      console.error("[ai-agent] grantCourseAccessAndNotify error:", r.error);
+                      notifyOwnerPush(config.user_id, `⚠️ Acceso al curso no enviado: ${itemName}`,
+                        `${amountFormatted} — la venta se confirmó pero no se pudo dar acceso automático (${r.error}). Otórgalo manualmente desde el curso.`);
+                    } else {
+                      console.log("[ai-agent] grantCourseAccessAndNotify: ok");
+                    }
+                  }),
               ] : []),
 
               // Decrementar stock siempre que sea un producto con stock habilitado
