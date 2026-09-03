@@ -619,7 +619,13 @@ const CrmVentas = ({ section, onNavigate }: { section: VentasSection; onNavigate
           paid_at: new Date().toISOString(),
           justification: "Confirmado manualmente desde panel de Ventas",
         });
-        if (sale.product_id) supabase.functions.invoke("send-deliverable", { body: { sale_id: sale.id } }).catch(() => {});
+        if (sale.product_id) {
+          supabase.functions.invoke("send-deliverable", { body: { sale_id: sale.id } }).then(r => {
+            if (r.error) toast.error("La venta se confirmó pero el envío del entregable falló — enviálo manualmente");
+          }).catch(() => {
+            toast.error("La venta se confirmó pero el envío del entregable falló — enviálo manualmente");
+          });
+        }
         toast.success("Venta confirmada");
       } else {
         await updateSale.mutateAsync({ id: sale.id, status: "rejected", justification: "Rechazado manualmente desde panel de Ventas" });

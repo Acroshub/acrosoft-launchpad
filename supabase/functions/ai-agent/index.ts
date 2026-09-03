@@ -2586,6 +2586,7 @@ async function buildSystemPrompt(
     const markerBlock = `- Al FINAL añade EXACTAMENTE (sin espacios extra): [PAYMENT_DETECTED|product_id:{id}|variant_id:{variant_id_o_none}|amount:{monto_numerico}|method_type:{tipo}]
   · product_id: copia el valor exacto de [product_id:...] o [service_id:...] que aparece en el catálogo junto al producto/servicio identificado
   · variant_id: si el producto tiene variantes listadas (ves [variant_id:...] en el catálogo), DEBES poner el variant_id de la variante que compró el cliente. Si el producto tiene una sola variante, usa siempre ese variant_id. Solo escribe "none" si el producto NO tiene variantes en absoluto.
+  · IMPORTANTE — no confundas variant_id con plan_id: [plan_id:...] identifica un plan de precio (no una variante). Aunque el catálogo muestre planes, si el producto no tiene [variant_id:...] listado escribe SIEMPRE "none" — nunca copies un plan_id en el campo variant_id.
   · amount: el número exacto visible en el comprobante, sin símbolo de moneda (ej: 25.00)
   · method_type: "transfer" | "qr" | "cash" | "card" | "other"`;
 
@@ -3853,15 +3854,14 @@ Deno.serve(async (req: Request) => {
             }
 
             if (resolvedVariantId) {
-              // Actualizar payment.variant_id para que el stock se decremente correctamente
-              payment.variant_id = resolvedVariantId;
-
               const { data: vRow } = await supabase
                 .from("crm_product_variants")
                 .select("name, price_override, discount_pct, stock")
                 .eq("id", resolvedVariantId)
                 .single();
               if (vRow) {
+                // Actualizar payment.variant_id para que el stock se decremente correctamente
+                payment.variant_id = resolvedVariantId;
                 variantName = ` (${vRow.name})`;
                 // Precio final de la variante (misma lógica que el frontend)
                 const vBase = vRow.price_override != null ? vRow.price_override : (itemInfo as any).price;
@@ -3869,6 +3869,14 @@ Deno.serve(async (req: Request) => {
                   : (vRow.price_override == null ? ((itemInfo as any).discount_pct ?? 0) : 0);
                 variantPrice = vDisc > 0 ? +(vBase * (1 - vDisc / 100)).toFixed(2) : vBase;
                 variantStock = vRow.stock ?? null;
+              } else {
+                // resolvedVariantId no corresponde a ninguna variante real (Claude confundió
+                // variant_id con plan_id, o la variante fue borrada) — no dejar un id inválido
+                // en payment.variant_id o el INSERT de la venta revienta por FK y se pierde
+                // la venta completa en silencio (incidente 2026-09-03: 0 ventas registradas
+                // pese a pago verificado, por variant_id apuntando a un plan_id inexistente).
+                console.warn(`[ai-agent] variant_id ${resolvedVariantId} no existe en crm_product_variants — se ignora y se registra la venta sin variante`);
+                payment.variant_id = null;
               }
             }
           }
@@ -4049,8 +4057,15 @@ Deno.serve(async (req: Request) => {
                   body: { sale_id: newSale.id },
                   headers: { "x-internal-key": SERVICE_ROLE_KEY },
                 }).then(r => {
-                  if (r.error) console.error("[ai-agent] send-deliverable error:", r.error);
-                  else console.log("[ai-agent] send-deliverable: ok");
+                  if (r.error) {
+                    console.error("[ai-agent] send-deliverable error:", r.error);
+                    // El push anterior ya le dijo al dueño "el entregable ya fue enviado" — si en
+                    // realidad falló, avisarle para que lo mande a mano en vez de dejarlo en silencio.
+                    notifyOwnerPush(config.user_id, `⚠️ Entregable no enviado: ${itemName}`,
+                      `${amountFormatted} — la venta se confirmó pero el envío automático del archivo falló. Envíalo manualmente desde Ventas.`);
+                  } else {
+                    console.log("[ai-agent] send-deliverable: ok");
+                  }
                 }),
               ] : []),
 

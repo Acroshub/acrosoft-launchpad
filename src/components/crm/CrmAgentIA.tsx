@@ -4173,7 +4173,11 @@ const ChatPanel = ({
       if (pendingSale.product_id) {
         supabase.functions.invoke("send-deliverable", {
           body: { sale_id: pendingSale.id },
-        }).catch(() => {});
+        }).then(r => {
+          if (r.error) toast.error("La venta se confirmó pero el envío del entregable falló — enviálo manualmente");
+        }).catch(() => {
+          toast.error("La venta se confirmó pero el envío del entregable falló — enviálo manualmente");
+        });
       }
       toast.success("Pago confirmado y venta registrada");
       onSaleConfirmed?.();
