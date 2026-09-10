@@ -118,3 +118,17 @@ export const signOut = () => supabase.auth.signOut()
  */
 export const updatePassword = (newPassword: string) =>
   supabase.auth.updateUser({ password: newPassword })
+
+/**
+ * Email a link to set a new password (Edge Function reset-password → /crm-setup).
+ * Responds the same whether or not the account exists; throws only if sending failed.
+ */
+export const requestPasswordReset = async (email: string) => {
+  const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/reset-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
+    body: JSON.stringify({ email: email.trim() }),
+  })
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(json.error ?? 'Error')
+}

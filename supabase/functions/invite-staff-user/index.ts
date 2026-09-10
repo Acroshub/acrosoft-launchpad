@@ -19,7 +19,8 @@ const supabase = createClient(
  *   2. Load crm_staff row, verify it belongs to owner
  *   3. inviteUserByEmail → redirects to /crm-setup
  *   4. Update crm_staff.status = 'invited'
- *   5. If email already registered, link existing auth user directly
+ *   5. If email already registered: re-invite if that account never finished
+ *      activation, otherwise link the existing auth user directly
  */
 Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -45,7 +46,7 @@ Deno.serve(async (req) => {
     // ── 1. Load staff and verify ownership ──────────────────────────────────
     const { data: staff, error: staffErr } = await supabase
       .from("crm_staff")
-      .select("id, name, email, status")
+      .select("id, name, email, status, staff_user_id")
       .eq("id", staff_id)
       .eq("owner_user_id", owner.id)
       .single();
@@ -88,13 +89,21 @@ Deno.serve(async (req) => {
         }
 
         if (existingId) {
-          // Check if user has already confirmed their email (has a password)
           const existingUser = (await supabase.auth.admin.getUserById(existingId)).data.user;
           const isConfirmed = !!existingUser?.email_confirmed_at;
+          // Cuenta creada por esta misma invitación que nunca se activó. email_confirmed_at no
+          // basta para saberlo: Supabase confirma el email apenas se abre el enlace, antes de
+          // que la persona cree su contraseña — y vincularla así la dejaba sin forma de entrar.
+          const isPendingInvitee =
+            existingUser?.user_metadata?.staff_id === staff.id && !staff.staff_user_id;
 
-          if (!isConfirmed) {
+          if (!isConfirmed || isPendingInvitee) {
             // Never set a password — delete stale auth record and re-invite
-            await supabase.auth.admin.deleteUser(existingId);
+            const { error: delErr } = await supabase.auth.admin.deleteUser(existingId);
+            if (delErr) {
+              console.error("invite-staff-user: no se pudo borrar el usuario pendiente:", delErr);
+              return respond({ error: "Error al enviar invitación" }, 500);
+            }
             const { data: newInvite, error: newErr } = await supabase.auth.admin.inviteUserByEmail(
               staff.email,
               {

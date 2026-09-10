@@ -33,16 +33,18 @@ Deno.serve(async (req) => {
   }
 
   try {
-    const { email } = await req.json();
+    const body = await req.json();
+    // El autocompletado de iOS deja un espacio al final: sin limpiarlo, Supabase no
+    // encuentra la cuenta y el correo nunca sale.
+    const email = typeof body?.email === "string" ? body.email.trim().toLowerCase() : "";
     if (!email) return respond({ error: "email is required" }, 400);
 
     const siteUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
 
-    // Generate a password recovery link
+    // Generate a password recovery token
     const { data, error: linkErr } = await supabase.auth.admin.generateLink({
       type: "recovery",
       email,
-      options: { redirectTo: `${siteUrl}/crm-setup` },
     });
 
     if (linkErr) {
@@ -50,8 +52,13 @@ Deno.serve(async (req) => {
       return respond({ success: true });
     }
 
-    const recoveryLink = data.properties?.action_link;
-    if (!recoveryLink) return respond({ success: true });
+    // El enlace va directo a la app con el token_hash, y /crm-setup lo canjea con verifyOtp.
+    // No se usa action_link: pasa por /auth/v1/verify, que gasta el token con cualquier GET
+    // (vistas previas de WhatsApp, escáneres de correo) y entrega la sesión en el #hash,
+    // formato que el cliente PKCE del frontend rechaza.
+    const tokenHash = data.properties?.hashed_token;
+    if (!tokenHash) return respond({ success: true });
+    const recoveryLink = `${siteUrl}/crm-setup?token_hash=${encodeURIComponent(tokenHash)}&type=recovery`;
 
     // Send via Resend directly
     const RESEND_API_KEY  = Deno.env.get("RESEND_API_KEY");
@@ -59,7 +66,7 @@ Deno.serve(async (req) => {
 
     if (!RESEND_API_KEY) return respond({ error: "Email service not configured" }, 500);
 
-    await fetch("https://api.resend.com/emails", {
+    const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         "Authorization": `Bearer ${RESEND_API_KEY}`,
@@ -83,6 +90,15 @@ Deno.serve(async (req) => {
         `,
       }),
     });
+
+    // Antes no se revisaba la respuesta: si Resend rechazaba el envío, el usuario veía
+    // "Correo enviado" y el correo nunca llegaba, sin rastro en los logs.
+    const resendBody = await res.text();
+    if (!res.ok) {
+      console.error(`reset-password: Resend rechazó el envío (${res.status}):`, resendBody);
+      return respond({ error: "No se pudo enviar el correo" }, 502);
+    }
+    console.log("reset-password: correo aceptado por Resend", resendBody);
 
     return respond({ success: true });
 

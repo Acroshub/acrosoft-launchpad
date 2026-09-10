@@ -1,21 +1,65 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Eye, EyeOff, CheckCircle2, Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { requestPasswordReset } from "@/hooks/useAuth";
 import { checkPasswordPwned } from "@/lib/password-security";
+
+type LinkResult = "none" | "ok" | "invalid";
+
+/**
+ * Convierte el enlace del correo en una sesión. Llegan dos formatos:
+ *  - ?token_hash=…&type=…  → lo arma la Edge Function reset-password. Se canjea aquí con
+ *    verifyOtp, así que una vista previa de WhatsApp o un escáner de correo que abra el
+ *    enlace no lo gasta.
+ *  - #access_token=…&refresh_token=… → lo manda Supabase (inviteUserByEmail). El cliente
+ *    está en modo PKCE y descarta este formato por su cuenta, así que la sesión se fija a mano.
+ */
+async function consumeAuthLink(): Promise<LinkResult> {
+  const query = new URLSearchParams(window.location.search);
+  const hash  = new URLSearchParams(window.location.hash.slice(1));
+
+  const tokenHash    = query.get("token_hash");
+  const type         = query.get("type");
+  const accessToken  = hash.get("access_token");
+  const refreshToken = hash.get("refresh_token");
+  // Enlace vencido o ya usado: Supabase redirige con #error=…&error_code=otp_expired
+  const linkFailed   = hash.has("error") || hash.has("error_code") || query.has("error") || query.has("error_code");
+
+  if (!tokenHash && !accessToken && !linkFailed) return "none";
+
+  // Sacar los tokens de la barra de direcciones y del historial antes de usarlos
+  window.history.replaceState(null, "", window.location.pathname);
+  if (linkFailed) return "invalid";
+
+  // Esperar a que el cliente termine de inicializarse: si no, al restaurar una sesión
+  // vieja guardada en este navegador podría pisar la que crea el enlace.
+  await supabase.auth.getSession();
+
+  if (tokenHash) {
+    if (type !== "invite" && type !== "recovery") return "invalid";
+    const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
+    return error ? "invalid" : "ok";
+  }
+
+  if (!accessToken || !refreshToken) return "invalid";
+  const { error } = await supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+  return error ? "invalid" : "ok";
+}
 
 /**
  * /crm-setup
  *
- * Landing page for new SaaS clients arriving from an invitation email.
- * Supabase's invite flow automatically creates a session before redirecting here,
- * so the user is already authenticated — they just need to set a password.
+ * Landing page for invitation (SaaS clients, staff) and password-recovery links.
+ * The link is turned into a session here; then the user sets a password.
+ * If the link expired or was already used, offers to email a new one.
  */
 const CrmSetup = () => {
   const navigate = useNavigate();
 
+  const [phase, setPhase]             = useState<"checking" | "ready" | "invalid">("checking");
   const [password, setPassword]       = useState("");
   const [confirm, setConfirm]         = useState("");
   const [showPw, setShowPw]           = useState(false);
@@ -23,18 +67,29 @@ const CrmSetup = () => {
   const [done, setDone]               = useState(false);
   const [error, setError]             = useState("");
   const [userEmail, setUserEmail]     = useState("");
+  const [linkSent, setLinkSent]       = useState(false);
+  const linkHandled = useRef(false);
 
-  // On mount, confirm there's an active session (from invite link)
+  // On mount, turn the email link into a session (or detect it's no longer valid)
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      if (!data.session) {
-        // No session — invalid or expired link
-        navigate("/login");
-      } else {
-        setUserEmail(data.session.user.email ?? "");
+    // Una sola vez: en StrictMode el efecto corre dos veces y el enlace es de un solo uso
+    if (linkHandled.current) return;
+    linkHandled.current = true;
+
+    (async () => {
+      if (await consumeAuthLink() === "invalid") {
+        setPhase("invalid");
+        return;
       }
-    });
-  }, [navigate]);
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        setPhase("invalid");
+        return;
+      }
+      setUserEmail(data.session.user.email ?? "");
+      setPhase("ready");
+    })().catch(() => setPhase("invalid"));
+  }, []);
 
   const isValid =
     password.length >= 8 &&
@@ -93,6 +148,99 @@ const CrmSetup = () => {
       setLoading(false);
     }
   };
+
+  const handleRequestLink = async () => {
+    if (!userEmail.trim()) return;
+    setError("");
+    setLoading(true);
+    try {
+      await requestPasswordReset(userEmail);
+      setLinkSent(true);
+    } catch {
+      setError("No se pudo enviar el correo. Intenta de nuevo en unos minutos.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (phase === "checking") {
+    return (
+      <div className="min-h-screen bg-secondary/20 flex items-center justify-center p-4">
+        <Loader2 size={20} className="animate-spin text-muted-foreground/50" />
+      </div>
+    );
+  }
+
+  if (phase === "invalid") {
+    return (
+      <div className="min-h-screen bg-secondary/20 flex items-center justify-center p-4">
+        <div className="w-full max-w-sm space-y-8">
+          <div className="text-center space-y-1">
+            <h1 className="text-xl font-semibold">Este enlace ya no es válido</h1>
+            <p className="text-sm text-muted-foreground">
+              Los enlaces para crear tu contraseña sirven una sola vez y vencen. Escribe tu email y te enviamos uno nuevo.
+            </p>
+          </div>
+
+          <div className="bg-card border rounded-2xl p-8 shadow-sm space-y-5">
+            {linkSent ? (
+              <p className="text-sm text-center text-muted-foreground">
+                Te enviamos un enlace nuevo a <span className="font-medium text-foreground">{userEmail.trim()}</span>.
+                Si no aparece en unos minutos, revisa la carpeta de spam.
+              </p>
+            ) : (
+              <>
+                <div>
+                  <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
+                    Email
+                  </label>
+                  <Input
+                    type="email"
+                    placeholder="tu@email.com"
+                    value={userEmail}
+                    onChange={(e) => setUserEmail(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && handleRequestLink()}
+                    className="h-10"
+                    autoFocus
+                  />
+                </div>
+
+                {error && (
+                  <p className="text-xs text-destructive bg-destructive/5 border border-destructive/20 rounded-lg px-3 py-2">
+                    {error}
+                  </p>
+                )}
+
+                <Button
+                  onClick={handleRequestLink}
+                  disabled={!userEmail.trim() || loading}
+                  className="w-full h-11 rounded-xl font-medium"
+                >
+                  {loading ? (
+                    <><Loader2 size={14} className="animate-spin mr-2" /> Enviando...</>
+                  ) : (
+                    "Enviar enlace nuevo"
+                  )}
+                </Button>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={() => navigate("/login")}
+              className="w-full text-center text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Ya tengo contraseña, ir a iniciar sesión
+            </button>
+          </div>
+
+          <p className="text-center text-[10px] text-muted-foreground/40 uppercase tracking-widest">
+            Acrosoft Labs · Acceso seguro
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   if (done) {
     return (

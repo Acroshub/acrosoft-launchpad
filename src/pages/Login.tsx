@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Eye, EyeOff, Check, ArrowRight, CalendarDays, Sparkles, TrendingUp } from "lucide-react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
-import { signIn } from "@/hooks/useAuth";
+import { signIn, requestPasswordReset } from "@/hooks/useAuth";
 
 const Login = () => {
   const navigate = useNavigate();
@@ -17,7 +17,8 @@ const Login = () => {
   const handleLogin = async () => {
     setError("");
     setLoading(true);
-    const { error: authError } = await signIn(email, password);
+    // trim: el autocompletado de iOS deja un espacio al final del email
+    const { error: authError } = await signIn(email.trim(), password);
     if (authError) {
       setError("Email o contraseña incorrectos.");
       setLoading(false);
@@ -31,15 +32,7 @@ const Login = () => {
     setError("");
     setLoading(true);
     try {
-      const dbUrl = import.meta.env.VITE_SUPABASE_URL;
-      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const res = await fetch(`${dbUrl}/functions/v1/reset-password`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "apikey": anonKey },
-        body: JSON.stringify({ email }),
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error ?? "Error");
+      await requestPasswordReset(email);
       setResetSent(true);
     } catch {
       setError("No se pudo enviar el correo. Intenta de nuevo en unos minutos.");
@@ -91,7 +84,7 @@ const Login = () => {
                   <div className="space-y-1">
                     <p className="font-semibold text-sm font-opensans">Correo enviado</p>
                     <p className="text-xs text-[#14161F]/55 leading-relaxed">
-                      Revisa <span className="font-medium text-[#14161F]">{email}</span> y sigue el enlace para crear una nueva contraseña.
+                      Revisa <span className="font-medium text-[#14161F]">{email.trim()}</span> y sigue el enlace para crear una nueva contraseña. Si no aparece en unos minutos, revisa la carpeta de spam.
                     </p>
                   </div>
                   <button
