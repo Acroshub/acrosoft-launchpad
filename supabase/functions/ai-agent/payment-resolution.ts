@@ -179,3 +179,48 @@ export function computeExpectedPriceAndCurrency(params: {
   const saleCurrency = (variantPrice == null && planCurrency) ? planCurrency : (baseProductCurrency ?? "USD");
   return { expectedPrice, saleCurrency };
 }
+
+// ─── Guardar la venta con reintentos ────────────────────────────────────────
+// Incidente 2026-09-10: el INSERT de la venta cayó en un pico de carga de la base
+// (504 Gateway Timeout a los 5 s) y la venta se perdió en silencio — sin venta no
+// se dispara send-deliverable, y el cliente ya había recibido "compra confirmada".
+// Los errores de datos (FK, check, tipos) llegan como 4xx con código de Postgres y
+// reintentarlos no sirve; los 5xx y los fallos de red sí son transitorios.
+export type DbWriteResult = {
+  error: { message: string; code?: string } | null;
+  status: number; // 0 = el fetch falló antes de recibir respuesta (así lo reporta supabase-js)
+};
+
+export function isTransientWriteError(r: DbWriteResult): boolean {
+  if (!r.error) return false;
+  return !r.status || r.status >= 500 || r.status === 408 || r.status === 429;
+}
+
+export async function writeWithRetry(
+  write: () => Promise<DbWriteResult>,
+  // Un 5xx no garantiza que la escritura no se haya confirmado en la base: antes de
+  // reintentar (o de rendirse) se verifica si el intento anterior sí quedó guardado.
+  alreadyWritten: () => Promise<boolean>,
+  retryDelaysMs: number[],
+  sleep: (ms: number) => Promise<void>,
+): Promise<{ ok: true; attempts: number } | { ok: false; attempts: number; error: string }> {
+  let attempts = 0;
+  for (;;) {
+    const r = await write();
+    attempts++;
+    if (!r.error) return { ok: true, attempts };
+
+    const transient = isTransientWriteError(r);
+    // 23505 en un reintento = el intento anterior sí se guardó (quien llama genera
+    // el id antes de escribir, así que la pkey choca consigo misma).
+    const duplicateOnRetry = attempts > 1 && r.error.code === "23505";
+    if ((transient || duplicateOnRetry) && await alreadyWritten().catch(() => false)) {
+      return { ok: true, attempts };
+    }
+
+    if (!transient || attempts > retryDelaysMs.length) {
+      return { ok: false, attempts, error: r.error.message };
+    }
+    await sleep(retryDelaysMs[attempts - 1]);
+  }
+}

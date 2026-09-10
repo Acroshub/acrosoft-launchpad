@@ -4,7 +4,7 @@ import { normalizeUrl } from "../_shared/wa-url.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 import { requireInternal } from "../_shared/internal-auth.ts";
 import { isBsuid, recipientField } from "../_shared/wa-recipient.ts";
-import { parseAndStripPayment, resolveVariant, resolvePlan, computeExpectedPriceAndCurrency } from "./payment-resolution.ts";
+import { parseAndStripPayment, resolveVariant, resolvePlan, computeExpectedPriceAndCurrency, writeWithRetry } from "./payment-resolution.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -4095,22 +4095,39 @@ Deno.serve(async (req: Request) => {
           if (dupSale) {
             console.log(`[ai-agent] venta duplicada detectada (${dupSale.id}) — comprobante ya procesado, omitiendo`);
           } else {
-          const { data: newSale, error: saleErr } = await supabase
-            .from("crm_sales")
-            .insert(salePayload)
-            .select("id")
-            .single();
+          const itemName = itemInfo.name ?? (isProduct ? "producto" : isCourse ? "curso" : "servicio");
+          const amountFormatted = formatPrice(payment.amount, saleCurrency);
 
-          if (saleErr) {
-            console.error("[ai-agent] error creando venta:", saleErr.message);
+          // id generado aquí para que los reintentos sean idempotentes (ver writeWithRetry)
+          const saleId = crypto.randomUUID();
+          const saveResult = await writeWithRetry(
+            async () => {
+              const { error, status } = await supabase.from("crm_sales").insert({ ...salePayload, id: saleId });
+              return { error, status };
+            },
+            async () => {
+              const { data } = await supabase.from("crm_sales").select("id").eq("id", saleId).maybeSingle();
+              return !!data;
+            },
+            [2000, 5000],
+            sleep,
+          );
+          const newSale = saveResult.ok ? { id: saleId } : null;
+
+          if (!saveResult.ok) {
+            console.error(`[ai-agent] error creando venta tras ${saveResult.attempts} intento(s): ${saveResult.error}`);
+            // El cliente ya recibió "compra confirmada" y sin venta tampoco sale el entregable
+            // ni el acceso al curso — el dueño tiene que enterarse para resolverlo a mano.
+            notifyOwnerPush(config.user_id, `⚠️ Venta no registrada: ${itemName}`,
+              `${resolvedContactName ?? phone} pagó ${amountFormatted} pero la venta no se guardó. Regístrala y envía el pedido a mano.`);
+          } else if (saveResult.attempts > 1) {
+            console.warn(`[ai-agent] venta guardada al intento ${saveResult.attempts}`);
           }
 
           if (newSale) {
             console.log(`[ai-agent] venta creada: ${newSale.id} status:${saleStatus}`);
 
             const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-            const itemName = itemInfo.name ?? (isProduct ? "producto" : isCourse ? "curso" : "servicio");
-            const amountFormatted = formatPrice(payment.amount, saleCurrency);
 
             const isConfirmed = saleStatus === "confirmed";
             const pushTitle = isConfirmed
@@ -4167,10 +4184,14 @@ Deno.serve(async (req: Request) => {
               // Decrementar stock siempre que sea un producto con stock habilitado
               // (tanto auto-confirm como pending_review — evita vender lo mismo dos veces)
               ...(isProduct ? [
+                // El builder de supabase-js solo implementa then (no catch): un .catch aquí
+                // lanzaba TypeError y cortaba el bloque antes del allSettled.
                 supabase.rpc("decrement_sale_stock", {
                   p_product_id: itemId,
                   p_variant_id: payment.variant_id ?? null,
-                }).catch(e => console.error("[ai-agent] stock decrement error:", e)),
+                }).then(({ error }) => {
+                  if (error) console.error("[ai-agent] stock decrement error:", error.message);
+                }),
               ] : []),
             ]);
           }

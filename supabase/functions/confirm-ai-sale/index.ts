@@ -32,10 +32,9 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: "missing fields" }), { status: 400, headers: corsHeaders });
   }
 
-  // Cargar la venta (incluir product_variant_id para el decremento de stock)
   const { data: sale, error: saleErr } = await supabase
     .from("crm_sales")
-    .select("id, user_id, product_id, product_variant_id, wa_conversation_id, status, is_ai_sale")
+    .select("id, user_id, product_id, wa_conversation_id, status, is_ai_sale")
     .eq("id", sale_id)
     .single();
 
@@ -56,13 +55,10 @@ Deno.serve(async (req: Request) => {
       .update({ status: "confirmed", is_paid: true, paid_at: new Date().toISOString() })
       .eq("id", sale_id);
 
-    // Decrementar stock del producto o variante (awaited — asegura atomicidad antes de responder)
-    if (sale.product_id) {
-      await supabase.rpc("decrement_sale_stock", {
-        p_product_id: sale.product_id,
-        p_variant_id: sale.product_variant_id ?? null,
-      }).catch(err => console.error("[confirm-ai-sale] stock decrement error:", err));
-    }
+    // Sin decremento de stock aquí: ai-agent ya lo descuenta al crear la venta, también
+    // las pending_review (reserva para no vender lo mismo dos veces). Además el .catch
+    // que había sobre el builder de rpc lanzaba TypeError y cortaba la función antes
+    // de enviar el entregable.
 
     // Enviar entregable (fire-and-forget — no bloquea la respuesta al usuario)
     if (sale.wa_conversation_id) {

@@ -4,8 +4,11 @@ import {
   resolveVariant,
   resolvePlan,
   computeExpectedPriceAndCurrency,
+  isTransientWriteError,
+  writeWithRetry,
   type VariantRow,
   type PlanRow,
+  type DbWriteResult,
 } from "./payment-resolution.ts";
 
 // ─── parseAndStripPayment ───────────────────────────────────────────────────
@@ -227,4 +230,65 @@ Deno.test("computeExpectedPriceAndCurrency - sin nada configurado, moneda cae a 
   });
   assertEquals(r.expectedPrice, 0);
   assertEquals(r.saleCurrency, "USD");
+});
+
+// ─── writeWithRetry ─────────────────────────────────────────────────────────
+
+const noSleep = (_ms: number) => Promise.resolve();
+const gatewayTimeout: DbWriteResult = { error: { message: "Gateway Timeout" }, status: 504 };
+const saved: DbWriteResult = { error: null, status: 201 };
+const fkError: DbWriteResult = { error: { message: "violates foreign key constraint", code: "23503" }, status: 409 };
+
+Deno.test("isTransientWriteError - 5xx y fallos de red sí, errores de datos no", () => {
+  assert(isTransientWriteError(gatewayTimeout));
+  assert(isTransientWriteError({ error: { message: "TypeError: fetch failed", code: "" }, status: 0 }));
+  assert(!isTransientWriteError(fkError));
+  assert(!isTransientWriteError(saved));
+});
+
+Deno.test("writeWithRetry - un 504 seguido de éxito guarda la venta (incidente 2026-09-10)", async () => {
+  const results: DbWriteResult[] = [gatewayTimeout, saved];
+  const slept: number[] = [];
+  const r = await writeWithRetry(async () => results.shift()!, async () => false, [2000, 5000], async (ms) => { slept.push(ms); });
+  assertEquals(r, { ok: true, attempts: 2 });
+  assertEquals(slept, [2000]);
+});
+
+Deno.test("writeWithRetry - el 504 igual quedó guardado en la base: no reintenta ni duplica", async () => {
+  let writes = 0;
+  const r = await writeWithRetry(async () => { writes++; return gatewayTimeout; }, async () => true, [2000, 5000], noSleep);
+  assertEquals(r, { ok: true, attempts: 1 });
+  assertEquals(writes, 1);
+});
+
+Deno.test("writeWithRetry - pkey duplicada en un reintento = el intento anterior sí se guardó", async () => {
+  const results: DbWriteResult[] = [gatewayTimeout, { error: { message: "duplicate key value", code: "23505" }, status: 409 }];
+  let checks = 0;
+  // 1ª verificación (tras el 504) todavía no ve la fila; la 2ª (tras el 23505) sí
+  const r = await writeWithRetry(async () => results.shift()!, async () => ++checks === 2, [2000, 5000], noSleep);
+  assertEquals(r, { ok: true, attempts: 2 });
+});
+
+Deno.test("writeWithRetry - error de datos no se reintenta ni se verifica", async () => {
+  let writes = 0;
+  let checked = false;
+  const r = await writeWithRetry(async () => { writes++; return fkError; }, async () => { checked = true; return false; }, [2000, 5000], noSleep);
+  assertEquals(r, { ok: false, attempts: 1, error: "violates foreign key constraint" });
+  assertEquals(writes, 1);
+  assertEquals(checked, false);
+});
+
+Deno.test("writeWithRetry - agota los reintentos y devuelve el último error", async () => {
+  let writes = 0;
+  const slept: number[] = [];
+  const r = await writeWithRetry(async () => { writes++; return gatewayTimeout; }, async () => false, [2000, 5000], async (ms) => { slept.push(ms); });
+  assertEquals(r, { ok: false, attempts: 3, error: "Gateway Timeout" });
+  assertEquals(writes, 3);
+  assertEquals(slept, [2000, 5000]);
+});
+
+Deno.test("writeWithRetry - si verificar lo ya guardado también falla, sigue reintentando", async () => {
+  const results: DbWriteResult[] = [gatewayTimeout, saved];
+  const r = await writeWithRetry(async () => results.shift()!, () => Promise.reject(new Error("timeout")), [10], noSleep);
+  assertEquals(r, { ok: true, attempts: 2 });
 });
