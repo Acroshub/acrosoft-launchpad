@@ -5,6 +5,7 @@ import { encodeBase64 } from "https://deno.land/std@0.208.0/encoding/base64.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 import { isInternalCall } from "../_shared/internal-auth.ts";
 import { isBsuid, normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
+import { extractDeliverableStoragePath, sendDeliverableDocument, RETRYABLE_MEDIA_ERROR_CODES } from "../_shared/product-deliverable.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -301,6 +302,13 @@ async function processPayload(payload: any, tenantUserId: string, isActive: bool
           if (newStatus === "failed") {
             const errs = status.errors ?? [];
             console.error(`[webhook] delivery FAILED wamid=${status.id} errors=${JSON.stringify(errs)}`);
+            // Incidente 2026-09-11: Meta acepta el envío del PDF (nos da wa_message_id
+            // al toque) pero minutos después puede reportar que no pudo DESCARGAR el
+            // archivo desde nuestra signed URL — ahí ya es tarde para que send-deliverable
+            // se entere, así que el reintento vive acá, disparado por este mismo webhook.
+            const retryPromise = maybeRetryFailedDeliverable(status.id, errs, tenantUserId, accessToken, value.metadata?.phone_number_id)
+              .catch((err) => console.error("[webhook] error reintentando entregable:", err));
+            if (waitUntilFn) waitUntilFn(retryPromise);
           }
           await supabase
             .from("crm_wa_messages")
@@ -743,6 +751,85 @@ async function notifyNewMessage(tenantUserId: string, phone: string, contactName
     body: preview.slice(0, 120),
     url: "/crm",
   });
+}
+
+/** Push al dueño + staff activo — mismo patrón que notifyNewMessage, para avisos puntuales. */
+async function notifyOwnerAlert(tenantUserId: string, title: string, body: string) {
+  const { data: staff } = await supabase
+    .from("crm_staff")
+    .select("staff_user_id")
+    .eq("owner_user_id", tenantUserId)
+    .eq("status", "active");
+  const userIds = [tenantUserId, ...(staff ?? []).map((s) => s.staff_user_id as string)];
+  await sendPushToUsers(supabase, userIds, { title, body: body.slice(0, 120), url: "/crm" }).catch(() => {});
+}
+
+/**
+ * Reintenta UNA vez el envío de un archivo entregable cuando Meta reporta que
+ * no pudo descargarlo desde nuestra signed URL (código 131053 — ver
+ * RETRYABLE_MEDIA_ERROR_CODES). Incidente 2026-09-11: de 5 archivos de una
+ * venta, 1 falló así y nadie se enteró — send-deliverable ya había respondido
+ * "ok" porque Meta SÍ aceptó el envío; el fallo real llegó unos segundos
+ * después, por este mismo webhook, cuando ya era tarde para que send-deliverable
+ * hiciera algo. Solo toca documentos que vengan de product-deliverables (nunca
+ * un archivo cualquiera reenviado a mano) y nunca reintenta dos veces el mismo
+ * archivo — si el reintento también falla, se avisa al dueño para que lo mande
+ * manualmente en vez de quedar en silencio otra vez.
+ */
+async function maybeRetryFailedDeliverable(
+  waMessageId: string,
+  errors: unknown[],
+  tenantUserId: string,
+  accessToken: string,
+  phoneNumberId: string | undefined,
+): Promise<void> {
+  const codes = (errors as { code?: number }[]).map((e) => e.code);
+  if (!codes.some((c) => c !== undefined && RETRYABLE_MEDIA_ERROR_CODES.has(c))) return;
+  if (!phoneNumberId || !accessToken) return;
+
+  const { data: msg } = await supabase
+    .from("crm_wa_messages")
+    .select("id, conversation_id, media_type, media_url, content, created_at")
+    .eq("wa_message_id", waMessageId)
+    .maybeSingle();
+  if (!msg || msg.media_type !== "document" || !msg.media_url) return;
+
+  const storagePath = extractDeliverableStoragePath(msg.media_url);
+  if (!storagePath) return; // no es un entregable de producto — no tocar otros documentos
+
+  // Ya se reintentó este mismo archivo en esta conversación — no insistir de
+  // nuevo (evita bucles si el archivo de verdad está roto, no es solo un hipo).
+  const { data: already } = await supabase
+    .from("crm_wa_messages")
+    .select("id")
+    .eq("conversation_id", msg.conversation_id)
+    .eq("media_url", msg.media_url)
+    .gt("created_at", msg.created_at)
+    .limit(1);
+  if (already?.length) return;
+
+  const { data: conv } = await supabase.from("crm_wa_conversations").select("phone").eq("id", msg.conversation_id).single();
+  if (!conv?.phone) return;
+
+  console.warn(`[webhook] reintentando entregable "${msg.content}" tras fallo de descarga de Meta`);
+  const result = await sendDeliverableDocument(supabase, {
+    storagePath, filename: msg.content ?? "archivo.pdf",
+    phoneNumberId, accessToken,
+    recipientPhone: normalizeWaIdentifier(conv.phone),
+  });
+
+  if (result.ok) {
+    console.log(`[webhook] entregable reenviado ok: ${msg.content}`);
+    await supabase.from("crm_wa_messages").insert({
+      conversation_id: msg.conversation_id, role: "assistant", content: msg.content,
+      media_type: "document", media_url: msg.media_url,
+      wa_message_id: result.wa_message_id, delivery_status: "sent",
+    });
+  } else {
+    console.error(`[webhook] reintento de entregable falló: ${result.error}`);
+    await notifyOwnerAlert(tenantUserId, `⚠️ Archivo no entregado: ${msg.content}`,
+      `WhatsApp no pudo descargar el archivo ni al reintentar. Envíalo manualmente desde la conversación.`);
+  }
 }
 
 async function maybeInvokeAgent(

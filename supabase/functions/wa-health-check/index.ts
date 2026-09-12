@@ -124,7 +124,63 @@ async function checkSendFailures(labels: Map<string, string>): Promise<Finding[]
     }));
 }
 
-/** 3. Llegan mensajes pero la IA no contesta. */
+/**
+ * 3. Un entregable de producto falló y el reintento automático (ver
+ * whatsapp-webhook/maybeRetryFailedDeliverable) tampoco lo logró — o el
+ * código de error no era de los que se reintentan. Red de seguridad: ese
+ * reintento ya avisa por push en el momento, esto cubre que ese push no haya
+ * llegado (dispositivo sin suscripción, etc.) o el fallo haya sido de otro tipo.
+ */
+async function checkDeliverableFailures(labels: Map<string, string>): Promise<Finding[]> {
+  const since = new Date(Date.now() - 30 * 60_000).toISOString();
+  const { data } = await supabase
+    .from("crm_wa_messages")
+    .select("conversation_id, content, media_url, created_at, crm_wa_conversations!inner(user_id)")
+    .eq("delivery_status", "failed")
+    .eq("media_type", "document")
+    .like("media_url", "%/product-deliverables/%")
+    .gte("created_at", since);
+
+  if (!data?.length) return [];
+
+  const byTenant = new Map<string, { n: number; archivos: Set<string> }>();
+  for (const m of data as unknown as { conversation_id: string; content: string; media_url: string; created_at: string; crm_wa_conversations: { user_id: string } }[]) {
+    // El reintento automático (whatsapp-webhook/maybeRetryFailedDeliverable) puede
+    // ya haber insertado una entrega exitosa del mismo archivo después de esta fila
+    // — la fila fallida original nunca se actualiza, así que hay que descartar acá
+    // los casos ya resueltos o esto avisaría por cada reintento exitoso.
+    const { data: resent } = await supabase
+      .from("crm_wa_messages")
+      .select("id")
+      .eq("conversation_id", m.conversation_id)
+      .eq("media_url", m.media_url)
+      .neq("delivery_status", "failed")
+      .gt("created_at", m.created_at)
+      .limit(1);
+    if (resent?.length) continue;
+
+    const key = m.crm_wa_conversations?.user_id ?? "global";
+    const prev = byTenant.get(key) ?? { n: 0, archivos: new Set<string>() };
+    prev.n++;
+    prev.archivos.add(m.content);
+    byTenant.set(key, prev);
+  }
+  if (byTenant.size === 0) return [];
+
+  return [...byTenant].map(([tenant, { n, archivos }]) => ({
+    kind: "wa_deliverable_failed",
+    severity: "critical" as const,
+    tenantUserId: tenant === "global" ? null : tenant,
+    tenantLabel: labels.get(tenant) ?? null,
+    title: "Un archivo vendido no llegó al cliente",
+    body: n === 1
+      ? `El archivo "${[...archivos][0]}" no se pudo entregar por WhatsApp (ni al reintentar automáticamente). El cliente pagó pero no lo recibió — envíalo manualmente desde la conversación.`
+      : `${n} archivos no se pudieron entregar por WhatsApp en los últimos 30 minutos (ni al reintentar): ${[...archivos].join(", ")}. Esos clientes pagaron pero no los recibieron — envíalos manualmente.`,
+    detail: { fallos: n, archivos: [...archivos] },
+  }));
+}
+
+/** 5. Llegan mensajes pero la IA no contesta. */
 async function checkAiNotReplying(labels: Map<string, string>): Promise<Finding[]> {
   const cutoff = new Date(Date.now() - 10 * 60_000).toISOString();
   const floor  = new Date(Date.now() - 60 * 60_000).toISOString();
@@ -165,7 +221,7 @@ async function checkAiNotReplying(labels: Map<string, string>): Promise<Finding[
     }));
 }
 
-/** 4. Meta ya no nos manda eventos: la suscripción del WABA se cayó. */
+/** 6. Meta ya no nos manda eventos: la suscripción del WABA se cayó. */
 async function checkWebhookSubscription(
   configs: { user_id: string; waba_id: string | null; access_token: string | null }[],
   labels: Map<string, string>,
@@ -215,7 +271,7 @@ async function checkWebhookSubscription(
   return out;
 }
 
-/** 5. Los seguimientos encolados no salen. */
+/** 7. Los seguimientos encolados no salen. */
 async function checkStuckFollowups(labels: Map<string, string>): Promise<Finding[]> {
   const cutoff = new Date(Date.now() - 20 * 60_000).toISOString();
   const { data } = await supabase
@@ -242,7 +298,7 @@ async function checkStuckFollowups(labels: Map<string, string>): Promise<Finding
   }));
 }
 
-/** 6. Mensajes que la bandeja de entrada ya no pudo salvar. Lo más grave. */
+/** 8. Mensajes que la bandeja de entrada ya no pudo salvar. Lo más grave. */
 async function checkInboxDiscarded(labels: Map<string, string>): Promise<Finding[]> {
   const since = new Date(Date.now() - 60 * 60_000).toISOString();
   const { data } = await supabase
@@ -274,7 +330,7 @@ async function checkInboxDiscarded(labels: Map<string, string>): Promise<Finding
 }
 
 /**
- * 7. Hay mensajes esperando en la bandeja desde hace rato.
+ * 9. Hay mensajes esperando en la bandeja desde hace rato.
  *
  * Cubre dos situaciones que piden lo mismo — mirar por qué no se procesan:
  *   a) la causa de fondo sigue rota y los reintentos siguen fallando;
@@ -415,7 +471,7 @@ function push(finding: Finding, adminId: string | null) {
 async function resolveGone(vigentes: Finding[], adminId: string | null): Promise<number> {
   const vivos = new Set(vigentes.map(f => `${f.kind}::${f.tenantUserId ?? "global"}`));
   const gestionados = [
-    "wa_messages_not_saved", "wa_send_failures", "wa_ai_not_replying",
+    "wa_messages_not_saved", "wa_send_failures", "wa_deliverable_failed", "wa_ai_not_replying",
     "wa_webhook_disconnected", "wa_followups_stuck", "wa_inbox_discarded",
     "wa_inbox_stuck",
   ];
@@ -475,6 +531,7 @@ Deno.serve(async (req: Request) => {
     const findings: Finding[] = [
       ...(await checkMessagesNotSaved(labels)),
       ...(await checkSendFailures(labels)),
+      ...(await checkDeliverableFailures(labels)),
       ...(await checkAiNotReplying(labels)),
       ...(await checkWebhookSubscription(activos, labels)),
       ...(await checkStuckFollowups(labels)),

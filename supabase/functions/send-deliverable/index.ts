@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
+import { extractDeliverableStoragePath, sendDeliverableDocument } from "../_shared/product-deliverable.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -7,27 +8,11 @@ const supabase = createClient(
 );
 
 const GRAPH_VERSION = "v21.0";
-const SIGNED_URL_TTL = 3600; // 1 hora — suficiente para que WhatsApp descargue el archivo
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-internal-key",
 };
-
-// Extrae el path de storage a partir de la URL completa de Supabase
-// Ej: https://xxx.supabase.co/storage/v1/object/public/product-deliverables/uid/pid/file.pdf
-//  → uid/pid/file.pdf
-function extractStoragePath(deliverableUrl: string): string | null {
-  try {
-    const url = new URL(deliverableUrl);
-    const marker = "/product-deliverables/";
-    const idx = url.pathname.indexOf(marker);
-    if (idx === -1) return null;
-    return url.pathname.slice(idx + marker.length);
-  } catch {
-    return null;
-  }
-}
 
 function cleanPhone(phone: string): string {
   return normalizeWaIdentifier(phone);
@@ -35,22 +20,17 @@ function cleanPhone(phone: string): string {
 
 type DeliverableFile = { url: string; filename: string };
 
+/** Solo para el entregable de texto — el de archivo usa sendDeliverableDocument (signed URL). */
 async function sendWaMessage(
   phoneNumberId: string,
   accessToken: string,
   payload: Record<string, unknown>,
 ): Promise<{ ok: true; wa_message_id: string | null } | { ok: false; error: string }> {
-  const res = await fetch(
-    `https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/messages`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
-    }
-  );
+  const res = await fetch(`https://graph.facebook.com/${GRAPH_VERSION}/${phoneNumberId}/messages`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
   if (!res.ok) {
     const errText = await res.text();
     return { ok: false, error: `WhatsApp API error ${res.status}: ${errText}` };
@@ -167,26 +147,15 @@ Deno.serve(async (req: Request) => {
     }
 
     for (const file of files) {
-      // Extraer el path de storage y generar signed URL temporal
-      const storagePath = extractStoragePath(file.url);
+      const storagePath = extractDeliverableStoragePath(file.url);
       if (!storagePath) {
         return new Response(JSON.stringify({ error: "could not extract storage path" }), { status: 500, headers: corsHeaders });
       }
 
-      const { data: signed, error: signErr } = await supabase.storage
-        .from("product-deliverables")
-        .createSignedUrl(storagePath, SIGNED_URL_TTL);
-
-      if (signErr || !signed?.signedUrl) {
-        return new Response(JSON.stringify({ error: "could not generate signed url" }), { status: 500, headers: corsHeaders });
-      }
-
-      const sendResult = await sendWaMessage(config.phone_number_id, config.access_token, {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        ...recipientField(recipientPhone),
-        type: "document",
-        document: { link: signed.signedUrl, filename: file.filename },
+      const sendResult = await sendDeliverableDocument(supabase, {
+        storagePath, filename: file.filename,
+        phoneNumberId: config.phone_number_id, accessToken: config.access_token,
+        recipientPhone,
       });
 
       if (!sendResult.ok) {
