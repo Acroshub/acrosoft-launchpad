@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { META_PIXEL_ID, initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
 
 const FUNCTIONS_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 const SUPPORT_EMAIL = "daniel@acrosoftlabs.com";
@@ -26,6 +27,11 @@ const TyFrances = () => {
   }, []);
 
   useEffect(() => {
+    initMetaPixel();
+    trackMetaEvent("PageView");
+  }, []);
+
+  useEffect(() => {
     const sessionId = new URLSearchParams(window.location.search).get("session_id");
     if (!sessionId) {
       setState("no-session");
@@ -43,6 +49,27 @@ const TyFrances = () => {
       .catch(() => setState("not-found"));
   }, []);
 
+  // Purchase se dispara solo una vez por compra confirmada — si el cliente
+  // vuelve a este mismo link (para redescargar el ZIP, por ejemplo) no
+  // queremos contar una segunda conversión en Meta.
+  useEffect(() => {
+    if (state !== "ok" || !order) return;
+    const sessionId = new URLSearchParams(window.location.search).get("session_id");
+    if (!sessionId) return;
+    const dedupeKey = `fb_purchase_fired_${sessionId}`;
+    // event_id = el propio session_id de Stripe — es el mismo que usa
+    // stripe-webhook al mandar este mismo Purchase por Conversions API.
+    try {
+      if (localStorage.getItem(dedupeKey)) return;
+      trackMetaEvent("Purchase", { value: order.amountTotal / 100, currency: order.currency.toUpperCase() }, sessionId);
+      localStorage.setItem(dedupeKey, "1");
+    } catch {
+      // localStorage bloqueado (navegación privada, etc.) — disparamos igual,
+      // preferible a perder la conversión por completo.
+      trackMetaEvent("Purchase", { value: order.amountTotal / 100, currency: order.currency.toUpperCase() }, sessionId);
+    }
+  }, [state, order]);
+
   const download = order?.download;
 
   return (
@@ -50,6 +77,9 @@ const TyFrances = () => {
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;500;700;900&display=swap" rel="stylesheet" />
+      <noscript>
+        <img height="1" width="1" style={{ display: "none" }} src={`https://www.facebook.com/tr?id=${META_PIXEL_ID}&ev=PageView&noscript=1`} alt="" />
+      </noscript>
 
       <style>{`
 :root{

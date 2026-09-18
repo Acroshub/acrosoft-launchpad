@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { META_PIXEL_ID, initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
 
 const PAGE_TITLE = "Guía DELF A2 para tu Trámite de Residencia en Francia | Aprueba tu Examen";
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/8x2eVcgFsa6EbDcgKCbbG02";
@@ -20,9 +21,31 @@ function PaymentIcons({ labelColor }: { labelColor?: string }) {
   );
 }
 
+/**
+ * El checkout lo hostea Stripe (Payment Link) — no podemos poner el pixel
+ * ahí. La forma estándar de trackear "inició el pago" en este caso es
+ * disparar el evento al click del botón, antes de salir hacia Stripe.
+ * preventDefault + navegación manual con un pequeño delay le da tiempo al
+ * pixel a mandar el evento antes de que el navegador abandone la página
+ * (un href normal podría cortar la petición a mitad de camino).
+ */
+function handleCheckoutClick(e: React.MouseEvent<HTMLAnchorElement>) {
+  e.preventDefault();
+  trackMetaEvent("InitiateCheckout", { value: 20, currency: "USD" });
+  setTimeout(() => {
+    window.location.href = STRIPE_PAYMENT_LINK;
+  }, 250);
+}
+
 const Frances = () => {
   useEffect(() => {
     document.title = PAGE_TITLE;
+  }, []);
+
+  useEffect(() => {
+    initMetaPixel();
+    trackMetaEvent("PageView");
+    trackMetaEvent("ViewContent");
   }, []);
 
   // Contador de oferta: 30 min desde que entra el usuario
@@ -101,6 +124,9 @@ const Frances = () => {
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link href="https://fonts.googleapis.com/css2?family=Lato:wght@400;500;700;900&display=swap" rel="stylesheet" />
+      <noscript>
+        <img height="1" width="1" style={{ display: "none" }} src={`https://www.facebook.com/tr?id=${META_PIXEL_ID}&ev=PageView&noscript=1`} alt="" />
+      </noscript>
 
       <style>{`
 /* ============ DESIGN TOKENS ============ */
@@ -702,7 +728,7 @@ const Frances = () => {
                     </div>
 
                     <div className="pc-cta">
-                      <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary btn-block">Sí, Quiero Mi Guía DELF A2</a>
+                      <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary btn-block">Sí, Quiero Mi Guía DELF A2</a>
                     </div>
 
                     <PaymentIcons />
@@ -748,7 +774,7 @@ const Frances = () => {
 
             <div className="section-cta">
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
-              <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary">Quiero Empezar Hoy</a>
+              <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Quiero Empezar Hoy</a>
               <PaymentIcons />
             </div>
           </div>
@@ -842,7 +868,7 @@ const Frances = () => {
               <img src="/frances/imagenes/mockup-pack-completo-v2.webp" alt="Mockup del pack completo: guía DELF A2 + celular + los 4 bonos" className="pack-mockup-img" style={{ marginBottom: "20px" }} />
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · guía + 4 bonos</div>
               <div className="section-cta-timer"><svg className="icon" aria-hidden="true"><use href="#i-clock" /></svg> Bonos gratis por <strong className="js-countdown time-chip">30:00</strong></div>
-              <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary">Sí, Quiero Mis 4 Bonos Gratis</a>
+              <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Sí, Quiero Mis 4 Bonos Gratis</a>
               <PaymentIcons />
             </div>
           </div>
@@ -890,7 +916,7 @@ const Frances = () => {
 
             <div className="section-cta">
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
-              <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary">Quiero los Mismos Resultados</a>
+              <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Quiero los Mismos Resultados</a>
               <PaymentIcons />
             </div>
           </div>
@@ -936,7 +962,7 @@ const Frances = () => {
 
             <div className="section-cta">
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
-              <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary">Ya No Tengo Dudas — Empezar</a>
+              <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Ya No Tengo Dudas — Empezar</a>
               <PaymentIcons />
             </div>
           </div>
@@ -954,7 +980,7 @@ const Frances = () => {
 
             <div className="cta-wrap">
               <div className="section-cta-price" style={{ color: "var(--white)" }}><span className="old" style={{ color: "#AEB9CE" }}>$39 USD</span>$20 USD · pago único</div>
-              <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary btn-block">Empezar Mi Preparación Ahora</a>
+              <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary btn-block">Empezar Mi Preparación Ahora</a>
               <span className="btn-sub" style={{ color: "#C7D0E0" }}>Acceso inmediato por email</span>
               <PaymentIcons labelColor="#C7D0E0" />
             </div>
@@ -978,7 +1004,7 @@ const Frances = () => {
               <span className="sticky-price"><span className="old">$39</span>$20 USD</span>
               <span className="sticky-timer">Termina en <strong className="js-countdown">30:00</strong></span>
             </div>
-            <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary sticky-btn"><svg className="arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Mi Guía DELF A2</a>
+            <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary sticky-btn"><svg className="arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Mi Guía DELF A2</a>
           </div>
         </div>
       </div>

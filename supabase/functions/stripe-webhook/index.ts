@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { crypto } from "https://deno.land/std@0.208.0/crypto/mod.ts";
 import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
 import { EBOOK_CATALOG } from "../_shared/ebook-catalog.ts";
+import { sendMetaPurchaseEvent } from "../_shared/meta-capi.ts";
 
 // ─── Webhook de Stripe — checkout.session.completed de un Payment Link ───────
 // No usamos el SDK de Stripe (igual que el resto de las functions, que hablan
@@ -188,7 +189,9 @@ Deno.serve(async (req: Request) => {
   }
 
   const thankYouUrl = `${APP_URL}/ty-frances?session_id=${encodeURIComponent(session.id)}`;
-  const amountLabel = `$${((session.amount_total ?? 0) / 100).toFixed(2)} ${(session.currency ?? "usd").toUpperCase()}`;
+  const amountValue = (session.amount_total ?? 0) / 100;
+  const currency = (session.currency ?? "usd").toUpperCase();
+  const amountLabel = `$${amountValue.toFixed(2)} ${currency}`;
   const html = buildConfirmationEmailHtml({ productName: catalogEntry.name, thankYouUrl, amountLabel });
 
   const sent = await sendConfirmationEmail({ to: email, html, shortName: catalogEntry.shortName });
@@ -196,5 +199,16 @@ Deno.serve(async (req: Request) => {
     await supabase.from("ebook_orders").update({ deliverable_sent_at: new Date().toISOString() }).eq("id", orderId);
   }
 
-  return new Response(JSON.stringify({ received: true, email_sent: sent }), { status: 200 });
+  // Mismo event_id que usará el pixel del navegador en /ty-frances (el propio
+  // session_id de Stripe) para que Meta deduplique ambas señales del mismo
+  // evento real. Best-effort: si falla, no debe romper la confirmación del
+  // pedido ni hacer que Stripe reintente el webhook completo.
+  const capiResult = await sendMetaPurchaseEvent({
+    email, value: amountValue, currency, eventId: session.id, eventSourceUrl: thankYouUrl,
+  });
+  if (!capiResult.ok) {
+    console.warn("[stripe-webhook] Meta CAPI no se pudo enviar:", capiResult.error);
+  }
+
+  return new Response(JSON.stringify({ received: true, email_sent: sent, capi_sent: capiResult.ok }), { status: 200 });
 });
