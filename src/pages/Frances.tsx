@@ -315,9 +315,13 @@ const Frances = () => {
 .frances-page .pc-trust-rating strong{color:var(--navy);font-weight:800;}
 .frances-page .pc-trust-desc{font-size:12.5px;color:var(--ink-soft);line-height:1.35;max-width:44ch;}
 .frances-page .pc-discount{margin-top:16px;padding-top:20px;border-top:1px dashed var(--line);}
-.frances-page .pc-discount-badge{
-  display:inline-block;background:var(--cta);color:var(--white);font-size:12px;font-weight:900;
-  letter-spacing:.03em;text-transform:uppercase;padding:6px 12px;border-radius:6px;margin-bottom:12px;
+.frances-page .pc-edition-label{
+  font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+  color:var(--gold-deep);margin-bottom:10px;
+}
+.frances-page .pc-discount-chip{
+  display:inline-block;background:var(--gold);color:var(--navy-dark);font-size:12.5px;font-weight:900;
+  letter-spacing:.02em;padding:2px 9px;border-radius:5px;
 }
 .frances-page .pc-price{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
 .frances-page .pc-price .pc-old-price{font-size:17px;font-weight:700;color:var(--ink-soft);text-decoration:line-through;margin-right:2px;}
@@ -707,10 +711,11 @@ const Frances = () => {
                     </div>
 
                     <div className="pc-discount">
-                      <span className="pc-discount-badge">-49% Descuento en la Edición Actualizada 2026</span>
+                      <p className="pc-edition-label">Edición Actualizada 2026</p>
                       <div className="pc-price">
                         <span className="pc-old-price">$39 USD</span>
                         <span className="amount">$20</span>
+                        <span className="pc-discount-chip">-49%</span>
                         <span className="unit">USD · pago único</span>
                       </div>
                     </div>
