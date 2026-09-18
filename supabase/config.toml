@@ -135,3 +135,15 @@ verify_jwt = false
 
 [functions.crm-calendar-book]
 verify_jwt = false
+
+# ── Ebook DELF A2 (landing /frances, fuera del CRM multi-tenant) ────────────
+# stripe-webhook lo llama Stripe directo, sin JWT — se protege verificando la
+# firma Stripe-Signature contra STRIPE_WEBHOOK_SECRET. frances-get-order es
+# pública: la usa /ty-frances sin sesión de usuario, protegida por el propio
+# session_id de Stripe (aleatorio, solo lo tiene quien acaba de pagar).
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.frances-get-order]
+verify_jwt = false
