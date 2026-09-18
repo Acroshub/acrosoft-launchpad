@@ -681,7 +681,7 @@ const Frances = () => {
                     </div>
 
                     <div className="pc-discount">
-                      <span className="pc-discount-badge">-49% Precio de Lanzamiento</span>
+                      <span className="pc-discount-badge">-49% Descuento en la Edición Actualizada 2026</span>
                       <div className="pc-price">
                         <span className="pc-old-price">$39 USD</span>
                         <span className="amount">$20</span>
@@ -691,12 +691,12 @@ const Frances = () => {
 
                     <div className="pc-timer">
                       <svg className="icon" aria-hidden="true"><use href="#i-clock" /></svg>
-                      <span>Este precio de lanzamiento termina en <strong className="js-countdown">30:00</strong></span>
+                      <span>Este precio de la edición 2026 termina en <strong className="js-countdown">30:00</strong></span>
                     </div>
 
                     <div className="pc-progress">
                       <div className="pc-progress-label">
-                        <span>Cupos con precio de lanzamiento</span>
+                        <span>Cupos con precio de edición 2026</span>
                       </div>
                       <div className="pc-progress-bar"><div className="pc-progress-fill" /></div>
                     </div>
