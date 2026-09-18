@@ -14,9 +14,15 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
 );
 
-const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? "";
+// Dos secretos porque Stripe test/live son entornos separados: cada uno tiene
+// su propio webhook con su propio signing secret. Probamos contra los dos así
+// se puede seguir probando en test sin tocar el webhook de producción.
+const STRIPE_WEBHOOK_SECRETS = [
+  Deno.env.get("STRIPE_WEBHOOK_SECRET") ?? "",
+  Deno.env.get("STRIPE_WEBHOOK_SECRET_TEST") ?? "",
+].filter(Boolean);
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
-const RESEND_FROM = `Acros Software <${Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com"}>`;
+const RESEND_FROM_EMAIL = Deno.env.get("RESEND_FROM_EMAIL") ?? "noreply@acrosoftlabs.com";
 const APP_URL = Deno.env.get("APP_URL") ?? "https://acrosoftlabs.com";
 
 // Tolerancia estándar de Stripe contra replay de webhooks viejos.
@@ -69,15 +75,21 @@ function buildConfirmationEmailHtml(params: { productName: string; thankYouUrl: 
   </div>`;
 }
 
-async function sendConfirmationEmail(to: string, html: string): Promise<boolean> {
+async function sendConfirmationEmail(params: { to: string; html: string; shortName: string }): Promise<boolean> {
   if (!RESEND_API_KEY) {
     console.warn("[stripe-webhook] RESEND_API_KEY no configurado, no se envía email");
     return false;
   }
+  const { to, html, shortName } = params;
   const res = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: RESEND_FROM, to: [to], subject: "Tu compra está lista para descargar", html }),
+    body: JSON.stringify({
+      from: `${shortName} <${RESEND_FROM_EMAIL}>`,
+      to: [to],
+      subject: `Descarga tu compra: ${shortName}`,
+      html,
+    }),
   });
   if (!res.ok) {
     console.error("[stripe-webhook] Resend error:", res.status, await res.text());
@@ -91,9 +103,12 @@ Deno.serve(async (req: Request) => {
   const rawBody = await req.text();
   const signature = req.headers.get("stripe-signature");
 
-  const valid = await verifyStripeSignature(rawBody, signature, STRIPE_WEBHOOK_SECRET);
+  let valid = false;
+  for (const secret of STRIPE_WEBHOOK_SECRETS) {
+    if (await verifyStripeSignature(rawBody, signature, secret)) { valid = true; break; }
+  }
   if (!valid) {
-    console.warn("[stripe-webhook] firma inválida o STRIPE_WEBHOOK_SECRET sin configurar");
+    console.warn("[stripe-webhook] firma inválida o ningún STRIPE_WEBHOOK_SECRET* configurado");
     return new Response(JSON.stringify({ error: "invalid signature" }), { status: 401 });
   }
 
@@ -176,7 +191,7 @@ Deno.serve(async (req: Request) => {
   const amountLabel = `$${((session.amount_total ?? 0) / 100).toFixed(2)} ${(session.currency ?? "usd").toUpperCase()}`;
   const html = buildConfirmationEmailHtml({ productName: catalogEntry.name, thankYouUrl, amountLabel });
 
-  const sent = await sendConfirmationEmail(email, html);
+  const sent = await sendConfirmationEmail({ to: email, html, shortName: catalogEntry.shortName });
   if (sent && orderId) {
     await supabase.from("ebook_orders").update({ deliverable_sent_at: new Date().toISOString() }).eq("id", orderId);
   }

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 
 const PAGE_TITLE = "Guía DELF A2 para tu Trámite de Residencia en Francia | Aprueba tu Examen";
+const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/8x2eVcgFsa6EbDcgKCbbG02";
 
 function PaymentIcons({ labelColor }: { labelColor?: string }) {
   return (
@@ -701,8 +702,7 @@ const Frances = () => {
                     </div>
 
                     <div className="pc-cta">
-                      {/* TODO: reemplazar href="#" por el link de pago cuando esté listo */}
-                      <a href="#" className="btn btn-primary btn-block">Sí, Quiero Mi Guía DELF A2</a>
+                      <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary btn-block">Sí, Quiero Mi Guía DELF A2</a>
                     </div>
 
                     <PaymentIcons />
@@ -748,8 +748,7 @@ const Frances = () => {
 
             <div className="section-cta">
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
-              {/* TODO: reemplazar href="#" por el link de pago cuando esté listo */}
-              <a href="#" className="btn btn-primary">Quiero Empezar Hoy</a>
+              <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary">Quiero Empezar Hoy</a>
               <PaymentIcons />
             </div>
           </div>
@@ -843,8 +842,7 @@ const Frances = () => {
               <img src="/frances/imagenes/mockup-pack-completo-v2.webp" alt="Mockup del pack completo: guía DELF A2 + celular + los 4 bonos" className="pack-mockup-img" style={{ marginBottom: "20px" }} />
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · guía + 4 bonos</div>
               <div className="section-cta-timer"><svg className="icon" aria-hidden="true"><use href="#i-clock" /></svg> Bonos gratis por <strong className="js-countdown time-chip">30:00</strong></div>
-              {/* TODO: reemplazar href="#" por el link de pago cuando esté listo */}
-              <a href="#" className="btn btn-primary">Sí, Quiero Mis 4 Bonos Gratis</a>
+              <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary">Sí, Quiero Mis 4 Bonos Gratis</a>
               <PaymentIcons />
             </div>
           </div>
@@ -892,8 +890,7 @@ const Frances = () => {
 
             <div className="section-cta">
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
-              {/* TODO: reemplazar href="#" por el link de pago cuando esté listo */}
-              <a href="#" className="btn btn-primary">Quiero los Mismos Resultados</a>
+              <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary">Quiero los Mismos Resultados</a>
               <PaymentIcons />
             </div>
           </div>
@@ -939,8 +936,7 @@ const Frances = () => {
 
             <div className="section-cta">
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
-              {/* TODO: reemplazar href="#" por el link de pago cuando esté listo */}
-              <a href="#" className="btn btn-primary">Ya No Tengo Dudas — Empezar</a>
+              <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary">Ya No Tengo Dudas — Empezar</a>
               <PaymentIcons />
             </div>
           </div>
@@ -958,8 +954,7 @@ const Frances = () => {
 
             <div className="cta-wrap">
               <div className="section-cta-price" style={{ color: "var(--white)" }}><span className="old" style={{ color: "#AEB9CE" }}>$39 USD</span>$20 USD · pago único</div>
-              {/* TODO: reemplazar href="#" por el link de pago cuando esté listo */}
-              <a href="#" className="btn btn-primary btn-block">Empezar Mi Preparación Ahora</a>
+              <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary btn-block">Empezar Mi Preparación Ahora</a>
               <span className="btn-sub" style={{ color: "#C7D0E0" }}>Acceso inmediato por email</span>
               <PaymentIcons labelColor="#C7D0E0" />
             </div>
@@ -983,8 +978,7 @@ const Frances = () => {
               <span className="sticky-price"><span className="old">$39</span>$20 USD</span>
               <span className="sticky-timer">Termina en <strong className="js-countdown">30:00</strong></span>
             </div>
-            {/* TODO: reemplazar href="#" por el link de pago cuando esté listo */}
-            <a href="#" className="btn btn-primary sticky-btn"><svg className="arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Mi Guía DELF A2</a>
+            <a href={STRIPE_PAYMENT_LINK} className="btn btn-primary sticky-btn"><svg className="arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Mi Guía DELF A2</a>
           </div>
         </div>
       </div>
