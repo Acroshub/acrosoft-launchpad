@@ -715,8 +715,8 @@ const Frances = () => {
                       <div className="pc-price">
                         <span className="pc-old-price">$39 USD</span>
                         <span className="amount">$20</span>
-                        <span className="pc-discount-chip">-49%</span>
                         <span className="unit">USD · pago único</span>
+                        <span className="pc-discount-chip">-49% de Descuento</span>
                       </div>
                     </div>
 
