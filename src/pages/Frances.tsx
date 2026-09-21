@@ -360,7 +360,7 @@ const Frances = () => {
 }
 .frances-page .pc-price{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;}
 .frances-page .pc-price .pc-old-price{font-size:17px;font-weight:700;color:var(--ink-soft);text-decoration:line-through;margin-right:2px;}
-.frances-page .pc-price .amount{font-family:var(--serif);font-size:40px;font-weight:900;color:var(--navy);}
+.frances-page .pc-price .amount{font-family:var(--serif);font-size:40px;font-weight:900;color:var(--navy);white-space:nowrap;}
 .frances-page .pc-price .unit{font-size:14px;color:var(--ink-soft);}
 
 .frances-page .pc-timer{
@@ -749,8 +749,8 @@ const Frances = () => {
                       <p className="pc-edition-label">Edición Actualizada 2026</p>
                       <div className="pc-price">
                         <span className="pc-old-price">$39 USD</span>
-                        <span className="amount">$20</span>
-                        <span className="unit">USD · pago único</span>
+                        <span className="amount">$20 USD</span>
+                        <span className="unit">pago único</span>
                         <span className="pc-discount-chip">-49% de Descuento</span>
                       </div>
                     </div>
