@@ -9,6 +9,7 @@ type OrderData = {
   email: string;
   amountTotal: number;
   currency: string;
+  tracking: { value: number; currency: string };
   download: { filename: string; url: string | null };
 };
 
@@ -57,16 +58,17 @@ const TyFrances = () => {
     const sessionId = new URLSearchParams(window.location.search).get("session_id");
     if (!sessionId) return;
     const dedupeKey = `fb_purchase_fired_${sessionId}`;
-    // event_id = el propio session_id de Stripe — es el mismo que usa
-    // stripe-webhook al mandar este mismo Purchase por Conversions API.
+    // event_id = el propio session_id de Stripe, y value = el mismo valor que
+    // manda stripe-webhook por Conversions API (neto tras comisión de Stripe).
+    const purchaseParams = { value: order.tracking.value, currency: order.tracking.currency };
     try {
       if (localStorage.getItem(dedupeKey)) return;
-      trackMetaEvent("Purchase", { value: order.amountTotal / 100, currency: order.currency.toUpperCase() }, sessionId);
+      trackMetaEvent("Purchase", purchaseParams, sessionId);
       localStorage.setItem(dedupeKey, "1");
     } catch {
       // localStorage bloqueado (navegación privada, etc.) — disparamos igual,
       // preferible a perder la conversión por completo.
-      trackMetaEvent("Purchase", { value: order.amountTotal / 100, currency: order.currency.toUpperCase() }, sessionId);
+      trackMetaEvent("Purchase", purchaseParams, sessionId);
     }
   }, [state, order]);
 

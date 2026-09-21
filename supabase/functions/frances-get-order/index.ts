@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { EBOOK_CATALOG, EBOOK_STORAGE_BUCKET } from "../_shared/ebook-catalog.ts";
+import { purchaseTrackingValue } from "../_shared/stripe-balance.ts";
 
 // ─── Pública — usada por /ty-frances para mostrar el resumen de la compra y ──
 // generar los links de descarga. El "token" de acceso es el propio Stripe
@@ -31,7 +32,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: order, error } = await supabase
     .from("ebook_orders")
-    .select("product_slug, customer_email, amount_total, currency, created_at")
+    .select("product_slug, customer_email, amount_total, currency, net_amount, net_currency, created_at")
     .eq("stripe_session_id", sessionId)
     .maybeSingle();
 
@@ -54,6 +55,14 @@ Deno.serve(async (req: Request) => {
       email: order.customer_email,
       amountTotal: order.amount_total,
       currency: order.currency,
+      // Valor para el pixel de Meta (neto tras comisión si se pudo obtener).
+      // Es el mismo que manda stripe-webhook por Conversions API.
+      tracking: purchaseTrackingValue({
+        amountTotal: order.amount_total,
+        currency: order.currency,
+        netAmount: order.net_amount,
+        netCurrency: order.net_currency,
+      }),
       download: { filename: product.filename, url: signed?.signedUrl ?? null },
     }),
     { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },

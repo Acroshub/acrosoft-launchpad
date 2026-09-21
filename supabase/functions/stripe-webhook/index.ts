@@ -3,12 +3,14 @@ import { crypto } from "https://deno.land/std@0.208.0/crypto/mod.ts";
 import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
 import { EBOOK_CATALOG } from "../_shared/ebook-catalog.ts";
 import { sendMetaPurchaseEvent } from "../_shared/meta-capi.ts";
+import { fetchStripeNet, purchaseTrackingValue } from "../_shared/stripe-balance.ts";
 
 // ─── Webhook de Stripe — checkout.session.completed de un Payment Link ───────
 // No usamos el SDK de Stripe (igual que el resto de las functions, que hablan
-// con APIs externas por fetch plano) ni la Secret Key: el propio payload del
-// evento ya trae la sesión completa (email, monto, payment_intent), así que
-// lo único que necesitamos verificar es la firma con STRIPE_WEBHOOK_SECRET.
+// con APIs externas por fetch plano). El payload del evento ya trae la sesión
+// completa (email, monto, payment_intent) y se autentica con la firma
+// STRIPE_WEBHOOK_SECRET. Lo único que se pide por API es el neto tras la
+// comisión (ver _shared/stripe-balance.ts), con una restricted key de solo lectura.
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -128,6 +130,7 @@ Deno.serve(async (req: Request) => {
 
   const session = event.data.object as {
     id: string;
+    livemode: boolean;
     payment_intent: string | null;
     payment_status: string;
     amount_total: number | null;
@@ -157,13 +160,22 @@ Deno.serve(async (req: Request) => {
   // Idempotente: Stripe puede reintentar el mismo evento varias veces.
   const { data: existing } = await supabase
     .from("ebook_orders")
-    .select("id, deliverable_sent_at")
+    .select("id, deliverable_sent_at, net_amount, net_currency")
     .eq("stripe_session_id", session.id)
     .maybeSingle();
 
   let orderId = existing?.id as string | undefined;
+  let netAmount: number | null = existing?.net_amount ?? null;
+  let netCurrency: string | null = existing?.net_currency ?? null;
 
   if (!existing) {
+    // El neto se pide ANTES de insertar: así la fila aparece ya completa y
+    // /ty-frances nunca lee una orden sin neto mientras acá se manda otro
+    // valor a Meta para la misma compra.
+    const net = session.payment_intent ? await fetchStripeNet(session.payment_intent, session.livemode) : null;
+    netAmount = net?.net ?? null;
+    netCurrency = net?.currency ?? null;
+
     const { data: inserted, error: insertErr } = await supabase
       .from("ebook_orders")
       .insert({
@@ -173,6 +185,8 @@ Deno.serve(async (req: Request) => {
         customer_email: email,
         amount_total: session.amount_total ?? 0,
         currency: session.currency ?? "usd",
+        net_amount: netAmount,
+        net_currency: netCurrency,
       })
       .select("id")
       .single();
@@ -201,10 +215,14 @@ Deno.serve(async (req: Request) => {
 
   // Mismo event_id que usará el pixel del navegador en /ty-frances (el propio
   // session_id de Stripe) para que Meta deduplique ambas señales del mismo
-  // evento real. Best-effort: si falla, no debe romper la confirmación del
-  // pedido ni hacer que Stripe reintente el webhook completo.
+  // evento real, y el mismo valor (neto tras comisión) de los dos lados.
+  // Best-effort: si falla, no debe romper la confirmación del pedido ni hacer
+  // que Stripe reintente el webhook completo.
+  const tracking = purchaseTrackingValue({
+    amountTotal: session.amount_total ?? 0, currency: session.currency ?? "usd", netAmount, netCurrency,
+  });
   const capiResult = await sendMetaPurchaseEvent({
-    email, value: amountValue, currency, eventId: session.id, eventSourceUrl: thankYouUrl,
+    email, value: tracking.value, currency: tracking.currency, eventId: session.id, eventSourceUrl: thankYouUrl,
   });
   if (!capiResult.ok) {
     console.warn("[stripe-webhook] Meta CAPI no se pudo enviar:", capiResult.error);
