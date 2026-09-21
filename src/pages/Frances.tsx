@@ -1,8 +1,30 @@
-import { useEffect } from "react";
+import { useEffect, useLayoutEffect } from "react";
 import { META_PIXEL_ID, initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
 
 const PAGE_TITLE = "Guía DELF A2 para tu Trámite de Residencia en Francia | Aprueba tu Examen";
 const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/8x2eVcgFsa6EbDcgKCbbG02";
+
+const OFFER_DURATION_MS = 30 * 60 * 1000;
+const OFFER_END_STORAGE_KEY = "frances_offer_end";
+
+/**
+ * Momento en que vence la oferta para este navegador. Se fija en la primera
+ * visita y se recuerda en localStorage: un refresh continúa el contador donde
+ * iba, y una vez vencido queda en 00:00 aunque el usuario vuelva a cargar.
+ */
+function getOfferEnd(): number {
+  try {
+    const stored = Number(localStorage.getItem(OFFER_END_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored > 0) return stored;
+    const end = Date.now() + OFFER_DURATION_MS;
+    localStorage.setItem(OFFER_END_STORAGE_KEY, String(end));
+    return end;
+  } catch {
+    // localStorage bloqueado (navegación privada, etc.): el contador funciona
+    // igual pero se reinicia en cada carga.
+    return Date.now() + OFFER_DURATION_MS;
+  }
+}
 
 function PaymentIcons({ labelColor }: { labelColor?: string }) {
   return (
@@ -37,6 +59,15 @@ function handleCheckoutClick(e: React.MouseEvent<HTMLAnchorElement>) {
   }, 250);
 }
 
+function InstantAccessNote() {
+  return (
+    <p className="instant-access">
+      <svg className="icon" aria-hidden="true"><use href="#i-mail" /></svg>
+      Acceso inmediato por email
+    </p>
+  );
+}
+
 const Frances = () => {
   useEffect(() => {
     document.title = PAGE_TITLE;
@@ -48,28 +79,29 @@ const Frances = () => {
     trackMetaEvent("ViewContent");
   }, []);
 
-  // Contador de oferta: 30 min desde que entra el usuario
-  useEffect(() => {
+  // Contador de oferta: 30 min desde la primera visita (ver getOfferEnd).
+  // useLayoutEffect y no useEffect: corre antes del primer pintado, así al
+  // refrescar nunca se ve el "30:00" del markup por un instante.
+  useLayoutEffect(() => {
     const els = document.querySelectorAll<HTMLElement>(".js-countdown");
     if (!els.length) return;
-    const DURATION_MS = 30 * 60 * 1000;
-    const end = Date.now() + DURATION_MS;
-    let timer: ReturnType<typeof setInterval>;
-    const render = () => {
+    const end = getOfferEnd();
+
+    /** Pinta el tiempo restante; devuelve false cuando ya venció. */
+    const render = (): boolean => {
       const diff = end - Date.now();
-      let text: string;
-      if (diff <= 0) {
-        text = "00:00";
-        clearInterval(timer);
-      } else {
+      let text = "00:00";
+      if (diff > 0) {
         const m = Math.floor(diff / 60000);
         const s = Math.floor((diff % 60000) / 1000);
         text = `${m < 10 ? "0" + m : m}:${s < 10 ? "0" + s : s}`;
       }
       els.forEach((el) => { el.textContent = text; });
+      return diff > 0;
     };
-    render();
-    timer = setInterval(render, 1000);
+
+    if (!render()) return;
+    const timer = setInterval(() => { if (!render()) clearInterval(timer); }, 1000);
     return () => clearInterval(timer);
   }, []);
 
@@ -194,10 +226,13 @@ const Frances = () => {
 .frances-page .btn-primary:hover{background:var(--cta-dark);transform:translateY(-2px);}
 .frances-page .btn-primary:active{transform:translateY(0);}
 .frances-page .btn-block{width:100%;}
-.frances-page .btn-sub{
-  display:block;text-align:center;margin-top:12px;font-size:13.5px;color:var(--ink-soft);
+.frances-page .instant-access{
+  display:flex;align-items:center;justify-content:center;gap:7px;margin-top:12px;
+  font-size:13.5px;font-weight:700;color:var(--ink-soft);
 }
-.frances-page .btn-sub strong{color:var(--navy);}
+.frances-page .instant-access .icon{width:16px;height:16px;color:var(--gold-deep);}
+.frances-page .section-cta.on-dark .instant-access,.frances-page .final-cta .instant-access{color:#C7D0E0;}
+.frances-page .section-cta.on-dark .instant-access .icon,.frances-page .final-cta .instant-access .icon{color:var(--gold);}
 
 /* ============ KICKER / EYEBROW ============ */
 .frances-page .id-item p,.frances-page .achieve-item p,.frances-page .bonus-body li,.frances-page .pc-includes li,.frances-page .law-row span:last-child{min-width:0;}
@@ -736,6 +771,7 @@ const Frances = () => {
                       <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary btn-block">Sí, Quiero Mi Guía DELF A2</a>
                     </div>
 
+                    <InstantAccessNote />
                     <PaymentIcons />
                   </div>
                 </div>
@@ -780,6 +816,7 @@ const Frances = () => {
             <div className="section-cta">
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
               <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Quiero Empezar Hoy</a>
+              <InstantAccessNote />
               <PaymentIcons />
             </div>
           </div>
@@ -874,6 +911,7 @@ const Frances = () => {
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · guía + 4 bonos</div>
               <div className="section-cta-timer"><svg className="icon" aria-hidden="true"><use href="#i-clock" /></svg> Bonos gratis por <strong className="js-countdown time-chip">30:00</strong></div>
               <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Sí, Quiero Mis 4 Bonos Gratis</a>
+              <InstantAccessNote />
               <PaymentIcons />
             </div>
           </div>
@@ -922,6 +960,7 @@ const Frances = () => {
             <div className="section-cta">
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
               <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Quiero los Mismos Resultados</a>
+              <InstantAccessNote />
               <PaymentIcons />
             </div>
           </div>
@@ -968,6 +1007,7 @@ const Frances = () => {
             <div className="section-cta">
               <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
               <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Ya No Tengo Dudas — Empezar</a>
+              <InstantAccessNote />
               <PaymentIcons />
             </div>
           </div>
@@ -986,7 +1026,7 @@ const Frances = () => {
             <div className="cta-wrap">
               <div className="section-cta-price" style={{ color: "var(--white)" }}><span className="old" style={{ color: "#AEB9CE" }}>$39 USD</span>$20 USD · pago único</div>
               <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary btn-block">Empezar Mi Preparación Ahora</a>
-              <span className="btn-sub" style={{ color: "#C7D0E0" }}>Acceso inmediato por email</span>
+              <InstantAccessNote />
               <PaymentIcons labelColor="#C7D0E0" />
             </div>
           </div>
