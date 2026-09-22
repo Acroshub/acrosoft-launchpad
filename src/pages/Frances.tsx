@@ -141,7 +141,7 @@ const Frances = () => {
         if (timeoutId) clearTimeout(timeoutId);
         const demonym = data && demonyms[data.country];
         if (demonym) {
-          el.textContent = `Para ${demonym} en proceso de migrar a Francia`;
+          el.textContent = `Guía para ${demonym} en proceso de migrar a Francia`;
         }
       })
       .catch(() => { /* sin conexión o API caída: se queda el texto genérico */ });
@@ -250,7 +250,10 @@ const Frances = () => {
 @media(min-width:960px){.frances-page .hero-grid{grid-template-columns:1.05fr .95fr;gap:56px;}}
 .frances-page .hero h1{font-size:clamp(30px,4.6vw,46px);font-weight:900;letter-spacing:-.01em;}
 .frances-page .hero h1 .accent{color:var(--cta);}
-.frances-page .hero .sub{margin-top:20px;font-size:18px;color:var(--slate);max-width:56ch;}
+.frances-page .hero .sub{margin-top:18px;font-size:15px;line-height:1.55;color:var(--slate);max-width:52ch;text-align:left;}
+.frances-page .hero-checks{margin-top:12px;display:flex;flex-direction:column;gap:6px;max-width:52ch;}
+.frances-page .hero-checks li{display:flex;justify-content:flex-start;gap:8px;align-items:flex-start;font-size:15px;line-height:1.55;color:var(--slate);font-weight:400;text-align:left;}
+.frances-page .hero-checks .icon{width:15px;height:15px;color:var(--ok);flex-shrink:0;margin-top:3px;}
 .frances-page .flag-fr{width:20px;height:14px;border-radius:2px;overflow:hidden;flex-shrink:0;box-shadow:0 0 0 1px rgba(0,0,0,.1);}
 
 /* ============ IMAGE PLACEHOLDER SKELETON ============ */
@@ -269,8 +272,15 @@ const Frances = () => {
 .frances-page .hero-visual{position:relative;border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-lift);}
 .frances-page .hero-photo{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;}
 .frances-page .hero-badge-img{
-  position:absolute;bottom:14px;left:14px;width:150px;height:auto;
+  position:absolute;top:14px;right:14px;width:100px;height:auto;
   filter:drop-shadow(0 6px 14px rgba(0,0,0,.25));
+}
+.frances-page .hero-product-float{
+  position:absolute;bottom:10px;left:10px;width:46%;max-width:180px;
+}
+.frances-page .hero-product-float-img{
+  width:100%;aspect-ratio:1/1;object-fit:contain;display:block;
+  filter:drop-shadow(0 10px 18px rgba(0,0,0,.35));
 }
 .frances-page .ph-ratio-wide{aspect-ratio:16/9;}
 
@@ -550,8 +560,10 @@ const Frances = () => {
 /* ============ CENTRADO EN MOBILE ============ */
 @media(max-width:760px){
   .frances-page .hero-grid > div:first-child{text-align:center;}
-  .frances-page .hero .sub{margin-left:auto;margin-right:auto;}
   .frances-page .kicker{justify-content:center;}
+  .frances-page .hero .sub{text-align:center;margin-left:auto;margin-right:auto;}
+  .frances-page .hero-checks{margin-left:auto;margin-right:auto;}
+  .frances-page .hero-checks li{justify-content:center;}
 
   .frances-page .section-head.left{text-align:center;margin-left:auto;margin-right:auto;}
 
@@ -568,6 +580,8 @@ const Frances = () => {
 
   .frances-page .testi-card{text-align:center;}
   .frances-page .testi-person{justify-content:center;}
+
+  .frances-page .hero-product-float{width:34%;max-width:120px;}
 }
       `}</style>
 
@@ -609,16 +623,23 @@ const Frances = () => {
                   <rect width="10" height="20" fill="#0055A4" />
                   <rect x="20" width="10" height="20" fill="#EF4135" />
                 </svg>
-                <span id="origin-kicker-text">Para latinoamericanos en proceso de migrar a Francia</span>
+                <span id="origin-kicker-text">Guía para latinoamericanos en proceso de migrar a Francia</span>
               </span>
               <h1>Aprueba tu Examen <span className="accent">DELF A2</span> en Menos de 14 Días y Cumple el Requisito de tu Trámite en Francia</h1>
-              <p className="sub">Deja de pensar «no sé si voy a llegar list@ a mi cita». Preséntate a tu examen con un plan claro: nuestra guía está diseñada específicamente para el DELF/TCF A2 — no para «aprender francés en general».</p>
+              <p className="sub">Preséntate a tu examen de idioma con un plan claro: nuestra guía está diseñada específicamente para el DELF A2 — la opción recomendada si tu trámite acepta DELF o TCF — no para un «francés genérico».</p>
+              <ul className="hero-checks">
+                <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg> DELF A2: el único que no vence — TCF y TEF valen solo 2 años</li>
+                <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg> Sabrás exactamente qué necesitas para aprobar, prueba por prueba</li>
+              </ul>
             </div>
 
             <div>
               <div className="hero-visual">
                 <img src="/frances/imagenes/hero-vida-en-francia-v2.webp" alt="Dos amigos latinoamericanos sonriendo en la terraza de un café en una calle francesa, con una bandera de Francia de fondo" className="hero-photo" />
                 <img src="/frances/imagenes/badge-delf-a2-aprobado.webp" alt="Sello: DELF A2 Aprobado" className="hero-badge-img" />
+                <div className="hero-product-float">
+                  <img src="/frances/imagenes/mockup-producto-principal-v2.webp" alt="Mockup de la Guía DELF A2: libro, versión en celular y archivo PDF" className="hero-product-float-img" />
+                </div>
               </div>
             </div>
           </div>
@@ -629,7 +650,7 @@ const Frances = () => {
           <div className="container">
             <div className="section-head">
               <h2>La Ley Cambió — Y tu Trámite No Puede Esperar</h2>
-              <p>Desde el 1° de enero de 2026, la ley n.º 2024-42 y su decreto n.º 2025-648 subieron el nivel de francés exigido en cada etapa del proceso migratorio. Esto no es a futuro: aplica también a expedientes ya iniciados o incompletos.</p>
+              <p>Desde el 1° de enero de 2026, la ley n.º 2024-42 y su decreto n.º 2025-647 subieron el nivel de francés exigido en cada etapa del proceso migratorio. Esto no es a futuro: aplica también a expedientes ya iniciados o incompletos.</p>
             </div>
 
             <div className="law-cards">
@@ -640,7 +661,7 @@ const Frances = () => {
               </div>
             </div>
 
-            <p className="law-cite">Sin el certificado de A2, la préfecture no avanza tu trámite — así de simple. Si estás en tu primer permiso, es justo el examen para el que te prepara esta guía.</p>
+            <p className="law-cite">Se acredita con el DELF, el TCF o el TEF — sin alguno de los tres, la préfecture no avanza tu trámite. Esta guía te prepara para el DELF, el único de los tres que no vence.</p>
           </div>
         </section>
 
@@ -658,7 +679,7 @@ const Frances = () => {
               </li>
               <li className="id-item">
                 <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-book" /></svg></span>
-                <p>Ya estás tomando clases o estudiando por tu cuenta, pero nadie te explicó el formato exacto del examen DELF o TCF.</p>
+                <p>Ya estás tomando clases o estudiando por tu cuenta, pero nadie te explicó el formato exacto del examen DELF.</p>
               </li>
               <li className="id-item">
                 <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-alert" /></svg></span>
@@ -688,10 +709,6 @@ const Frances = () => {
                 <div className="achieve-list">
                   <div className="achieve-item">
                     <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg></span>
-                    <p><strong>Saber exactamente qué examen te corresponde</strong> — DELF o TCF, A2 o B1 — según tu tipo de carte de séjour, sin dudas ni trámites de más.</p>
-                  </div>
-                  <div className="achieve-item">
-                    <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg></span>
                     <p><strong>Conocer a fondo las 4 pruebas del DELF A2:</strong> tiempos exactos, puntaje mínimo por prueba y cómo se corrige cada una.</p>
                   </div>
                   <div className="achieve-item">
@@ -719,7 +736,7 @@ const Frances = () => {
                     <h3 className="pc-name">Guía para Aprobar tu Examen DELF A2 y Cumplir el Requisito de tu Trámite en Francia</h3>
 
                     <ul className="pc-includes">
-                      <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg> Checklist de trámite: qué examen corresponde según tu carte de séjour</li>
+                      <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg> Checklist de trámite: qué nivel exige tu carte de séjour — A2 o B1</li>
                       <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg> Test de autoevaluación de tu nivel actual</li>
                       <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg> Anatomía completa de las 4 pruebas del examen</li>
                       <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg> Estrategia por sección y manejo del tiempo</li>
@@ -980,15 +997,15 @@ const Frances = () => {
               </details>
               <details>
                 <summary>¿Puedo aprender francés desde cero solo con este ebook? <svg className="icon chev" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
-                <p className="faq-a">No es para eso, y preferimos decírtelo de una: esta guía prepara específicamente el examen DELF A2/TCF, no enseña francés desde cero. Pero si ya tienes una base básica o estás estudiando en paralelo, es justo lo que te falta.</p>
+                <p className="faq-a">No es para eso, y preferimos decírtelo de una: esta guía prepara específicamente el examen DELF A2, no enseña francés desde cero. Pero si ya tienes una base básica o estás estudiando en paralelo, es justo lo que te falta.</p>
               </details>
               <details>
                 <summary>¿En qué se diferencia de Duolingo o apps gratis? <svg className="icon chev" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
                 <p className="faq-a">Duolingo está bien para practicar francés en general, pero nunca te va a mostrar cómo es una consigna real del DELF, ni enseñarte el vocabulario que vas a necesitar en la préfecture, el banco o al alquilar. Eso es justo lo que hace esta guía.</p>
               </details>
               <details>
-                <summary>¿Cómo sé si me corresponde el DELF o el TCF, A2 o B1? <svg className="icon chev" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
-                <p className="faq-a">Es una de las primeras dudas que resuelve la guía: trae un checklist de trámite que te indica exactamente cuál te corresponde según tu tipo de carte de séjour, para que no te anotes al examen equivocado.</p>
+                <summary>¿Por qué el DELF y no el TCF o el TEF? <svg className="icon chev" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
+                <p className="faq-a">Los tres son válidos ante la préfecture para certificar tu nivel de francés. La diferencia está en la vigencia: el DELF no vence nunca, mientras que el TCF y el TEF valen solo 2 años y hay que repetirlos si tu trámite se extiende más que eso. Por eso esta guía se enfoca en el DELF — para que rindas el examen una sola vez y no tengas que volver a hacerlo en tu próxima renovación.</p>
               </details>
               <details>
                 <summary>¿Y si mi trámite pide B1 y no A2? <svg className="icon chev" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
@@ -1035,7 +1052,7 @@ const Frances = () => {
         {/* ============ FOOTER ============ */}
         <footer>
           <div className="container">
-            <p className="fdisclaimer">Este es un material educativo de preparación para el examen DELF/TCF y no garantiza el resultado de tu trámite migratorio, que depende exclusivamente de la préfecture correspondiente. Este producto no está afiliado a France Éducation international, al CIEP, ni a ninguna embajada o consulado de Francia.</p>
+            <p className="fdisclaimer">Este es un material educativo de preparación para el examen DELF y no garantiza el resultado de tu trámite migratorio, que depende exclusivamente de la préfecture correspondiente. Este producto no está afiliado a France Éducation international, al CIEP, ni a ninguna embajada o consulado de Francia.</p>
           </div>
         </footer>
 
