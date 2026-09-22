@@ -1,11 +1,42 @@
-import { useEffect, useLayoutEffect } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { META_PIXEL_ID, initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
 
 const PAGE_TITLE = "Guía DELF A2 para tu Trámite de Residencia en Francia | Aprueba tu Examen";
-const STRIPE_PAYMENT_LINK = "https://buy.stripe.com/8x2eVcgFsa6EbDcgKCbbG02";
 
 const OFFER_DURATION_MS = 30 * 60 * 1000;
 const OFFER_END_STORAGE_KEY = "frances_offer_end";
+
+// ─── A/B test de precio ($20 vs $17) ─────────────────────────────────────────
+// Se sortea 50/50 en la primera visita y se recuerda en localStorage: el mismo
+// dispositivo siempre ve el mismo precio (evita que alguien vea $20 y luego
+// $17 en la misma landing). Las impresiones y los "pago iniciado" se guardan
+// en ab_sessions — la misma tabla que ya usan otros tests del sitio, sin
+// tabla ni edge function nueva. Es insert-only para anon (ver ab_track).
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const AB_EXPERIMENT_KEY = "frances_price";
+const PRICE_VARIANT_STORAGE_KEY = "frances_price_variant";
+const ORIGINAL_PRICE = 39;
+
+const PRICE_VARIANTS = {
+  "20": { price: 20, stripeLink: "https://buy.stripe.com/8x2eVcgFsa6EbDcgKCbbG02" },
+  "17": { price: 17, stripeLink: "https://buy.stripe.com/fZufZg1Ky0w44aKdyqbbG04" },
+} as const;
+type PriceVariant = keyof typeof PRICE_VARIANTS;
+
+function getPriceVariant(): PriceVariant {
+  const pickRandom = (): PriceVariant => (Math.random() < 0.5 ? "20" : "17");
+  try {
+    const stored = localStorage.getItem(PRICE_VARIANT_STORAGE_KEY);
+    if (stored === "20" || stored === "17") return stored;
+    const variant = pickRandom();
+    localStorage.setItem(PRICE_VARIANT_STORAGE_KEY, variant);
+    return variant;
+  } catch {
+    // localStorage bloqueado: el test sigue funcionando, solo no persiste.
+    return pickRandom();
+  }
+}
 
 /**
  * Momento en que vence la oferta para este navegador. Se fija en la primera
@@ -43,22 +74,6 @@ function PaymentIcons({ labelColor }: { labelColor?: string }) {
   );
 }
 
-/**
- * El checkout lo hostea Stripe (Payment Link) — no podemos poner el pixel
- * ahí. La forma estándar de trackear "inició el pago" en este caso es
- * disparar el evento al click del botón, antes de salir hacia Stripe.
- * preventDefault + navegación manual con un pequeño delay le da tiempo al
- * pixel a mandar el evento antes de que el navegador abandone la página
- * (un href normal podría cortar la petición a mitad de camino).
- */
-function handleCheckoutClick(e: React.MouseEvent<HTMLAnchorElement>) {
-  e.preventDefault();
-  trackMetaEvent("InitiateCheckout", { value: 20, currency: "USD" });
-  setTimeout(() => {
-    window.location.href = STRIPE_PAYMENT_LINK;
-  }, 250);
-}
-
 function InstantAccessNote() {
   return (
     <p className="instant-access">
@@ -69,6 +84,49 @@ function InstantAccessNote() {
 }
 
 const Frances = () => {
+  // Variante de precio asignada una sola vez por dispositivo (ver getPriceVariant).
+  const [priceVariant] = useState<PriceVariant>(() => getPriceVariant());
+  const { price, stripeLink } = PRICE_VARIANTS[priceVariant];
+  const discountPct = Math.round((1 - price / ORIGINAL_PRICE) * 100);
+  const abSessionIdRef = useRef<string | null>(null);
+
+  // Registra la impresión del test de precio en ab_sessions (insert-only para
+  // anon). El id se genera acá, no lo devuelve el insert, así no hace falta
+  // permiso de SELECT sobre la tabla para leerlo de vuelta.
+  useEffect(() => {
+    const sid = crypto.randomUUID();
+    abSessionIdRef.current = sid;
+    fetch(`${SUPABASE_URL}/rest/v1/ab_sessions`, {
+      method: "POST",
+      headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+      body: JSON.stringify({ id: sid, variants: { [AB_EXPERIMENT_KEY]: priceVariant } }),
+    }).catch(() => { /* no crítico */ });
+  }, [priceVariant]);
+
+  /**
+   * El checkout lo hostea Stripe (Payment Link) — no podemos poner el pixel
+   * ahí. La forma estándar de trackear "inició el pago" en este caso es
+   * disparar el evento al click del botón, antes de salir hacia Stripe.
+   * preventDefault + navegación manual con un pequeño delay le da tiempo al
+   * pixel (y al ab_track de abajo) a mandarse antes de que el navegador
+   * abandone la página (un href normal podría cortar la petición a mitad).
+   */
+  const handleCheckoutClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+    e.preventDefault();
+    trackMetaEvent("InitiateCheckout", { value: price, currency: "USD" });
+    const sid = abSessionIdRef.current;
+    if (sid) {
+      fetch(`${SUPABASE_URL}/rest/v1/rpc/ab_track`, {
+        method: "POST",
+        headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ p_id: sid, p_converted: true }),
+      }).catch(() => { /* no crítico */ });
+    }
+    setTimeout(() => {
+      window.location.href = stripeLink;
+    }, 250);
+  };
+
   useEffect(() => {
     document.title = PAGE_TITLE;
   }, []);
@@ -765,10 +823,10 @@ const Frances = () => {
                     <div className="pc-discount">
                       <p className="pc-edition-label">Edición Actualizada 2026</p>
                       <div className="pc-price">
-                        <span className="pc-old-price">$39 USD</span>
-                        <span className="amount">$20 USD</span>
+                        <span className="pc-old-price">${ORIGINAL_PRICE} USD</span>
+                        <span className="amount">${price} USD</span>
                         <span className="unit">pago único</span>
-                        <span className="pc-discount-chip">-49% de Descuento</span>
+                        <span className="pc-discount-chip">-{discountPct}% de Descuento</span>
                       </div>
                     </div>
 
@@ -785,7 +843,7 @@ const Frances = () => {
                     </div>
 
                     <div className="pc-cta">
-                      <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary btn-block">Sí, Quiero Mi Guía DELF A2</a>
+                      <a href={stripeLink} onClick={handleCheckoutClick} className="btn btn-primary btn-block">Sí, Quiero Mi Guía DELF A2</a>
                     </div>
 
                     <InstantAccessNote />
@@ -831,8 +889,8 @@ const Frances = () => {
             </div>
 
             <div className="section-cta">
-              <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
-              <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Quiero Empezar Hoy</a>
+              <div className="section-cta-price"><span className="old">${ORIGINAL_PRICE} USD</span>${price} USD · pago único</div>
+              <a href={stripeLink} onClick={handleCheckoutClick} className="btn btn-primary">Quiero Empezar Hoy</a>
               <InstantAccessNote />
               <PaymentIcons />
             </div>
@@ -925,9 +983,9 @@ const Frances = () => {
 
             <div className="section-cta on-dark">
               <img src="/frances/imagenes/mockup-pack-completo-v2.webp" alt="Mockup del pack completo: guía DELF A2 + celular + los 4 bonos" className="pack-mockup-img" style={{ marginBottom: "20px" }} />
-              <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · guía + 4 bonos</div>
+              <div className="section-cta-price"><span className="old">${ORIGINAL_PRICE} USD</span>${price} USD · guía + 4 bonos</div>
               <div className="section-cta-timer"><svg className="icon" aria-hidden="true"><use href="#i-clock" /></svg> Bonos gratis por <strong className="js-countdown time-chip">30:00</strong></div>
-              <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Sí, Quiero Mis 4 Bonos Gratis</a>
+              <a href={stripeLink} onClick={handleCheckoutClick} className="btn btn-primary">Sí, Quiero Mis 4 Bonos Gratis</a>
               <InstantAccessNote />
               <PaymentIcons />
             </div>
@@ -975,8 +1033,8 @@ const Frances = () => {
             </div>
 
             <div className="section-cta">
-              <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
-              <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Quiero los Mismos Resultados</a>
+              <div className="section-cta-price"><span className="old">${ORIGINAL_PRICE} USD</span>${price} USD · pago único</div>
+              <a href={stripeLink} onClick={handleCheckoutClick} className="btn btn-primary">Quiero los Mismos Resultados</a>
               <InstantAccessNote />
               <PaymentIcons />
             </div>
@@ -1022,8 +1080,8 @@ const Frances = () => {
             </div>
 
             <div className="section-cta">
-              <div className="section-cta-price"><span className="old">$39 USD</span>$20 USD · pago único</div>
-              <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary">Ya No Tengo Dudas — Empezar</a>
+              <div className="section-cta-price"><span className="old">${ORIGINAL_PRICE} USD</span>${price} USD · pago único</div>
+              <a href={stripeLink} onClick={handleCheckoutClick} className="btn btn-primary">Ya No Tengo Dudas — Empezar</a>
               <InstantAccessNote />
               <PaymentIcons />
             </div>
@@ -1041,8 +1099,8 @@ const Frances = () => {
             </div>
 
             <div className="cta-wrap">
-              <div className="section-cta-price" style={{ color: "var(--white)" }}><span className="old" style={{ color: "#AEB9CE" }}>$39 USD</span>$20 USD · pago único</div>
-              <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary btn-block">Empezar Mi Preparación Ahora</a>
+              <div className="section-cta-price" style={{ color: "var(--white)" }}><span className="old" style={{ color: "#AEB9CE" }}>${ORIGINAL_PRICE} USD</span>${price} USD · pago único</div>
+              <a href={stripeLink} onClick={handleCheckoutClick} className="btn btn-primary btn-block">Empezar Mi Preparación Ahora</a>
               <InstantAccessNote />
               <PaymentIcons labelColor="#C7D0E0" />
             </div>
@@ -1063,10 +1121,10 @@ const Frances = () => {
               <img src="/frances/imagenes/mockup-pack-completo-v2.webp" alt="Guía DELF A2 + bonos" className="sticky-thumb-img" />
             </div>
             <div className="sticky-text">
-              <span className="sticky-price"><span className="old">$39</span>$20 USD</span>
+              <span className="sticky-price"><span className="old">${ORIGINAL_PRICE}</span>${price} USD</span>
               <span className="sticky-timer">Termina en <strong className="js-countdown">30:00</strong></span>
             </div>
-            <a href={STRIPE_PAYMENT_LINK} onClick={handleCheckoutClick} className="btn btn-primary sticky-btn"><svg className="arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Mi Guía DELF A2</a>
+            <a href={stripeLink} onClick={handleCheckoutClick} className="btn btn-primary sticky-btn"><svg className="arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Mi Guía DELF A2</a>
           </div>
         </div>
       </div>
