@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { saveCheckoutAttribution } from "@/lib/checkoutAttribution";
 import { initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
 import { TOEFL_PIXEL_ID, TOEFL_STRIPE_LINKS, toeflCheckoutUrl, toeflEventParams } from "@/lib/toeflConfig";
 
@@ -155,7 +156,7 @@ const Toefl = () => {
    * queda registrado como intención de compra en ab_sessions, sin navegar.
    * El pixel tampoco se toca hasta que TOEFL_PIXEL_ID esté definido.
    */
-  const handleCheckoutClick = (e: React.MouseEvent<HTMLAnchorElement>) => {
+  const handleCheckoutClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
     e.preventDefault();
     if (TOEFL_PIXEL_ID) trackMetaEvent("InitiateCheckout", toeflEventParams(price), undefined, TOEFL_PIXEL_ID);
     const sid = abSessionIdRef.current;
@@ -167,11 +168,14 @@ const Toefl = () => {
       }).catch(() => { /* no crítico */ });
     }
     const paymentLink = TOEFL_STRIPE_LINKS[priceVariant];
-    if (paymentLink) {
-      setTimeout(() => {
-        window.location.href = toeflCheckoutUrl(paymentLink);
-      }, 250);
-    }
+    if (!paymentLink) return;
+    // Cookies de Meta del comprador → checkout_attribution; su id viaja a Stripe en el
+    // client_reference_id y el webhook lo usa en la Conversions API. Se espera como
+    // máximo 800 ms (nunca bloquea el pago) y, en paralelo, los 250 ms que necesitan
+    // el pixel y el ab_track para salir antes de abandonar la página.
+    const attributionId = crypto.randomUUID();
+    await Promise.all([saveCheckoutAttribution(attributionId), new Promise((resolve) => setTimeout(resolve, 250))]);
+    window.location.href = toeflCheckoutUrl(paymentLink, attributionId);
   };
 
   useEffect(() => {

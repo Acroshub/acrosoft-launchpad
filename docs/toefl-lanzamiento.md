@@ -5,11 +5,13 @@ Dominio de producción: `https://www.acrosoftlabs.com` (el dominio sin `www` red
 ```
 /toefl (landing, A/B $19 vs $25)
   ├─ carga → PageView + ViewContent (pixel TOEFL, con el precio de la variante)
-  └─ clic en cualquier CTA → InitiateCheckout (pixel) → Payment Link live ?client_reference_id=toefl-b2
+  └─ clic en cualquier CTA → InitiateCheckout (pixel) + guarda cookies de Meta en checkout_attribution
+       → Payment Link live ?client_reference_id=toefl-b2_<id de esa fila>
        └─ pago → stripe-webhook (checkout.session.completed)
             ├─ orden en ebook_orders (product_slug = toefl-b2) con el NETO tras comisión de Stripe
             ├─ email (Resend): link a /toefl-ty + Bono 1 (link + contraseña)
-            └─ Purchase por Conversions API (mismo pixel; valor = neto; event_id = session_id)
+            └─ Purchase por Conversions API (mismo pixel; valor = neto; event_id = session_id;
+               user_data: email + nombre/país de Stripe + user agent, IP, fbp, fbc de checkout_attribution)
        └─ redirect de Stripe → /toefl-ty?session_id=…
             ├─ toefl-get-order → ZIP (URL firmada 1 h) + contraseña de la plataforma
             └─ Purchase por pixel (mismo event_id y valor → Meta deduplica; una sola vez por compra)
@@ -106,13 +108,18 @@ Las páginas de gracias siempre muestran la contraseña vigente (la leen del sec
 
 ## Conversions API: qué está verificado y qué no (2026-09-23)
 
-- ✅ Verificado: el secret `META_CAPI_ACCESS_TOKEN_TOEFL` existe; el token es válido (SYSTEM_USER, sin vencimiento, incluye el pixel `1446406424021779`) y Meta acepta la autenticación; el código del webhook está probado y desplegado; el `Purchase` del navegador sale con el mismo `event_id` y valor neto.
-- ⏳ **No ejecutado nunca con un pago real**: los logs del webhook no tienen ninguna llamada de Stripe desde el despliegue.
-- ⚠️ **Riesgo conocido:** hoy el evento del servidor lleva `action_source=website`, `event_source_url` y el email hasheado, pero **no `client_user_agent`**, que Meta pide para eventos web y sin el cual el evento puede descartarse. Si se descarta, la compra igual cuenta por el pixel del navegador, pero se pierde la señal del servidor (iPhone, bloqueadores). Solución: guardar `user-agent`, IP, `_fbp` y `_fbc` al hacer clic en el CTA, pasarlos por `client_reference_id` y enviarlos en `user_data`; además sumar nombre, teléfono y país que ya trae Stripe para subir la calidad de coincidencia.
+**Qué manda el evento del servidor (`Purchase`):** `action_source=website`, `event_source_url`, `event_id` = session_id de Stripe, valor NETO, y en `user_data`: email, nombre y país que trae Stripe (hasheados) + **`client_user_agent`, `client_ip_address`, `fbp` y `fbc`** del navegador del comprador. Meta exige `client_user_agent` en eventos web enviados por servidor; sin él el evento puede descartarse (por eso se agregó).
+
+**Cómo llegan esos datos:** al hacer clic en un CTA, la landing guarda `fbp`/`fbc` en `checkout_attribution` (el user agent y la IP los pone un trigger de la base a partir de los headers de la petición; el navegador no puede falsearlos) y pasa el id de la fila en `client_reference_id` (`toefl-b2_<uuid>`). El webhook lee la fila. Si falta o falla, el evento sale igual con lo que trae Stripe.
+
+**Privacidad:** `checkout_attribution` guarda IP y user agent. El navegador solo puede insertar; solo el webhook lee; se borra sola a los 30 días (cron semanal `cleanup-checkout-attribution`). La política de privacidad del sitio (`/terminos_y_politicas_de_privacidad`) todavía no menciona cookies, píxel de Meta ni IP: conviene agregar un párrafo.
+
+- ✅ Verificado: secret y token válidos; el código está probado (25 tests de servidor + 19 de frontend) y desplegado; en navegador real contra producción el clic guarda la fila con `fbp`/`fbc`, la base llena IP y user agent, Stripe acepta `client_reference_id = toefl-b2_<uuid>`, y la clave anon no puede leer, modificar, borrar ni falsear IP/user agent.
+- ⏳ **No ejecutado con un pago real:** no hay llamadas de Stripe al webhook desde el despliegue. Con la primera compra revisa el log de `stripe-webhook`: debe decir `CAPI enviado (toefl-b2); user_data: em,fn,ln,country,…,client_ip_address,client_user_agent,fbp,fbc; atribución: sí`. Si dice `atribución: no`, el clic no guardó la fila (falló la red o el comprador vino de un link viejo sin el id). Si dice `Meta CAPI no se pudo enviar`, mira el error que sigue.
+- En Events Manager → Overview el `Purchase` debe aparecer con origen "Navegador y servidor" (deduplicado por `event_id`); la calidad de coincidencia (EMQ) se ve a las pocas horas.
 
 ## Opcional
 
-- Mejor atribución: hoy Conversions API solo envía el email (hash). Guardar `fbp`/`fbc` al hacer clic y enviarlos sube la "calidad de coincidencia".
 - Meta: verificar el dominio `acrosoftlabs.com` y priorizar Purchase (Aggregated Event Measurement) para tráfico de iPhone.
 - InitiateCheckout y ViewContent llevan el precio de lista de la variante (no se conoce la comisión antes de pagar); solo Purchase lleva el neto real.
 - Aviso de venta al correo/celular del dueño (`notify-sale` es solo del CRM).

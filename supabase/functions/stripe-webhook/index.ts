@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { crypto } from "https://deno.land/std@0.208.0/crypto/mod.ts";
 import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
 import { EBOOK_CATALOG, resolveMeta } from "../_shared/ebook-catalog.ts";
-import { buildConfirmationEmailHtml, platformAccess, resolveProductSlug } from "../_shared/ebook-order.ts";
+import { buildConfirmationEmailHtml, parseClientReference, platformAccess, resolveProductSlug } from "../_shared/ebook-order.ts";
 import { sendMetaPurchaseEvent } from "../_shared/meta-capi.ts";
 import { fetchStripeNet, purchaseTrackingValue } from "../_shared/stripe-balance.ts";
 
@@ -116,7 +116,12 @@ Deno.serve(async (req: Request) => {
     payment_status: string;
     amount_total: number | null;
     currency: string | null;
-    customer_details?: { email?: string | null } | null;
+    customer_details?: {
+      email?: string | null;
+      name?: string | null;
+      phone?: string | null;
+      address?: { country?: string | null; postal_code?: string | null; city?: string | null; state?: string | null } | null;
+    } | null;
     customer_email?: string | null;
     metadata?: Record<string, string> | null;
     client_reference_id?: string | null;
@@ -222,13 +227,44 @@ Deno.serve(async (req: Request) => {
   // Pixel y token son del producto: si falta cualquiera de los dos NO se manda
   // (mejor sin evento que un Purchase de TOEFL en el pixel de otro producto).
   const meta = resolveMeta(catalogEntry);
+
+  // Datos del navegador del comprador (user agent, IP, fbp, fbc) que la landing guardó al
+  // hacer clic; el id viaja en client_reference_id. Meta exige client_user_agent en eventos
+  // web y usa el resto para hacer coincidir la compra con quien vio el anuncio. Es
+  // best-effort: sin la fila o con un error, el evento sale igual, con lo que trae Stripe.
+  let attribution: { fbp: string | null; fbc: string | null; user_agent: string | null; ip: string | null } | null = null;
+  const attributionId = parseClientReference(session.client_reference_id)?.attributionId;
+  if (meta && attributionId) {
+    try {
+      const { data, error } = await supabase
+        .from("checkout_attribution")
+        .select("fbp, fbc, user_agent, ip")
+        .eq("id", attributionId)
+        .maybeSingle();
+      if (error) console.warn("[stripe-webhook] no se pudo leer checkout_attribution:", error.message);
+      attribution = data ?? null;
+    } catch (err) {
+      console.warn("[stripe-webhook] error leyendo checkout_attribution:", err);
+    }
+  }
+  const details = session.customer_details;
+
   const capiResult = meta
     ? await sendMetaPurchaseEvent({
       email, value: tracking.value, currency: tracking.currency, eventId: session.id, eventSourceUrl: thankYouUrl,
+      customer: {
+        name: details?.name, phone: details?.phone,
+        country: details?.address?.country, zip: details?.address?.postal_code,
+        city: details?.address?.city, state: details?.address?.state,
+        clientIp: attribution?.ip, clientUserAgent: attribution?.user_agent, fbp: attribution?.fbp, fbc: attribution?.fbc,
+      },
       pixelId: meta.pixelId, accessToken: meta.accessToken, testEventCode: meta.testEventCode,
     })
     : { ok: false as const, error: `pixel o token de Conversions API sin configurar para ${productSlug}` };
-  if (!capiResult.ok) {
+  if (capiResult.ok) {
+    // Solo nombres de campos, nunca valores: sirve para comprobar en los logs qué viajó a Meta.
+    console.log(`[stripe-webhook] CAPI enviado (${productSlug}); user_data: ${capiResult.fields.join(",")}; atribución: ${attribution ? "sí" : "no"}`);
+  } else {
     console.warn("[stripe-webhook] Meta CAPI no se pudo enviar:", capiResult.error);
   }
 

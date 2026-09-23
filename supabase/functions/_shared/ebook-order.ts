@@ -17,10 +17,27 @@ export type CheckoutSessionRef = {
   payment_link?: string | null;
 };
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * client_reference_id = "<producto>" o "<producto>_<uuid>". El uuid es el id de la
+ * fila de checkout_attribution que la landing guardó al hacer clic (user agent,
+ * IP, fbp, fbc): permite mandar a Meta datos del navegador del comprador.
+ * Se corta en el primer "_" a propósito: aunque lo que siga esté malformado, el
+ * producto se reconoce igual.
+ */
+export function parseClientReference(ref: string | null | undefined): { slug: string; attributionId: string | null } | null {
+  const clean = ref?.trim();
+  if (!clean) return null;
+  const [slug, rest] = clean.split("_", 2);
+  if (!slug) return null;
+  return { slug, attributionId: rest && UUID.test(rest) ? rest.toLowerCase() : null };
+}
+
 /**
  * A qué producto corresponde la sesión, en este orden:
  *  1. metadata.product_slug (si el Payment Link lo trae; un slug desconocido lo rechaza el llamador)
- *  2. client_reference_id — la landing lo agrega al link (?client_reference_id=toefl-b2)
+ *  2. client_reference_id — la landing lo agrega al link (?client_reference_id=toefl-b2_<uuid>)
  *  3. el id del Payment Link, si está listado en el secret del producto
  *  4. delf-a2, porque los links de DELF no llevan ninguna de las anteriores
  */
@@ -32,7 +49,7 @@ export function resolveProductSlug(
   const fromMetadata = session.metadata?.product_slug?.trim();
   if (fromMetadata) return fromMetadata;
 
-  const ref = session.client_reference_id?.trim();
+  const ref = parseClientReference(session.client_reference_id)?.slug;
   if (ref && Object.hasOwn(catalog, ref)) return ref;
 
   const link = session.payment_link?.trim();

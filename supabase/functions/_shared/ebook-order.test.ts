@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertFalse, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { EBOOK_CATALOG, resolveMeta, type EnvGetter } from "./ebook-catalog.ts";
-import { buildConfirmationEmailHtml, platformAccess, resolveProductSlug } from "./ebook-order.ts";
+import { buildConfirmationEmailHtml, parseClientReference, platformAccess, resolveProductSlug } from "./ebook-order.ts";
 
 const envOf = (vars: Record<string, string>): EnvGetter => (name) => vars[name];
 
@@ -32,6 +32,26 @@ Deno.test("resolveProductSlug - reconoce el Payment Link por su id si el link no
   assertEquals(resolveProductSlug({ payment_link: "plink_BBB" }, env), "toefl-b2");
   assertEquals(resolveProductSlug({ payment_link: "plink_ZZZ" }, env), "delf-a2");
   assertEquals(resolveProductSlug({ payment_link: "plink_BBB" }, envOf({})), "delf-a2");
+});
+
+Deno.test("parseClientReference - producto solo, producto + id de atribución, y basura", () => {
+  const id = "0b7e3f1a-92c4-4d5e-8a61-3f2c9d7e4b10";
+  assertEquals(parseClientReference("toefl-b2"), { slug: "toefl-b2", attributionId: null });
+  assertEquals(parseClientReference(`toefl-b2_${id}`), { slug: "toefl-b2", attributionId: id });
+  assertEquals(parseClientReference(`toefl-b2_${id.toUpperCase()}`), { slug: "toefl-b2", attributionId: id });
+  assertEquals(parseClientReference("toefl-b2_no-es-un-uuid"), { slug: "toefl-b2", attributionId: null });
+  assertEquals(parseClientReference(`toefl-b2_${id}_extra`), { slug: "toefl-b2", attributionId: id });
+  assertEquals(parseClientReference("  "), null);
+  assertEquals(parseClientReference(null), null);
+  assertEquals(parseClientReference("_" + id), null);
+});
+
+Deno.test("resolveProductSlug - reconoce el producto aunque el client_reference_id lleve el id de atribución", () => {
+  const id = "0b7e3f1a-92c4-4d5e-8a61-3f2c9d7e4b10";
+  assertEquals(resolveProductSlug({ client_reference_id: `toefl-b2_${id}` }, envOf({})), "toefl-b2");
+  assertEquals(resolveProductSlug({ client_reference_id: "toefl-b2_lo-que-sea" }, envOf({})), "toefl-b2");
+  assertEquals(resolveProductSlug({ client_reference_id: `otro_${id}` }, envOf({})), "delf-a2");
+  assertEquals(resolveProductSlug({ client_reference_id: `constructor_${id}` }, envOf({})), "delf-a2");
 });
 
 // ─── platformAccess ─────────────────────────────────────────────────────────

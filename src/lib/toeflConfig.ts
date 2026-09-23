@@ -39,11 +39,14 @@ export function toeflEventParams(price: number) {
 
 /**
  * Link de pago con el producto adjunto. Stripe devuelve `client_reference_id`
- * en checkout.session.completed; así el webhook entrega el ZIP y la
- * plataforma de TOEFL aunque el Payment Link no tenga metadata.
+ * en checkout.session.completed; así el webhook entrega el ZIP y la plataforma
+ * de TOEFL aunque el Payment Link no tenga metadata.
+ *
+ * Con `attributionId` el valor es "toefl-b2_<uuid>": el uuid es la fila de
+ * checkout_attribution (cookies de Meta) que el webhook usa para la Conversions API.
  */
-export function toeflCheckoutUrl(paymentLink: string): string {
+export function toeflCheckoutUrl(paymentLink: string, attributionId?: string): string {
   const url = new URL(paymentLink);
-  url.searchParams.set("client_reference_id", TOEFL_PRODUCT_SLUG);
+  url.searchParams.set("client_reference_id", attributionId ? `${TOEFL_PRODUCT_SLUG}_${attributionId}` : TOEFL_PRODUCT_SLUG);
   return url.toString();
 }
