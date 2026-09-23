@@ -54,6 +54,22 @@ function getOfferEnd(): number {
   }
 }
 
+/** Mockup del pack (guía + celular + los 4 bonos): va arriba del precio en cada CTA de sección. */
+function BundleMockup() {
+  return (
+    <img
+      src="/toefl/imagenes/mockup-bundle-completo.webp"
+      alt="Mockup del pack completo: guía TOEFL + celular + los 4 bonos"
+      className="pack-mockup-img"
+      width={1200}
+      height={676}
+      loading="lazy"
+      decoding="async"
+      style={{ height: "auto", marginBottom: "20px" }}
+    />
+  );
+}
+
 function InstantAccessNote() {
   return (
     <p className="instant-access">
@@ -806,7 +822,7 @@ const Toefl = () => {
             </div>
 
             <div className="section-cta">
-              <img src="/toefl/imagenes/mockup-bundle-completo.webp" alt="Mockup del pack completo: guía TOEFL + celular + los 4 bonos" className="pack-mockup-img" style={{ marginBottom: "20px" }} />
+              <BundleMockup />
               <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} />
               <a href="#" onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Mis 4 Bonos Gratis</a>
               <InstantAccessNote />
@@ -848,6 +864,7 @@ const Toefl = () => {
             </div>
 
             <div className="section-cta">
+              <BundleMockup />
               <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} />
               <a href="#" onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Quiero Empezar Hoy</a>
               <InstantAccessNote />
@@ -897,6 +914,7 @@ const Toefl = () => {
             </div>
 
             <div className="section-cta">
+              <BundleMockup />
               <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} />
               <a href="#" onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Quiero los Mismos Resultados</a>
               <InstantAccessNote />
@@ -952,6 +970,7 @@ const Toefl = () => {
             </div>
 
             <div className="section-cta">
+              <BundleMockup />
               <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} />
               <a href="#" onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Ya No Tengo Dudas — Empezar</a>
               <InstantAccessNote />

@@ -45,17 +45,46 @@ Dominio de producción: `https://www.acrosoftlabs.com` (el dominio sin `www` red
    - Events Manager → Test events: **un** Purchase (navegador + servidor, mismo `event_id`), con el valor neto.
 7. Quitar `META_CAPI_TEST_EVENT_CODE_TOEFL` si lo usaste.
 
-## Consultas útiles
+## Cómo leer el split test de precio ($19 vs $25)
+
+**Cómo funciona:** cada navegador nuevo sortea 50/50 un precio y lo recuerda (`localStorage`), así que siempre ve el mismo. Cada carga de la landing guarda una fila en `ab_sessions` con el precio (`variants->>'toefl_price'`); el clic en cualquier CTA marca `converted = true` y lleva al Payment Link de ESE precio. La compra sale por el webhook a `ebook_orders`.
+
+**Ojo con lo que significa cada número:**
+- *visitas* = **cargas de página**, no personas: quien recarga o vuelve suma otra fila (tus pruebas también). Con tráfico real el sesgo afecta a los dos precios por igual.
+- *clics_checkout* = clics en un CTA (intención), no compras.
+- *compras* salen de `ebook_orders`; se atribuyen al precio por el monto cobrado (1900 → $19, 2500 → $25). Un cupón cambiaría el monto y esa compra no se contaría.
+
+**Consulta** (Supabase → SQL Editor). Cambia las dos fechas `2000-01-01` por la del lanzamiento para no mezclar tus pruebas:
 
 ```sql
--- últimas compras de TOEFL y si se guardó el neto
-select created_at, customer_email, amount_total, net_amount, net_currency, deliverable_sent_at
-from ebook_orders where product_slug = 'toefl-b2' order by created_at desc limit 20;
-
--- A/B: visitas por variante (compras: amount_total 1900 vs 2500 en ebook_orders)
-select variants->>'toefl_price' as variante, count(*) as visitas, count(*) filter (where converted) as clics_checkout
-from ab_sessions where variants ? 'toefl_price' group by 1;
+with visitas as (
+  select variants->>'toefl_price' as precio,
+         count(*) as visitas,
+         count(*) filter (where converted) as clics_checkout
+  from ab_sessions
+  where variants ? 'toefl_price' and created_at >= '2000-01-01'   -- fecha de lanzamiento
+  group by 1
+), compras as (
+  select case amount_total when 1900 then '19' when 2500 then '25' end as precio,
+         count(*) as compras,
+         round(sum(coalesce(net_amount, amount_total)) / 100.0, 2) as neto_usd
+  from ebook_orders
+  where product_slug = 'toefl-b2' and created_at >= '2000-01-01'  -- la misma fecha
+  group by 1
+)
+select v.precio as precio_usd, v.visitas, v.clics_checkout,
+       round(100.0 * v.clics_checkout / nullif(v.visitas, 0), 1) as pct_clic,
+       coalesce(c.compras, 0) as compras,
+       round(100.0 * coalesce(c.compras, 0) / nullif(v.visitas, 0), 2) as pct_compra,
+       coalesce(c.neto_usd, 0) as neto_usd,
+       round(coalesce(c.neto_usd, 0) / nullif(v.visitas, 0), 3) as neto_por_visita
+from visitas v left join compras c using (precio)
+order by v.precio::int;
 ```
+
+**Cómo decidir:** gana el precio con más **`neto_por_visita`** (dinero neto por cada visita), no el que tiene más compras: a $25 se compra menos pero cada venta deja más. No cierres el test con pocas ventas: con conversiones de 1–3 % hacen falta del orden de 100 compras por precio (miles de visitas por precio) para que la diferencia no sea ruido. La vista `ab_stats` (`select * from ab_stats where element_key = 'toefl_price'`) da solo visitas y clics.
+
+**Verificado (2026-09-23, navegador real contra producción):** el precio mostrado y el Payment Link coinciden con la variante; la visita queda en `ab_sessions` con `toefl_price`; el clic llama `ab_track` y marca `converted`; recargar mantiene el precio; el sorteo reparte ~50/50 (60 navegadores nuevos: 33 vs 27).
 
 ## Contraseña de la plataforma: cambiarla
 
