@@ -1015,7 +1015,7 @@ const Toefl = () => {
               <span className="sticky-price"><span className="old">${originalPrice}</span>${price} USD</span>
               <span className="sticky-timer">Termina en <strong className="js-countdown">30:00</strong></span>
             </div>
-            <a href="#" onClick={handleCheckoutClick} className="btn btn-primary sticky-btn"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Empezar Mi Preparación</a>
+            <a href="#" onClick={handleCheckoutClick} className="btn btn-primary sticky-btn"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero la Guía&nbsp;+&nbsp;4&nbsp;Bonos</a>
           </div>
         </div>
       </div>
