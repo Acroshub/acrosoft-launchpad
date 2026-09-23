@@ -28,6 +28,9 @@ const LlamadasAcros = lazy(() => import("./pages/LlamadasAcros.tsx"));
 const LlamadasAcrosGracias = lazy(() => import("./pages/LlamadasAcrosGracias.tsx"));
 const Frances = lazy(() => import("./pages/Frances.tsx"));
 const TyFrances = lazy(() => import("./pages/TyFrances.tsx"));
+const Toefl = lazy(() => import("./pages/Toefl.tsx"));
+const TyToefl = lazy(() => import("./pages/TyToefl.tsx"));
+const ToeflPlataforma = lazy(() => import("./pages/ToeflPlataforma.tsx"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -62,6 +65,10 @@ const App = () => (
             <Route path="/llamadas-acros-gracias" element={<LlamadasAcrosGracias />} />
             <Route path="/frances" element={<Frances />} />
             <Route path="/ty-frances" element={<TyFrances />} />
+            <Route path="/toefl" element={<Toefl />} />
+            <Route path="/toefl-ty" element={<TyToefl />} />
+            {/* Bono 1 del ebook TOEFL: webapp con contraseña compartida; maneja sus propias sub-rutas */}
+            <Route path="/toefl-plataforma/*" element={<ToeflPlataforma />} />
 
             {/* Client invitation setup — public (session comes from invite link) */}
             <Route path="/crm-setup" element={<CrmSetup />} />

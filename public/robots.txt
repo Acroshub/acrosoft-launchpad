@@ -7,4 +7,9 @@ Disallow: /crm-setup
 Disallow: /onboarding
 Disallow: /oauth/
 
+# Bono del ebook TOEFL (acceso con contraseña)
+Disallow: /toefl-plataforma
+Disallow: /toefl-ty
+Disallow: /toefl-audiolab/
+
 Sitemap: https://acrosoftlabs.com/sitemap.xml

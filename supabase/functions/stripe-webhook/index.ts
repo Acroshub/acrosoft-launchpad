@@ -1,7 +1,8 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { crypto } from "https://deno.land/std@0.208.0/crypto/mod.ts";
 import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
-import { EBOOK_CATALOG } from "../_shared/ebook-catalog.ts";
+import { EBOOK_CATALOG, resolveMeta } from "../_shared/ebook-catalog.ts";
+import { buildConfirmationEmailHtml, platformAccess, resolveProductSlug } from "../_shared/ebook-order.ts";
 import { sendMetaPurchaseEvent } from "../_shared/meta-capi.ts";
 import { fetchStripeNet, purchaseTrackingValue } from "../_shared/stripe-balance.ts";
 
@@ -56,26 +57,6 @@ async function verifyStripeSignature(rawBody: string, signatureHeader: string | 
   let diff = 0;
   for (let i = 0; i < providedSig.length; i++) diff |= providedSig.charCodeAt(i) ^ expected.charCodeAt(i);
   return diff === 0;
-}
-
-function buildConfirmationEmailHtml(params: { productName: string; thankYouUrl: string; amountLabel: string }): string {
-  const { productName, thankYouUrl, amountLabel } = params;
-  return `
-  <div style="font-family:Arial,Helvetica,sans-serif;background:#FAF6EF;padding:32px 16px;">
-    <div style="max-width:480px;margin:0 auto;background:#FFFFFF;border-radius:14px;overflow:hidden;border:1px solid #DED6BC;">
-      <div style="background:#1B2A4A;padding:28px 28px 24px;text-align:center;">
-        <p style="margin:0;color:#C9932E;font-weight:700;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;">Compra confirmada</p>
-        <h1 style="margin:10px 0 0;color:#FFFFFF;font-size:22px;font-family:Georgia,serif;">¡Gracias por tu compra!</h1>
-      </div>
-      <div style="padding:28px;">
-        <p style="margin:0 0 16px;font-size:15px;color:#22262E;line-height:1.6;">Tu pago de <strong>${amountLabel}</strong> por <strong>${productName}</strong> fue aprobado. Ya puedes descargar tus archivos.</p>
-        <div style="text-align:center;margin:24px 0;">
-          <a href="${thankYouUrl}" style="display:inline-block;background:#C1403A;color:#FFFFFF;font-weight:900;font-size:16px;padding:16px 28px;border-radius:8px;text-decoration:none;">Ver mi compra y descargar</a>
-        </div>
-        <p style="margin:0;font-size:13px;color:#5B6270;line-height:1.5;">Guarda este correo — este mismo enlace te sirve para volver a descargar tus archivos cuando quieras.</p>
-      </div>
-    </div>
-  </div>`;
 }
 
 async function sendConfirmationEmail(params: { to: string; html: string; shortName: string }): Promise<boolean> {
@@ -138,6 +119,8 @@ Deno.serve(async (req: Request) => {
     customer_details?: { email?: string | null } | null;
     customer_email?: string | null;
     metadata?: Record<string, string> | null;
+    client_reference_id?: string | null;
+    payment_link?: string | null;
   };
 
   if (session.payment_status !== "paid") {
@@ -150,8 +133,10 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: "session has no email" }), { status: 400 });
   }
 
-  const productSlug = session.metadata?.product_slug ?? "delf-a2";
-  const catalogEntry = EBOOK_CATALOG[productSlug];
+  // Un mismo webhook atiende todos los Payment Links de la cuenta: qué producto
+  // se compró sale de la propia sesión (ver resolveProductSlug).
+  const productSlug = resolveProductSlug(session);
+  const catalogEntry = Object.hasOwn(EBOOK_CATALOG, productSlug) ? EBOOK_CATALOG[productSlug] : undefined;
   if (!catalogEntry) {
     console.error("[stripe-webhook] product_slug desconocido:", productSlug);
     return new Response(JSON.stringify({ error: "unknown product_slug" }), { status: 400 });
@@ -202,11 +187,24 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ received: true, already_sent: true }), { status: 200 });
   }
 
-  const thankYouUrl = `${APP_URL}/ty-frances?session_id=${encodeURIComponent(session.id)}`;
+  const thankYouUrl = `${APP_URL}${catalogEntry.thankYouPath}?session_id=${encodeURIComponent(session.id)}`;
   const amountValue = (session.amount_total ?? 0) / 100;
   const currency = (session.currency ?? "usd").toUpperCase();
   const amountLabel = `$${amountValue.toFixed(2)} ${currency}`;
-  const html = buildConfirmationEmailHtml({ productName: catalogEntry.name, thankYouUrl, amountLabel });
+
+  // Productos con plataforma incluida (TOEFL Audio Lab): el email lleva el link
+  // y la contraseña. Sin contraseña configurada el email sale igual (la descarga
+  // es lo importante) pero se deja el error en el log para que no pase de largo.
+  const platform = platformAccess(catalogEntry);
+  if (platform && !platform.password) {
+    console.error(`[stripe-webhook] ${productSlug}: falta el secret de la contraseña de la plataforma; el email sale sin ella (orden ${orderId})`);
+  }
+  const html = buildConfirmationEmailHtml({
+    productName: catalogEntry.name,
+    thankYouUrl,
+    amountLabel,
+    platform: platform && { name: platform.name, url: `${APP_URL}${platform.path}`, password: platform.password },
+  });
 
   const sent = await sendConfirmationEmail({ to: email, html, shortName: catalogEntry.shortName });
   if (sent && orderId) {
@@ -221,9 +219,15 @@ Deno.serve(async (req: Request) => {
   const tracking = purchaseTrackingValue({
     amountTotal: session.amount_total ?? 0, currency: session.currency ?? "usd", netAmount, netCurrency,
   });
-  const capiResult = await sendMetaPurchaseEvent({
-    email, value: tracking.value, currency: tracking.currency, eventId: session.id, eventSourceUrl: thankYouUrl,
-  });
+  // Pixel y token son del producto: si falta cualquiera de los dos NO se manda
+  // (mejor sin evento que un Purchase de TOEFL en el pixel de otro producto).
+  const meta = resolveMeta(catalogEntry);
+  const capiResult = meta
+    ? await sendMetaPurchaseEvent({
+      email, value: tracking.value, currency: tracking.currency, eventId: session.id, eventSourceUrl: thankYouUrl,
+      pixelId: meta.pixelId, accessToken: meta.accessToken, testEventCode: meta.testEventCode,
+    })
+    : { ok: false as const, error: `pixel o token de Conversions API sin configurar para ${productSlug}` };
   if (!capiResult.ok) {
     console.warn("[stripe-webhook] Meta CAPI no se pudo enviar:", capiResult.error);
   }

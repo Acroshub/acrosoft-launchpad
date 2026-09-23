@@ -147,3 +147,8 @@ verify_jwt = false
 
 [functions.frances-get-order]
 verify_jwt = false
+
+# toefl-get-order: igual que frances-get-order (pública, protegida por el session_id
+# de Stripe) y además devuelve el acceso a la plataforma TOEFL Audio Lab.
+[functions.toefl-get-order]
+verify_jwt = false
