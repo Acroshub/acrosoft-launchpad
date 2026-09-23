@@ -33,7 +33,7 @@ Dominio de producción: `https://www.acrosoftlabs.com` (el dominio sin `www` red
 2. **Secrets** — Dashboard → Edge Functions → Secrets:
    - `TOEFL_LAB_PASSWORD` = la contraseña con la que se construyó la plataforma y el ZIP (la que pusiste en el LEEME del ZIP).
    - `META_CAPI_ACCESS_TOKEN_TOEFL` = el token de la API de conversiones del pixel `1446406424021779`. (No sobrescribir `META_CAPI_ACCESS_TOKEN`: es el del pixel de DELF.)
-   - `META_CAPI_TEST_EVENT_CODE_TOEFL` — opcional y **solo mientras pruebas** (los eventos con código de prueba no cuentan como reales).
+   - `META_CAPI_TEST_EVENT_CODE_TOEFL` — opcional, solo para probar. **Ojo:** Meta indica que los eventos enviados con un código de prueba no se descartan (siguen a Events Manager y pueden usarse para anuncios). Úsalo con un evento que no sea `Purchase`, o quítalo enseguida.
    - Ya deben existir (los usa DELF): `STRIPE_WEBHOOK_SECRET`, `STRIPE_RESTRICTED_KEY` (live), `RESEND_API_KEY`, `RESEND_FROM_EMAIL`. `APP_URL` es opcional: sin él los correos enlazan a `acrosoftlabs.com` (funciona por el redirect); con `APP_URL=https://www.acrosoftlabs.com` enlazan directo.
 3. ~~Desplegar las Edge Functions~~ (hecho) y push del frontend a Vercel.
 4. **Stripe** — en cada uno de los 2 Payment Links: Después del pago → "No mostrar página de confirmación" → redirigir a `https://www.acrosoftlabs.com/toefl-ty?session_id={CHECKOUT_SESSION_ID}`. El webhook existente ya recibe los eventos de todos los links de la cuenta.
@@ -103,6 +103,12 @@ Las páginas de gracias siempre muestran la contraseña vigente (la leen del sec
 - **Contador de 30 min** ("después vuelven a su precio normal") sin efecto real y **precios de lista $48 / $63** que nunca se cobraron: urgencia y anclaje que Meta y varias leyes de consumo consideran engañosos.
 - **"Simulacro con los tiempos reales del examen"**: los tiempos son aproximados. Cambiar a "tiempos aproximados al examen".
 - **Footer sin enlaces legales, contacto ni política de reembolso** (Meta pide privacidad; Stripe revisa términos, reembolsos y contacto). `/terminos_y_politicas_de_privacidad` ya existe.
+
+## Conversions API: qué está verificado y qué no (2026-09-23)
+
+- ✅ Verificado: el secret `META_CAPI_ACCESS_TOKEN_TOEFL` existe; el token es válido (SYSTEM_USER, sin vencimiento, incluye el pixel `1446406424021779`) y Meta acepta la autenticación; el código del webhook está probado y desplegado; el `Purchase` del navegador sale con el mismo `event_id` y valor neto.
+- ⏳ **No ejecutado nunca con un pago real**: los logs del webhook no tienen ninguna llamada de Stripe desde el despliegue.
+- ⚠️ **Riesgo conocido:** hoy el evento del servidor lleva `action_source=website`, `event_source_url` y el email hasheado, pero **no `client_user_agent`**, que Meta pide para eventos web y sin el cual el evento puede descartarse. Si se descarta, la compra igual cuenta por el pixel del navegador, pero se pierde la señal del servidor (iPhone, bloqueadores). Solución: guardar `user-agent`, IP, `_fbp` y `_fbc` al hacer clic en el CTA, pasarlos por `client_reference_id` y enviarlos en `user_data`; además sumar nombre, teléfono y país que ya trae Stripe para subir la calidad de coincidencia.
 
 ## Opcional
 
