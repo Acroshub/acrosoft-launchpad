@@ -1,6 +1,6 @@
 # Ebook TOEFL — checklist de lanzamiento
 
-Dominio de producción: `https://acrosoftlabs.com`. Pixel: `1446406424021779`. DELF ya no se vende (su código y su entrada en el catálogo se conservan para que quienes ya compraron puedan volver a descargar).
+Dominio de producción: `https://www.acrosoftlabs.com` (el dominio sin `www` redirige a este con un 308 que conserva la ruta y el `?session_id=`). Pixel: `1446406424021779`. DELF ya no se vende (su código y su entrada en el catálogo se conservan para que quienes ya compraron puedan volver a descargar).
 
 ```
 /toefl (landing, A/B $19 vs $25)
@@ -19,8 +19,8 @@ Dominio de producción: `https://acrosoftlabs.com`. Pixel: `1446406424021779`. D
 
 | Pieza | Estado |
 |---|---|
-| Landing `/toefl` + thank-you `/toefl-ty` | ✅ código listo y probado en navegador · se publica con el push a Vercel |
-| Plataforma `/toefl-plataforma` (`public/toefl-audiolab/`) | ✅ lista · ⏳ sale con el mismo deploy de Vercel |
+| Landing `/toefl` + thank-you `/toefl-ty` | ✅ publicadas en producción y verificadas (2026-09-23) |
+| Plataforma `/toefl-plataforma` (`public/toefl-audiolab/`) | ✅ en producción: contraseña, audios, grabación con micrófono y cabecera `microphone=(self)` verificados |
 | Links de Stripe (live) y Pixel ID | ✅ ya en `src/lib/toeflConfig.ts` |
 | Edge Functions `toefl-get-order` (v1) y `stripe-webhook` (v13, multi-producto) | ✅ desplegadas el 2026-09-23 (el código anterior del webhook está en git, commit a4bf8ed, por si hay que volver atrás) |
 | ZIP de entrega | ✅ `~/Ebooks/Ebook Ingles Internacional/Entrega/TOEFL-B2-Guia-Completa-Bonos.zip` (LEEME con link y contraseña) · ⏳ falta subirlo |
@@ -34,10 +34,10 @@ Dominio de producción: `https://acrosoftlabs.com`. Pixel: `1446406424021779`. D
    - `TOEFL_LAB_PASSWORD` = la contraseña con la que se construyó la plataforma y el ZIP (la que pusiste en el LEEME del ZIP).
    - `META_CAPI_ACCESS_TOKEN_TOEFL` = el token de la API de conversiones del pixel `1446406424021779`. (No sobrescribir `META_CAPI_ACCESS_TOKEN`: es el del pixel de DELF.)
    - `META_CAPI_TEST_EVENT_CODE_TOEFL` — opcional y **solo mientras pruebas** (los eventos con código de prueba no cuentan como reales).
-   - Ya deben existir (los usa DELF): `STRIPE_WEBHOOK_SECRET`, `STRIPE_RESTRICTED_KEY` (live), `RESEND_API_KEY`, `RESEND_FROM_EMAIL`. Si existe `APP_URL`, debe ser `https://acrosoftlabs.com`.
+   - Ya deben existir (los usa DELF): `STRIPE_WEBHOOK_SECRET`, `STRIPE_RESTRICTED_KEY` (live), `RESEND_API_KEY`, `RESEND_FROM_EMAIL`. `APP_URL` es opcional: sin él los correos enlazan a `acrosoftlabs.com` (funciona por el redirect); con `APP_URL=https://www.acrosoftlabs.com` enlazan directo.
 3. ~~Desplegar las Edge Functions~~ (hecho) y push del frontend a Vercel.
-4. **Stripe** — en cada uno de los 2 Payment Links: Después del pago → "No mostrar página de confirmación" → redirigir a `https://acrosoftlabs.com/toefl-ty?session_id={CHECKOUT_SESSION_ID}`. El webhook existente ya recibe los eventos de todos los links de la cuenta.
-5. **Verificar cabeceras** (micrófono de la plataforma): `curl -sI https://acrosoftlabs.com/toefl-plataforma | grep -i permissions-policy` → debe decir `microphone=(self)`.
+4. **Stripe** — en cada uno de los 2 Payment Links: Después del pago → "No mostrar página de confirmación" → redirigir a `https://www.acrosoftlabs.com/toefl-ty?session_id={CHECKOUT_SESSION_ID}`. El webhook existente ya recibe los eventos de todos los links de la cuenta.
+5. ~~Verificar cabeceras del micrófono~~ (hecho: `microphone=(self)` solo en `/toefl-plataforma`; el resto del sitio mantiene `microphone=()`).
 6. **Compra de prueba real** ($19 con tu tarjeta, luego reembolso; los links son live y un cupón de 100 % no sirve porque Stripe lo marca `no_payment_required` y el webhook lo ignora):
    - Fila nueva en `ebook_orders` con `product_slug = 'toefl-b2'` y **`net_amount` lleno**. Si `net_amount` queda vacío, `STRIPE_RESTRICTED_KEY` no está o no tiene permiso de lectura sobre el cargo/balance: el valor que se manda a Meta sería el bruto. (Hoy las 5 órdenes de DELF tienen `net_amount` vacío: esa parte nunca se comprobó con un pago real.)
    - Llega el correo con la descarga, el Bono 1 y la contraseña.

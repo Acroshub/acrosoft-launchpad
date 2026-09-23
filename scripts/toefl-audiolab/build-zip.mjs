@@ -21,7 +21,7 @@ const SRC = process.env.TOEFL_LAB_SRC ?? path.join(homedir(), "Ebooks", "Ebook I
 const OUT_DIR = path.join(SRC, "Entrega");
 const ZIP_NAME = "TOEFL-B2-Guia-Completa-Bonos.zip";
 const ROOT = "TOEFL-B2-Guia-Completa-Bonos";
-const PLATFORM_URL = "https://acrosoftlabs.com/toefl-plataforma";
+const PLATFORM_URL = "https://www.acrosoftlabs.com/toefl-plataforma";
 
 const password = process.env.TOEFL_LAB_PASSWORD?.trim();
 if (!password || password.length < 8) {
