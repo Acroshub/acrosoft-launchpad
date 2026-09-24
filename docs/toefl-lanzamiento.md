@@ -88,6 +88,31 @@ order by v.precio::int;
 
 **Verificado (2026-09-23, navegador real contra producción):** el precio mostrado y el Payment Link coinciden con la variante; la visita queda en `ab_sessions` con `toefl_price`; el clic llama `ab_track` y marca `converted`; recargar mantiene el precio; el sorteo reparte ~50/50 (60 navegadores nuevos: 33 vs 27).
 
+## Diagnóstico del embudo: ¿los botones llevan a Stripe?
+
+Cada clic normal en un CTA (1) marca `converted = true` en `ab_sessions` (`ab_track`), (2) guarda una fila en `checkout_attribution` y (3) recién ahí navega a Stripe. Si un clic tiene (1) pero no (2), el botón murió antes de navegar. Consulta (Supabase → SQL Editor):
+
+```sql
+-- clics sin fila de atribución = botones que no llegaron a navegar (esperado: ninguno)
+select c.converted_at, c.variants->>'toefl_price' as precio
+from ab_sessions c
+where c.variants ? 'toefl_price' and c.converted
+  and c.converted_at >= '2026-09-23 23:10+00'            -- desde que existe checkout_attribution
+  and not exists (select 1 from checkout_attribution a
+                  where a.created_at between c.converted_at - interval '2 seconds' and c.converted_at + interval '6 seconds')
+order by 1;
+
+-- clics por tipo de dispositivo y posibles bots (varios clics en menos de 1 s desde la misma IP)
+select date_trunc('minute', created_at) as minuto, ip, count(*) as filas,
+       max(case when user_agent ~* 'instagram' then 'Instagram in-app' when user_agent ~* 'FBAN|FBAV' then 'Facebook in-app'
+                when user_agent ~* 'iPhone|iPad' then 'iOS' when user_agent ~* 'Android' then 'Android' else 'Escritorio' end) as dispositivo
+from checkout_attribution group by 1, 2 having count(*) > 1 order by 3 desc;
+```
+
+Lo que **no** se puede saber desde aquí: si Stripe llegó a crear la sesión de pago de cada clic. La `STRIPE_RESTRICTED_KEY` de solo lectura no tiene el permiso `checkout_session_read`; en el Dashboard de Stripe (Payments → Checkout / Developers → Events, filtrando `checkout.session.expired`, que Stripe genera ~24 h después de cada sesión abandonada) sí se ven las sesiones con `client_reference_id = toefl-b2_<uuid>`.
+
+**Auditoría del 2026-09-24:** 84/84 clics sintéticos llegan al Payment Link correcto (7 CTAs × 2 precios × 6 perfiles de navegador, incluidos Instagram/Facebook in-app y un navegador sin `crypto.randomUUID`); los 12 clics reales desde el despliegue tienen su fila de atribución. Se endureció el botón: `href` real en vez de `#`, Cmd/Ctrl/Shift-clic abre Stripe en pestaña nueva, el tracking nunca impide la navegación, y `crypto.randomUUID` tiene respaldo (antes, en iOS < 15.4 / Chrome < 92, la landing quedaba en blanco).
+
 ## Contraseña de la plataforma: cambiarla
 
 ```bash

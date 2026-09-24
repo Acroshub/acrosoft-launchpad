@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { saveCheckoutAttribution } from "@/lib/checkoutAttribution";
 import { initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
+import { uuid } from "@/lib/uuid";
 import { TOEFL_PIXEL_ID, TOEFL_STRIPE_LINKS, toeflCheckoutUrl, toeflEventParams } from "@/lib/toeflConfig";
 
 const PAGE_TITLE = "Guía en Español para Aprobar el TOEFL con Nivel B2 | Ebook + Estrategia";
@@ -136,7 +137,7 @@ const Toefl = () => {
   // anon). El id se genera acá, no lo devuelve el insert, así no hace falta
   // permiso de SELECT sobre la tabla para leerlo de vuelta.
   useEffect(() => {
-    const sid = crypto.randomUUID();
+    const sid = uuid();
     abSessionIdRef.current = sid;
     fetch(`${SUPABASE_URL}/rest/v1/ab_sessions`, {
       method: "POST",
@@ -156,25 +157,42 @@ const Toefl = () => {
    * queda registrado como intención de compra en ab_sessions, sin navegar.
    * El pixel tampoco se toca hasta que TOEFL_PIXEL_ID esté definido.
    */
+  // El href es el link de pago real (no "#"): Ctrl/Cmd/Shift-clic y "abrir en pestaña nueva"
+  // funcionan solos. Un clic normal se intercepta para registrar el evento y guardar la
+  // atribución antes de ir a Stripe.
+  const paymentLink = TOEFL_STRIPE_LINKS[priceVariant];
+  const checkoutHref = paymentLink ? toeflCheckoutUrl(paymentLink) : "#";
+
   const handleCheckoutClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
-    e.preventDefault();
-    if (TOEFL_PIXEL_ID) trackMetaEvent("InitiateCheckout", toeflEventParams(price), undefined, TOEFL_PIXEL_ID);
-    const sid = abSessionIdRef.current;
-    if (sid) {
-      fetch(`${SUPABASE_URL}/rest/v1/rpc/ab_track`, {
-        method: "POST",
-        headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ p_id: sid, p_converted: true }),
-      }).catch(() => { /* no crítico */ });
-    }
-    const paymentLink = TOEFL_STRIPE_LINKS[priceVariant];
-    if (!paymentLink) return;
+    const opensElsewhere = e.metaKey || e.ctrlKey || e.shiftKey || e.altKey;
+    if (!opensElsewhere) e.preventDefault();
+
+    // Nada de tracking puede impedir que la persona llegue a pagar.
+    try {
+      if (TOEFL_PIXEL_ID) trackMetaEvent("InitiateCheckout", toeflEventParams(price), undefined, TOEFL_PIXEL_ID);
+      const sid = abSessionIdRef.current;
+      if (sid) {
+        fetch(`${SUPABASE_URL}/rest/v1/rpc/ab_track`, {
+          method: "POST",
+          headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+          body: JSON.stringify({ p_id: sid, p_converted: true }),
+        }).catch(() => { /* no crítico */ });
+      }
+    } catch { /* no crítico */ }
+
+    if (opensElsewhere || !paymentLink) return;
+
     // Cookies de Meta del comprador → checkout_attribution; su id viaja a Stripe en el
-    // client_reference_id y el webhook lo usa en la Conversions API. Se espera como
-    // máximo 800 ms (nunca bloquea el pago) y, en paralelo, los 250 ms que necesitan
-    // el pixel y el ab_track para salir antes de abandonar la página.
-    const attributionId = crypto.randomUUID();
-    await Promise.all([saveCheckoutAttribution(attributionId), new Promise((resolve) => setTimeout(resolve, 250))]);
+    // client_reference_id y el webhook lo usa en la Conversions API. Se espera como máximo
+    // 800 ms y, en paralelo, los 250 ms que necesitan el pixel y el ab_track para salir antes
+    // de abandonar la página. Si algo falla, se va a Stripe igual (solo sin el id).
+    let attributionId: string | undefined;
+    try {
+      attributionId = uuid();
+      await Promise.all([saveCheckoutAttribution(attributionId), new Promise((resolve) => setTimeout(resolve, 250))]);
+    } catch {
+      attributionId = undefined;
+    }
     window.location.href = toeflCheckoutUrl(paymentLink, attributionId);
   };
 
@@ -735,7 +753,7 @@ const Toefl = () => {
                     <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} />
 
                     <div className="pc-cta">
-                      <a href="#" onClick={handleCheckoutClick} className="btn btn-primary btn-block"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Empezar Mi Preparación</a>
+                      <a href={checkoutHref} onClick={handleCheckoutClick} className="btn btn-primary btn-block"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Empezar Mi Preparación</a>
                     </div>
 
                     <InstantAccessNote />
@@ -832,7 +850,7 @@ const Toefl = () => {
             <div className="section-cta">
               <BundleMockup />
               <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} />
-              <a href="#" onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Mis 4 Bonos Gratis</a>
+              <a href={checkoutHref} onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Mis 4 Bonos Gratis</a>
               <InstantAccessNote />
               <PaymentIcons />
             </div>
@@ -874,7 +892,7 @@ const Toefl = () => {
             <div className="section-cta">
               <BundleMockup />
               <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} />
-              <a href="#" onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Quiero Empezar Hoy</a>
+              <a href={checkoutHref} onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Quiero Empezar Hoy</a>
               <InstantAccessNote />
               <PaymentIcons />
             </div>
@@ -924,7 +942,7 @@ const Toefl = () => {
             <div className="section-cta">
               <BundleMockup />
               <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} />
-              <a href="#" onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Quiero los Mismos Resultados</a>
+              <a href={checkoutHref} onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Quiero los Mismos Resultados</a>
               <InstantAccessNote />
               <PaymentIcons />
             </div>
@@ -980,7 +998,7 @@ const Toefl = () => {
             <div className="section-cta">
               <BundleMockup />
               <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} />
-              <a href="#" onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Ya No Tengo Dudas — Empezar</a>
+              <a href={checkoutHref} onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Ya No Tengo Dudas — Empezar</a>
               <InstantAccessNote />
               <PaymentIcons />
             </div>
@@ -999,7 +1017,7 @@ const Toefl = () => {
 
             <div className="cta-wrap">
               <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} dark />
-              <a href="#" onClick={handleCheckoutClick} className="btn btn-primary btn-block"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Empezar Mi Preparación Ahora</a>
+              <a href={checkoutHref} onClick={handleCheckoutClick} className="btn btn-primary btn-block"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Empezar Mi Preparación Ahora</a>
               <InstantAccessNote />
               <PaymentIcons dark />
             </div>
@@ -1023,7 +1041,7 @@ const Toefl = () => {
               <span className="sticky-price"><span className="old">${originalPrice}</span>${price} USD</span>
               <span className="sticky-timer">Termina en <strong className="js-countdown">30:00</strong></span>
             </div>
-            <a href="#" onClick={handleCheckoutClick} className="btn btn-primary sticky-btn"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero la Guía&nbsp;+&nbsp;4&nbsp;Bonos</a>
+            <a href={checkoutHref} onClick={handleCheckoutClick} className="btn btn-primary sticky-btn"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero la Guía&nbsp;+&nbsp;4&nbsp;Bonos</a>
           </div>
         </div>
       </div>
