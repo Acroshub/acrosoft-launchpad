@@ -381,13 +381,17 @@ const Toefl = () => {
 .toefl-page .deliver{background:var(--cream-alt);}
 .toefl-page .deliver-grid{display:grid;grid-template-columns:1fr;gap:44px;}
 @media(min-width:960px){.toefl-page .deliver-grid{grid-template-columns:1.05fr .95fr;align-items:start;}}
-.toefl-page .achieve-list{margin-top:28px;display:flex;flex-direction:column;gap:16px;}
+.toefl-page .achieve-list{margin:28px 0 0;padding:0;list-style:none;counter-reset:achieve;display:flex;flex-direction:column;gap:16px;}
 .toefl-page .achieve-item{display:flex;gap:14px;align-items:flex-start;}
+/* Numeración automática (lista ordenada): agregar o quitar un punto renumera solo. */
 .toefl-page .achieve-item .icon-wrap{
   flex-shrink:0;width:30px;height:30px;border-radius:8px;background:var(--navy);
   display:flex;align-items:center;justify-content:center;margin-top:2px;
 }
-.toefl-page .achieve-item .icon{width:16px;height:16px;color:var(--gold);}
+.toefl-page .achieve-item .icon-wrap::before{
+  counter-increment:achieve;content:counter(achieve);
+  color:var(--gold);font-size:15px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;
+}
 .toefl-page .achieve-item p{font-size:16.5px;color:var(--ink);min-width:0;}
 .toefl-page .achieve-item strong{color:var(--navy);}
 
@@ -688,24 +692,24 @@ const Toefl = () => {
                   <h2>Con Esta Guía, en los Próximos 14 Días, Vas a:</h2>
                 </div>
 
-                <div className="achieve-list">
-                  <div className="achieve-item">
-                    <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg></span>
+                <ol className="achieve-list">
+                  <li className="achieve-item">
+                    <span className="icon-wrap" aria-hidden="true" />
                     <p><strong>Saber exactamente qué esperar el día del examen</strong> —qué evalúa cada sección, cuánto dura y cómo te puntúan— para llegar tranquilo y no a ciegas.</p>
-                  </div>
-                  <div className="achieve-item">
-                    <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg></span>
+                  </li>
+                  <li className="achieve-item">
+                    <span className="icon-wrap" aria-hidden="true" />
                     <p><strong>Practicar con ejercicios que se sienten como el examen real</strong> —no genéricos ni desactualizados— para que el día del TOEFL no sea la primera vez que ves algo así.</p>
-                  </div>
-                  <div className="achieve-item">
-                    <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg></span>
+                  </li>
+                  <li className="achieve-item">
+                    <span className="icon-wrap" aria-hidden="true" />
                     <p><strong>Tener un plan armado para tu propia fecha de examen</strong>, para saber qué estudiar cada semana sin esa sensación de ir improvisando contra el reloj.</p>
-                  </div>
-                  <div className="achieve-item">
-                    <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg></span>
+                  </li>
+                  <li className="achieve-item">
+                    <span className="icon-wrap" aria-hidden="true" />
                     <p><strong>Perder el miedo a hablar y escribir en inglés bajo presión</strong>, con plantillas y frases que puedes adaptar a tus propias respuestas, para sentirte seguro en vez de quedarte en blanco.</p>
-                  </div>
-                </div>
+                  </li>
+                </ol>
               </div>
 
               <div>
@@ -969,7 +973,7 @@ const Toefl = () => {
               </details>
               <details>
                 <summary>¿Cómo pago desde mi país? <svg className="icon chev" aria-hidden="true"><use href="#i-chevron" /></svg></summary>
-                <p className="faq-a">Pago único en USD con tarjeta internacional; el checkout no depende de tu banco ni de tu país.</p>
+                <p className="faq-a">Pago único con tarjeta internacional. Según tu país, verás el precio en dólares (USD) o en tu moneda local, y puedes elegir la que prefieras; el cambio se calcula al momento de pagar. El checkout no depende de tu banco ni de tu país.</p>
               </details>
             </div>
 
