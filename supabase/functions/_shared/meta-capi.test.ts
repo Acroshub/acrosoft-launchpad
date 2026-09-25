@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertFalse } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { createHash } from "node:crypto";
-import { buildUserData, sendMetaPurchaseEvent } from "./meta-capi.ts";
+import { buildUserData, purchaseCustomData, sendMetaPurchaseEvent } from "./meta-capi.ts";
 
 // Implementación independiente del hash (node:crypto) para no probar SHA-256 con SHA-256 propio.
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
@@ -95,6 +95,43 @@ Deno.test("sendMetaPurchaseEvent - evento web completo con user_data del navegad
     assertEquals(ev.custom_data, { value: 17.91, currency: "USD" });
     assertEquals(ev.user_data.client_user_agent, "Mozilla/5.0"); // lo que Meta exige en eventos web
     assertEquals(calls[0].body.test_event_code, undefined);
+  });
+});
+
+Deno.test("purchaseCustomData - sin producto queda solo value y currency (como antes)", () => {
+  assertEquals(purchaseCustomData(25, "USD"), { value: 25, currency: "USD" });
+});
+
+Deno.test("purchaseCustomData - con producto lleva los parámetros recomendados por Meta para Purchase", () => {
+  assertEquals(
+    purchaseCustomData(23.6, "USD", { productId: "toefl-b2", productName: "Guía TOEFL B2", orderId: "cs_live_123", itemPrice: 25 }),
+    {
+      value: 23.6,
+      currency: "USD",
+      content_type: "product",
+      content_ids: ["toefl-b2"],
+      content_name: "Guía TOEFL B2",
+      // item_price es lo cobrado, aunque value sea el neto
+      contents: [{ id: "toefl-b2", quantity: 1, item_price: 25 }],
+      num_items: 1,
+      order_id: "cs_live_123",
+    },
+  );
+});
+
+Deno.test("sendMetaPurchaseEvent - con producto manda content_ids, contents, order_id y el resto del custom_data", async () => {
+  await withFetchStub(200, async (calls) => {
+    const res = await sendMetaPurchaseEvent({
+      email: "a@b.com", value: 25, currency: "USD", eventId: "cs_live_123", eventSourceUrl: "https://x/toefl-ty",
+      content: { productId: "toefl-b2", productName: "Guía TOEFL B2", orderId: "cs_live_123", itemPrice: 25 },
+      pixelId: "1446406424021779", accessToken: "TOKEN", testEventCode: null,
+    });
+    assert(res.ok);
+    assertEquals(calls[0].body.data[0].custom_data, purchaseCustomData(25, "USD", {
+      productId: "toefl-b2", productName: "Guía TOEFL B2", orderId: "cs_live_123", itemPrice: 25,
+    }));
+    // order_id y event_id coinciden: Meta puede cruzar la orden con el evento deduplicado
+    assertEquals(calls[0].body.data[0].custom_data.order_id, calls[0].body.data[0].event_id);
   });
 });
 

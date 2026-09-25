@@ -252,6 +252,7 @@ Deno.serve(async (req: Request) => {
   const capiResult = meta
     ? await sendMetaPurchaseEvent({
       email, value: tracking.value, currency: tracking.currency, eventId: session.id, eventSourceUrl: thankYouUrl,
+      content: { productId: productSlug, productName: catalogEntry.shortName, orderId: session.id, itemPrice: amountValue },
       customer: {
         name: details?.name, phone: details?.phone,
         country: details?.address?.country, zip: details?.address?.postal_code,

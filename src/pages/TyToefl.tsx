@@ -11,8 +11,8 @@ type OrderData = {
   email: string;
   amountTotal: number;
   currency: string;
-  /** Valor y moneda para el pixel: los mismos que manda stripe-webhook por Conversions API. */
-  tracking: { value: number; currency: string };
+  /** custom_data del Purchase para el pixel: el mismo que manda stripe-webhook por Conversions API (valor, moneda, producto y orden). */
+  tracking: Record<string, unknown>;
   download: { filename: string; url: string | null };
   /** Bono 1 (TOEFL Audio Lab). null si el servidor no tiene la contraseña configurada. */
   platform: { name: string; path: string; password: string } | null;
@@ -74,7 +74,7 @@ const TyToefl = () => {
     const sessionId = new URLSearchParams(window.location.search).get("session_id");
     if (!sessionId) return;
     const dedupeKey = `fb_purchase_fired_${sessionId}`;
-    const purchaseParams = { value: order.tracking.value, currency: order.tracking.currency };
+    const purchaseParams = order.tracking;
     try {
       if (localStorage.getItem(dedupeKey)) return;
       trackMetaEvent("Purchase", purchaseParams, sessionId, TOEFL_PIXEL_ID);

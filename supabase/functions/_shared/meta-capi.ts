@@ -81,6 +81,41 @@ export async function buildUserData(email: string, customer: MetaCustomer = {}):
   return out;
 }
 
+// ─── custom_data ─────────────────────────────────────────────────────────────
+// Meta pide value y currency en todo Purchase y recomienda además order_id,
+// content_ids, contents y content_type (Conversions API → Custom Data
+// Parameters). Los mismos ids/nombre que ya mandan ViewContent e
+// InitiateCheckout de la landing, para que Meta una los tres eventos por producto.
+
+export type PurchaseContent = {
+  /** Id del producto: el slug del catálogo, igual al content_ids de la landing. */
+  productId: string;
+  productName: string;
+  /** Id de la compra (el session_id de Stripe). */
+  orderId: string;
+  /** Precio unitario cobrado, en unidades de moneda (no centavos). Va aparte de `value`, que puede ser el neto. */
+  itemPrice: number;
+};
+
+/**
+ * custom_data de un Purchase. Lo usan el webhook (Conversions API) y las
+ * *-get-order (pixel del navegador) para que las dos señales del mismo event_id
+ * lleven exactamente lo mismo. Sin `content` queda solo value y currency, como antes.
+ */
+export function purchaseCustomData(value: number, currency: string, content?: PurchaseContent): Record<string, unknown> {
+  if (!content) return { value, currency };
+  return {
+    value,
+    currency,
+    content_type: "product",
+    content_ids: [content.productId],
+    content_name: content.productName,
+    contents: [{ id: content.productId, quantity: 1, item_price: content.itemPrice }],
+    num_items: 1,
+    order_id: content.orderId,
+  };
+}
+
 // ─── Envío ───────────────────────────────────────────────────────────────────
 export type SendMetaPurchaseParams = {
   email: string;
@@ -88,6 +123,8 @@ export type SendMetaPurchaseParams = {
   currency: string;
   eventId: string;
   eventSourceUrl: string;
+  /** Producto y orden del Purchase. Sin esto viaja solo value y currency, como antes. */
+  content?: PurchaseContent;
   /** Datos del comprador (Stripe + navegador). Sin ellos solo viaja el email, como antes. */
   customer?: MetaCustomer;
   /** Si no se pasan, se usan el pixel y el token de DELF. */
@@ -127,7 +164,7 @@ export async function sendMetaPurchaseEvent(params: SendMetaPurchaseParams): Pro
           action_source: "website",
           event_source_url: params.eventSourceUrl,
           user_data: userData,
-          custom_data: { value: params.value, currency: params.currency },
+          custom_data: purchaseCustomData(params.value, params.currency, params.content),
         }],
         ...(testEventCode ? { test_event_code: testEventCode } : {}),
       }),

@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { EBOOK_CATALOG, EBOOK_STORAGE_BUCKET } from "../_shared/ebook-catalog.ts";
 import { platformAccess } from "../_shared/ebook-order.ts";
+import { purchaseCustomData } from "../_shared/meta-capi.ts";
 import { purchaseTrackingValue } from "../_shared/stripe-balance.ts";
 
 // ─── Pública — usada por /toefl-ty para mostrar el resumen de la compra, generar ─
@@ -57,19 +58,27 @@ Deno.serve(async (req: Request) => {
     console.error(`[toefl-get-order] ${order.product_slug}: falta el secret de la contraseña de la plataforma`);
   }
 
+  const tracking = purchaseTrackingValue({
+    amountTotal: order.amount_total,
+    currency: order.currency,
+    netAmount: order.net_amount,
+    netCurrency: order.net_currency,
+  });
+
   return new Response(
     JSON.stringify({
       productName: product.name,
       email: order.customer_email,
       amountTotal: order.amount_total,
       currency: order.currency,
-      // Valor para el pixel de Meta (neto tras comisión si se pudo obtener).
-      // Es el mismo que manda stripe-webhook por Conversions API.
-      tracking: purchaseTrackingValue({
-        amountTotal: order.amount_total,
-        currency: order.currency,
-        netAmount: order.net_amount,
-        netCurrency: order.net_currency,
+      // custom_data del Purchase para el pixel de Meta: el mismo que manda
+      // stripe-webhook por Conversions API (valor neto si se pudo obtener, más
+      // producto y orden).
+      tracking: purchaseCustomData(tracking.value, tracking.currency, {
+        productId: order.product_slug,
+        productName: product.shortName,
+        orderId: sessionId,
+        itemPrice: order.amount_total / 100,
       }),
       download: { filename: product.filename, url: signed?.signedUrl ?? null },
       // null si el producto no trae plataforma o falta configurar la contraseña.
