@@ -18,13 +18,19 @@ export const TOEFL_CONTENT_NAME = "Guía TOEFL B2";
 export const TOEFL_PIXEL_ID = "1446406424021779";
 
 /**
- * Payment Links de Stripe (modo LIVE), uno por variante del test de precio.
- * Vacío = el botón todavía no lleva a pagar (solo registra el clic en el A/B).
+ * Precio único de venta (USD) y precio de lista tachado (el precio de venta es -60%).
+ * Hasta 2026-09-25 hubo un test $19 vs $25; se cerró en $25 (ver docs/toefl-lanzamiento.md).
  */
-export const TOEFL_STRIPE_LINKS = {
-  "19": "https://buy.stripe.com/14A3cu1Ky6Us36GbqibbG05",
-  "25": "https://buy.stripe.com/dRmeVccpc4Mk8r02TMbbG06",
-} as const;
+export const TOEFL_PRICE = 25;
+export const TOEFL_LIST_PRICE = 63;
+
+/**
+ * Payment Link de Stripe (modo LIVE) del precio único.
+ * Vacío = el botón todavía no lleva a pagar (solo registra el clic).
+ * El link del precio anterior ($19, .../14A3cu1Ky6Us36GbqibbG05) sigue activo en Stripe unos días
+ * para quien ya lo tenía abierto; el webhook lo procesa igual (reconoce el producto por client_reference_id).
+ */
+export const TOEFL_PAYMENT_LINK = "https://buy.stripe.com/dRmeVccpc4Mk8r02TMbbG06";
 
 /** Parámetros de ViewContent / InitiateCheckout: el precio de lista de la variante que ve la persona. */
 export function toeflEventParams(price: number) {

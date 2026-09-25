@@ -3,8 +3,8 @@
 Dominio de producción: `https://www.acrosoftlabs.com` (el dominio sin `www` redirige a este con un 308 que conserva la ruta y el `?session_id=`). Pixel: `1446406424021779`. DELF ya no se vende (su código y su entrada en el catálogo se conservan para que quienes ya compraron puedan volver a descargar).
 
 ```
-/toefl (landing, A/B $19 vs $25)
-  ├─ carga → PageView + ViewContent (pixel TOEFL, con el precio de la variante)
+/toefl (landing, precio único $25; hasta 2026-09-25 fue A/B $19 vs $25)
+  ├─ carga → PageView + ViewContent (pixel TOEFL, con el precio: $25)
   └─ clic en cualquier CTA → InitiateCheckout (pixel) + guarda cookies de Meta en checkout_attribution
        → Payment Link live ?client_reference_id=toefl-b2_<id de esa fila>
        └─ pago → stripe-webhook (checkout.session.completed)
@@ -47,9 +47,13 @@ Dominio de producción: `https://www.acrosoftlabs.com` (el dominio sin `www` red
    - Events Manager → Test events: **un** Purchase (navegador + servidor, mismo `event_id`), con el valor neto.
 7. Quitar `META_CAPI_TEST_EVENT_CODE_TOEFL` si lo usaste.
 
-## Cómo leer el split test de precio ($19 vs $25)
+## Precio: el test $19 vs $25 se cerró en $25 (2026-09-25)
 
-**Cómo funciona:** cada navegador nuevo sortea 50/50 un precio y lo recuerda (`localStorage`), así que siempre ve el mismo. Cada carga de la landing guarda una fila en `ab_sessions` con el precio (`variants->>'toefl_price'`); el clic en cualquier CTA marca `converted = true` y lleva al Payment Link de ESE precio. La compra sale por el webhook a `ebook_orders`.
+**Resultado** (desde 2026-09-23 20:08 UTC hasta 2026-09-25, cargas de página): $19 → 73 visitas, 11 clics, 0 compras; $25 → 63 visitas, 6 clics, 2 compras. No es estadísticamente concluyente (con esos números, que las 2 ventas cayeran en el $25 ocurre ~21 % de las veces por puro azar) y, al ritmo de tráfico, el test no podía concluir en un plazo útil (harían falta del orden de 100 compras por precio). Se dejó $25 por margen: neto estimado ≈ $23.60 frente a ≈ $17.90 a $19 (tarifa de Stripe 2.9 % + $0.30 + 1.5 % internacional), así que $19 tendría que vender ~32 % más unidades para ganar lo mismo. Es reversible: para volver a probar, restaurar el sorteo desde el historial de git de `src/pages/Toefl.tsx`.
+
+**Cómo funciona ahora:** un solo precio ($25, con precio de lista $63 tachado; ver `src/lib/toeflConfig.ts`). Cada carga de la landing sigue guardando una fila en `ab_sessions` con `toefl_price = '25'`; el clic en cualquier CTA marca `converted = true` y lleva al Payment Link de $25. La compra sale por el webhook a `ebook_orders`. El Payment Link de $19 se deja activo unos días en Stripe para quien ya lo tenía abierto y después se desactiva (si alguien lo usa, el webhook lo procesa igual). La consulta de abajo sirve para seguir el embudo (visitas → clics → compras).
+
+**Si vuelves a probar precios:** la lectura correcta es la de abajo (gana el mayor `neto_por_visita`, no el que más vende).
 
 **Ojo con lo que significa cada número:**
 - *visitas* = **cargas de página**, no personas: quien recarga o vuelve suma otra fila (tus pruebas también). Con tráfico real el sesgo afecta a los dos precios por igual.

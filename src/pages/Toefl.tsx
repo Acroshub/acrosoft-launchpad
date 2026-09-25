@@ -1,43 +1,26 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { saveCheckoutAttribution } from "@/lib/checkoutAttribution";
 import { initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
 import { uuid } from "@/lib/uuid";
-import { TOEFL_PIXEL_ID, TOEFL_STRIPE_LINKS, toeflCheckoutUrl, toeflEventParams } from "@/lib/toeflConfig";
+import { TOEFL_LIST_PRICE, TOEFL_PAYMENT_LINK, TOEFL_PIXEL_ID, TOEFL_PRICE, toeflCheckoutUrl, toeflEventParams } from "@/lib/toeflConfig";
 
 const PAGE_TITLE = "Guía en Español para Aprobar el TOEFL con Nivel B2 | Ebook + Estrategia";
 
 const OFFER_DURATION_MS = 30 * 60 * 1000;
 const OFFER_END_STORAGE_KEY = "toefl_offer_end";
 
-// ─── A/B test de precio ($19 vs $25) ─────────────────────────────────────────
-// Se sortea 50/50 en la primera visita y se recuerda en localStorage: el mismo
-// dispositivo siempre ve el mismo precio. Cada variante viene de su propio
-// "precio de lista" descontado un 60% (19 = 48 -60%, 25 = 63 -60%). Impresiones
-// y "pago iniciado" se guardan en ab_sessions, la misma tabla que ya usa
-// /frances — insert-only para anon (ver ab_track).
+// ─── Precio y medición del embudo ────────────────────────────────────────────
+// Precio único (ver toeflConfig.ts). Hasta 2026-09-25 se sorteaba $19 vs $25; el test se cerró
+// en $25 y la landing ya no lee ni guarda la variante en localStorage. Se conserva el registro de
+// impresiones y "pago iniciado" en ab_sessions (la misma tabla que usa /frances, insert-only para
+// anon, ver ab_track) con variants.toefl_price = "25", para seguir midiendo visitas → clics.
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 const AB_EXPERIMENT_KEY = "toefl_price";
-const PRICE_VARIANT_STORAGE_KEY = "toefl_price_variant";
 
-const PRICE_VARIANTS = {
-  "19": { price: 19, originalPrice: 48 },
-  "25": { price: 25, originalPrice: 63 },
-} as const;
-type PriceVariant = keyof typeof PRICE_VARIANTS;
-
-function getPriceVariant(): PriceVariant {
-  const pickRandom = (): PriceVariant => (Math.random() < 0.5 ? "19" : "25");
-  try {
-    const stored = localStorage.getItem(PRICE_VARIANT_STORAGE_KEY);
-    if (stored === "19" || stored === "25") return stored;
-    const variant = pickRandom();
-    localStorage.setItem(PRICE_VARIANT_STORAGE_KEY, variant);
-    return variant;
-  } catch {
-    return pickRandom();
-  }
-}
+const price = TOEFL_PRICE;
+const originalPrice = TOEFL_LIST_PRICE;
+const discountPct = Math.round((1 - price / originalPrice) * 100);
 
 /**
  * Momento en que vence la oferta para este navegador. Se fija en la primera
@@ -127,24 +110,20 @@ function PriceOffer({ price, originalPrice, discountPct, dark = false }: { price
 }
 
 const Toefl = () => {
-  // Variante de precio asignada una sola vez por dispositivo (ver getPriceVariant).
-  const [priceVariant] = useState<PriceVariant>(() => getPriceVariant());
-  const { price, originalPrice } = PRICE_VARIANTS[priceVariant];
-  const discountPct = Math.round((1 - price / originalPrice) * 100);
   const abSessionIdRef = useRef<string | null>(null);
 
-  // Registra la impresión del test de precio en ab_sessions (insert-only para
-  // anon). El id se genera acá, no lo devuelve el insert, así no hace falta
-  // permiso de SELECT sobre la tabla para leerlo de vuelta.
+  // Registra la impresión en ab_sessions (insert-only para anon). El id se
+  // genera acá, no lo devuelve el insert, así no hace falta permiso de SELECT
+  // sobre la tabla para leerlo de vuelta.
   useEffect(() => {
     const sid = uuid();
     abSessionIdRef.current = sid;
     fetch(`${SUPABASE_URL}/rest/v1/ab_sessions`, {
       method: "POST",
       headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ id: sid, variants: { [AB_EXPERIMENT_KEY]: priceVariant } }),
+      body: JSON.stringify({ id: sid, variants: { [AB_EXPERIMENT_KEY]: String(price) } }),
     }).catch(() => { /* no crítico */ });
-  }, [priceVariant]);
+  }, []);
 
   /**
    * El checkout lo hostea Stripe (Payment Link), así que el pixel no puede
@@ -153,14 +132,14 @@ const Toefl = () => {
    * pequeño delay le da tiempo al pixel y al ab_track a mandarse antes de que
    * el navegador abandone la página.
    *
-   * Mientras TOEFL_STRIPE_LINKS esté vacío (sin link de pago) el click solo
+   * Mientras TOEFL_PAYMENT_LINK esté vacío (sin link de pago) el click solo
    * queda registrado como intención de compra en ab_sessions, sin navegar.
    * El pixel tampoco se toca hasta que TOEFL_PIXEL_ID esté definido.
    */
   // El href es el link de pago real (no "#"): Ctrl/Cmd/Shift-clic y "abrir en pestaña nueva"
   // funcionan solos. Un clic normal se intercepta para registrar el evento y guardar la
   // atribución antes de ir a Stripe.
-  const paymentLink = TOEFL_STRIPE_LINKS[priceVariant];
+  const paymentLink: string = TOEFL_PAYMENT_LINK;
   const checkoutHref = paymentLink ? toeflCheckoutUrl(paymentLink) : "#";
 
   const handleCheckoutClick = async (e: React.MouseEvent<HTMLAnchorElement>) => {
@@ -205,7 +184,7 @@ const Toefl = () => {
     initMetaPixel(TOEFL_PIXEL_ID);
     trackMetaEvent("PageView", undefined, undefined, TOEFL_PIXEL_ID);
     trackMetaEvent("ViewContent", toeflEventParams(price), undefined, TOEFL_PIXEL_ID);
-  }, [price]);
+  }, []);
 
   // Contador de oferta: 30 min desde la primera visita (ver getOfferEnd).
   // useLayoutEffect y no useEffect: corre antes del primer pintado, así al
