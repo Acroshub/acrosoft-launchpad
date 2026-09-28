@@ -46,6 +46,7 @@ export type AiCategory =
   | "agendamiento"           // respuesta con tool use de calendario
   | "deteccion_intencion"    // clasificador que decide si un mensaje dispara un flujo
   | "personalizacion_flujo"  // reescritura de un paso de flujo (ai_enhance)
+  | "etiquetado_flujo"       // etiquetas automáticas en mensajes que atiende un flujo
   | "aprendizaje_ventas"     // resumen del patrón de ventas del negocio
   | "plantillas_whatsapp"    // reescritura de plantillas para aprobación de Meta
   | "hints_etiquetas"        // mejora de hints de etiquetas automáticas

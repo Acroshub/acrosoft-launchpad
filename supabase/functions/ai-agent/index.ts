@@ -864,6 +864,87 @@ async function removeAutoLabels(userId: string, conversationId: string, labelNam
   console.log(`[ai-agent] auto-labels removidas: ${labelNames.join(", ")}`);
 }
 
+// ─── Etiquetado cuando responde un flujo en vez del agente ───────────────────
+// Las etiquetas automáticas viajan como marcas en la respuesta del agente. Si
+// el mensaje lo atiende un flujo (disparo por conversación nueva o intención,
+// o avance de pasos), el agente nunca responde y el mensaje del cliente se
+// quedaba sin evaluar — un hint como "cuando alguien inicia una conversación"
+// no se aplicaba hasta el siguiente mensaje fuera del flujo. Esta llamada
+// evalúa solo las reglas, sin redactar nada para el cliente.
+async function evaluateLabelsForFlowMessage(
+  userId: string,
+  conversationId: string,
+  history: WaMessage[],
+): Promise<void> {
+  try {
+    const [{ data: labels }, { data: assigned }] = await Promise.all([
+      supabase.from("crm_wa_labels").select("id, name, hint, remove_hint").eq("user_id", userId)
+        .or("hint.not.is.null,remove_hint.not.is.null"),
+      supabase.from("crm_wa_conversation_labels").select("crm_wa_labels(name)").eq("conversation_id", conversationId),
+    ]);
+    const all = (labels ?? []) as WaLabel[];
+    const addLabels    = all.filter(l => l.hint?.trim());
+    const removeLabels = all.filter(l => l.remove_hint?.trim());
+    if (!addLabels.length && !removeLabels.length) return;
+
+    const assignedNames: string[] = ((assigned ?? []) as any[])
+      .map(r => r.crm_wa_labels?.name).filter(Boolean);
+
+    const normalize = (raw: string) => raw.trim().replace(/^(cuando|si|al)\s+/i, "").trim();
+    const rules = [
+      addLabels.length
+        ? `ETIQUETAS PARA AÑADIR (marca: |LABELS|Nombre):\n${addLabels.map(l => `- ${l.name}: añádela cuando ${normalize(l.hint!)}.`).join("\n")}`
+        : "",
+      removeLabels.length
+        ? `ETIQUETAS PARA QUITAR (marca: |REMOVE_LABELS|Nombre):\n${removeLabels.map(l => `- ${l.name}: quítala cuando ${normalize(l.remove_hint!)}.`).join("\n")}`
+        : "",
+    ].filter(Boolean).join("\n\n");
+
+    const transcript = history.slice(-10)
+      .map(m => `${m.role === "user" ? "Cliente" : "Negocio"}: ${historyContent(m)}`)
+      .join("\n");
+
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: FLOW_MODEL,
+        max_tokens: 64,
+        system: "Eres un clasificador de etiquetas de un CRM de WhatsApp. Evalúas el ÚLTIMO mensaje del cliente contra las reglas y respondes SOLO con las marcas que apliquen, por ejemplo: |LABELS|EtiquetaA|REMOVE_LABELS|EtiquetaB — o con la palabra null si no aplica ninguna. No añadas etiquetas que ya estén asignadas ni quites las que no lo estén. Sin explicación.",
+        messages: [{
+          role: "user",
+          content: `${rules}\n\nETIQUETAS ACTUALMENTE ASIGNADAS: ${assignedNames.join(", ") || "ninguna"}\n\nConversación (el último mensaje del cliente es el que se evalúa):\n${transcript}`,
+        }],
+      }),
+    });
+    if (!res.ok) {
+      console.error("[flow_labels] error de Claude:", await res.text());
+      return;
+    }
+    const json = await res.json();
+    logAiUsage(supabase, {
+      userId,
+      conversationId,
+      model: FLOW_MODEL,
+      source: "ai-agent",
+      category: "etiquetado_flujo",
+      usage: json.usage,
+    });
+
+    const { labelNames, removeNames } = parseAndStripLabels((json.content?.[0]?.text ?? "").trim());
+    await Promise.all([
+      applyAutoLabels(userId, conversationId, labelNames),
+      removeAutoLabels(userId, conversationId, removeNames),
+    ]);
+  } catch (err) {
+    console.error("[flow_labels] error evaluando etiquetas:", err instanceof Error ? err.message : err);
+  }
+}
+
 // ─── Parsear marcador [CONTACT_DATA|campo:valor|campo:valor] ─────────────────
 function parseAndStripContactData(text: string): { text: string; contactData: Record<string, string> | null } {
   const match = text.match(/\[CONTACT_DATA\|([^\]]+)\]/i);
@@ -3325,6 +3406,7 @@ Deno.serve(async (req: Request) => {
             ? { active_sequence_id: null, flow_step: 0, last_message_at: new Date().toISOString() }
             : { flow_step: newStep, last_message_at: new Date().toISOString() })
           .eq("id", conversation_id);
+        await evaluateLabelsForFlowMessage(tenant_user_id, conversation_id, history);
         return new Response(JSON.stringify({ ok: true, reason: "followup_sequence_advanced" }), { status: 200 });
       }
     }
@@ -3381,6 +3463,7 @@ Deno.serve(async (req: Request) => {
           }
         }
       }
+      await evaluateLabelsForFlowMessage(tenant_user_id, conversation_id, history);
       return new Response(JSON.stringify({ ok: true, reason: "flow_executed" }), { status: 200 });
     }
 
@@ -3440,6 +3523,7 @@ Deno.serve(async (req: Request) => {
                 .update({ active_flow_id: flow.id, flow_step: questionStepIdx, active_sequence_id: effectiveSequenceId, last_message_at: new Date().toISOString() })
                 .eq("id", conversation_id);
             }
+            await evaluateLabelsForFlowMessage(tenant_user_id, conversation_id, history);
             return new Response(JSON.stringify({ ok: true, reason: "flow_recovered" }), { status: 200 });
           }
         }
@@ -3504,7 +3588,10 @@ Deno.serve(async (req: Request) => {
         );
         if (isFirstMessage && newConvFlows.length > 0) {
           const triggered = await triggerFlow(newConvFlows[0], true);
-          if (triggered) return new Response(JSON.stringify({ ok: true, reason: "flow_triggered_new_conv" }), { status: 200 });
+          if (triggered) {
+            await evaluateLabelsForFlowMessage(tenant_user_id, conversation_id, history);
+            return new Response(JSON.stringify({ ok: true, reason: "flow_triggered_new_conv" }), { status: 200 });
+          }
         }
 
         // ── 2. Flujos de "Comportamiento" (intención detectada por IA) ──
@@ -3563,7 +3650,10 @@ Deno.serve(async (req: Request) => {
               console.log(`[flow_trigger] flujo ${matched.id} ya fue activado (trigger_once=true), omitiendo`);
             } else {
               const triggered = await triggerFlow(matched, triggerOnce);
-              if (triggered) return new Response(JSON.stringify({ ok: true, reason: "flow_triggered" }), { status: 200 });
+              if (triggered) {
+                await evaluateLabelsForFlowMessage(tenant_user_id, conversation_id, history);
+                return new Response(JSON.stringify({ ok: true, reason: "flow_triggered" }), { status: 200 });
+              }
             }
           }
         }

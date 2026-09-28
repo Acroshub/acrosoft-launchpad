@@ -1201,6 +1201,7 @@ const CATEGORY_LABELS: Record<string, { label: string; desc: string }> = {
   agendamiento:          { label: "Agendar citas",               desc: "Respuesta con acceso al calendario" },
   deteccion_intencion:   { label: "Detectar intención",          desc: "Decide si el mensaje dispara un flujo" },
   personalizacion_flujo: { label: "Personalizar flujos",         desc: "Reescribe cada paso con contexto" },
+  etiquetado_flujo:      { label: "Etiquetar en flujos",         desc: "Aplica etiquetas automáticas cuando responde un flujo" },
   aprendizaje_ventas:    { label: "Aprender de ventas",          desc: "Resume el patrón de ventas exitosas" },
   plantillas_whatsapp:   { label: "Reescribir plantillas",       desc: "Adapta plantillas para aprobación de Meta" },
   hints_etiquetas:       { label: "Mejorar hints",               desc: "Reescribe las reglas de etiquetado" },
