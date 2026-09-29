@@ -78,6 +78,17 @@ function resolveVars(varMap: Record<string, any>, phone: string, contactName: st
 
 type MediaType = "image" | "video" | "audio";
 
+type SendResult = { ok: boolean; error?: string; wa_message_id?: string };
+
+// Meta devuelve el id del mensaje (wamid) al aceptarlo. Hay que guardarlo en
+// crm_wa_messages: es la llave con la que el webhook de estados marca el mensaje
+// como entregado o leído. Sin él se quedaba en "sent" para siempre.
+async function graphResult(res: Response): Promise<SendResult> {
+  if (!res.ok) return { ok: false, error: (await res.text()).slice(0, 300) };
+  const json = await res.json().catch(() => null);
+  return { ok: true, wa_message_id: json?.messages?.[0]?.id };
+}
+
 async function sendMessage(
   phone: string,
   text: string,
@@ -85,7 +96,7 @@ async function sendMessage(
   accessToken: string,
   mediaType?: MediaType | null,
   mediaUrl?: string | null,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<SendResult> {
   const to = normalizeWaIdentifier(phone);
   let body: object;
 
@@ -112,8 +123,7 @@ async function sendMessage(
     headers: { "Authorization": `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (res.ok) return { ok: true };
-  return { ok: false, error: (await res.text()).slice(0, 300) };
+  return await graphResult(res);
 }
 
 async function sendTemplate(
@@ -121,7 +131,7 @@ async function sendTemplate(
   templateName: string, templateLanguage: string,
   varValues: string[],
   phoneNumberId: string, accessToken: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<SendResult> {
   const components: any[] = [];
   if (varValues.length > 0) {
     components.push({
@@ -142,8 +152,7 @@ async function sendTemplate(
       },
     }),
   });
-  if (res.ok) return { ok: true };
-  return { ok: false, error: (await res.text()).slice(0, 300) };
+  return await graphResult(res);
 }
 
 
@@ -166,6 +175,16 @@ function automationPart(auto: any): Part {
   return { type: "text", text };
 }
 
+// Cómo queda el mensaje en el chat del CRM. Un adjunto va con su media_type y
+// media_url, igual que los pasos de flujo: antes se guardaba como texto
+// "[image] …" y el chat no mostraba la imagen.
+function partLogFields(part: Part): Record<string, unknown> {
+  if (part.type !== "text" && part.type !== "link" && part.url) {
+    return { content: (part.text ?? "").trim() || `[${part.type}]`, media_type: part.type, media_url: part.url };
+  }
+  return { content: partSummary(part) };
+}
+
 function partSummary(part: Part): string {
   if (part.type === "text") return part.text ?? "";
   if (part.type === "link") return `[enlace] ${part.text ?? ""} ${part.link_url ?? ""}`.trim();
@@ -174,7 +193,7 @@ function partSummary(part: Part): string {
 
 async function sendPart(
   phone: string, part: Part, phoneNumberId: string, accessToken: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<SendResult> {
   const to = normalizeWaIdentifier(phone);
   let body: Record<string, unknown> | null = null;
 
@@ -216,8 +235,7 @@ async function sendPart(
     headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (res.ok) return { ok: true };
-  return { ok: false, error: (await res.text()).slice(0, 300) };
+  return await graphResult(res);
 }
 
 // ── Arranque de secuencia ─────────────────────────────────────────────────────
@@ -230,7 +248,7 @@ async function sendPart(
 // posición entre las opciones CON texto, igual que en sendInteractiveQuestion.
 async function sendQuestionStep(
   phone: string, step: any, phoneNumberId: string, accessToken: string,
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<SendResult> {
   const options = (step.options ?? []).filter((o: any) => o.label?.trim()).slice(0, 3);
   const bodyText = (step.text ?? "").trim();
 
@@ -257,8 +275,7 @@ async function sendQuestionStep(
       },
     }),
   });
-  if (res.ok) return { ok: true };
-  return { ok: false, error: (await res.text()).slice(0, 300) };
+  return await graphResult(res);
 }
 
 function stepToPart(step: any): Part {
@@ -294,9 +311,10 @@ async function runSequenceFrom(
   // Cada paso queda en el chat, igual que cuando los manda ai-agent. Si no, el
   // contacto recibe mensajes que no aparecen por ningún lado: el operador ve una
   // respuesta suelta sin la pregunta, y la IA pierde ese contexto.
-  const log = (step: any) => supabase.from("crm_wa_messages").insert({
+  const log = (step: any, waMessageId?: string) => supabase.from("crm_wa_messages").insert({
     conversation_id: conversationId,
     role: "assistant",
+    wa_message_id: waMessageId ?? null,
     content: (step.text ?? "").trim() || `[${step.type}]`,
     delivery_status: "sent",
     origin: "automation",
@@ -317,14 +335,14 @@ async function runSequenceFrom(
 
     if (step.type === "question") {
       const r = await sendQuestionStep(phone, step, phoneNumberId, accessToken);
-      if (r.ok) await log(step);
+      if (r.ok) await log(step, r.wa_message_id);
       // Se queda EN la pregunta: es el paso que ai-agent tiene que resolver.
       return { idx, completed: false, error: r.ok ? undefined : r.error };
     }
 
     const r = await sendPart(phone, stepToPart(step), phoneNumberId, accessToken);
     if (!r.ok) return { idx, completed: false, error: r.error };
-    await log(step);
+    await log(step, r.wa_message_id);
     prevType = step.type;
 
     if (!step.next_step_id) { idx = steps.length; break; }
@@ -627,7 +645,7 @@ async function processQueue() {
     let status: string = "failed";
     let errorMsg: string | null = null;
     let sentAt: string | null = null;
-    let sentContent: string | null = null; // logged to crm_wa_messages
+    let sentLog: Record<string, unknown> | null = null; // logged to crm_wa_messages
 
     try {
       if (auto.message_type === "free_text") {
@@ -638,7 +656,7 @@ async function processQueue() {
           const r = await sendPart(conv.phone, automationPart(auto), config.phone_number_id, config.access_token);
           status = r.ok ? "sent" : "failed";
           errorMsg = r.error ?? null;
-          if (r.ok) { sentAt = new Date().toISOString(); sentContent = partSummary(automationPart(auto)); }
+          if (r.ok) { sentAt = new Date().toISOString(); sentLog = { ...partLogFields(automationPart(auto)), wa_message_id: r.wa_message_id ?? null }; }
         }
 
       } else if (auto.message_type === "template") {
@@ -649,7 +667,7 @@ async function processQueue() {
           const r = await sendTemplate(conv.phone, tpl.name, tpl.language, vars, config.phone_number_id, config.access_token);
           status = r.ok ? "sent" : "failed";
           errorMsg = r.error ?? null;
-          if (r.ok) { sentAt = new Date().toISOString(); sentContent = `[Plantilla: ${tpl.name}]`; }
+          if (r.ok) { sentAt = new Date().toISOString(); sentLog = { content: `[Plantilla: ${tpl.name}]`, wa_message_id: r.wa_message_id ?? null }; }
         }
 
       } else if (auto.message_type === "free_text_with_fallback") {
@@ -657,7 +675,7 @@ async function processQueue() {
           const r = await sendPart(conv.phone, automationPart(auto), config.phone_number_id, config.access_token);
           status = r.ok ? "sent" : "failed";
           errorMsg = r.error ?? null;
-          if (r.ok) { sentAt = new Date().toISOString(); sentContent = partSummary(automationPart(auto)); }
+          if (r.ok) { sentAt = new Date().toISOString(); sentLog = { ...partLogFields(automationPart(auto)), wa_message_id: r.wa_message_id ?? null }; }
         } else {
           const tpl = tplMap[auto.template_id];
           if (!tpl) { status = "skipped"; errorMsg = "Fuera de 24h y sin plantilla de respaldo"; }
@@ -666,7 +684,7 @@ async function processQueue() {
             const r = await sendTemplate(conv.phone, tpl.name, tpl.language, vars, config.phone_number_id, config.access_token);
             status = r.ok ? "sent" : "failed";
             errorMsg = r.error ?? null;
-            if (r.ok) { sentAt = new Date().toISOString(); sentContent = `[Plantilla: ${tpl.name}]`; }
+            if (r.ok) { sentAt = new Date().toISOString(); sentLog = { content: `[Plantilla: ${tpl.name}]`, wa_message_id: r.wa_message_id ?? null }; }
           }
         }
 
@@ -680,7 +698,7 @@ async function processQueue() {
           const r = await startSequence(auto, item.conversation_id, conv.phone, config);
           status = r.ok ? "sent" : (r.skipped ? "skipped" : "failed");
           errorMsg = r.error ?? null;
-          // sentContent se queda en null a propósito: runSequenceFrom ya dejó en el
+          // sentLog se queda en null a propósito: runSequenceFrom ya dejó en el
           // chat cada paso que envió, con su texto real. Una línea extra diciendo
           // "[Secuencia iniciada]" solo duplicaría ruido encima de eso.
           if (r.ok) sentAt = new Date().toISOString();
@@ -698,13 +716,13 @@ async function processQueue() {
     // Log the sent message to crm_wa_messages so the AI Agent has full context
     // of what was said to this contact automatically. Does NOT update last_message_at
     // to keep the inactivity timer based on genuine user activity.
-    if (status === "sent" && sentContent) {
+    if (status === "sent" && sentLog) {
       await supabase.from("crm_wa_messages").insert({
         conversation_id: item.conversation_id,
         role: "assistant",
         // El prefijo "[Automatización]" sobraba: `origin` ya lo dice, y la UI lo
         // pinta como etiqueta en vez de ensuciar el texto del mensaje.
-        content: sentContent,
+        ...sentLog,
         delivery_status: "sent",
         origin: "automation",
       });
