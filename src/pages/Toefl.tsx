@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { saveCheckoutAttribution } from "@/lib/checkoutAttribution";
 import { initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
 import { uuid } from "@/lib/uuid";
@@ -8,6 +8,13 @@ const PAGE_TITLE = "Guía en Español para Aprobar el TOEFL con Nivel B2 | Ebook
 
 const OFFER_DURATION_MS = 30 * 60 * 1000;
 const OFFER_END_STORAGE_KEY = "toefl_offer_end";
+// Visitas recurrentes: el total de la barra sigue siendo 30 min (OFFER_DURATION_MS) pero a quien
+// vuelve solo le quedan 9, así la barra arranca al 30%. Va en otra llave para no pisar la oferta
+// original.
+const RETURN_OFFER_DURATION_MS = 9 * 60 * 1000;
+const RETURN_OFFER_END_STORAGE_KEY = "toefl_offer_end_return";
+const VISIT_COUNT_STORAGE_KEY = "toefl_visit_count";
+const VISIT_SESSION_KEY = "toefl_visit_counted";
 
 // ─── Precio y medición del embudo ────────────────────────────────────────────
 // Precio único (ver toeflConfig.ts). Hasta 2026-09-25 se sorteaba $19 vs $25; el test se cerró
@@ -27,15 +34,39 @@ const discountPct = Math.round((1 - price / originalPrice) * 100);
  * visita y se recuerda en localStorage: un refresh continúa el contador donde
  * iba, y una vez vencido queda en 00:00 aunque el usuario vuelva a cargar.
  */
-function getOfferEnd(): number {
+function getOfferEnd(returning: boolean): number {
+  const key = returning ? RETURN_OFFER_END_STORAGE_KEY : OFFER_END_STORAGE_KEY;
+  const duration = returning ? RETURN_OFFER_DURATION_MS : OFFER_DURATION_MS;
   try {
-    const stored = Number(localStorage.getItem(OFFER_END_STORAGE_KEY));
+    const stored = Number(localStorage.getItem(key));
     if (Number.isFinite(stored) && stored > 0) return stored;
-    const end = Date.now() + OFFER_DURATION_MS;
-    localStorage.setItem(OFFER_END_STORAGE_KEY, String(end));
+    const end = Date.now() + duration;
+    localStorage.setItem(key, String(end));
     return end;
   } catch {
-    return Date.now() + OFFER_DURATION_MS;
+    return Date.now() + duration;
+  }
+}
+
+/**
+ * ¿Es una visita recurrente (2.ª o posterior)? Cuenta una visita por sesión de pestaña
+ * (sessionStorage), así un refresh no convierte la primera visita en la segunda. Quien ya tenía
+ * el contador de oferta original de antes de este cambio cuenta como visitante previo. Si el
+ * storage no está disponible se asume primera visita.
+ */
+function isReturningVisit(): boolean {
+  try {
+    let count = Number(localStorage.getItem(VISIT_COUNT_STORAGE_KEY));
+    if (!Number.isFinite(count) || count < 0) count = 0;
+    if (!sessionStorage.getItem(VISIT_SESSION_KEY)) {
+      if (count === 0 && localStorage.getItem(OFFER_END_STORAGE_KEY)) count = 1;
+      count += 1;
+      localStorage.setItem(VISIT_COUNT_STORAGE_KEY, String(count));
+      sessionStorage.setItem(VISIT_SESSION_KEY, "1");
+    }
+    return count >= 2;
+  } catch {
+    return false;
   }
 }
 
@@ -111,6 +142,8 @@ function PriceOffer({ price, originalPrice, discountPct, dark = false }: { price
 
 const Toefl = () => {
   const abSessionIdRef = useRef<string | null>(null);
+  // Se resuelve antes del primer pintado: la primera visita no ve parpadear el CTA del hero.
+  const [returning] = useState(isReturningVisit);
 
   // Registra la impresión en ab_sessions (insert-only para anon). El id se
   // genera acá, no lo devuelve el insert, así no hace falta permiso de SELECT
@@ -186,14 +219,14 @@ const Toefl = () => {
     trackMetaEvent("ViewContent", toeflEventParams(price), undefined, TOEFL_PIXEL_ID);
   }, []);
 
-  // Contador de oferta: 30 min desde la primera visita (ver getOfferEnd).
+  // Contador de oferta: 30 min desde la primera visita; 9 en las visitas recurrentes (ver getOfferEnd).
   // useLayoutEffect y no useEffect: corre antes del primer pintado, así al
   // refrescar nunca se ve el "30:00" del markup por un instante.
   useLayoutEffect(() => {
     const textEls = document.querySelectorAll<HTMLElement>(".js-countdown");
     const barEls = document.querySelectorAll<HTMLElement>(".js-countdown-bar");
     if (!textEls.length && !barEls.length) return;
-    const end = getOfferEnd();
+    const end = getOfferEnd(returning);
 
     const render = (): boolean => {
       const diff = end - Date.now();
@@ -231,6 +264,17 @@ const Toefl = () => {
     observer.observe(trigger);
     return () => observer.disconnect();
   }, []);
+
+  // CTA del hero, solo en visitas recurrentes: columna derecha en desktop, debajo de la imagen en mobile.
+  const heroCta = (
+    <div className="section-cta hero-cta">
+      <BundleMockup />
+      <PriceOffer price={price} originalPrice={originalPrice} discountPct={discountPct} />
+      <a href={checkoutHref} onClick={handleCheckoutClick} className="btn btn-primary"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Sí, Quiero Empezar Mi Preparación</a>
+      <InstantAccessNote />
+      <PaymentIcons />
+    </div>
+  );
 
   return (
     <>
@@ -456,6 +500,16 @@ const Toefl = () => {
 }
 .toefl-page .section-cta .pc-discount{margin-top:0;padding-top:0;border-top:none;}
 .toefl-page .section-cta .btn{width:100%;margin-top:20px;}
+/* Hero en visitas recurrentes: texto + imagen a la izquierda, CTA a la derecha (mobile: en ese orden, apilados). */
+.toefl-page .hero-cta{margin:0 auto;width:100%;}
+@media(min-width:960px){
+  .toefl-page .hero-grid-returning{
+    grid-template-columns:1.05fr .95fr;grid-template-areas:"text cta" "image cta";gap:32px 56px;
+  }
+  .toefl-page .hero-grid-returning > div:first-child{grid-area:text;}
+  .toefl-page .hero-grid-returning .hero-visual{grid-area:image;}
+  .toefl-page .hero-grid-returning .hero-cta{grid-area:cta;align-self:center;}
+}
 
 /* Mockup en la tarjeta de producto */
 .toefl-page .pc-visual{padding:22px 22px 0;}
@@ -635,7 +689,7 @@ const Toefl = () => {
 
         {/* ============ HERO ============ */}
         <header className="hero">
-          <div className="container hero-grid">
+          <div className={`container hero-grid${returning ? " hero-grid-returning" : ""}`}>
             <div>
               <span className="kicker">Guía especializada en TOEFL · Edición 2026</span>
               <h1>Aprueba el <span className="accent">TOEFL</span> con <span className="highlight-wavy">Nivel B2</span> a la Primera</h1>
@@ -645,6 +699,8 @@ const Toefl = () => {
             <div className="hero-visual">
               <img src="/toefl/imagenes/hero-antes-despues.webp" alt="Antes y después: de nerviosa rindiendo el TOEFL a sonriente con su certificado de nivel B2 y la guía en mano" className="hero-photo" />
             </div>
+
+            {returning && heroCta}
           </div>
         </header>
 
