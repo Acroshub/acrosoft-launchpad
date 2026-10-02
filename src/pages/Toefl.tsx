@@ -43,7 +43,7 @@ const PARA_TI_A: string[] = [
 ];
 
 // ─── Split test del titular (H1) ─────────────────────────────────────────────
-// A = "a la Primera" (original), B = "practicando con preguntas iguales a las del examen". Misma
+// A = "a la Primera" (original), B = "con Preguntas Iguales al Examen". Misma
 // mecánica que la checklist; independiente de ella (4 combinaciones). Quien ya había visitado
 // antes (contador de visitas, de oferta o variante de la checklist) queda en A. Se registra en
 // ab_sessions.variants.toefl_headline.
@@ -772,7 +772,7 @@ const Toefl = () => {
               <span className="kicker">Guía especializada en TOEFL · Edición 2026</span>
               <h1>
                 Aprueba el <span className="accent">TOEFL</span> con <span className="highlight-wavy">Nivel B2</span>{" "}
-                {headlineVariant === "B" ? "Practicando con Preguntas Iguales a las del Examen" : "a la Primera"}
+                {headlineVariant === "B" ? "con Preguntas Iguales al Examen" : "a la Primera"}
               </h1>
               <p className="sub">Sabemos que enfrentarte al TOEFL sin saber bien qué te van a pedir puede ponerte nervioso. La mayoría de universidades, becas y posgrados de habla inglesa piden un nivel B2, y esta guía existe para ayudarte a llegar ahí: con ejercicios que se parecen de verdad al examen, no genéricos ni sacados de cualquier lado.</p>
             </div>
