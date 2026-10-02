@@ -772,7 +772,7 @@ const Toefl = () => {
               <span className="kicker">Guía especializada en TOEFL · Edición 2026</span>
               <h1>
                 Aprueba el <span className="accent">TOEFL</span> con <span className="highlight-wavy">Nivel B2</span>{" "}
-                {headlineVariant === "B" ? "practicando con preguntas iguales a las del examen" : "a la Primera"}
+                {headlineVariant === "B" ? "Practicando con Preguntas Iguales a las del Examen" : "a la Primera"}
               </h1>
               <p className="sub">Sabemos que enfrentarte al TOEFL sin saber bien qué te van a pedir puede ponerte nervioso. La mayoría de universidades, becas y posgrados de habla inglesa piden un nivel B2, y esta guía existe para ayudarte a llegar ahí: con ejercicios que se parecen de verdad al examen, no genéricos ni sacados de cualquier lado.</p>
             </div>
