@@ -16,6 +16,73 @@ const RETURN_OFFER_END_STORAGE_KEY = "toefl_offer_end_return";
 const VISIT_COUNT_STORAGE_KEY = "toefl_visit_count";
 const VISIT_SESSION_KEY = "toefl_visit_counted";
 
+// ─── Split test de la checklist "Esto es para ti si..." ──────────────────────
+// A = checklist original, B = checklist nueva (50/50). Se sortea en la primera visita y se
+// recuerda en localStorage, así quien vuelve ve la misma. Quien ya había visitado la landing antes
+// de este test (tiene el contador de visitas o de oferta) queda en A. Se registra en
+// ab_sessions.variants.toefl_para_ti.
+const PARA_TI_VARIANT_STORAGE_KEY = "toefl_para_ti_variant";
+const PARA_TI_EXPERIMENT_KEY = "toefl_para_ti";
+type ParaTiVariant = "A" | "B";
+
+const PARA_TI_B: string[] = [
+  "Tienes que rendir el TOEFL para una beca, maestría o universidad, y no sabes qué te vas a encontrar el día del examen.",
+  "Tu inglés está bien, pero te preocupa perder puntos por no saber cómo se responde cada sección.",
+  "Ya estudias inglés (o tienes curso), pero nunca practicaste con ejercicios al nivel real del examen.",
+  "Con solo pensar en el Speaking ya te pones nervioso.",
+  "No quieres arriesgarte a pagar el examen dos veces por llegar sin haber practicado.",
+];
+
+const PARA_TI_ICONS = ["i-clock", "i-book", "i-target", "i-mic", "i-alert"];
+const PARA_TI_A: string[] = [
+  "Ya tienes una fecha marcada —el examen, una beca, una postulación— y solo con pensar en tener que repetirlo se te hace un nudo en el estómago.",
+  "Sientes que tu inglés ya está bastante bien, pero apenas piensas en el TOEFL no tienes idea de qué te vas a encontrar el día del examen.",
+  "Nadie te ha explicado bien qué puntaje te están pidiendo, ni por qué existen dos escalas distintas —y eso solo te genera más dudas.",
+  "Con solo pensar en la parte de Speaking —hablar solo y grabarte, sin nadie que te diga si lo estás haciendo bien— ya te pones nervioso.",
+  "Ya buscaste ejercicios gratis en internet y lo único que encontraste fue material genérico, viejo o que no se parece en nada al examen real.",
+];
+
+// ─── Split test del titular (H1) ─────────────────────────────────────────────
+// A = "a la Primera" (original), B = "practicando con preguntas iguales a las del examen". Misma
+// mecánica que la checklist; independiente de ella (4 combinaciones). Quien ya había visitado
+// antes (contador de visitas, de oferta o variante de la checklist) queda en A. Se registra en
+// ab_sessions.variants.toefl_headline.
+const HEADLINE_VARIANT_STORAGE_KEY = "toefl_headline_variant";
+const HEADLINE_EXPERIMENT_KEY = "toefl_headline";
+type HeadlineVariant = "A" | "B";
+
+/** Debe resolverse ANTES de resolveParaTiVariant (cuenta su llave como visita previa) y de isReturningVisit. */
+function resolveHeadlineVariant(): HeadlineVariant {
+  try {
+    const stored = localStorage.getItem(HEADLINE_VARIANT_STORAGE_KEY);
+    if (stored === "A" || stored === "B") return stored;
+    const priorVisitor = !!(
+      localStorage.getItem(VISIT_COUNT_STORAGE_KEY) ||
+      localStorage.getItem(OFFER_END_STORAGE_KEY) ||
+      localStorage.getItem(PARA_TI_VARIANT_STORAGE_KEY)
+    );
+    const variant: HeadlineVariant = priorVisitor || Math.random() < 0.5 ? "A" : "B";
+    localStorage.setItem(HEADLINE_VARIANT_STORAGE_KEY, variant);
+    return variant;
+  } catch {
+    return "A";
+  }
+}
+
+/** Debe resolverse ANTES de isReturningVisit, que escribe el contador de visitas. */
+function resolveParaTiVariant(): ParaTiVariant {
+  try {
+    const stored = localStorage.getItem(PARA_TI_VARIANT_STORAGE_KEY);
+    if (stored === "A" || stored === "B") return stored;
+    const priorVisitor = !!(localStorage.getItem(VISIT_COUNT_STORAGE_KEY) || localStorage.getItem(OFFER_END_STORAGE_KEY));
+    const variant: ParaTiVariant = priorVisitor || Math.random() < 0.5 ? "A" : "B";
+    localStorage.setItem(PARA_TI_VARIANT_STORAGE_KEY, variant);
+    return variant;
+  } catch {
+    return "A";
+  }
+}
+
 // ─── Precio y medición del embudo ────────────────────────────────────────────
 // Precio único (ver toeflConfig.ts). Hasta 2026-09-25 se sorteaba $19 vs $25; el test se cerró
 // en $25 y la landing ya no lee ni guarda la variante en localStorage. Se conserva el registro de
@@ -142,7 +209,11 @@ function PriceOffer({ price, originalPrice, discountPct, dark = false }: { price
 
 const Toefl = () => {
   const abSessionIdRef = useRef<string | null>(null);
-  // Se resuelve antes del primer pintado: la primera visita no ve parpadear el CTA del hero.
+  // Se resuelven antes del primer pintado. El orden importa: la variante mira si hay visitas
+  // previas y isReturningVisit las registra.
+  const [headlineVariant] = useState(resolveHeadlineVariant);
+  const [paraTiVariant] = useState(resolveParaTiVariant);
+  // La primera visita no ve parpadear el CTA del hero.
   const [returning] = useState(isReturningVisit);
 
   // Registra la impresión en ab_sessions (insert-only para anon). El id se
@@ -154,7 +225,14 @@ const Toefl = () => {
     fetch(`${SUPABASE_URL}/rest/v1/ab_sessions`, {
       method: "POST",
       headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ id: sid, variants: { [AB_EXPERIMENT_KEY]: String(price) } }),
+      body: JSON.stringify({
+        id: sid,
+        variants: {
+          [AB_EXPERIMENT_KEY]: String(price),
+          [PARA_TI_EXPERIMENT_KEY]: paraTiVariant,
+          [HEADLINE_EXPERIMENT_KEY]: headlineVariant,
+        },
+      }),
     }).catch(() => { /* no crítico */ });
   }, []);
 
@@ -692,7 +770,10 @@ const Toefl = () => {
           <div className={`container hero-grid${returning ? " hero-grid-returning" : ""}`}>
             <div>
               <span className="kicker">Guía especializada en TOEFL · Edición 2026</span>
-              <h1>Aprueba el <span className="accent">TOEFL</span> con <span className="highlight-wavy">Nivel B2</span> a la Primera</h1>
+              <h1>
+                Aprueba el <span className="accent">TOEFL</span> con <span className="highlight-wavy">Nivel B2</span>{" "}
+                {headlineVariant === "B" ? "practicando con preguntas iguales a las del examen" : "a la Primera"}
+              </h1>
               <p className="sub">Sabemos que enfrentarte al TOEFL sin saber bien qué te van a pedir puede ponerte nervioso. La mayoría de universidades, becas y posgrados de habla inglesa piden un nivel B2, y esta guía existe para ayudarte a llegar ahí: con ejercicios que se parecen de verdad al examen, no genéricos ni sacados de cualquier lado.</p>
             </div>
 
@@ -712,26 +793,12 @@ const Toefl = () => {
             </div>
 
             <ul className="id-list">
-              <li className="id-item">
-                <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-clock" /></svg></span>
-                <p>Ya tienes una fecha marcada —el examen, una beca, una postulación— y solo con pensar en tener que repetirlo se te hace un nudo en el estómago.</p>
-              </li>
-              <li className="id-item">
-                <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-book" /></svg></span>
-                <p>Sientes que tu inglés ya está bastante bien, pero apenas piensas en el TOEFL no tienes idea de qué te vas a encontrar el día del examen.</p>
-              </li>
-              <li className="id-item">
-                <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-target" /></svg></span>
-                <p>Nadie te ha explicado bien qué puntaje te están pidiendo, ni por qué existen dos escalas distintas —y eso solo te genera más dudas.</p>
-              </li>
-              <li className="id-item">
-                <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-mic" /></svg></span>
-                <p>Con solo pensar en la parte de Speaking —hablar solo y grabarte, sin nadie que te diga si lo estás haciendo bien— ya te pones nervioso.</p>
-              </li>
-              <li className="id-item">
-                <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href="#i-alert" /></svg></span>
-                <p>Ya buscaste ejercicios gratis en internet y lo único que encontraste fue material genérico, viejo o que no se parece en nada al examen real.</p>
-              </li>
+              {(paraTiVariant === "B" ? PARA_TI_B : PARA_TI_A).map((text, i) => (
+                <li className="id-item" key={i}>
+                  <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href={`#${PARA_TI_ICONS[i]}`} /></svg></span>
+                  <p>{text}</p>
+                </li>
+              ))}
             </ul>
           </div>
         </section>
