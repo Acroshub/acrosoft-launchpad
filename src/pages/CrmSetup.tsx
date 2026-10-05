@@ -7,7 +7,7 @@ import { supabase } from "@/lib/supabase";
 import { requestPasswordReset } from "@/hooks/useAuth";
 import { checkPasswordPwned } from "@/lib/password-security";
 
-type LinkResult = "none" | "ok" | "invalid";
+type LinkResult = "none" | "ok" | "enter" | "invalid";
 
 /**
  * Convierte el enlace del correo en una sesión. Llegan dos formatos:
@@ -39,9 +39,11 @@ async function consumeAuthLink(): Promise<LinkResult> {
   await supabase.auth.getSession();
 
   if (tokenHash) {
-    if (type !== "invite" && type !== "recovery") return "invalid";
+    if (type !== "invite" && type !== "recovery" && type !== "magiclink") return "invalid";
     const { error } = await supabase.auth.verifyOtp({ token_hash: tokenHash, type });
-    return error ? "invalid" : "ok";
+    if (error) return "invalid";
+    // magiclink = acceso del admin al CRM de un cliente (generate-magic-link): no hay contraseña que fijar
+    return type === "magiclink" ? "enter" : "ok";
   }
 
   if (!accessToken || !refreshToken) return "invalid";
@@ -77,8 +79,13 @@ const CrmSetup = () => {
     linkHandled.current = true;
 
     (async () => {
-      if (await consumeAuthLink() === "invalid") {
+      const result = await consumeAuthLink();
+      if (result === "invalid") {
         setPhase("invalid");
+        return;
+      }
+      if (result === "enter") {
+        navigate("/crm", { replace: true });
         return;
       }
       const { data } = await supabase.auth.getSession();

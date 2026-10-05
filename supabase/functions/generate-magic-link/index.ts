@@ -17,7 +17,7 @@ const supabase = createClient(
  *   admin_user_id string  — must match calling user
  *
  * Returns:
- *   { magic_link: string }  — redirect the admin's browser to this URL
+ *   { magic_link: string }  — /crm-setup?token_hash=… URL (open it to sign in as the client)
  */
 Deno.serve(async (req) => {
   const corsHeaders = getCorsHeaders(req);
@@ -38,7 +38,7 @@ Deno.serve(async (req) => {
   if (authErr || !caller) return respond({ error: "Unauthorized" }, 401);
 
   try {
-    const { contact_id, redirect_to } = await req.json();
+    const { contact_id } = await req.json();
     if (!contact_id) return respond({ error: "contact_id required" }, 400);
 
     // ── 1. Verify the account belongs to the calling admin ──────────────────
@@ -56,29 +56,19 @@ Deno.serve(async (req) => {
     // ── 2. Generate OTP link for the client user ─────────────────────────────
     const fallbackUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173";
 
-    // Validate redirect_to: only allow relative paths or same origin as SITE_URL
-    let redirectTo = `${fallbackUrl}/crm`;
-    if (redirect_to) {
-      try {
-        if (redirect_to.startsWith("/")) {
-          redirectTo = `${fallbackUrl}${redirect_to}`;
-        } else {
-          const parsed = new URL(redirect_to);
-          const site   = new URL(fallbackUrl);
-          if (parsed.origin === site.origin) redirectTo = redirect_to;
-        }
-      } catch { /* invalid URL — use default */ }
-    }
-
     const { data: linkData, error: linkErr } = await supabase.auth.admin.generateLink({
       type: "magiclink",
       email: account.client_email,
-      options: { redirectTo },
     });
 
     if (linkErr) throw linkErr;
 
-    return respond({ magic_link: linkData.properties.action_link });
+    // El action_link de Supabase entrega los tokens en #hash y el cliente (PKCE) los descarta.
+    // Se arma un link a la app con token_hash; /crm-setup lo canjea con verifyOtp y entra a /crm.
+    const hashedToken = linkData.properties.hashed_token;
+    return respond({
+      magic_link: `${fallbackUrl}/crm-setup?token_hash=${encodeURIComponent(hashedToken)}&type=magiclink`,
+    });
 
   } catch (err) {
     console.error("generate-magic-link error:", err);
