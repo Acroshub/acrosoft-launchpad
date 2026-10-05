@@ -1376,7 +1376,8 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
   const [appSecret, setAppSecret]         = useState("");
   const [agentName, setAgentName]         = useState("Asistente");
   const [systemPrompt, setSystemPrompt]   = useState("");
-  const [isActive, setIsActive]           = useState(false);
+  // Quién atiende por defecto los chats nuevos: bot (AI) o una persona (HUMAN)
+  const [defaultMode, setDefaultMode]     = useState<"AI" | "HUMAN">("AI");
   const [schedulingCalendarId, setSchedulingCalendarId] = useState("");
   const [canServices, setCanServices]                 = useState(true);
   const [canTransfer, setCanTransfer]                 = useState(false);
@@ -1480,7 +1481,7 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
     setAgentName(config.agent_name ?? "Asistente");
     setSavedAgentName((config.agent_name ?? "Asistente").trim());
     setSystemPrompt(config.system_prompt ?? "");
-    setIsActive(config.is_active ?? false);
+    setDefaultMode(config.default_chat_mode === "HUMAN" ? "HUMAN" : "AI");
     setSchedulingCalendarId(config.scheduling_calendar_id ?? "");
     setCanServices(config.can_answer_services ?? true);
     setCanTransfer(config.can_transfer_human ?? false);
@@ -1613,15 +1614,17 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
     finally { setVerifying(false); setDisconnecting(false); }
   };
 
-  const handleToggleActive = async () => {
-    const next = !isActive;
-    setIsActive(next);
+  // Solo cambia el modo de los chats que lleguen desde ahora: los existentes conservan el suyo.
+  // La conexión (is_active) no se toca; para volver a la configuración inicial está "Desconectar".
+  const handleToggleMode = async () => {
+    const next = defaultMode === "AI" ? "HUMAN" : "AI";
+    setDefaultMode(next);
     try {
-      await upsert.mutateAsync({ targetUserId, is_active: next });
-      toast.success(next ? "Asistente activado" : "Asistente desactivado");
+      await upsert.mutateAsync({ targetUserId, default_chat_mode: next });
+      toast.success(next === "AI" ? "Los chats nuevos los responde el bot" : "Los chats nuevos los respondes tú");
     } catch {
-      setIsActive(!next);
-      toast.error("Error al actualizar el estado del asistente");
+      setDefaultMode(next === "AI" ? "HUMAN" : "AI");
+      toast.error("Error al cambiar el modo de los chats nuevos");
     }
   };
 
@@ -1654,7 +1657,6 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
         agent_name: agentName || "Asistente",
         model: "claude-haiku-4-5-20251001",
         system_prompt: systemPrompt || null,
-        is_active: isActive,
         can_book_appointments: !!schedulingCalendarId,
         scheduling_calendar_id: schedulingCalendarId || null,
         can_create_contacts: true,
@@ -1967,9 +1969,14 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
               <X size={16} className="text-muted-foreground" />
             </button>
             <div className="flex items-center gap-3">
-              <button onClick={handleToggleActive} className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}>
-                <span className={`absolute inset-0 rounded-full ${switchesReady ? "transition-colors" : ""} ${isActive ? "bg-emerald-500" : "bg-secondary border"}`} />
-                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow ${switchesReady ? "transition-all" : ""} ${isActive ? "left-[22px]" : "left-0.5"}`} />
+              <span className="text-[11px] font-medium text-muted-foreground">{defaultMode === "AI" ? "Bot" : "Humano"}</span>
+              <button
+                onClick={handleToggleMode}
+                title={defaultMode === "AI" ? "Los chats nuevos los responde el bot. Toca para responderlos tú." : "Los chats nuevos los respondes tú. Toca para que responda el bot."}
+                className="relative shrink-0 rounded-full" style={{ width: 40, height: 22 }}
+              >
+                <span className={`absolute inset-0 rounded-full ${switchesReady ? "transition-colors" : ""} ${defaultMode === "AI" ? "bg-emerald-500" : "bg-secondary border"}`} />
+                <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow ${switchesReady ? "transition-all" : ""} ${defaultMode === "AI" ? "left-[22px]" : "left-0.5"}`} />
               </button>
               <button
                 onClick={() => { setSection("perfil"); setMobileShowSection(true); }}
@@ -2007,8 +2014,8 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
                     )}
                   </p>
                   <div className="flex items-center justify-center gap-1.5 mt-0.5">
-                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
-                    <p className="text-[11px] text-muted-foreground">{config?.is_active ? "Activo" : "Inactivo"}</p>
+                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.default_chat_mode !== "HUMAN" ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+                    <p className="text-[11px] text-muted-foreground">{config?.default_chat_mode !== "HUMAN" ? "Chats nuevos: bot" : "Chats nuevos: humano"}</p>
                   </div>
                 </div>
               </div>
@@ -5562,8 +5569,8 @@ const CrmAgentIA = ({
                   : <span title="Desconectado — revisa Conexión en Configuración" className="shrink-0 inline-flex"><WifiOff size={13} className="text-destructive" /></span>
                 }
                 <span className="flex items-center gap-1 shrink-0">
-                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.is_active ? "bg-[#00a884]" : "bg-muted-foreground/40"}`} />
-                  <span className="text-[11px] text-muted-foreground">{config?.is_active ? "Activo" : "Apagado"}</span>
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${config?.default_chat_mode !== "HUMAN" ? "bg-[#00a884]" : "bg-muted-foreground/40"}`} />
+                  <span className="text-[11px] text-muted-foreground">{config?.default_chat_mode !== "HUMAN" ? "Bot" : "Humano"}</span>
                 </span>
               </div>
             </div>

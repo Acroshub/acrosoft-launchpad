@@ -567,6 +567,8 @@ export type CrmAIAgentConfig = {
   app_secret: string | null
   verified_phone: string | null
   verified_business_name: string | null
+  /** Modo con el que nacen los chats nuevos: AI = responde el bot, HUMAN = responde una persona */
+  default_chat_mode: 'AI' | 'HUMAN'
   webhook_verify_token: string
   agent_name: string
   system_prompt: string | null

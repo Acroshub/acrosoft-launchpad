@@ -630,10 +630,32 @@ async function upsertConversation(userId: string, phone: string, contactName: st
 
   const profilePic: string | null = contact?.profile_pic_url ?? null;
 
+  // El modo solo se fija al crear: si va en el upsert de una conversación existente le pisaría
+  // el modo que tenga (p. ej. un chat que una persona ya tomó).
+  const { data: existingConv } = await supabase
+    .from("crm_wa_conversations")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("phone", phone)
+    .maybeSingle();
+  let newConvMode: "AI" | "HUMAN" | null = null;
+  if (!existingConv) {
+    const { data: modeCfg } = await supabase
+      .from("crm_ai_agent_config")
+      .select("default_chat_mode")
+      .eq("user_id", userId)
+      .maybeSingle();
+    newConvMode = modeCfg?.default_chat_mode === "HUMAN" ? "HUMAN" : "AI";
+  }
+
   const { data, error } = await supabase
     .from("crm_wa_conversations")
     .upsert(
-      { user_id: userId, phone, contact_name: contactName, ...(profilePic ? { contact_profile_pic: profilePic } : {}) },
+      {
+        user_id: userId, phone, contact_name: contactName,
+        ...(profilePic ? { contact_profile_pic: profilePic } : {}),
+        ...(newConvMode ? { mode: newConvMode } : {}),
+      },
       { onConflict: "user_id,phone", ignoreDuplicates: false }
     )
     .select().single();
@@ -848,7 +870,11 @@ async function maybeInvokeAgent(
 ) {
   if (!isActive) return;
 
-  const { data: freshConv } = await supabase.from("crm_wa_conversations").select("mode").eq("id", conv.id).single();
+  const { data: freshConv } = await supabase
+    .from("crm_wa_conversations")
+    .select("mode, active_flow_id, triggered_flow_ids")
+    .eq("id", conv.id)
+    .single();
   const mode = freshConv?.mode ?? conv.mode;
 
   // La notificación va sin importar el modo de la conversación — si está en modo Manual
@@ -858,7 +884,35 @@ async function maybeInvokeAgent(
     .catch((err) => console.error("[webhook] error notificando nuevo mensaje:", err));
   if (waitUntilFn) waitUntilFn(notifyPromise);
 
-  if (mode !== "AI" && mode !== "FLOW") return;
+  // En modo Humano la IA no responde, pero los flujos sí siguen funcionando: se continúa
+  // el que esté en curso y se dispara el de "Conversación nueva". ai-agent recibe
+  // flows_only para no tocar nada más (ni respuesta de IA, ni mensaje fuera de horario).
+  let flowsOnly = false;
+  if (mode !== "AI" && mode !== "FLOW") {
+    if (mode !== "HUMAN") return;
+    let hasFlowWork = !!freshConv?.active_flow_id;
+    if (!hasFlowWork) {
+      // "Conversación nueva" solo aplica al primer mensaje del cliente: en los demás no se invoca nada
+      const { count: userMsgCount } = await supabase
+        .from("crm_wa_messages")
+        .select("id", { count: "exact", head: true })
+        .eq("conversation_id", conv.id)
+        .eq("role", "user")
+        .eq("is_internal", false);
+      if ((userMsgCount ?? 0) > 1) return;
+      const triggered: string[] = freshConv?.triggered_flow_ids ?? [];
+      const { data: newConvFlows } = await supabase
+        .from("crm_wa_flows")
+        .select("id")
+        .eq("user_id", tenantUserId)
+        .eq("is_active", true)
+        .eq("status", "published")
+        .eq("flow_trigger_type", "new_conversation");
+      hasFlowWork = (newConvFlows ?? []).some((f: { id: string }) => !triggered.includes(f.id));
+    }
+    if (!hasFlowWork) return;
+    flowsOnly = true;
+  }
 
   const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
   const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
@@ -871,7 +925,7 @@ async function maybeInvokeAgent(
   // Solo se agrupa el texto: un adjunto o un botón son acciones puntuales que el
   // cliente espera ver atendidas de inmediato.
   const debounced = !extra.media_base64 && !extra.button_reply_id;
-  const body = JSON.stringify({ conversation_id: conv.id, tenant_user_id: tenantUserId, phone, debounced, ...extra });
+  const body = JSON.stringify({ conversation_id: conv.id, tenant_user_id: tenantUserId, phone, debounced, ...(flowsOnly ? { flows_only: true } : {}), ...extra });
   const url = `${supabaseUrl}/functions/v1/ai-agent`;
 
   if (!debounced) {

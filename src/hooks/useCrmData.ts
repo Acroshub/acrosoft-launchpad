@@ -2078,13 +2078,15 @@ export const useSetWaConversationMode = () => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({ id, mode }: { id: string; mode: 'AI' | 'HUMAN' }) => {
+      // Tomar el control también detiene el flujo en curso: si no, seguiría avanzando con los
+      // mensajes del cliente aunque ya lo atienda una persona.
       const { error } = await supabase
         .from("crm_wa_conversations")
-        .update({ mode })
+        .update(mode === 'HUMAN' ? { mode, active_flow_id: null, flow_step: 0, active_sequence_id: null } : { mode })
         .eq("id", id);
       if (error) throw error;
     },
-    onSuccess: (_data, { id, mode }) => patchWaConversation(qc, id, { mode }),
+    onSuccess: (_data, { id, mode }) => patchWaConversation(qc, id, mode === 'HUMAN' ? { mode, active_flow_id: null, flow_step: 0, active_sequence_id: null } : { mode }),
   });
 };
 

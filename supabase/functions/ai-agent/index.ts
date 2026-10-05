@@ -3248,6 +3248,8 @@ Deno.serve(async (req: Request) => {
     media_type?: string;
     button_reply_id?: string;
     debounced?: boolean;
+    /** Chat en modo Humano: solo se avanzan/disparan flujos, la IA no responde */
+    flows_only?: boolean;
   };
   try {
     body = await req.json();
@@ -3256,6 +3258,7 @@ Deno.serve(async (req: Request) => {
   }
 
   const { conversation_id, tenant_user_id, phone, media_base64, media_mime_type, media_type, button_reply_id, debounced } = body;
+  const flowsOnly = body.flows_only === true;
   const media = (media_base64 && media_mime_type && media_type)
     ? { base64: media_base64, mimeType: media_mime_type, type: media_type as "image" | "document" }
     : null;
@@ -3308,7 +3311,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // Indicar que la IA está procesando (B19-7)
-    await supabase.from("crm_wa_conversations").update({ ai_typing: true }).eq("id", conversation_id);
+    if (!flowsOnly) await supabase.from("crm_wa_conversations").update({ ai_typing: true }).eq("id", conversation_id);
 
     // 1. Cargar config del tenant + timezone global del negocio ("Mi Negocio")
     const [{ data: config, error: configErr }, { data: bizProfile }] = await Promise.all([
@@ -3325,10 +3328,10 @@ Deno.serve(async (req: Request) => {
     config.timezone = bizProfile?.timezone ?? "America/La_Paz";
 
     // Enviar indicador nativo de escritura al contacto (B19-7) — fire and forget
-    sendTypingIndicator(phone, config);
+    if (!flowsOnly) sendTypingIndicator(phone, config);
 
     // 2. Verificar horario usando schedule JSONB
-    if (!isWithinSchedule(config.schedule, config.timezone)) {
+    if (!flowsOnly && !isWithinSchedule(config.schedule, config.timezone)) {
       const offMsg = toWhatsAppFormat(config.off_hours_message?.trim() ||
         "Gracias por escribirnos. En este momento estamos fuera del horario de atención. Te responderemos a la brevedad.");
       console.log(`[ai-agent] fuera de horario para ${phone}, enviando mensaje off-hours`);
@@ -3371,6 +3374,8 @@ Deno.serve(async (req: Request) => {
       .single();
 
     const convMode = convState?.mode ?? "AI";
+    // Al terminar un flujo el chat vuelve al modo que tenía (un chat en Humano no pasa a IA solo)
+    const restoreMode = convMode === "HUMAN" ? "HUMAN" : "AI";
     const activeFlowId = convState?.active_flow_id ?? null;
     const currentFlowStep = convState?.flow_step ?? 0;
     const triggeredFlowIds: string[] = convState?.triggered_flow_ids ?? [];
@@ -3426,7 +3431,7 @@ Deno.serve(async (req: Request) => {
 
       if (!flow || !effectiveSequenceId) {
         await supabase.from("crm_wa_conversations")
-          .update({ mode: "AI", active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
+          .update({ mode: restoreMode, active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
           .eq("id", conversation_id);
       } else {
         const { data: seq } = await supabase
@@ -3436,7 +3441,7 @@ Deno.serve(async (req: Request) => {
         if (steps.length === 0 || currentFlowStep >= steps.length) {
           await executeFinalAction(flow, phone, conversation_id, config as AgentConfig);
           await supabase.from("crm_wa_conversations")
-            .update({ mode: "AI", active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
+            .update({ mode: restoreMode, active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
             .eq("id", conversation_id);
         } else {
           console.log(`[flow] activeFlowId=${activeFlowId} step=${currentFlowStep} effectiveBtnId=${effectiveButtonReplyId}`);
@@ -3447,7 +3452,7 @@ Deno.serve(async (req: Request) => {
             if (completed) {
               await executeFinalAction(flow, phone, conversation_id, config as AgentConfig);
               await supabase.from("crm_wa_conversations")
-                .update({ mode: "AI", active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
+                .update({ mode: restoreMode, active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
                 .eq("id", conversation_id);
             } else {
               await supabase.from("crm_wa_conversations")
@@ -3510,7 +3515,7 @@ Deno.serve(async (req: Request) => {
               if (completed) {
                 await executeFinalAction(flow as ActiveFlowRow, phone, conversation_id, config as AgentConfig);
                 await supabase.from("crm_wa_conversations")
-                  .update({ mode: "AI", active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
+                  .update({ mode: restoreMode, active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
                   .eq("id", conversation_id);
               } else {
                 await supabase.from("crm_wa_conversations")
@@ -3531,7 +3536,7 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── B18-6: Modo AI — verificar si algún trigger coincide ──
-    if (convMode === "AI" && lastUserMsg) {
+    if ((convMode === "AI" || flowsOnly) && lastUserMsg) {
       const { data: activeFlows } = await supabase
         .from("crm_wa_flows")
         .select("id, sequence_id, final_action, trigger_text, trigger_once, flow_trigger_type, country_sequences")
@@ -3564,7 +3569,7 @@ Deno.serve(async (req: Request) => {
             if (completed) {
               await executeFinalAction(matched, phone, conversation_id, config as AgentConfig);
               await supabase.from("crm_wa_conversations")
-                .update({ mode: "AI", active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
+                .update({ mode: restoreMode, active_flow_id: null, flow_step: 0, active_sequence_id: null, last_message_at: new Date().toISOString() })
                 .eq("id", conversation_id);
             } else {
               await supabase.from("crm_wa_conversations")
@@ -3599,7 +3604,8 @@ Deno.serve(async (req: Request) => {
           (f.flow_trigger_type ?? "intent") === "intent" && f.trigger_text?.trim()
         );
 
-        if (intentFlows.length > 0) {
+        // Los flujos por intención usan IA para clasificar el mensaje: solo con el bot activo
+        if (!flowsOnly && intentFlows.length > 0) {
           const intentList = intentFlows
             .map((f, i) => `${i + 1}. [id:${f.id}] ${f.trigger_text}`)
             .join("\n");
@@ -3658,6 +3664,11 @@ Deno.serve(async (req: Request) => {
           }
         }
       }
+    }
+
+    // Chat en modo Humano: aquí terminan los flujos, la IA no responde
+    if (flowsOnly) {
+      return new Response(JSON.stringify({ ok: true, reason: "flows_only_no_match" }), { status: 200 });
     }
 
     // 4. Construir system prompt con catálogo, variables y etiquetas
