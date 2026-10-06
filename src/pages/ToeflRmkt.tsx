@@ -629,6 +629,11 @@ const ToeflRmkt = () => {
 .toefl-page .includes-list{margin-top:14px;display:flex;flex-direction:column;gap:12px;}
 .toefl-page .includes-list li{display:flex;gap:10px;align-items:flex-start;font-size:15.5px;color:var(--ink);min-width:0;}
 .toefl-page .includes-list .icon{width:17px;height:17px;color:var(--ok);margin-top:3px;flex-shrink:0;}
+.toefl-page .includes-list li.inc-bonus{align-items:center;gap:14px;}
+.toefl-page .includes-list .inc-thumb{
+  width:72px;height:72px;flex-shrink:0;object-fit:cover;border-radius:10px;border:1px solid var(--line);background:var(--cream-alt);
+}
+@media(min-width:760px){.toefl-page .includes-list .inc-thumb{width:88px;height:88px;}}
 .toefl-page .includes-list strong{font-weight:900;color:var(--navy);}
 .toefl-page .includes-list .inc-value{display:block;font-size:13px;font-weight:700;color:var(--gold-deep);margin-top:1px;}
 .toefl-page .includes-list .inc-value s{color:var(--ink-soft);font-weight:600;}
@@ -706,10 +711,10 @@ const ToeflRmkt = () => {
                 <h3>+ 4 Bonos Gratis</h3>
                 <p className="includes-note">Valen US$41 y hoy son tuyos sin costo.</p>
                 <ul className="includes-list">
-                  <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg><span><strong>Bono 1: Plataforma TOEFL Audio Lab</strong> — 47 audios de Listening y Speaking con voz real y transcripción, grabación de tu Speaking, simulacro cronometrado de Listening y sala de Writing<span className="inc-value"><s>Valor $15 USD</s> · <b>GRATIS hoy</b></span></span></li>
-                  <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg><span><strong>Bono 2: Plan de Emergencia — Prepárate en 7 días</strong>, para cuando te queda poco margen<span className="inc-value"><s>Valor $8 USD</s> · <b>GRATIS hoy</b></span></span></li>
-                  <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg><span><strong>Bono 3: Audios para Calmar los Nervios antes del Examen</strong><span className="inc-value"><s>Valor $6 USD</s> · <b>GRATIS hoy</b></span></span></li>
-                  <li><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg><span><strong>Bono 4: Cómo Sacarle Provecho a tu Puntaje Después del TOEFL</strong> — CV, LinkedIn, becas y oportunidades<span className="inc-value"><s>Valor $12 USD</s> · <b>GRATIS hoy</b></span></span></li>
+                  <li className="inc-bonus"><img src="/toefl/imagenes/mockup-bono1-webapp.webp" alt="Mockup del Bono 1: Plataforma TOEFL Audio Lab" className="inc-thumb" width={88} height={88} loading="lazy" decoding="async" /><span><strong>Bono 1: Plataforma TOEFL Audio Lab</strong> — 47 audios de Listening y Speaking con voz real y transcripción, grabación de tu Speaking, simulacro cronometrado de Listening y sala de Writing<span className="inc-value"><s>Valor $15 USD</s> · <b>GRATIS hoy</b></span></span></li>
+                  <li className="inc-bonus"><img src="/toefl/imagenes/mockup-bono2.webp" alt="Mockup del Bono 2: Plan de Emergencia en 7 Días" className="inc-thumb" width={88} height={88} loading="lazy" decoding="async" /><span><strong>Bono 2: Plan de Emergencia — Prepárate en 7 días</strong>, para cuando te queda poco margen<span className="inc-value"><s>Valor $8 USD</s> · <b>GRATIS hoy</b></span></span></li>
+                  <li className="inc-bonus"><img src="/toefl/imagenes/mockup-bono3-audio.webp" alt="Mockup del Bono 3: Audios para Calmar los Nervios" className="inc-thumb" width={88} height={88} loading="lazy" decoding="async" /><span><strong>Bono 3: Audios para Calmar los Nervios antes del Examen</strong><span className="inc-value"><s>Valor $6 USD</s> · <b>GRATIS hoy</b></span></span></li>
+                  <li className="inc-bonus"><img src="/toefl/imagenes/mockup-bono4.webp" alt="Mockup del Bono 4: Cómo Sacarle Provecho a tu Puntaje" className="inc-thumb" width={88} height={88} loading="lazy" decoding="async" /><span><strong>Bono 4: Cómo Sacarle Provecho a tu Puntaje Después del TOEFL</strong> — CV, LinkedIn, becas y oportunidades<span className="inc-value"><s>Valor $12 USD</s> · <b>GRATIS hoy</b></span></span></li>
                 </ul>
               </div>
             </div>
