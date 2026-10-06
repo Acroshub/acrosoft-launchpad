@@ -29,6 +29,7 @@ const LlamadasAcrosGracias = lazy(() => import("./pages/LlamadasAcrosGracias.tsx
 const Frances = lazy(() => import("./pages/Frances.tsx"));
 const TyFrances = lazy(() => import("./pages/TyFrances.tsx"));
 const Toefl = lazy(() => import("./pages/Toefl.tsx"));
+const ToeflMba = lazy(() => import("./pages/ToeflMba.tsx"));
 const TyToefl = lazy(() => import("./pages/TyToefl.tsx"));
 const ToeflPlataforma = lazy(() => import("./pages/ToeflPlataforma.tsx"));
 
@@ -66,6 +67,7 @@ const App = () => (
             <Route path="/frances" element={<Frances />} />
             <Route path="/ty-frances" element={<TyFrances />} />
             <Route path="/toefl" element={<Toefl />} />
+            <Route path="/toefl-mba" element={<ToeflMba />} />
             <Route path="/toefl-ty" element={<TyToefl />} />
             {/* Bono 1 del ebook TOEFL: webapp con contraseña compartida; maneja sus propias sub-rutas */}
             <Route path="/toefl-plataforma/*" element={<ToeflPlataforma />} />
