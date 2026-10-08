@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAiUsage } from "../_shared/ai-usage.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
-const VALIDATOR_MODEL = "claude-haiku-4-5-20251001";
+const VALIDATOR_MODEL = "claude-haiku-5-5";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -72,7 +72,8 @@ export default async function handler(req: Request): Promise<Response> {
       },
       body: JSON.stringify({
         model: VALIDATOR_MODEL,
-        max_tokens: 50,
+        max_tokens: 512,
+        output_config: { effort: "medium" },
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: trigger_text.trim() }],
       }),
@@ -82,10 +83,10 @@ export default async function handler(req: Request): Promise<Response> {
       throw new Error(`Anthropic API error: ${response.status}`);
     }
 
-    const aiData = await response.json() as { content: Array<{ text: string }>; usage?: Record<string, number> };
+    const aiData = await response.json() as { content: Array<{ type: string; text?: string }>; usage?: Record<string, number> };
     const userId = await resolveUserId(req);
     if (userId) logAiUsage(supabase, { userId, model: VALIDATOR_MODEL, source: "validate-flow-trigger", category: "validacion_triggers", usage: aiData.usage ?? {} });
-    const raw = aiData.content?.[0]?.text?.trim() ?? "";
+    const raw = aiData.content?.find((b) => b.type === "text")?.text?.trim() ?? "";
 
     let result: { severity: string; category: string | null; reason: string };
     try {

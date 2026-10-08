@@ -15,7 +15,18 @@ const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
 
 // Modelo de las tareas auxiliares del agente (clasificar intención, reescribir
 // pasos de flujo). La respuesta al cliente usa el modelo de la config del tenant.
-const FLOW_MODEL = "claude-haiku-4-5-20251001";
+const FLOW_MODEL = "claude-haiku-5-5";
+// Haiku 5.5 piensa por defecto y esos tokens cuentan contra max_tokens: sin
+// holgura, una respuesta puede cortarse tras el bloque thinking y salir vacía.
+const THINKING_HEADROOM = 2048;
+// Haiku 5.5 puede declinar una respuesta con stop_reason "refusal" (clasificadores
+// de seguridad) y no tiene fallback del lado del servidor. Para las respuestas al
+// cliente reintentamos una vez con este modelo; los clasificadores internos
+// simplemente tratan la negativa como "sin resultado".
+const REFUSAL_FALLBACK_MODEL = "claude-sonnet-5-5";
+class ClaudeRefusalError extends Error {
+  constructor() { super("Claude declinó responder (stop_reason: refusal)"); }
+}
 
 // Margen bajo la ventana de agrupación del webhook (25s): si el último mensaje
 // del cliente es más reciente que esto, otra invocación viene en camino con el
@@ -913,7 +924,8 @@ async function evaluateLabelsForFlowMessage(
       },
       body: JSON.stringify({
         model: FLOW_MODEL,
-        max_tokens: 64,
+        max_tokens: 512,
+        output_config: { effort: "medium" },
         system: "Eres un clasificador de etiquetas de un CRM de WhatsApp. Evalúas el ÚLTIMO mensaje del cliente contra las reglas y respondes SOLO con las marcas que apliquen, por ejemplo: |LABELS|EtiquetaA|REMOVE_LABELS|EtiquetaB — o con la palabra null si no aplica ninguna. No añadas etiquetas que ya estén asignadas ni quites las que no lo estén. Sin explicación.",
         messages: [{
           role: "user",
@@ -935,7 +947,7 @@ async function evaluateLabelsForFlowMessage(
       usage: json.usage,
     });
 
-    const { labelNames, removeNames } = parseAndStripLabels((json.content?.[0]?.text ?? "").trim());
+    const { labelNames, removeNames } = parseAndStripLabels((json.content?.find((b: any) => b.type === "text")?.text ?? "").trim());
     await Promise.all([
       applyAutoLabels(userId, conversationId, labelNames),
       removeAutoLabels(userId, conversationId, removeNames),
@@ -1139,7 +1151,8 @@ async function personalizeStepText(
       },
       body: JSON.stringify({
         model: FLOW_MODEL,
-        max_tokens: 256,
+        max_tokens: 768,
+        output_config: { effort: "medium" },
         system: `Eres el redactor de mensajes de WhatsApp de ${config.agent_name}. Tu tarea es reescribir un mensaje base de forma natural y variada: cambia sinónimos, ajusta ligeramente el largo, varía la estructura de las frases. Si hay contexto de conversación relevante (nombre del cliente, interés específico), incorpóralo. Responde únicamente con el mensaje final, sin explicaciones ni preguntas.`,
         messages: [
           {
@@ -1160,7 +1173,7 @@ async function personalizeStepText(
       category: "personalizacion_flujo",
       usage: json.usage,
     });
-    const raw = (json.content?.[0]?.text ?? "").trim();
+    const raw = (json.content?.find((b: any) => b.type === "text")?.text ?? "").trim();
 
     // Guard: si la IA respondió con meta-texto (preguntas, excusas, pedidos de info)
     // en vez del mensaje, devolver el texto base directamente
@@ -3021,7 +3034,8 @@ async function callClaude(
     },
     body: JSON.stringify({
       model,
-      max_tokens: maxTokens,
+      max_tokens: maxTokens + THINKING_HEADROOM,
+      output_config: { effort: "medium" },
       system: buildSystemBlocks(systemStable, systemVolatile),
       messages,
     }),
@@ -3033,7 +3047,8 @@ async function callClaude(
   }
 
   const json = await res.json();
-  const text = json?.content?.[0]?.text;
+  if (json?.stop_reason === "refusal") throw new ClaudeRefusalError();
+  const text = json?.content?.find((b: any) => b.type === "text")?.text;
   if (!text) throw new Error("Claude no devolvió contenido");
   return {
     text,
@@ -3185,7 +3200,8 @@ async function callClaudeAgentLoop(
       },
       body: JSON.stringify({
         model,
-        max_tokens: maxTokens,
+        max_tokens: maxTokens + THINKING_HEADROOM,
+        output_config: { effort: "medium" },
         system: buildSystemBlocks(systemStable, systemVolatile),
         tools,
         messages,
@@ -3201,6 +3217,8 @@ async function callClaudeAgentLoop(
     totalCacheCreation+= json.usage?.cache_creation_input_tokens ?? 0;
     totalWrite5m      += json.usage?.cache_creation?.ephemeral_5m_input_tokens ?? 0;
     totalWrite1h      += json.usage?.cache_creation?.ephemeral_1h_input_tokens ?? 0;
+
+    if (json.stop_reason === "refusal") throw new ClaudeRefusalError();
 
     if (json.stop_reason === "end_turn") {
       const textBlock = json.content?.find((b: any) => b.type === "text");
@@ -3621,7 +3639,8 @@ Deno.serve(async (req: Request) => {
               },
               body: JSON.stringify({
                 model: FLOW_MODEL,
-                max_tokens: 64,
+                max_tokens: 512,
+                output_config: { effort: "medium" },
                 system: "Eres un clasificador de intenciones. Responde SOLO con el id entre corchetes de la intención activada, o con la palabra null. Sin explicación, sin puntuación extra.",
                 messages: [{
                   role: "user",
@@ -3639,7 +3658,7 @@ Deno.serve(async (req: Request) => {
                 category: "deteccion_intencion",
                 usage: intentJson.usage,
               });
-              const raw = (intentJson.content?.[0]?.text ?? "").trim().toLowerCase();
+              const raw = (intentJson.content?.find((b: any) => b.type === "text")?.text ?? "").trim().toLowerCase();
               if (raw !== "null" && raw !== "") {
                 const idMatch = raw.match(/[a-f0-9\-]{8,}/);
                 if (idMatch) matchedId = idMatch[0];
@@ -3677,7 +3696,7 @@ Deno.serve(async (req: Request) => {
       await buildSystemPrompt(config as AgentConfig, phone, config.can_transfer_human ?? false, conversation_id, !!media);
 
     // 5. Llamar a Claude — con tool use para agendamiento, sin tools para el resto
-    const model = "claude-haiku-4-5-20251001";
+    let model = "claude-haiku-5-5";
     const canSchedule = !!(config.can_book_appointments && config.scheduling_calendar_id);
     // Techo duro acorde al largo elegido por el negocio; la instrucción de las
     // REGLAS GLOBALES es la que gobierna en la práctica (ver responseLengthRule).
@@ -3694,11 +3713,25 @@ Deno.serve(async (req: Request) => {
         phone, convContactId, calendarTimezone,
         preloadedSlots, convContactName,
       );
-      ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cacheWrite5m, cacheWrite1h } =
-        await callClaudeAgentLoop(systemStable, systemVolatile, history, model, SCHEDULING_TOOLS, toolExecutor, media, replyMaxTokens));
+      const run = (m: string) => callClaudeAgentLoop(systemStable, systemVolatile, history, m, SCHEDULING_TOOLS, toolExecutor, media, replyMaxTokens);
+      try {
+        ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cacheWrite5m, cacheWrite1h } = await run(model));
+      } catch (e) {
+        if (!(e instanceof ClaudeRefusalError)) throw e;
+        console.warn(`[ai-agent] ${model} declinó; reintentando con ${REFUSAL_FALLBACK_MODEL}`);
+        model = REFUSAL_FALLBACK_MODEL;
+        ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cacheWrite5m, cacheWrite1h } = await run(model));
+      }
     } else {
-      ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cacheWrite5m, cacheWrite1h } =
-        await callClaude(systemStable, systemVolatile, history, model, media, replyMaxTokens));
+      const run = (m: string) => callClaude(systemStable, systemVolatile, history, m, media, replyMaxTokens);
+      try {
+        ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cacheWrite5m, cacheWrite1h } = await run(model));
+      } catch (e) {
+        if (!(e instanceof ClaudeRefusalError)) throw e;
+        console.warn(`[ai-agent] ${model} declinó; reintentando con ${REFUSAL_FALLBACK_MODEL}`);
+        model = REFUSAL_FALLBACK_MODEL;
+        ({ text: rawReply, inputTokens, outputTokens, cacheReadTokens, cacheCreationTokens, cacheWrite5m, cacheWrite1h } = await run(model));
+      }
     }
 
     console.log(`[ai-agent] Claude respondió en ${Date.now() - t0}ms tokens:${inputTokens}in/${outputTokens}out cacheRead:${cacheReadTokens} cacheWrite:${cacheCreationTokens} promptChars:${systemStable.length}est/${systemVolatile.length}vol`);

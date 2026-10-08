@@ -8,7 +8,7 @@ const supabase = createClient(
 );
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
-const SUMMARY_MODEL = "claude-sonnet-5";
+const SUMMARY_MODEL = "claude-haiku-5-5";
 
 // Umbrales — ver plan "Aprendizaje de patrones de venta exitosos"
 const MIN_SALES_TO_LEARN = 6;   // no hay señal confiable con menos ventas que esto
@@ -130,7 +130,7 @@ ${transcripts.join("\n\n")}`;
       },
       body: JSON.stringify({
         model: SUMMARY_MODEL,
-        max_tokens: 800,
+        max_tokens: 2400,
         messages: [{ role: "user", content: summarizerPrompt }],
       }),
     });
@@ -138,7 +138,7 @@ ${transcripts.join("\n\n")}`;
     if (!res.ok) throw new Error(`anthropic api error: ${res.status} ${await res.text()}`);
     const json = await res.json();
     logAiUsage(supabase, { userId, model: SUMMARY_MODEL, source: "analyze-sales-pattern", category: "aprendizaje_ventas", usage: json.usage });
-    const summary = (json.content?.[0]?.text ?? "").trim();
+    const summary = (json.content?.find((b: any) => b.type === "text")?.text ?? "").trim();
     if (!summary) throw new Error("empty summary from model");
 
     const { error: updateErr } = await supabase

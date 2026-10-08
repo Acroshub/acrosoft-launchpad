@@ -10,7 +10,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAiUsage } from "../_shared/ai-usage.ts";
 
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY")!;
-const HINT_MODEL = "claude-haiku-4-5-20251001";
+const HINT_MODEL = "claude-haiku-5-5";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -63,7 +63,8 @@ Deno.serve(async (req: Request) => {
       },
       body: JSON.stringify({
         model: HINT_MODEL,
-        max_tokens: 200,
+        max_tokens: 512,
+        output_config: { effort: "medium" },
         messages: [{
           role: "user",
           content: `Eres experto en configurar instrucciones para agentes de IA de WhatsApp.
@@ -86,7 +87,7 @@ Reescribe esa descripción como una instrucción directa para el agente IA. Requ
     const json = await res.json();
     const userId = await resolveUserId(req);
     if (userId) logAiUsage(supabase, { userId, model: HINT_MODEL, source: "improve-label-hint", category: "hints_etiquetas", usage: json.usage });
-    const improved = (json.content?.[0]?.text ?? hint).trim();
+    const improved = (json.content?.find((b: any) => b.type === "text")?.text ?? hint).trim();
 
     return new Response(JSON.stringify({ improved }), {
       status: 200,

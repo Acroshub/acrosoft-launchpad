@@ -7,7 +7,7 @@ const supabase = createClient(
 );
 
 const GRAPH = "https://graph.facebook.com/v21.0";
-const TEMPLATE_MODEL = "claude-haiku-4-5-20251001";
+const TEMPLATE_MODEL = "claude-haiku-5-5";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -246,7 +246,8 @@ Responde ÚNICAMENTE con el texto del mensaje reescrito, sin explicaciones.`;
     },
     body: JSON.stringify({
       model: TEMPLATE_MODEL,
-      max_tokens: 400,
+      max_tokens: 1024,
+      output_config: { effort: "medium" },
       system: systemPrompt,
       messages: [{ role: "user", content: `Reescribe esta plantilla:\n\n${bodyText}` }],
     }),
@@ -260,7 +261,7 @@ Responde ÚNICAMENTE con el texto del mensaje reescrito, sin explicaciones.`;
 
   const data = await res.json();
   logAiUsage(supabase, { userId, model: TEMPLATE_MODEL, source: "manage-wa-templates", category: "plantillas_whatsapp", usage: data.usage });
-  const rewritten: string = data.content?.[0]?.text?.trim() ?? "";
+  const rewritten: string = data.content?.find((b: any) => b.type === "text")?.text?.trim() ?? "";
   if (!rewritten) return { ok: false, error: "La IA no devolvió contenido" };
   return { ok: true, rewritten };
 }

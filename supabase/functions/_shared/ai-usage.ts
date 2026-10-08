@@ -7,10 +7,13 @@
 const MODEL_PRICES: Record<string, { input: number; output: number }> = {
   "claude-haiku-4-5-20251001": { input: 1.00, output: 5.00 },
   "claude-haiku-4-5":          { input: 1.00, output: 5.00 },
+  // Haiku 5.5: tarifa para prompts ≤100K tokens (arriba de eso sube a 0.50/2.50).
+  "claude-haiku-5-5":          { input: 0.10, output: 0.50 },
   "claude-3-haiku-20240307":   { input: 0.25, output: 1.25 },
   "claude-sonnet-4-5":         { input: 3.00, output: 15.00 },
   "claude-sonnet-4-6":         { input: 3.00, output: 15.00 },
   "claude-sonnet-5":           { input: 3.00, output: 15.00 },
+  "claude-sonnet-5-5":         { input: 2.00, output: 10.00 },
   "claude-opus-4-7":           { input: 5.00, output: 25.00 },
   "claude-opus-4-8":           { input: 5.00, output: 25.00 },
   "claude-opus-5":             { input: 5.00, output: 25.00 },
