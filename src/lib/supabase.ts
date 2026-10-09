@@ -707,6 +707,10 @@ export type CrmWaLabel = {
   name: string
   color: string
   hint: string | null
+  remove_hint?: string | null
+  meta_event?: string | null
+  product_id?: string | null
+  status?: 'active' | 'draft'
   created_at: string
 }
 
@@ -825,6 +829,7 @@ export type CrmWaFlow = {
   trigger_once: boolean
   flow_trigger_type: CrmWaFlowTriggerType
   country_sequences: CrmWaFlowCountrySequence[]
+  product_id: string | null
   status: 'draft' | 'published'
   draft_step: number
   created_at: string

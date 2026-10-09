@@ -1,3 +1,4 @@
+import { resolveAdProduct as resolveAdProductShared } from "../_shared/ad-product.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { logAiUsage } from "../_shared/ai-usage.ts";
 import { normalizeUrl } from "../_shared/wa-url.ts";
@@ -110,6 +111,7 @@ interface WaLabel {
   name: string;
   hint: string | null;
   remove_hint: string | null;
+  product_id?: string | null;
 }
 
 interface PaymentMethodRow {
@@ -888,12 +890,15 @@ async function evaluateLabelsForFlowMessage(
   history: WaMessage[],
 ): Promise<void> {
   try {
-    const [{ data: labels }, { data: assigned }] = await Promise.all([
-      supabase.from("crm_wa_labels").select("id, name, hint, remove_hint").eq("user_id", userId)
+    const [{ data: labels }, { data: assigned }, { data: convAd }] = await Promise.all([
+      supabase.from("crm_wa_labels").select("id, name, hint, remove_hint, product_id").eq("user_id", userId).eq("status", "active")
         .or("hint.not.is.null,remove_hint.not.is.null"),
       supabase.from("crm_wa_conversation_labels").select("crm_wa_labels(name)").eq("conversation_id", conversationId),
+      supabase.from("crm_wa_conversations").select("ad_source_id").eq("id", conversationId).maybeSingle(),
     ]);
-    const all = (labels ?? []) as WaLabel[];
+    // Misma regla que en el prompt: una etiqueta de un producto solo se ofrece en chats de ese producto.
+    const { productId: chatProductId } = await resolveAdProduct(userId, convAd?.ad_source_id);
+    const all = ((labels ?? []) as WaLabel[]).filter(l => !l.product_id || !chatProductId || l.product_id === chatProductId);
     const addLabels    = all.filter(l => l.hint?.trim());
     const removeLabels = all.filter(l => l.remove_hint?.trim());
     if (!addLabels.length && !removeLabels.length) return;
@@ -2456,6 +2461,10 @@ Si te piden algo de lo anterior, respóndelo con naturalidad como si no aplicara
 sigue con la conversación normal; si insisten, transfiere a un humano.
 `;
 
+// Producto de un anuncio (anuncio → conjunto → campaña): lógica compartida con wa-meta-events.
+const resolveAdProduct = (userId: string, adSourceId: string | null | undefined) =>
+  resolveAdProductShared(supabase, userId, adSourceId);
+
 async function buildSystemPrompt(
   config: AgentConfig,
   phone: string,
@@ -2472,8 +2481,8 @@ async function buildSystemPrompt(
   const [businessRes, servicesRes, convRes, labelsRes, productsCatalog, servicesCatalog, coursesCatalog, slotsResult, productImagesInstruction] = await Promise.all([
     supabase.from("crm_business_profile").select("business_name, description, agent_faq").eq("user_id", config.user_id).maybeSingle(),
     supabase.from("crm_services").select("name, price, currency, description, discount_pct, is_recurring, recurring_price, recurring_interval, recurring_label, recurring_discount_pct").eq("user_id", config.user_id).eq("active", true).order("sort_order", { ascending: true }),
-    supabase.from("crm_wa_conversations").select("contact_name, contact_id").eq("user_id", config.user_id).eq("phone", phone).maybeSingle(),
-    supabase.from("crm_wa_labels").select("id, name, hint, remove_hint").eq("user_id", config.user_id).or("hint.not.is.null,remove_hint.not.is.null"),
+    supabase.from("crm_wa_conversations").select("contact_name, contact_id, ad_source_id, ad_headline, ad_body").eq("user_id", config.user_id).eq("phone", phone).maybeSingle(),
+    supabase.from("crm_wa_labels").select("id, name, hint, remove_hint, product_id").eq("user_id", config.user_id).eq("status", "active").or("hint.not.is.null,remove_hint.not.is.null"),
     buildProductsCatalog(config, contactCurrency),
     buildServicesCatalog(config, contactCurrency),
     buildCoursesCatalog(config, contactCurrency),
@@ -2620,7 +2629,11 @@ async function buildSystemPrompt(
 
   // Instrucción de etiquetas automáticas (añadir y quitar)
   let labelInstruction = "";
-  const allLabelData = (labelsRes.data ?? []) as WaLabel[];
+  // Una etiqueta vinculada a un producto solo se ofrece en chats de ese producto. Si el chat no tiene producto
+  // conocido (sin anuncio o anuncio sin producto) no hay con qué discriminar y se ofrecen todas, como antes.
+  const { productId: labelChatProductId } = await resolveAdProduct(config.user_id, conv?.ad_source_id);
+  const allLabelData = ((labelsRes.data ?? []) as WaLabel[])
+    .filter(l => !l.product_id || !labelChatProductId || l.product_id === labelChatProductId);
   const addLabels    = allLabelData.filter(l => l.hint?.trim());
   const removeLabels = allLabelData.filter(l => l.remove_hint?.trim());
 
@@ -2777,6 +2790,32 @@ REGLAS:
 
   const contactName = conv?.contact_name ?? null;
 
+  // Anuncio de origen (Click-to-WhatsApp). Solo suma contexto: sin anuncio, o con un
+  // anuncio sin producto asignado, el comportamiento del agente no cambia.
+  let adInstruction = "";
+  if (conv?.ad_source_id) {
+    try {
+      const { productId, label: adLabel } = await resolveAdProduct(config.user_id, conv.ad_source_id);
+      let productName: string | null = null;
+      if (productId) {
+        const { data: prod } = await supabase.from("crm_products").select("name").eq("id", productId).maybeSingle();
+        productName = prod?.name ?? null;
+      }
+      const lines: string[] = [];
+      const adName = adLabel || conv.ad_headline;
+      if (adName) lines.push(`Este cliente llegó desde el anuncio "${adName}".`);
+      if (productName) {
+        lines.push(
+          `El producto que le interesa es "${productName}": ofrécele ESE producto del catálogo, aunque su mensaje sea genérico ` +
+          `(p. ej. "Quiero más información"). No le ofrezcas otro producto a menos que lo pida.`,
+        );
+      }
+      if (lines.length) adInstruction = `\n\nORIGEN DEL CLIENTE:\n${lines.join("\n")}`;
+    } catch (err) {
+      console.error("[ai-agent] error cargando anuncio de origen:", err);
+    }
+  }
+
   // BLOQUE ESTABLE — sin datos del contacto, para que se cachee una sola vez por
   // tenant. {{contacto.nombre}} se neutraliza aquí y el nombre real viaja en el
   // bloque volátil de abajo.
@@ -2809,6 +2848,7 @@ REGLAS:
 
   // BLOQUE VOLÁTIL — específico de este contacto y momento.
   const volatile = (contactName ? `\n\nEl cliente de esta conversación se llama ${contactName}.` : "")
+    + adInstruction
     + paymentInstruction
     + schedulingInstruction
     + systemEventsInstruction;
@@ -3387,7 +3427,7 @@ Deno.serve(async (req: Request) => {
     // ── B18-6: Cargar estado de conversación (mode, active_flow_id, flow_step) ──
     const { data: convState } = await supabase
       .from("crm_wa_conversations")
-      .select("mode, active_flow_id, flow_step, triggered_flow_ids, active_sequence_id")
+      .select("mode, active_flow_id, flow_step, triggered_flow_ids, active_sequence_id, ad_source_id, ad_referral_pending, ad_referred_at")
       .eq("id", conversation_id)
       .single();
 
@@ -3557,7 +3597,7 @@ Deno.serve(async (req: Request) => {
     if ((convMode === "AI" || flowsOnly) && lastUserMsg) {
       const { data: activeFlows } = await supabase
         .from("crm_wa_flows")
-        .select("id, sequence_id, final_action, trigger_text, trigger_once, flow_trigger_type, country_sequences")
+        .select("id, sequence_id, final_action, trigger_text, trigger_once, flow_trigger_type, country_sequences, product_id")
         .eq("user_id", tenant_user_id)
         .eq("is_active", true)
         .eq("status", "published");
@@ -3603,13 +3643,28 @@ Deno.serve(async (req: Request) => {
           return true;
         }
 
+        // Producto del chat según el anuncio de origen (null = sin anuncio o anuncio sin producto).
+        const { productId: convProductId } = await resolveAdProduct(tenant_user_id, convState?.ad_source_id);
+        // ¿Este mensaje trae un anuncio nuevo? (marca encendida por el webhook, con tope de 30 min por si quedó vieja)
+        const referredAt = convState?.ad_referred_at ? new Date(convState.ad_referred_at).getTime() : 0;
+        const freshReferral = !!convState?.ad_referral_pending && Date.now() - referredAt < 30 * 60_000;
+        if (convState?.ad_referral_pending) {
+          await supabase.from("crm_wa_conversations").update({ ad_referral_pending: false }).eq("id", conversation_id);
+        }
+
         // ── 1. Flujos de "Conversación Nueva" ──
-        // Se activan solo en el primer mensaje y solo 1 vez por conversación
-        const newConvFlows = activeFlows.filter(f =>
-          (f.flow_trigger_type ?? "intent") === "new_conversation" &&
-          !triggeredFlowIds.includes(f.id)
-        );
-        if (isFirstMessage && newConvFlows.length > 0) {
+        // Generales: solo en el primer mensaje del chat. De producto: en el primer mensaje de ESE producto
+        // (primer mensaje del chat, o el que llega con un anuncio nuevo). Siempre 1 sola vez por conversación.
+        const newConvAll = activeFlows.filter(f => (f.flow_trigger_type ?? "intent") === "new_conversation");
+        const productNewFlows = convProductId ? newConvAll.filter(f => f.product_id === convProductId) : [];
+        const productPending = productNewFlows.filter(f => !triggeredFlowIds.includes(f.id));
+        // Si el producto tiene su propio flujo, el general no se usa; si no tiene, cae al general.
+        const newConvFlows = (isFirstMessage || freshReferral) && productPending.length > 0
+          ? productPending
+          : isFirstMessage && productNewFlows.length === 0
+            ? newConvAll.filter(f => !f.product_id && !triggeredFlowIds.includes(f.id))
+            : [];
+        if (newConvFlows.length > 0) {
           const triggered = await triggerFlow(newConvFlows[0], true);
           if (triggered) {
             await evaluateLabelsForFlowMessage(tenant_user_id, conversation_id, history);
@@ -3618,9 +3673,13 @@ Deno.serve(async (req: Request) => {
         }
 
         // ── 2. Flujos de "Comportamiento" (intención detectada por IA) ──
-        const intentFlows = activeFlows.filter(f =>
-          (f.flow_trigger_type ?? "intent") === "intent" && f.trigger_text?.trim()
-        );
+        // Un flujo de producto solo compite si el chat viene de ese producto; los de producto van primero.
+        const intentFlows = activeFlows
+          .filter(f =>
+            (f.flow_trigger_type ?? "intent") === "intent" && f.trigger_text?.trim() &&
+            (!f.product_id || f.product_id === convProductId)
+          )
+          .sort((a, b) => Number(!!b.product_id) - Number(!!a.product_id));
 
         // Los flujos por intención usan IA para clasificar el mensaje: solo con el bot activo
         if (!flowsOnly && intentFlows.length > 0) {

@@ -45,6 +45,9 @@ import { FLOW_COUNTRY_OPTIONS, FLOW_COUNTRY_BY_CODE } from "@/lib/countries";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import CrmWaTemplates from "@/components/crm/CrmWaTemplates";
 import CrmWaOutbound from "@/components/crm/CrmWaOutbound";
+import CrmWaAdSources from "@/components/crm/CrmWaAdSources";
+import LabelForm from "@/components/crm/wa/LabelForm";
+import CrmWaMetaEvents, { metaEventLabel } from "@/components/crm/CrmWaMetaEvents";
 import { sequenceDeleteWarning, SequenceViewer } from "@/components/crm/wa/sequences";
 import { SequenceEditor } from "@/components/crm/wa/SequenceEditor";
 import { toDraftSequence, type DraftSequence } from "@/components/crm/wa/sequence-model";
@@ -1026,6 +1029,7 @@ type DraftFlow = {
   trigger_once: boolean
   flow_trigger_type: "new_conversation" | "intent"
   country_sequences: { country_code: string; sequence_id: string }[]
+  product_id: string | null
   status: "draft" | "published"
   draft_step: number
 };
@@ -1086,7 +1090,7 @@ const FLOW_FINAL_ACTION_ICONS: Record<CrmWaFlowFinalAction, LucideIcon> = {
 } as const;
 
 function newDraftFlow(): DraftFlow {
-  return { name: "", trigger_text: "", sequence_id: null, final_action: "nothing", is_active: true, trigger_once: true, flow_trigger_type: "new_conversation", country_sequences: [], status: "draft", draft_step: 1 };
+  return { name: "", trigger_text: "", sequence_id: null, final_action: "nothing", is_active: true, trigger_once: true, flow_trigger_type: "new_conversation", country_sequences: [], product_id: null, status: "draft", draft_step: 1 };
 }
 
 // COUNTRY_OPTIONS es ahora dinámico vía useSupportedCountries() — ver hook abajo
@@ -1107,7 +1111,7 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
   const { permission: pushPermission, hasSubscription: pushHasSubscription, checked: pushChecked } = usePushSubscriptionStatus();
   const subscribePush = useSubscribeToPush();
   const { user } = useCurrentUser();
-  const { data: labels = [] }       = useWaLabels();
+  const { data: labels = [] }       = useWaLabels(undefined, true);
   const upsertLabel                 = useUpsertWaLabel();
   const deleteLabel                 = useDeleteWaLabel();
   const { data: quickReplies = [] } = useQuickReplies();
@@ -1245,6 +1249,7 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
       final_action: flow.final_action, is_active: flow.is_active, trigger_once: flow.trigger_once ?? true,
       flow_trigger_type: (flow.flow_trigger_type === "new_conversation" ? "new_conversation" : "intent") as DraftFlow["flow_trigger_type"],
       country_sequences: flow.country_sequences ?? [],
+      product_id: flow.product_id ?? null,
       status: flow.status ?? "published",
       draft_step: flow.draft_step ?? 3,
     });
@@ -1397,12 +1402,9 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
   const [doUpsell, setDoUpsell]                       = useState(false);
   const [applyDiscounts, setApplyDiscounts]           = useState(true);
   // Label form state
-  const [showNewLabelForm, setShowNewLabelForm] = useState(false);
-  const [newLabelName, setNewLabelName]         = useState("");
-  const [newLabelColor, setNewLabelColor]       = useState(LABEL_COLORS[0]);
-  const [newLabelHint, setNewLabelHint]         = useState("");
-  const [newLabelRemoveHint, setNewLabelRemoveHint] = useState("");
-  const [editingLabel, setEditingLabel]         = useState<{ id: string; name: string; color: string; hint: string | null; remove_hint: string | null } | null>(null);
+  // null = lista; "new" = formulario de etiqueta nueva; un id = formulario editando esa etiqueta.
+  const [labelView, setLabelView] = useState<null | "new" | string>(null);
+  const labelBeingEdited = labelView && labelView !== "new" ? labels.find(l => l.id === labelView) ?? null : null;
   const [showNewQrForm, setShowNewQrForm]       = useState(false);
   const [newQrShortcut, setNewQrShortcut]       = useState("");
   const [newQrContent, setNewQrContent]         = useState("");
@@ -1414,13 +1416,18 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
   const [editingQr, setEditingQr]               = useState<CrmQuickReply | null>(null);
   const editingQrFileRef                        = useRef<HTMLInputElement>(null);
   const [editingQrUploading, setEditingQrUploading] = useState(false);
-  const [improvingHintNew, setImprovingHintNew]       = useState(false);
-  const [improvingHintEdit, setImprovingHintEdit]     = useState(false);
-  const [improvingRemoveNew, setImprovingRemoveNew]   = useState(false);
-  const [improvingRemoveEdit, setImprovingRemoveEdit] = useState(false);
   // "perfil" y "plantillas" son sub-secciones ocultas: no aparecen en SECTIONS,
   // se entra a ellas desde dentro de otra sección y el back devuelve al padre.
-  const [section, setSection]             = useState<"conexion"|"agente"|"perfil"|"etiquetas"|"respuestas"|"flujos"|"seguimiento"|"plantillas">("conexion");
+  const [section, setSection]             = useState<"conexion"|"agente"|"perfil"|"etiquetas"|"respuestas"|"flujos"|"seguimiento"|"anuncios"|"plantillas">("conexion");
+  const queryClientForLabels = useQueryClient();
+  // Etiquetas sugeridas (Interesado, Calificado, Inició pago, Compra): se crean como borrador una sola vez
+  // por cuenta (la función en la base lo garantiza), al abrir Etiquetas.
+  useEffect(() => {
+    if (section !== "etiquetas" || targetUserId) return;
+    supabase.rpc("seed_suggested_labels").then(({ error }) => {
+      if (!error) queryClientForLabels.invalidateQueries({ queryKey: ["wa_labels"] });
+    });
+  }, [section, targetUserId, queryClientForLabels]);
   const [mobileShowSection, setMobileShowSection] = useState(false);
   const initialized                       = useRef(false);
   // Evita que los toggles animen "encendiéndose" al cargar la config guardada — la transición
@@ -1880,6 +1887,7 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
     { id: "respuestas" as const,  label: "Respuestas Rápidas", icon: Zap, desc: "/ atajos de respuesta rápida" },
     { id: "flujos" as const,      label: "Flujos",      icon: GitBranch, desc: "Automatiza conversaciones paso a paso" },
     { id: "seguimiento" as const, label: "Seguimiento y Envíos", icon: Send, desc: "Seguimientos automáticos y envíos masivos" },
+    { id: "anuncios" as const,    label: "Anuncios",    icon: Globe,     desc: "Qué producto vende cada anuncio de Meta" },
   ];
 
   return (
@@ -2085,12 +2093,12 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
             )}
             {section === "etiquetas" && (
               <button
-                onClick={() => setShowNewLabelForm(v => !v)}
+                onClick={() => setLabelView(v => v === null ? "new" : null)}
                 className={`w-8 h-8 flex items-center justify-center rounded-xl transition-colors shrink-0 ${
-                  showNewLabelForm ? "bg-secondary text-muted-foreground hover:bg-secondary/80" : "bg-primary text-primary-foreground hover:bg-primary/90"
+                  labelView !== null ? "bg-secondary text-muted-foreground hover:bg-secondary/80" : "bg-primary text-primary-foreground hover:bg-primary/90"
                 }`}
               >
-                {showNewLabelForm ? <X size={16} /> : <Plus size={16} />}
+                {labelView !== null ? <X size={16} /> : <Plus size={16} />}
               </button>
             )}
             {section === "flujos" && flowWizardStep === null && (
@@ -2662,7 +2670,7 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
 
           {section === "etiquetas" && (
             <div className="space-y-4">
-              {!showNewLabelForm && (
+              {labelView === null ? (
               <>
               {/* Lista de etiquetas existentes */}
               <div className="space-y-1">
@@ -2670,7 +2678,7 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
                   <div className="flex flex-col items-center justify-center gap-3 py-8">
                     <p className="text-xs text-muted-foreground/60 italic text-center">Sin etiquetas creadas</p>
                     <button
-                      onClick={() => setShowNewLabelForm(true)}
+                      onClick={() => setLabelView("new")}
                       className="h-9 px-4 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center gap-1.5 hover:opacity-90 transition-opacity"
                     >
                       <Plus size={13} /> Crear Etiqueta
@@ -2678,218 +2686,59 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
                   </div>
                 )}
                 {labels.map(l => (
-                  <div key={l.id} className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl border border-border/60 bg-card">
-                    {editingLabel?.id === l.id ? (
-                      <div className="w-full space-y-2">
-                        <div className="flex gap-1 flex-wrap">
-                          {LABEL_COLORS.map(c => (
-                            <button key={c} onClick={() => setEditingLabel(prev => prev ? { ...prev, color: c } : null)}
-                              className="w-4 h-4 rounded-full border-2 transition-all"
-                              style={{ backgroundColor: c, borderColor: editingLabel.color === c ? "#000" : "transparent" }}
-                            />
-                          ))}
-                        </div>
-                        <input
-                          value={editingLabel.name}
-                          onChange={e => setEditingLabel(prev => prev ? { ...prev, name: e.target.value } : null)}
-                          className="w-full h-7 px-2 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none"
-                          placeholder="Nombre"
-                          autoFocus
-                        />
-                        <div className="space-y-1">
-                          <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Cuándo asignar</label>
-                          <textarea
-                            value={editingLabel.hint ?? ""}
-                            onChange={e => setEditingLabel(prev => prev ? { ...prev, hint: e.target.value } : null)}
-                            placeholder="ej: cuando el usuario pregunta por precios o quiere comprar"
-                            rows={2}
-                            className="w-full px-2 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
-                          />
-                          {editingLabel.hint?.trim() && (
-                            <button
-                              type="button"
-                              disabled={improvingHintEdit}
-                              onClick={async () => {
-                                setImprovingHintEdit(true);
-                                try {
-                                  const { data, error } = await supabase.functions.invoke("improve-label-hint", {
-                                    body: { hint: editingLabel.hint, labelName: editingLabel.name },
-                                  });
-                                  if (error) { toast.error("No se pudo mejorar la sugerencia"); return; }
-                                  if (data?.improved) setEditingLabel(prev => prev ? { ...prev, hint: data.improved } : null);
-                                } finally { setImprovingHintEdit(false); }
-                              }}
-                              className="flex items-center gap-1 text-[10px] text-primary hover:underline disabled:opacity-50"
-                            >
-                              {improvingHintEdit ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
-                              {improvingHintEdit ? "Mejorando..." : "Mejorar con IA"}
-                            </button>
-                          )}
-                        </div>
-                        <div className="space-y-1">
-                          <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Cuándo quitar</label>
-                          <textarea
-                            value={editingLabel.remove_hint ?? ""}
-                            onChange={e => setEditingLabel(prev => prev ? { ...prev, remove_hint: e.target.value } : null)}
-                            placeholder="ej: cuando el usuario envía comprobante de pago o confirma el pago"
-                            rows={2}
-                            className="w-full px-2 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none resize-none"
-                          />
-                          {editingLabel.remove_hint?.trim() && (
-                            <button
-                              type="button"
-                              disabled={improvingRemoveEdit}
-                              onClick={async () => {
-                                setImprovingRemoveEdit(true);
-                                try {
-                                  const { data, error } = await supabase.functions.invoke("improve-label-hint", {
-                                    body: { hint: editingLabel.remove_hint, labelName: editingLabel.name, type: "remove" },
-                                  });
-                                  if (error) { toast.error("No se pudo mejorar la sugerencia"); return; }
-                                  if (data?.improved) setEditingLabel(prev => prev ? { ...prev, remove_hint: data.improved } : null);
-                                } finally { setImprovingRemoveEdit(false); }
-                              }}
-                              className="flex items-center gap-1 text-[10px] text-primary hover:underline disabled:opacity-50"
-                            >
-                              {improvingRemoveEdit ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
-                              {improvingRemoveEdit ? "Mejorando..." : "Mejorar con IA"}
-                            </button>
-                          )}
-                        </div>
-                        <div className="flex gap-2">
-                          <button onClick={async () => { await upsertLabel.mutateAsync(editingLabel); setEditingLabel(null); }}
-                            disabled={!editingLabel.name.trim() || upsertLabel.isPending}
-                            className="text-[11px] text-primary font-medium hover:underline">
-                            Guardar
-                          </button>
-                          <button onClick={() => setEditingLabel(null)} className="text-[11px] text-muted-foreground hover:underline">Cancelar</button>
-                        </div>
+                  <div key={l.id} className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl border bg-card ${l.status === "draft" ? "border-dashed border-amber-400/60" : "border-border/60"}`}>
+                    <Tag size={13} className="shrink-0" style={{ color: l.color }} />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm">{l.name}</span>
+                        {l.status === "draft" && (
+                          <span className="text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-400/15 px-1.5 py-0.5 rounded-full shrink-0">
+                            Borrador
+                          </span>
+                        )}
                       </div>
-                    ) : (
-                      <>
-                        <Tag size={13} className="shrink-0" style={{ color: l.color }} />
-                        <div className="flex-1 min-w-0">
-                          <span className="text-sm">{l.name}</span>
-                          {l.hint && <p className="text-[10px] text-muted-foreground/70 truncate">+ {l.hint}</p>}
-                          {(l as any).remove_hint && <p className="text-[10px] text-destructive/60 truncate">− {(l as any).remove_hint}</p>}
-                        </div>
-                        <button onClick={() => setEditingLabel({ id: l.id, name: l.name, color: l.color, hint: l.hint ?? null, remove_hint: (l as any).remove_hint ?? null })}
-                          className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
-                          <Pencil size={12} />
-                        </button>
-                        <button onClick={() => deleteLabel.mutate(l.id)}
-                          className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
-                          <Trash2 size={12} />
-                        </button>
-                      </>
-                    )}
+                      {(l.meta_event || l.product_id) && (
+                        <p className="text-[10px] text-primary/80 truncate">
+                          {l.meta_event && <>Meta: {metaEventLabel(l.meta_event)}</>}
+                          {l.meta_event && l.product_id && " · "}
+                          {l.product_id && (allProducts.find(p => p.id === l.product_id)?.name ?? "Producto")}
+                        </p>
+                      )}
+                      {l.hint && <p className="text-[10px] text-muted-foreground/70 truncate">+ {l.hint}</p>}
+                      {l.remove_hint && <p className="text-[10px] text-destructive/60 truncate">− {l.remove_hint}</p>}
+                    </div>
+                    <button onClick={() => setLabelView(l.id)}
+                      className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
+                      <Pencil size={12} />
+                    </button>
+                    <button onClick={() => deleteLabel.mutate(l.id)}
+                      className="p-1 rounded-lg hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors">
+                      <Trash2 size={12} />
+                    </button>
                   </div>
                 ))}
               </div>
+              <CrmWaMetaEvents />
               </>
-              )}
-
-              {/* Formulario nueva etiqueta — pantalla completa, solo visible al presionar + en el header */}
-              {showNewLabelForm && (
-              <div className="rounded-xl border border-dashed border-border p-3 space-y-2.5">
-                <p className="text-xs font-medium text-muted-foreground">Nueva etiqueta</p>
-                <div className="flex gap-1 flex-wrap">
-                  {LABEL_COLORS.map(c => (
-                    <button key={c} onClick={() => setNewLabelColor(c)}
-                      className="w-5 h-5 rounded-full border-2 transition-all"
-                      style={{ backgroundColor: c, borderColor: newLabelColor === c ? "#000" : "transparent" }}
-                    />
-                  ))}
-                </div>
-                <input
-                  value={newLabelName}
-                  onChange={e => setNewLabelName(e.target.value)}
-                  placeholder="Nombre de la etiqueta"
-                  className="w-full h-8 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+              ) : (
+                /* Vista de formulario (crear o editar) — key: al cambiar de etiqueta el formulario se reinicia */
+                <LabelForm
+                  key={labelView}
+                  initial={labelBeingEdited ? {
+                    id: labelBeingEdited.id, name: labelBeingEdited.name, color: labelBeingEdited.color,
+                    hint: labelBeingEdited.hint ?? null, remove_hint: labelBeingEdited.remove_hint ?? null,
+                    meta_event: labelBeingEdited.meta_event ?? null, product_id: labelBeingEdited.product_id ?? null,
+                    status: labelBeingEdited.status ?? "active",
+                  } : null}
+                  colors={LABEL_COLORS}
+                  products={allProducts}
+                  saving={upsertLabel.isPending}
+                  onCancel={() => setLabelView(null)}
+                  onSave={async values => {
+                    await upsertLabel.mutateAsync({ ...(labelBeingEdited ? { id: labelBeingEdited.id } : {}), ...values, status: "active" });
+                    setLabelView(null);
+                  }}
                 />
-                <div className="space-y-1">
-                  <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Cuándo asignar</label>
-                  <textarea
-                    value={newLabelHint}
-                    onChange={e => setNewLabelHint(e.target.value)}
-                    placeholder="ej: cuando el usuario pregunta por precios o quiere comprar"
-                    rows={2}
-                    className="w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                  />
-                  {newLabelHint.trim() && (
-                    <button
-                      type="button"
-                      disabled={improvingHintNew}
-                      onClick={async () => {
-                        setImprovingHintNew(true);
-                        try {
-                          const { data, error } = await supabase.functions.invoke("improve-label-hint", {
-                            body: { hint: newLabelHint, labelName: newLabelName || "etiqueta" },
-                          });
-                          if (error) { toast.error("No se pudo mejorar la sugerencia"); return; }
-                          if (data?.improved) setNewLabelHint(data.improved);
-                        } finally { setImprovingHintNew(false); }
-                      }}
-                      className="flex items-center gap-1 text-[10px] text-primary hover:underline disabled:opacity-50"
-                    >
-                      {improvingHintNew ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
-                      {improvingHintNew ? "Mejorando..." : "Mejorar con IA"}
-                    </button>
-                  )}
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] text-muted-foreground font-medium uppercase tracking-wide">Cuándo quitar</label>
-                  <textarea
-                    value={newLabelRemoveHint}
-                    onChange={e => setNewLabelRemoveHint(e.target.value)}
-                    placeholder="ej: cuando el usuario envía comprobante de pago o confirma el pago"
-                    rows={2}
-                    className="w-full px-2.5 py-1.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
-                  />
-                  {newLabelRemoveHint.trim() && (
-                    <button
-                      type="button"
-                      disabled={improvingRemoveNew}
-                      onClick={async () => {
-                        setImprovingRemoveNew(true);
-                        try {
-                          const { data, error } = await supabase.functions.invoke("improve-label-hint", {
-                            body: { hint: newLabelRemoveHint, labelName: newLabelName || "etiqueta", type: "remove" },
-                          });
-                          if (error) { toast.error("No se pudo mejorar la sugerencia"); return; }
-                          if (data?.improved) setNewLabelRemoveHint(data.improved);
-                        } finally { setImprovingRemoveNew(false); }
-                      }}
-                      className="flex items-center gap-1 text-[10px] text-primary hover:underline disabled:opacity-50"
-                    >
-                      {improvingRemoveNew ? <Loader2 size={10} className="animate-spin" /> : <Sparkles size={10} />}
-                      {improvingRemoveNew ? "Mejorando..." : "Mejorar con IA"}
-                    </button>
-                  )}
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => { setShowNewLabelForm(false); setNewLabelName(""); setNewLabelHint(""); setNewLabelRemoveHint(""); }}
-                    className="h-8 px-3 rounded-lg border text-xs hover:bg-secondary transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!newLabelName.trim()) return;
-                      await upsertLabel.mutateAsync({ name: newLabelName.trim(), color: newLabelColor, hint: newLabelHint.trim() || null, remove_hint: newLabelRemoveHint.trim() || null });
-                      setNewLabelName("");
-                      setNewLabelHint("");
-                      setNewLabelRemoveHint("");
-                      setShowNewLabelForm(false);
-                    }}
-                    disabled={!newLabelName.trim() || upsertLabel.isPending}
-                    className="flex-1 flex items-center justify-center gap-1 px-3 h-8 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40"
-                  >
-                    <Plus size={12} /> Crear etiqueta
-                  </button>
-                </div>
-              </div>
               )}
             </div>
           )}
@@ -3097,6 +2946,7 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
                             <>
                               <p className="text-[10px] text-muted-foreground/60 truncate">
                                 {(flow.flow_trigger_type ?? "intent") === "new_conversation" ? "Conversación nueva" : flow.trigger_text || <em>Sin trigger</em>}
+                                {flow.product_id && <> · {allProducts.find(p => p.id === flow.product_id)?.name ?? "Producto"}</>}
                               </p>
                               <p className="text-[10px] text-muted-foreground/50">
                                 {(flow.country_sequences?.length > 0)
@@ -3179,7 +3029,27 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
                         </div>
                       </div>
 
-                      {/* Intent config — solo si trigger_type = "intent" */}
+                      {/* Producto — el flujo solo aplica a chats que llegaron por un anuncio de ese producto */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-medium text-muted-foreground">¿Para qué producto?</label>
+                        <select
+                          value={editingFlow.product_id ?? ""}
+                          onChange={e => setEditingFlow(f => f ? { ...f, product_id: e.target.value || null } : f)}
+                          className="w-full h-9 px-2.5 text-base md:text-xs rounded-lg border border-input bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        >
+                          <option value="">Cualquiera (flujo general)</option>
+                          {allProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </select>
+                        <p className="text-[10px] text-muted-foreground/60 leading-snug">
+                          {editingFlow.product_id
+                            ? editingFlow.flow_trigger_type === "new_conversation"
+                              ? "Se envía con el primer mensaje de un cliente que llega desde un anuncio de este producto, aunque ya hubiera escrito antes por otro."
+                              : "Solo se evalúa en chats que llegaron desde un anuncio de este producto."
+                            : "Aplica a todos los chats. Si un producto tiene su propio flujo, ese flujo tiene prioridad para sus clientes."}
+                        </p>
+                      </div>
+
+      {/* Intent config — solo si trigger_type = "intent" */}
                       {editingFlow.flow_trigger_type === "intent" && (
                         <div className="space-y-2 pl-0.5">
                           <div className="space-y-1">
@@ -3541,11 +3411,13 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
             <CrmWaOutbound onOpenTemplates={() => setSection("plantillas")} />
           )}
 
+          {section === "anuncios" && <CrmWaAdSources />}
+
           </div>{/* end inner padding wrapper */}
           </div>{/* end scrollable area */}
 
           {/* Footer — fijo en la base, fuera del scroll */}
-          {section !== "perfil" && section !== "etiquetas" && section !== "respuestas" && section !== "flujos" && section !== "plantillas" && section !== "seguimiento" && (
+          {section !== "perfil" && section !== "etiquetas" && section !== "respuestas" && section !== "flujos" && section !== "plantillas" && section !== "seguimiento" && section !== "anuncios" && (
             <div className="px-5 py-4 border-t shrink-0">
               <Button
                 onClick={handleSave}

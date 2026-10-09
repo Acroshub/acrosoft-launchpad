@@ -2141,18 +2141,20 @@ export const useAssignConversation = () => {
 
 // ─── WhatsApp Labels ──────────────────────────────────────────────────────────
 
-export const useWaLabels = (userId?: string) => {
+// Los borradores (etiquetas sugeridas sin configurar) solo se piden desde Ajustes: no deben aparecer al etiquetar chats.
+export const useWaLabels = (userId?: string, includeDrafts = false) => {
   const { user } = useCurrentUser();
   const effectiveId = userId ?? user?.id;
   return useQuery({
-    queryKey: ["wa_labels", effectiveId],
+    queryKey: ["wa_labels", effectiveId, includeDrafts],
     queryFn: async () => {
       if (!effectiveId) return [] as CrmWaLabel[];
-      const { data } = await supabase
+      let q = supabase
         .from("crm_wa_labels")
         .select("*")
-        .eq("user_id", effectiveId)
-        .order("created_at");
+        .eq("user_id", effectiveId);
+      if (!includeDrafts) q = q.eq("status", "active");
+      const { data } = await q.order("created_at");
       return (data ?? []) as CrmWaLabel[];
     },
     enabled: !!effectiveId,
@@ -2163,11 +2165,13 @@ export const useUpsertWaLabel = () => {
   const { user } = useCurrentUser();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (label: { id?: string; name: string; color: string; hint?: string | null; remove_hint?: string | null }) => {
+    mutationFn: async (label: { id?: string; name: string; color: string; hint?: string | null; remove_hint?: string | null; meta_event?: string | null; product_id?: string | null; status?: "active" | "draft" }) => {
+      // Guardar una etiqueta desde el editor la activa (status solo se baja a "draft" si se pide explícitamente).
+      const extra = { meta_event: label.meta_event ?? null, product_id: label.product_id ?? null, status: label.status ?? "active" };
       if (label.id) {
         const { data, error } = await supabase
           .from("crm_wa_labels")
-          .update({ name: label.name, color: label.color, hint: label.hint ?? null, remove_hint: label.remove_hint ?? null })
+          .update({ name: label.name, color: label.color, hint: label.hint ?? null, remove_hint: label.remove_hint ?? null, ...extra })
           .eq("id", label.id)
           .select()
           .single();
@@ -2176,7 +2180,7 @@ export const useUpsertWaLabel = () => {
       } else {
         const { data, error } = await supabase
           .from("crm_wa_labels")
-          .insert({ name: label.name, color: label.color, hint: label.hint ?? null, remove_hint: label.remove_hint ?? null, user_id: user!.id })
+          .insert({ name: label.name, color: label.color, hint: label.hint ?? null, remove_hint: label.remove_hint ?? null, ...extra, user_id: user!.id })
           .select()
           .single();
         if (error) throw error;
@@ -2970,6 +2974,7 @@ export const useUpsertWaFlow = () => {
       trigger_once: boolean
       flow_trigger_type: "new_conversation" | "intent"
       country_sequences: { country_code: string; sequence_id: string }[]
+      product_id: string | null
       status: "draft" | "published"
       draft_step: number
     }) => {
@@ -2982,6 +2987,7 @@ export const useUpsertWaFlow = () => {
         trigger_once: flow.trigger_once,
         flow_trigger_type: flow.flow_trigger_type,
         country_sequences: flow.country_sequences,
+        product_id: flow.product_id,
         status: flow.status,
         draft_step: flow.draft_step,
       };

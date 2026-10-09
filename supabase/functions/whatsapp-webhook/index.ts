@@ -4,6 +4,7 @@ import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
 import { encodeBase64 } from "https://deno.land/std@0.208.0/encoding/base64.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 import { isInternalCall } from "../_shared/internal-auth.ts";
+import { enrichAdFromMeta, fetchAdThumbnail } from "../_shared/meta-ads.ts";
 import { isBsuid, normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
 import { extractDeliverableStoragePath, sendDeliverableDocument, RETRYABLE_MEDIA_ERROR_CODES } from "../_shared/product-deliverable.ts";
 
@@ -421,7 +422,7 @@ async function handleIncomingMessage(
 
   // ── Audio/Voice: download → transcribe → invoke agent ──
   if (msgType === "audio" || msgType === "voice") {
-    const conv = await upsertConversation(tenantUserId, phone, contactName);
+    const conv = await upsertConversation(tenantUserId, phone, contactName, msg?.referral);
 
     let transcription: string | null = null;
     const mediaId: string | undefined = msg[msgType]?.id;
@@ -451,7 +452,7 @@ async function handleIncomingMessage(
     if (!text) { await onSaved(); return; }   // no aplica: nada que guardar
 
     console.log(`[webhook] ← texto de ${phone}: "${text.slice(0, 60)}"`);
-    const conv = await upsertConversation(tenantUserId, phone, contactName);
+    const conv = await upsertConversation(tenantUserId, phone, contactName, msg?.referral);
 
     const nuevo = await saveIncoming({
       conversation_id: conv.id, role: "user", content: text, wa_message_id: waMessageId,
@@ -470,7 +471,7 @@ async function handleIncomingMessage(
     if (!mediaId) { await onSaved(); return; }   // no aplica
 
     console.log(`[webhook] ← imagen de ${phone} (media_id: ${mediaId})`);
-    const conv = await upsertConversation(tenantUserId, phone, contactName);
+    const conv = await upsertConversation(tenantUserId, phone, contactName, msg?.referral);
 
     let mediaUrl: string | null = null;
     let mediaBase64: string | null = null;
@@ -520,7 +521,7 @@ async function handleIncomingMessage(
     }
 
     console.log(`[webhook] ← PDF de ${phone}: ${filename}`);
-    const conv = await upsertConversation(tenantUserId, phone, contactName);
+    const conv = await upsertConversation(tenantUserId, phone, contactName, msg?.referral);
 
     let mediaUrl: string | null = null;
     let mediaBase64: string | null = null;
@@ -563,7 +564,7 @@ async function handleIncomingMessage(
     if (!text) { await onSaved(); return; }   // no aplica
 
     console.log(`[webhook] ← button reply de ${phone}: "${text}"`);
-    const conv = await upsertConversation(tenantUserId, phone, contactName);
+    const conv = await upsertConversation(tenantUserId, phone, contactName, msg?.referral);
 
     const nuevo = await saveIncoming({
       conversation_id: conv.id, role: "user", content: text, wa_message_id: waMessageId,
@@ -615,7 +616,7 @@ async function transcribeAudio(buffer: ArrayBuffer, mimeType: string): Promise<s
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-async function upsertConversation(userId: string, phone: string, contactName: string | null) {
+async function upsertConversation(userId: string, phone: string, contactName: string | null, referral?: any) {
   // Normalizar teléfono: quitar "+" y espacios para comparación con crm_contacts.
   // Un BSUID (ver wa-recipient.ts) se deja intacto — no es un teléfono.
   const normalizedPhone = normalizeWaIdentifier(phone);
@@ -702,7 +703,59 @@ async function upsertConversation(userId: string, phone: string, contactName: st
     }
   }
 
+  // Anuncio Click-to-WhatsApp: Meta manda `referral` solo en el primer mensaje tras el clic.
+  if (referral && typeof referral === "object") await saveAdReferral(userId, data, referral);
+
   return data;
+}
+
+/**
+ * Guarda de qué anuncio viene la conversación y registra el anuncio en
+ * crm_wa_ad_sources (para asignarle un producto desde el CRM). Es solo
+ * atribución: NUNCA debe tumbar el mensaje, por eso se traga cualquier error.
+ */
+async function saveAdReferral(userId: string, conv: any, ref: any) {
+  try {
+    const cut = (v: unknown, n: number) => (typeof v === "string" && v.trim() ? v.trim().slice(0, n) : null);
+    const sourceId = cut(ref.source_id, 200);
+    if (!sourceId) return;
+    const sourceType = cut(ref.source_type, 40);
+    const headline = cut(ref.headline, 300);
+    const body = cut(ref.body, 1000);
+    const sourceUrl = cut(ref.source_url, 500);
+    const now = new Date().toISOString();
+
+    const { error: convErr } = await supabase.from("crm_wa_conversations").update({
+      ad_source_id: sourceId, ad_source_type: sourceType, ad_headline: headline, ad_body: body,
+      ad_source_url: sourceUrl, ad_ctwa_clid: cut(ref.ctwa_clid, 500), ad_referred_at: now,
+      ad_referral_pending: true,
+    }).eq("id", conv.id);
+    if (convErr) console.error("[webhook] error guardando referral en conversación:", convErr.message);
+
+    // Alta del anuncio sin tocar el producto/etiqueta que el usuario ya haya asignado.
+    const { data: existing } = await supabase.from("crm_wa_ad_sources")
+      .select("id, thumbnail_data, synced_at").eq("user_id", userId).eq("source_id", sourceId).maybeSingle();
+    // La URL de la miniatura caduca, así que se guarda una copia — solo si aún no hay una.
+    const thumbnail = existing?.thumbnail_data ? null : await fetchAdThumbnail(ref.image_url ?? ref.thumbnail_url);
+    if (existing) {
+      await supabase.from("crm_wa_ad_sources").update({
+        last_seen_at: now, source_type: sourceType, headline, body, source_url: sourceUrl,
+        ...(thumbnail ? { thumbnail_data: thumbnail } : {}),
+      }).eq("id", existing.id);
+    } else {
+      await supabase.from("crm_wa_ad_sources").insert({
+        user_id: userId, source_id: sourceId, source_type: sourceType, headline, body, source_url: sourceUrl,
+        thumbnail_data: thumbnail,
+      });
+    }
+    // Con la cuenta publicitaria conectada, se pide a Meta la campaña y el conjunto del anuncio
+    // para que el producto asignado a ellos se aplique ya en este primer mensaje.
+    if (!existing || !existing.synced_at) {
+      await enrichAdFromMeta(supabase, userId, sourceId, !!(existing?.thumbnail_data || thumbnail));
+    }
+  } catch (err) {
+    console.error("[webhook] error registrando anuncio de origen:", err);
+  }
 }
 
 async function sendAutoReply(phone: string, text: string, tenantUserId: string, conversationId: string) {
