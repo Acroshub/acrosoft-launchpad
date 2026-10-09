@@ -108,7 +108,9 @@ async function syncTenant(calendarConfigId: string, userId: string, googleCalend
   }
   await deleteQuery;
 
-  console.log(`[sync-google] synced ${upsertRows.length} events for ${calendarConfigId}`);
+  if (upsertRows.length > 0) {
+    console.log(`[sync-google] synced ${upsertRows.length} events for ${calendarConfigId}`);
+  }
 }
 
 // Register a Google push-notification watch channel for a calendar config
