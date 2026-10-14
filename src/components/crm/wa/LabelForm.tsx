@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { Loader2, Plus, Sparkles } from "lucide-react";
+import { Copy, Loader2, Plus, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { MetaEventSelect } from "@/components/crm/CrmWaMetaEvents";
+import { labelUnchanged, NOT_MODIFIED_MSG } from "@/lib/duplicates";
 
 export interface LabelFormValues {
   name: string;
@@ -16,11 +17,14 @@ export interface LabelFormValues {
 export interface LabelFormInitial extends LabelFormValues {
   id?: string;
   status?: "active" | "draft";
+  duplicated_from?: string | null;
 }
 
 // Vista completa para crear o editar una etiqueta (reemplaza a la edición dentro de la lista).
-export default function LabelForm({ initial, colors, products, saving, onSave, onCancel }: {
+export default function LabelForm({ initial, source, otherNames, colors, products, saving, onSave, onCancel }: {
   initial: LabelFormInitial | null;           // null = etiqueta nueva
+  source?: LabelFormValues | null;            // original de una copia (para exigir que se modifique)
+  otherNames?: string[];                      // nombres de las demás etiquetas (la IA las distingue por nombre)
   colors: string[];
   products: { id: string; name: string }[];
   saving: boolean;
@@ -37,6 +41,15 @@ export default function LabelForm({ initial, colors, products, saving, onSave, o
 
   const isEdit = !!initial?.id;
   const isDraft = initial?.status === "draft";
+
+  // Copia de otra etiqueta: no se guarda idéntica al original ni con el nombre de otra existente.
+  const isCopy = !!initial?.duplicated_from;
+  const current: LabelFormValues = {
+    name, color, hint: hint.trim() || null, remove_hint: removeHint.trim() || null, meta_event: metaEvent, product_id: productId,
+  };
+  const copyUnchanged = isCopy && !!source && labelUnchanged(current, source);
+  const nameTaken = isCopy && !!name.trim() && (otherNames ?? []).some(n => n.trim().toLowerCase() === name.trim().toLowerCase());
+  const blocked = copyUnchanged || nameTaken;
 
   const improve = async (kind: "add" | "remove") => {
     const text = kind === "add" ? hint : removeHint;
@@ -65,6 +78,18 @@ export default function LabelForm({ initial, colors, products, saving, onSave, o
   return (
     <div className="rounded-xl border border-dashed border-border p-3 space-y-2.5">
       <p className="text-xs font-medium text-muted-foreground">{isEdit ? "Editar etiqueta" : "Nueva etiqueta"}</p>
+      {isCopy && (
+        <div className={`flex items-start gap-2 p-2.5 rounded-xl border ${blocked ? "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/40" : "bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/40"}`}>
+          <Copy size={13} className={`shrink-0 mt-0.5 ${blocked ? "text-amber-600" : "text-emerald-600"}`} />
+          <p className={`text-[11px] leading-relaxed ${blocked ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"}`}>
+            {nameTaken
+              ? "Ya existe otra etiqueta con ese nombre. La IA las distingue por nombre, así que debe ser único."
+              : copyUnchanged
+                ? <>Copia de una etiqueta existente. {NOT_MODIFIED_MSG}</>
+                : "Ya difiere del original: puedes guardarla."}
+          </p>
+        </div>
+      )}
       <div className="flex gap-1 flex-wrap">
         {colors.map(c => (
           <button key={c} type="button" onClick={() => setColor(c)}
@@ -132,7 +157,7 @@ export default function LabelForm({ initial, colors, products, saving, onSave, o
             hint: hint.trim() || null, remove_hint: removeHint.trim() || null,
             meta_event: metaEvent, product_id: productId,
           })}
-          disabled={!name.trim() || saving}
+          disabled={!name.trim() || saving || blocked}
           className="flex-1 flex items-center justify-center gap-1 px-3 h-8 rounded-lg bg-primary text-primary-foreground text-xs font-medium disabled:opacity-40"
         >
           {saving ? <Loader2 size={12} className="animate-spin" /> : !isEdit && <Plus size={12} />}

@@ -2,14 +2,16 @@ import { useState, useMemo } from "react";
 import {
   Plus, Trash2, Edit2, Zap, Clock, CheckCircle2, XCircle, Loader2,
   ChevronDown, ChevronUp, ArrowLeft, SkipForward, Megaphone, GitBranch,
-  ChevronLeft, ChevronRight, AlertCircle,
+  ChevronLeft, ChevronRight, AlertCircle, Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   useWaAutomations, useCreateWaAutomation, useUpdateWaAutomation,
   useDeleteWaAutomation, useAutomationQueue, useWaTemplates,
-  useProducts, useServices, useCourses, useDeleteWaSequence,
+  useProducts, useServices, useCourses, useDeleteWaSequence, useWaSequences,
 } from "@/hooks/useCrmData";
+import { useDuplicateWaAutomation } from "@/hooks/useDuplicateItems";
+import { automationUnchanged, NOT_MODIFIED_MSG } from "@/lib/duplicates";
 import { useCurrentUser } from "@/hooks/useAuth";
 import { Switch } from "@/components/ui/switch";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
@@ -197,6 +199,28 @@ function toForm(a: CrmWaAutomation): FormState {
   };
 }
 
+// Lo que se guarda de un formulario. Se usa tanto para guardar como para comparar una copia con su original,
+// así se comparan exactamente los mismos datos.
+function buildPayload(form: FormState) {
+  const usesFree = form.payload === "free_text";
+  return {
+    name: form.name.trim(),
+    trigger_type: "inactivity" as const,
+    trigger_inactivity_hours: form.hours,
+    audience_type: form.audienceType,
+    audience_filters: form.filters,
+    audience_match: form.match,
+    message_type: form.payload,
+    parts: usesFree ? [form.part] : [],
+    sequence_id: form.payload === "sequence" ? form.sequenceId : null,
+    message_text: null,
+    media_type: null,
+    media_url: null,
+    template_id: form.payload === "template" ? form.templateId : null,
+    template_var_map: form.varMap,
+  };
+}
+
 function AutomationWizard({ editing, onDone }: {
   editing: CrmWaAutomation | null;
   onDone: () => void;
@@ -244,31 +268,29 @@ function AutomationWizard({ editing, onDone }: {
     return form.name.trim().length > 0;
   };
 
+  // Copia de otro seguimiento: no se puede guardar idéntica al original.
+  const { data: allSequences = [] } = useWaSequences();
+  const { data: allAutomations = [] } = useWaAutomations();
+  const isCopy = editing?.status === "draft" && !!editing.duplicated_from;
+  const copySource = isCopy ? allAutomations.find(a => a.id === editing!.duplicated_from) : undefined;
+  const copyUnchanged = !!copySource
+    && automationUnchanged(buildPayload(form), buildPayload(toForm(copySource)), allSequences);
+
   const handleSave = async () => {
     if (!form.name.trim()) return;
+    if (copyUnchanged) { toast.error(NOT_MODIFIED_MSG); return; }
     setSaving(true);
     try {
-      const usesFree = form.payload === "free_text";
       const payload = {
-        name: form.name.trim(),
-        is_active: editing?.is_active ?? true,
-        trigger_type: "inactivity" as const,
-        trigger_inactivity_hours: form.hours,
-        audience_type: form.audienceType,
-        audience_filters: form.filters,
-        audience_match: form.match,
-        message_type: form.payload,
-        parts: usesFree ? [form.part] : [],
-        sequence_id: form.payload === "sequence" ? form.sequenceId : null,
-        message_text: null,
-        media_type: null,
-        media_url: null,
-        template_id: form.payload === "template" ? form.templateId : null,
-        template_var_map: form.varMap,
+        ...buildPayload(form),
+        // Una copia en borrador se publica al guardarla (y se enciende, como cualquier seguimiento nuevo).
+        is_active: isCopy ? true : (editing?.is_active ?? true),
+        status: "published" as const,
+        duplicated_from: null,
       };
       if (editing) await updateAuto.mutateAsync({ id: editing.id, ...payload });
       else         await createAuto.mutateAsync(payload);
-      toast.success(editing ? "Seguimiento actualizado" : "Seguimiento creado");
+      toast.success(editing ? (isCopy ? "Copia guardada" : "Seguimiento actualizado") : "Seguimiento creado");
       onDone();
     } catch (e: any) {
       toast.error(e?.message ?? "No se pudo guardar");
@@ -294,6 +316,19 @@ function AutomationWizard({ editing, onDone }: {
           <XCircle size={15} />
         </button>
       </div>
+
+      {isCopy && (
+        <div className={`flex items-start gap-2 p-2.5 rounded-xl border ${copyUnchanged ? "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/40" : "bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/40"}`}>
+          <Copy size={13} className={`shrink-0 mt-0.5 ${copyUnchanged ? "text-amber-600" : "text-emerald-600"}`} />
+          <p className={`text-[11px] leading-relaxed ${copyUnchanged ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"}`}>
+            {copySource
+              ? copyUnchanged
+                ? <>Copia de <strong>«{copySource.name}»</strong>. {NOT_MODIFIED_MSG}</>
+                : <>Copia de <strong>«{copySource.name}»</strong>. Ya difiere del original: puedes guardarla.</>
+              : "Copia de un seguimiento que ya no existe."}
+          </p>
+        </div>
+      )}
 
       <StepBar steps={STEPS} current={step} />
       <p className="text-[11px] text-muted-foreground -mt-1">{STEP_HINTS[step]}</p>
@@ -513,9 +548,9 @@ function AutomationWizard({ editing, onDone }: {
             Siguiente <ChevronRight size={14} />
           </button>
         ) : (
-          <button type="button" onClick={handleSave} disabled={saving || !canNext()}
+          <button type="button" onClick={handleSave} disabled={saving || !canNext() || copyUnchanged}
             className="flex items-center gap-1.5 h-9 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40">
-            {saving ? <><Loader2 size={13} className="animate-spin" /> Guardando...</> : <><CheckCircle2 size={13} /> {editing ? "Guardar cambios" : "Crear seguimiento"}</>}
+            {saving ? <><Loader2 size={13} className="animate-spin" /> Guardando...</> : <><CheckCircle2 size={13} /> {isCopy ? "Guardar copia" : editing ? "Guardar cambios" : "Crear seguimiento"}</>}
           </button>
         )}
       </div>
@@ -568,11 +603,14 @@ const PAYLOAD_LABEL: Partial<Record<WaAutomationMsgType, string>> = {
   sequence: "Secuencia",
 };
 
-function AutomationCard({ automation, onEdit, onDelete }: {
+function AutomationCard({ automation, onEdit, onDelete, onDuplicate, duplicating }: {
   automation: CrmWaAutomation;
   onEdit: () => void;
   onDelete: () => void;
+  onDuplicate: () => void;
+  duplicating: boolean;
 }) {
+  const isDraft = automation.status === "draft";
   const [open, setOpen] = useState(false);
   const updateAuto = useUpdateWaAutomation();
 
@@ -582,6 +620,11 @@ function AutomationCard({ automation, onEdit, onDelete }: {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-sm font-medium truncate">{automation.name}</span>
+            {isDraft && (
+              <span className="text-[9px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400 bg-amber-400/15 px-1.5 py-0.5 rounded-full shrink-0">
+                Borrador
+              </span>
+            )}
             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400">
               <Clock size={9} />{automation.trigger_inactivity_hours ?? "—"}h
             </span>
@@ -590,14 +633,18 @@ function AutomationCard({ automation, onEdit, onDelete }: {
             </span>
           </div>
           <p className="text-xs text-muted-foreground mt-0.5">
-            {automation.sent_count} enviados · {automation.skipped_count} omitidos · {automation.failed_count} fallidos
+            {isDraft
+              ? "Copia sin terminar: modifícala y guárdala para activarla"
+              : `${automation.sent_count} enviados · ${automation.skipped_count} omitidos · ${automation.failed_count} fallidos`}
           </p>
         </div>
-        <Switch
-          checked={automation.is_active}
-          onCheckedChange={v => updateAuto.mutate({ id: automation.id, is_active: v })}
-          className="shrink-0"
-        />
+        {!isDraft && (
+          <Switch
+            checked={automation.is_active}
+            onCheckedChange={v => updateAuto.mutate({ id: automation.id, is_active: v })}
+            className="shrink-0"
+          />
+        )}
       </div>
       <div className="flex items-center gap-1 px-3 pb-2.5">
         <button onClick={() => setOpen(o => !o)}
@@ -605,6 +652,10 @@ function AutomationCard({ automation, onEdit, onDelete }: {
           {open ? <ChevronUp size={12} /> : <ChevronDown size={12} />} Historial
         </button>
         <div className="flex-1" />
+        <button onClick={onDuplicate} disabled={duplicating} title="Duplicar"
+          className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors disabled:opacity-40">
+          {duplicating ? <Loader2 size={13} className="animate-spin" /> : <Copy size={13} />}
+        </button>
         <button onClick={onEdit} className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"><Edit2 size={13} /></button>
         <button onClick={onDelete} className="p-1.5 rounded-lg text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"><Trash2 size={13} /></button>
       </div>
@@ -618,6 +669,22 @@ function AutomationCard({ automation, onEdit, onDelete }: {
 export default function CrmWaAutomations() {
   const { data: automations = [], isLoading } = useWaAutomations();
   const deleteAuto = useDeleteWaAutomation();
+  const duplicateAuto = useDuplicateWaAutomation();
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+
+  const handleDuplicate = async (a: CrmWaAutomation) => {
+    setDuplicatingId(a.id);
+    try {
+      const copy = await duplicateAuto.mutateAsync({ automation: a, existingNames: automations.map(x => x.name) });
+      toast.success("Copia creada como borrador: modifícala para guardarla");
+      setEditing(copy);
+      setBuilding(true);
+    } catch (e: any) {
+      toast.error(e?.message ?? "No se pudo duplicar");
+    } finally {
+      setDuplicatingId(null);
+    }
+  };
 
   const [building, setBuilding] = useState(false);
   const [editing, setEditing]   = useState<CrmWaAutomation | null>(null);
@@ -658,6 +725,8 @@ export default function CrmWaAutomations() {
           {automations.map(a => (
             <AutomationCard key={a.id} automation={a}
               onEdit={() => { setEditing(a); setBuilding(true); }}
+              onDuplicate={() => handleDuplicate(a)}
+              duplicating={duplicatingId === a.id}
               onDelete={() => setDeleteTarget(a)} />
           ))}
         </div>

@@ -418,6 +418,7 @@ async function detectInactivity() {
     .from("crm_wa_automations")
     .select("id, user_id, trigger_inactivity_hours, audience_type, audience_filters, audience_match")
     .eq("is_active", true)
+    .eq("status", "published")   // un borrador (p. ej. una copia a medio editar) nunca se dispara
     .eq("trigger_type", "inactivity");
 
   for (const auto of automations ?? []) {

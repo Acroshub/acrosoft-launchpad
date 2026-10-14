@@ -711,6 +711,7 @@ export type CrmWaLabel = {
   meta_event?: string | null
   product_id?: string | null
   status?: 'active' | 'draft'
+  duplicated_from?: string | null
   created_at: string
 }
 
@@ -809,6 +810,7 @@ export type CrmWaSequence = {
   draft_steps: SequenceStep[] | null
   // 'draft' = nunca se publicó, todavía no puede asignarse a un flujo.
   status: 'draft' | 'published'
+  duplicated_from?: string | null
   created_at: string
   updated_at: string
 }
@@ -830,6 +832,7 @@ export type CrmWaFlow = {
   flow_trigger_type: CrmWaFlowTriggerType
   country_sequences: CrmWaFlowCountrySequence[]
   product_id: string | null
+  duplicated_from?: string | null
   status: 'draft' | 'published'
   draft_step: number
   created_at: string
@@ -1040,6 +1043,9 @@ export type CrmWaAutomation = {
   media_url: string | null
   template_id: string | null
   template_var_map: Record<string, any>
+  /** 'draft' = copia sin terminar: nunca se dispara. Faltante = publicado. */
+  status?: 'draft' | 'published'
+  duplicated_from?: string | null
   sent_count: number
   skipped_count: number
   failed_count: number

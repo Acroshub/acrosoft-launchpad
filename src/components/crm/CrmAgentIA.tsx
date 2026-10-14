@@ -47,6 +47,8 @@ import CrmWaTemplates from "@/components/crm/CrmWaTemplates";
 import CrmWaOutbound from "@/components/crm/CrmWaOutbound";
 import CrmWaAdSources from "@/components/crm/CrmWaAdSources";
 import LabelForm from "@/components/crm/wa/LabelForm";
+import { useDuplicateWaLabel, useDuplicateWaFlow } from "@/hooks/useDuplicateItems";
+import { flowUnchanged, labelUnchanged, NOT_MODIFIED_MSG } from "@/lib/duplicates";
 import CrmWaMetaEvents, { metaEventLabel } from "@/components/crm/CrmWaMetaEvents";
 import { sequenceDeleteWarning, SequenceViewer } from "@/components/crm/wa/sequences";
 import { SequenceEditor } from "@/components/crm/wa/SequenceEditor";
@@ -1030,6 +1032,7 @@ type DraftFlow = {
   flow_trigger_type: "new_conversation" | "intent"
   country_sequences: { country_code: string; sequence_id: string }[]
   product_id: string | null
+  duplicated_from?: string | null
   status: "draft" | "published"
   draft_step: number
 };
@@ -1123,6 +1126,9 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
   const upsertFlow                 = useUpsertWaFlow();
   const deleteFlow                 = useDeleteWaFlow();
   const toggleFlow                 = useToggleWaFlow();
+  const duplicateFlow              = useDuplicateWaFlow();
+  const duplicateLabel             = useDuplicateWaLabel();
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [editingFlow, setEditingFlow] = useState<DraftFlow | null>(null);
   const insertLog                  = useInsertLog();
   const [pendingDeleteFlowId, setPendingDeleteFlowId] = useState<string | null>(null);
@@ -1250,6 +1256,7 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
       flow_trigger_type: (flow.flow_trigger_type === "new_conversation" ? "new_conversation" : "intent") as DraftFlow["flow_trigger_type"],
       country_sequences: flow.country_sequences ?? [],
       product_id: flow.product_id ?? null,
+      duplicated_from: flow.duplicated_from ?? null,
       status: flow.status ?? "published",
       draft_step: flow.draft_step ?? 3,
     });
@@ -1335,8 +1342,24 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
     } finally { setSavingFlowStep(false); }
   };
 
+  // Copia de otro flujo: no se publica idéntica al original (ver lib/duplicates).
+  const flowCopySource = editingFlow?.duplicated_from ? flows.find(f => f.id === editingFlow.duplicated_from) : undefined;
+  const flowCopyUnchanged = !!(editingFlow && flowCopySource && flowUnchanged(editingFlow, flowCopySource, sequences));
+
+  const handleDuplicateFlow = async (flow: CrmWaFlow) => {
+    setDuplicatingId(flow.id);
+    try {
+      const copy = await duplicateFlow.mutateAsync({ flow, existingNames: flows.map(f => f.name) });
+      toast.success("Copia creada como borrador: modifícala para publicarla");
+      openFlowForEdit(copy as CrmWaFlow);
+    } catch (e: any) {
+      toast.error(e?.message?.slice(0, 120) ?? "No se pudo duplicar el flujo");
+    } finally { setDuplicatingId(null); }
+  };
+
   const handleFlowPublish = async () => {
     if (!editingFlow?.id) return;
+    if (flowCopyUnchanged) { toast.error(NOT_MODIFIED_MSG); return; }
     // Se revalida acá y no solo al pasar de paso: un borrador se reanuda en el paso donde quedó, así
     // que se puede llegar directo al paso 3 sin haber pasado nunca por la validación del paso 2. Sin
     // esto se podía publicar un flujo activo sin secuencia, que se dispara y no envía nada.
@@ -1344,7 +1367,7 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
     if (problem) { toast.error(problem); return; }
     setSavingFlowStep(true);
     try {
-      await upsertFlow.mutateAsync({ ...editingFlow, status: "published", draft_step: 3 });
+      await upsertFlow.mutateAsync({ ...editingFlow, status: "published", draft_step: 3, duplicated_from: null });
       toast.success(editingFlow.status === "published" ? "Flujo actualizado" : "Flujo publicado");
       closeFlowWizard();
     } catch (e: any) {
@@ -2707,6 +2730,22 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
                       {l.hint && <p className="text-[10px] text-muted-foreground/70 truncate">+ {l.hint}</p>}
                       {l.remove_hint && <p className="text-[10px] text-destructive/60 truncate">− {l.remove_hint}</p>}
                     </div>
+                    <button
+                      title="Duplicar"
+                      disabled={duplicatingId === l.id}
+                      onClick={async () => {
+                        setDuplicatingId(l.id);
+                        try {
+                          const copy = await duplicateLabel.mutateAsync({ label: l, existingNames: labels.map(x => x.name) });
+                          toast.success("Copia creada como borrador: modifícala para guardarla");
+                          setLabelView(copy.id);
+                        } catch (e: any) {
+                          toast.error(e?.message?.slice(0, 120) ?? "No se pudo duplicar la etiqueta");
+                        } finally { setDuplicatingId(null); }
+                      }}
+                      className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors disabled:opacity-40">
+                      {duplicatingId === l.id ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
+                    </button>
                     <button onClick={() => setLabelView(l.id)}
                       className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors">
                       <Pencil size={12} />
@@ -2722,20 +2761,31 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
               </>
               ) : (
                 /* Vista de formulario (crear o editar) — key: al cambiar de etiqueta el formulario se reinicia */
-                <LabelForm
+                labelView !== "new" && !labelBeingEdited ? (
+                  <div className="flex justify-center py-8"><Loader2 size={16} className="animate-spin text-muted-foreground" /></div>
+                ) : <LabelForm
                   key={labelView}
                   initial={labelBeingEdited ? {
                     id: labelBeingEdited.id, name: labelBeingEdited.name, color: labelBeingEdited.color,
                     hint: labelBeingEdited.hint ?? null, remove_hint: labelBeingEdited.remove_hint ?? null,
                     meta_event: labelBeingEdited.meta_event ?? null, product_id: labelBeingEdited.product_id ?? null,
                     status: labelBeingEdited.status ?? "active",
+                    duplicated_from: labelBeingEdited.duplicated_from ?? null,
                   } : null}
+                  source={(() => {
+                    const src = labelBeingEdited?.duplicated_from ? labels.find(x => x.id === labelBeingEdited.duplicated_from) : undefined;
+                    return src ? {
+                      name: src.name, color: src.color, hint: src.hint ?? null, remove_hint: src.remove_hint ?? null,
+                      meta_event: src.meta_event ?? null, product_id: src.product_id ?? null,
+                    } : null;
+                  })()}
+                  otherNames={labels.filter(x => x.id !== labelBeingEdited?.id).map(x => x.name)}
                   colors={LABEL_COLORS}
                   products={allProducts}
                   saving={upsertLabel.isPending}
                   onCancel={() => setLabelView(null)}
                   onSave={async values => {
-                    await upsertLabel.mutateAsync({ ...(labelBeingEdited ? { id: labelBeingEdited.id } : {}), ...values, status: "active" });
+                    await upsertLabel.mutateAsync({ ...(labelBeingEdited ? { id: labelBeingEdited.id } : {}), ...values, status: "active", duplicated_from: null });
                     setLabelView(null);
                   }}
                 />
@@ -2967,6 +3017,10 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
                             <span className={`w-3 h-3 rounded-full bg-white shadow transition-transform ${flow.is_active ? "translate-x-3.5" : "translate-x-0"}`} />
                           </button>
                         )}
+                        <button onClick={() => handleDuplicateFlow(flow)} disabled={duplicatingId === flow.id} title="Duplicar"
+                          className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0 disabled:opacity-40">
+                          {duplicatingId === flow.id ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
+                        </button>
                         <button onClick={() => openFlowForEdit(flow)} className="p-1 rounded-lg hover:bg-secondary text-muted-foreground transition-colors shrink-0">
                           <Pencil size={12} />
                         </button>
@@ -2993,6 +3047,18 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
                   </div>
 
                   <div className="p-4 space-y-3">
+                    {editingFlow.duplicated_from && (
+                      <div className={`flex items-start gap-2 p-2.5 rounded-xl border ${flowCopyUnchanged ? "bg-amber-50 dark:bg-amber-900/10 border-amber-200 dark:border-amber-800/40" : "bg-emerald-50 dark:bg-emerald-900/10 border-emerald-200 dark:border-emerald-800/40"}`}>
+                        <Copy size={13} className={`shrink-0 mt-0.5 ${flowCopyUnchanged ? "text-amber-600" : "text-emerald-600"}`} />
+                        <p className={`text-[11px] leading-relaxed ${flowCopyUnchanged ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400"}`}>
+                          {flowCopySource
+                            ? flowCopyUnchanged
+                              ? <>Copia de <strong>«{flowCopySource.name}»</strong>. {NOT_MODIFIED_MSG} Sus secuencias también son copias: puedes editarlas sin tocar el original.</>
+                              : <>Copia de <strong>«{flowCopySource.name}»</strong>. Ya difiere del original: puedes publicarla.</>
+                            : "Copia de un flujo que ya no existe."}
+                        </p>
+                      </div>
+                    )}
                     {flowWizardStep === 1 && (
                       <>
                       {/* Nombre */}
@@ -3378,7 +3444,7 @@ const SettingsPanel = ({ onClose, onDisconnect, targetUserId }: { onClose: () =>
                           </button>
                           <button
                             onClick={handleFlowPublish}
-                            disabled={savingFlowStep}
+                            disabled={savingFlowStep || flowCopyUnchanged}
                             className="flex-1 h-9 rounded-xl bg-primary text-primary-foreground text-xs font-medium flex items-center justify-center gap-1.5 disabled:opacity-40 transition-opacity"
                           >
                             {savingFlowStep ? <Loader2 size={13} className="animate-spin" /> : <CheckCircle2 size={13} />}

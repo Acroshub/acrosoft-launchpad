@@ -2165,9 +2165,13 @@ export const useUpsertWaLabel = () => {
   const { user } = useCurrentUser();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (label: { id?: string; name: string; color: string; hint?: string | null; remove_hint?: string | null; meta_event?: string | null; product_id?: string | null; status?: "active" | "draft" }) => {
+    mutationFn: async (label: { id?: string; name: string; color: string; hint?: string | null; remove_hint?: string | null; meta_event?: string | null; product_id?: string | null; status?: "active" | "draft"; duplicated_from?: string | null }) => {
       // Guardar una etiqueta desde el editor la activa (status solo se baja a "draft" si se pide explícitamente).
-      const extra = { meta_event: label.meta_event ?? null, product_id: label.product_id ?? null, status: label.status ?? "active" };
+      const extra = {
+        meta_event: label.meta_event ?? null, product_id: label.product_id ?? null, status: label.status ?? "active",
+        // Al guardar una copia deja de serlo: se pasa null para soltar el vínculo con el original.
+        ...(label.duplicated_from !== undefined ? { duplicated_from: label.duplicated_from } : {}),
+      };
       if (label.id) {
         const { data, error } = await supabase
           .from("crm_wa_labels")
@@ -2975,6 +2979,7 @@ export const useUpsertWaFlow = () => {
       flow_trigger_type: "new_conversation" | "intent"
       country_sequences: { country_code: string; sequence_id: string }[]
       product_id: string | null
+      duplicated_from?: string | null
       status: "draft" | "published"
       draft_step: number
     }) => {
@@ -2988,6 +2993,7 @@ export const useUpsertWaFlow = () => {
         flow_trigger_type: flow.flow_trigger_type,
         country_sequences: flow.country_sequences,
         product_id: flow.product_id,
+        ...(flow.duplicated_from !== undefined ? { duplicated_from: flow.duplicated_from } : {}),
         status: flow.status,
         draft_step: flow.draft_step,
       };
