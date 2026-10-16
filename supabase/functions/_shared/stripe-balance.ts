@@ -40,7 +40,7 @@ export async function fetchStripeNet(paymentIntentId: string, livemode: boolean)
 
 /**
  * Valor que se manda a Meta en el Purchase: el neto si lo tenemos, si no el
- * bruto. Lo usan el webhook (Conversions API) y frances-get-order (pixel del
+ * bruto. Lo usan el webhook (Conversions API) y toefl-get-order (pixel del
  * navegador) para que los dos lados de un mismo event_id lleven el mismo valor.
  */
 export function purchaseTrackingValue(order: {

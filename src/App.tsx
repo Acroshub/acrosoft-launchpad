@@ -23,14 +23,7 @@ const CourseAccess = lazy(() => import("./pages/CourseAccess.tsx"));
 const CoursePlayer = lazy(() => import("./pages/CoursePlayer.tsx"));
 const WebsitesCatalog = lazy(() => import("./pages/websites/WebsitesCatalog.tsx"));
 const WebsiteViewer = lazy(() => import("./pages/websites/WebsiteViewer.tsx"));
-const ClaseGratisTreeServiceGame = lazy(() => import("./pages/ClaseGratisTreeServiceGame.tsx"));
-const LlamadasAcros = lazy(() => import("./pages/LlamadasAcros.tsx"));
-const LlamadasAcrosGracias = lazy(() => import("./pages/LlamadasAcrosGracias.tsx"));
-const Frances = lazy(() => import("./pages/Frances.tsx"));
-const TyFrances = lazy(() => import("./pages/TyFrances.tsx"));
 const Toefl = lazy(() => import("./pages/Toefl.tsx"));
-const ToeflMba = lazy(() => import("./pages/ToeflMba.tsx"));
-const ToeflRmkt = lazy(() => import("./pages/ToeflRmkt.tsx"));
 const TyToefl = lazy(() => import("./pages/TyToefl.tsx"));
 const ToeflPlataforma = lazy(() => import("./pages/ToeflPlataforma.tsx"));
 
@@ -62,14 +55,7 @@ const App = () => (
             <Route path="/privacy" element={<TerminosPoliticas />} />
             <Route path="/terms"   element={<TerminosPoliticas />} />
             <Route path="/oauth/google-calendar" element={<GoogleCalendarCallback />} />
-            <Route path="/clase-gratis-tree-service-game" element={<ClaseGratisTreeServiceGame />} />
-            <Route path="/llamadas-acros" element={<LlamadasAcros />} />
-            <Route path="/llamadas-acros-gracias" element={<LlamadasAcrosGracias />} />
-            <Route path="/frances" element={<Frances />} />
-            <Route path="/ty-frances" element={<TyFrances />} />
             <Route path="/toefl" element={<Toefl />} />
-            <Route path="/toefl-mba" element={<ToeflMba />} />
-            <Route path="/toefl-rmkt" element={<ToeflRmkt />} />
             <Route path="/toefl-ty" element={<TyToefl />} />
             {/* Bono 1 del ebook TOEFL: webapp con contraseña compartida; maneja sus propias sub-rutas */}
             <Route path="/toefl-plataforma/*" element={<ToeflPlataforma />} />
