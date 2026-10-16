@@ -81,10 +81,6 @@ verify_jwt = false
 # Interna (trigger trigger_notify_stock_alert)
 verify_jwt = false
 
-[functions.notify-course-url-change]
-# Interna — recorre todos los tenants
-verify_jwt = false
-
 [functions.sync-to-google]
 # Interna (crm-calendar-book, ai-agent) o usuario del CRM con ownership de la cita
 verify_jwt = false
@@ -117,10 +113,6 @@ verify_jwt = false
 
 [functions.course-logout]
 # Pública — revoca la sesión del propio token que se presenta
-verify_jwt = false
-
-[functions.notify-sale]
-# Interna (ai-agent) — valida x-internal-key contra el service role key
 verify_jwt = false
 
 [functions.send-support-email]
