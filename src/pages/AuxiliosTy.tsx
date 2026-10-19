@@ -85,6 +85,24 @@ const AuxiliosTy = () => {
     }
   }, [state, order]);
 
+  // Marca como comprada la sesión del A/B de /auxilios-lp que hizo clic en comprar, para medir qué versión vende más
+  // (ab_stats.purchases). Solo llega aquí con la orden confirmada por el webhook de Stripe. El id lo guarda la landing
+  // al hacer clic y se borra al usarlo, así recargar esta página no cuenta dos veces.
+  useEffect(() => {
+    if (state !== "ok" || !order) return;
+    try {
+      const sid = localStorage.getItem("auxilios_ab_checkout_session");
+      if (!sid) return;
+      localStorage.removeItem("auxilios_ab_checkout_session");
+      fetch(`${import.meta.env.VITE_SUPABASE_URL}/rest/v1/rpc/ab_track_purchase`, {
+        method: "POST",
+        headers: { apikey: import.meta.env.VITE_SUPABASE_ANON_KEY as string, "Content-Type": "application/json" },
+        body: JSON.stringify({ p_id: sid }),
+        keepalive: true,
+      }).catch(() => { /* no crítico */ });
+    } catch { /* no crítico */ }
+  }, [state, order]);
+
   const platform = order?.platform ?? null;
   const platformUrl = platform ? `${window.location.origin}${platform.path}` : null;
 

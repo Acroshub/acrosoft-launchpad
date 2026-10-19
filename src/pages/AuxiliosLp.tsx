@@ -23,6 +23,30 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL as string;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
 const AB_EXPERIMENT_KEY = "auxilios_price";
 
+// ─── A/B de la primera parte de la landing (antes de la oferta) ──────────────
+// A = versión completa; B = versión corta y directa. 50/50 por visitante, recordado en localStorage.
+// Se guarda en ab_sessions.variants.auxilios_version ("A" | "B"); el clic marca converted y /auxilios-ty marca
+// purchased solo cuando la compra está confirmada (ver docs/auxilios-lanzamiento.md para leer los resultados).
+// ?v=A o ?v=B fuerza la versión para previsualizarla y NO registra nada.
+const AB_VERSION_KEY = "auxilios_version";
+const AB_CHECKOUT_SESSION_KEY = "auxilios_ab_checkout_session";
+type Version = "A" | "B";
+
+function resolveVersion(): { version: Version; forced: boolean } {
+  try {
+    const q = new URLSearchParams(window.location.search).get("v")?.toUpperCase();
+    if (q === "A" || q === "B") return { version: q, forced: true };
+    const stored = localStorage.getItem(AB_VERSION_KEY);
+    if (stored === "A" || stored === "B") return { version: stored, forced: false };
+    const v: Version = Math.random() < 0.5 ? "A" : "B";
+    localStorage.setItem(AB_VERSION_KEY, v);
+    return { version: v, forced: false };
+  } catch {
+    // Sin localStorage: se sortea igual en cada carga (la versión mostrada es la que queda registrada en esa visita).
+    return { version: Math.random() < 0.5 ? "A" : "B", forced: false };
+  }
+}
+
 const price = AUXILIOS_PRICE;
 const originalPrice = AUXILIOS_LIST_PRICE;
 const discountPct = Math.round((1 - price / originalPrice) * 100);
@@ -79,6 +103,25 @@ const PARA_TI: { icon: string; text: string }[] = [
   { icon: "i-phone", text: "Guardaste capturas en el celular. Hoy tienes 20 y ninguna a mano cuando el bebé llora." },
   { icon: "i-heart", text: "Tu mamá o tu suegra te dicen «tranquila, eso se resuelve así», pero hoy ya no se hace como antes." },
   { icon: "i-clock", text: "Pensaste en un curso presencial, pero no hay tiempo ni con quién dejar al bebé." },
+];
+
+// Versión B: lista corta de lo que ya probó (carita triste) y checklist de ventajas del nuevo método.
+const PARA_TI_B: string[] = [
+  "Viste videos en YouTube pero son largos y no los encuentras a tiempo.",
+  "En el grupo de mamás, cada una dice algo distinto.",
+  "Tienes varias capturas de consejos guardadas pero ninguna a mano.",
+  "Tu mamá o tu suegra te dan consejos anticuados.",
+];
+
+const VENTAJAS_B: React.ReactNode[] = [
+  "Guía imprimible en PDF junto con su aplicación para el teléfono celular.",
+  <>Siempre lista para <strong>atragantamientos, caídas y golpes en la cabeza, quemaduras, fiebre, intoxicación y sofocación</strong>.</>,
+  "Letra grande, para leerla aunque te tiemblen las manos.",
+  "Ordenadas por la edad de tu bebé: 0 a 3, 3 a 6 y 6 a 12 meses.",
+  "Las abres en tu celular. Rápido, sin memorizar cursos.",
+  "Sin instalar nada difícil.",
+  "Repasos y tests de 5 minutos cada semana.",
+  "Imprimible para la abuela o la niñera.",
 ];
 
 // Mecanismo y ventajas: aquí todavía NO se revela el formato (ebook / app / bonos); eso viene en la oferta.
@@ -258,17 +301,20 @@ function PriceOffer({ dark = false, timer = true }: { dark?: boolean; timer?: bo
 const AuxiliosLp = () => {
   const abSessionIdRef = useRef<string | null>(null);
   const [returning] = useState(isReturningVisit);
+  const [ab] = useState(resolveVersion);
+  const version = ab.version;
 
   // Registra la visita en ab_sessions (insert-only para anon); el id se genera acá.
   useEffect(() => {
     const sid = uuid();
     abSessionIdRef.current = sid;
+    if (ab.forced) return; // previsualización (?v=A / ?v=B): no se registra
     fetch(`${SUPABASE_URL}/rest/v1/ab_sessions`, {
       method: "POST",
       headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
-      body: JSON.stringify({ id: sid, variants: { [AB_EXPERIMENT_KEY]: String(price) } }),
+      body: JSON.stringify({ id: sid, variants: { [AB_EXPERIMENT_KEY]: String(price), [AB_VERSION_KEY]: version } }),
     }).catch(() => { /* no crítico */ });
-  }, []);
+  }, [ab.forced, version]);
 
   useEffect(() => {
     document.title = PAGE_TITLE;
@@ -279,8 +325,8 @@ const AuxiliosLp = () => {
     if (!AUXILIOS_PIXEL_ID) return;
     initMetaPixel(AUXILIOS_PIXEL_ID);
     trackMetaEvent("PageView", undefined, undefined, AUXILIOS_PIXEL_ID);
-    trackMetaEvent("ViewContent", auxiliosEventParams(price), undefined, AUXILIOS_PIXEL_ID);
-  }, []);
+    trackMetaEvent("ViewContent", { ...auxiliosEventParams(price), ab_version: version }, undefined, AUXILIOS_PIXEL_ID);
+  }, [version]);
 
   // El checkout lo hostea Stripe (Payment Link): InitiateCheckout se dispara al clic en cualquier CTA, antes de salir.
   // El href es el link real (Ctrl/Cmd-clic y "abrir en pestaña nueva" funcionan solos); un clic normal se intercepta
@@ -293,9 +339,10 @@ const AuxiliosLp = () => {
     if (!opensElsewhere) e.preventDefault();
 
     try {
-      if (AUXILIOS_PIXEL_ID) trackMetaEvent("InitiateCheckout", auxiliosEventParams(price), undefined, AUXILIOS_PIXEL_ID);
+      if (AUXILIOS_PIXEL_ID) trackMetaEvent("InitiateCheckout", { ...auxiliosEventParams(price), ab_version: version }, undefined, AUXILIOS_PIXEL_ID);
       const sid = abSessionIdRef.current;
-      if (sid) {
+      if (sid && !ab.forced) {
+        try { localStorage.setItem(AB_CHECKOUT_SESSION_KEY, sid); } catch { /* no crítico */ }
         fetch(`${SUPABASE_URL}/rest/v1/rpc/ab_track`, {
           method: "POST",
           headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
@@ -657,6 +704,28 @@ const AuxiliosLp = () => {
   .aux-page .sticky-cta .sticky-note{font-size:10px;}
 }
 
+/* Versión B: lista corta con carita triste y checklist de ventajas */
+.aux-page .sad-list{display:flex;flex-direction:column;max-width:640px;}
+.aux-page .sad-list li{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid rgba(255,255,255,.16);font-size:17px;font-weight:600;color:#fff;}
+.aux-page .sad-list li:last-child{border-bottom:0;}
+.aux-page .sad-list .icon{width:30px;height:30px;color:#FFD166;stroke-width:1.8;}
+.aux-page .check-list{display:flex;flex-direction:column;gap:14px;max-width:720px;margin-top:6px;}
+.aux-page .check-list li{display:flex;align-items:flex-start;gap:14px;font-size:17px;line-height:1.5;}
+.aux-page .check-list .check-ico{flex-shrink:0;width:28px;height:28px;border-radius:50%;background:var(--teal);color:#fff;display:flex;align-items:center;justify-content:center;margin-top:1px;}
+.aux-page .check-list .check-ico .icon{width:16px;height:16px;stroke-width:3;}
+.aux-page .check-list strong{color:var(--cta);}
+
+/* Versión B: sección de oferta única (mockup, checklist, precio y botón) */
+.aux-page .offer-b .section-head.left.offer-b-head{max-width:760px;margin:0 auto 26px;}
+.aux-page .offer-b .offer-b-head h2{font-size:clamp(24px,3.6vw,36px);}
+.aux-page .offer-b .offer-b-head .mech-name{display:inline;margin-top:6px;}
+.aux-page .offer-b-card{background:var(--white);border-radius:28px;box-shadow:var(--shadow-lift);padding:26px 26px 30px;max-width:760px;margin:0 auto;}
+.aux-page .offer-b-visual{background:#FFEDE6;border-radius:20px;padding:12px;margin-bottom:24px;}
+.aux-page .offer-b-card .check-list{max-width:none;margin:0 0 6px;}
+.aux-page .offer-b-card .pc-discount{margin-top:24px;padding-top:22px;border-top:1px dashed var(--line);text-align:center;}
+.aux-page .offer-b-card .pc-price,.aux-page .offer-b-card .pc-price-meta{justify-content:center;}
+@media(max-width:560px){.aux-page .offer-b-card{padding:20px 18px 24px;}}
+
 /* FAQ */
 .aux-page .faq{max-width:800px;margin:0;}
 .aux-page .faq details{background:var(--white);border-radius:18px;box-shadow:var(--shadow-soft);padding:4px 22px;margin-bottom:12px;}
@@ -706,6 +775,7 @@ const AuxiliosLp = () => {
           <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z" /></symbol>
           <symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><line x1="2.5" y1="10" x2="21.5" y2="10" /></symbol>
           <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.4 3 8 7.5 9.5 4.5-1.5 7.5-5.1 7.5-9.5V6Z" /><polyline points="9 12 11.2 14.2 15.2 10" /></symbol>
+          <symbol id="i-sad" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9.5" /><path d="M8.5 16.2c.9-1.1 2-1.7 3.5-1.7s2.6.6 3.5 1.7" /><line x1="9" y1="10" x2="9.01" y2="10" stroke-width="2.6" /><line x1="15" y1="10" x2="15.01" y2="10" stroke-width="2.6" /></symbol>
           <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></symbol>
           <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z" /></symbol>
           <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></symbol>
@@ -725,7 +795,7 @@ const AuxiliosLp = () => {
             <div>
               <span className="kicker">Para mamás y papás de bebés de 0 a 12 meses</span>
               <h1>Si tu bebé tiene una emergencia, ¿sabrías qué hacer en los <span className="accent">primeros 30 segundos</span>?</h1>
-              <p className="sub">Viste videos, guardaste capturas y le preguntaste al grupo de mamás. Pero cuando imaginas el momento real, sientes que te quedarías en blanco. No es falta de cuidado: nadie te enseñó a reaccionar con el miedo encima.</p>
+              {version === "A" && <p className="sub">Viste videos, guardaste capturas y le preguntaste al grupo de mamás. Pero cuando imaginas el momento real, sientes que te quedarías en blanco. No es falta de cuidado: nadie te enseñó a reaccionar con el miedo encima.</p>}
             </div>
 
             <div className="hero-visual">
@@ -737,69 +807,119 @@ const AuxiliosLp = () => {
         {/* ============ ESTO ES PARA TI SI... ============ */}
         <section id="para-ti">
           <div className="container">
-            <div className="section-head">
-              <h2>¿Te Ha Pasado Antes?</h2>
-            </div>
-            <ul className="id-list">
-              {PARA_TI.map((item, i) => (
-                <li className="id-item" key={i}>
-                  <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href={`#${item.icon}`} /></svg></span>
-                  <p>{item.text}</p>
-                </li>
-              ))}
-            </ul>
-            <p className="no-es">Si ya probaste todo eso y sigues con ese nudo en el estómago, respira: no es tu culpa. Nadie te enseñó a reaccionar cuando el corazón se acelera. Existe una forma más fácil.</p>
+            {version === "A" ? (
+              <>
+              <div className="section-head">
+                <h2>¿Te Ha Pasado Antes?</h2>
+              </div>
+              <ul className="id-list">
+                {PARA_TI.map((item, i) => (
+                  <li className="id-item" key={i}>
+                    <span className="icon-wrap"><svg className="icon" aria-hidden="true"><use href={`#${item.icon}`} /></svg></span>
+                    <p>{item.text}</p>
+                  </li>
+                ))}
+              </ul>
+              </>
+            ) : (
+              <>
+              <div className="section-head">
+                <h2>¿Te Ha Pasado Antes?</h2>
+              </div>
+              <ul className="sad-list">
+                {PARA_TI_B.map((text) => (
+                  <li key={text}>
+                    <svg className="icon" aria-hidden="true"><use href="#i-sad" /></svg>
+                    <span>{text}</span>
+                  </li>
+                ))}
+              </ul>
+              </>
+            )}
+            {version === "A" && <p className="no-es">Si ya probaste todo eso y sigues con ese nudo en el estómago, respira: no es tu culpa. Nadie te enseñó a reaccionar cuando el corazón se acelera. Existe una forma más fácil.</p>}
           </div>
         </section>
 
         {/* ============ MECANISMO + VENTAJAS (sin revelar el formato) ============ */}
-        <section className="deliver" id="mecanismo">
-          <div className="container">
-            <div className="section-head left mech-head">
-              <h2>La forma más fácil de saber qué hacer en los <span className="hl">primeros 30 segundos</span> de una emergencia es usar...<br /><span className="mech-name">Una Guía Rápida de 3 Pasos<br className="mech-br" /> para Emergencias Comunes</span></h2>
-            </div>
-            <CardsMechanism />
-            <p className="mech-copy">En una emergencia, con el susto, nadie piensa con claridad. Por eso <strong>los videos de YouTube y las capturas que guardaste</strong> no te sirven. Con nuestra guía en PDF y la App, tendrás <strong>tarjetas rápidas de 3 pasos</strong> para que no tengas que recordar nada: las abres en tu celular, ves qué hacer de un vistazo y actúas.</p>
-            <h3 className="covered-title">Las emergencias que cubre:</h3>
-            <CoveredList />
-            <ol className="achieve-list">
-              {LOGROS.map((text, i) => (
-                <li className="achieve-item" key={i}>
-                  <span className="icon-wrap" aria-hidden="true" />
-                  <p>{text}</p>
-                </li>
-              ))}
-            </ol>
-          </div>
-        </section>
-
-        {/* ============ OFERTA: aquí recién se revela el formato ============ */}
-        <div id="sticky-trigger-aux" />
-        <section id="producto">
-          <div className="container">
-            <aside className="product-card">
-              <div className="pc-visual">
-                <img src={`${IMG}/mockup-mini-bundle.webp`} alt="Ebook en PDF y app de Primeros Auxilios del Bebé en un celular" className="pc-mockup-img" width={1024} height={1024} loading="lazy" decoding="async" />
-              </div>
-              <div className="pc-body">
-                <h3 className="pc-name">Primeros Auxilios del Bebé (0 a 12 Meses)</h3>
-                <p className="pc-tag">Guía en PDF y App para Celular: Tarjetas de 3 Pasos para Emergencias Comunes · Edición 2026</p>
-                <p className="pc-covers-label">Cubre estas emergencias:</p>
-                <CoveredList compact />
-                <ul className="pc-includes">
-                  {INCLUYE.map((t) => (
-                    <li key={t}><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg><span>{t}</span></li>
-                  ))}
-                </ul>
-                <PriceOffer />
-                <div className="pc-cta">
-                  <Cta block>Obtener mi Guía + App</Cta>
-                  {proof()}
+        {version === "A" ? (
+          <>
+            <section className="deliver" id="mecanismo">
+              <div className="container">
+                <div className="section-head left mech-head">
+                  <h2>La forma más fácil de saber qué hacer en los <span className="hl">primeros 30 segundos</span> de una emergencia es usar...<br /><span className="mech-name">Una Guía Rápida de 3 Pasos<br className="mech-br" /> para Emergencias Comunes</span></h2>
                 </div>
+                <CardsMechanism />
+                <p className="mech-copy">En una emergencia, con el susto, nadie piensa con claridad. Por eso <strong>los videos de YouTube y las capturas que guardaste</strong> no te sirven. Con nuestra guía en PDF y la App, tendrás <strong>tarjetas rápidas de 3 pasos</strong> para que no tengas que recordar nada: las abres en tu celular, ves qué hacer de un vistazo y actúas.</p>
+                <h3 className="covered-title">Las emergencias que cubre:</h3>
+                <CoveredList />
+                <ol className="achieve-list">
+                  {LOGROS.map((text, i) => (
+                    <li className="achieve-item" key={i}>
+                      <span className="icon-wrap" aria-hidden="true" />
+                      <p>{text}</p>
+                    </li>
+                  ))}
+                </ol>
               </div>
-            </aside>
-          </div>
-        </section>
+            </section>
+          {/* ============ OFERTA: aquí recién se revela el formato ============ */}
+          <div id="sticky-trigger-aux" />
+          <section id="producto">
+            <div className="container">
+              <aside className="product-card">
+                <div className="pc-visual">
+                  <img src={`${IMG}/mockup-mini-bundle.webp`} alt="Ebook en PDF y app de Primeros Auxilios del Bebé en un celular" className="pc-mockup-img" width={1024} height={1024} loading="lazy" decoding="async" />
+                </div>
+                <div className="pc-body">
+                  <h3 className="pc-name">Primeros Auxilios del Bebé (0 a 12 Meses)</h3>
+                  <p className="pc-tag">Guía en PDF y App para Celular: Tarjetas de 3 Pasos para Emergencias Comunes · Edición 2026</p>
+                  <p className="pc-covers-label">Cubre estas emergencias:</p>
+                  <CoveredList compact />
+                  <ul className="pc-includes">
+                    {INCLUYE.map((t) => (
+                      <li key={t}><svg className="icon" aria-hidden="true"><use href="#i-check" /></svg><span>{t}</span></li>
+                    ))}
+                  </ul>
+                  <PriceOffer />
+                  <div className="pc-cta">
+                    <Cta block>Obtener mi Guía + App</Cta>
+                    {proof()}
+                  </div>
+                </div>
+              </aside>
+            </div>
+          </section>
+          </>
+        ) : (
+          <>
+            <div id="sticky-trigger-aux" />
+            <section id="producto" className="offer-b">
+              <div className="container">
+                <div className="section-head left offer-b-head">
+                  <h2>La forma más fácil de estar siempre preparado es tener...<br /><span className="mech-name">Una Guía Rápida de 3 Pasos para Emergencias Comunes</span></h2>
+                </div>
+                <aside className="offer-b-card">
+                  <div className="offer-b-visual">
+                    <img src={`${IMG}/mockup-mini-bundle.webp`} alt="Guía en PDF y app de Primeros Auxilios del Bebé en un celular" className="pc-mockup-img" width={1024} height={1024} loading="lazy" decoding="async" />
+                  </div>
+                  <ul className="check-list">
+                    {VENTAJAS_B.map((item, i) => (
+                      <li key={i}>
+                        <span className="check-ico" aria-hidden="true"><svg className="icon"><use href="#i-check" /></svg></span>
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <PriceOffer />
+                  <div className="pc-cta">
+                    <Cta block>Obtener mi Guía + App</Cta>
+                    {proof()}
+                  </div>
+                </aside>
+              </div>
+            </section>
+          </>
+        )}
 
         {/* ============ BONOS ============ */}
         <section className="bonuses" id="bonos">

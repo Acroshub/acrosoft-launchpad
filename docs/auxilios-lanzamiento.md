@@ -75,6 +75,24 @@ Dominio verificado y evento **Purchase** priorizado (Aggregated Event Measuremen
 ## Garantía de 7 días (proceso)
 La landing promete reembolso del 100% dentro de 7 días y **no muestra correo ni teléfono de soporte** (decisión del dueño). Falta definir cómo se pide el reembolso en la práctica (la landing dice "pides tu reembolso"): por ejemplo, responder al correo de confirmación de la compra. Si el remitente (`RESEND_FROM_EMAIL`) no recibe respuestas, hay que ponerle un `reply-to` o publicar un canal. Quien lo gestione hace el reembolso desde Stripe.
 
+## A/B test de la landing (versión A completa vs. B corta)
+- **Reparto:** 50/50 por visitante nuevo; cada persona conserva su versión (localStorage `auxilios_version`). A = landing completa; B = corta (sin subtítulo del hero, sin título «¿Te ha pasado antes?», lista corta con carita triste y checklist de ventajas con el título «La forma más fácil de estar siempre preparado es tener…» y la oferta en la misma sección). Desde la oferta hacia abajo ambas son idénticas.
+- **Qué se guarda (tabla `ab_sessions`):** cada visita con `variants.auxilios_version = 'A' | 'B'`; el clic en un CTA marca `converted`; `/auxilios-ty` marca `purchased` solo cuando la **compra está confirmada** (la orden ya existe en `ebook_orders`). El pixel también lleva `ab_version` en `ViewContent` e `InitiateCheckout`.
+- **Previsualizar sin contaminar datos:** `/auxilios-lp?v=A` o `/auxilios-lp?v=B` fuerza la versión y no registra nada.
+- **Ver quién gana** (SQL Editor de Supabase, o `supabase db query --linked "<sql>"`):
+```sql
+select variant                                              as version,
+       impressions                                          as visitas,
+       conversions                                          as clics_checkout,
+       purchases                                            as compras_confirmadas,
+       round(100.0 * purchases / nullif(impressions, 0), 2) as compras_por_100_visitas
+from ab_stats
+where element_key = 'auxilios_version'
+order by variant;
+```
+- **Límite conocido:** la compra se atribuye si la persona vuelve a `/auxilios-ty` en el **mismo navegador** que hizo clic (lo normal tras Stripe) y dentro de 3 días. Las compras en otro dispositivo no se asignan a ninguna versión; las ventas totales siguen en `ebook_orders`.
+- **Cuándo decidir:** no cierres el test con pocas ventas; con conversiones de 1–3 % hacen falta del orden de 100 compras por versión para que la diferencia no sea ruido. Mira compras por visita, no clics.
+
 ## Seguimiento del embudo (visitas → clics → compras)
 Cada carga de la landing guarda una fila en `ab_sessions` con `variants.auxilios_price = '25'`; el clic en un CTA marca `converted = true`.
 ```sql
