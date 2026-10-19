@@ -79,17 +79,19 @@ export function buildConfirmationEmailHtml(params: {
   thankYouUrl: string;
   amountLabel: string;
   /** Solo se muestra si trae contraseña: un bloque con el link pero sin contraseña confunde más de lo que ayuda. */
-  platform?: { name: string; url: string; password: string | null } | null;
+  platform?: { name: string; url: string; password: string | null; label?: string; blurb?: string; button?: string } | null;
+  /** false = el producto no trae archivo para descargar (solo plataforma). Por defecto true. */
+  hasDownload?: boolean;
 }): string {
-  const { productName, thankYouUrl, amountLabel, platform } = params;
+  const { productName, thankYouUrl, amountLabel, platform, hasDownload = true } = params;
 
   const platformBlock = platform?.password
     ? `
         <div style="margin:0 0 24px;padding:20px;background:#FAF6EF;border:1px solid #DED6BC;border-radius:10px;">
-          <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#8C6A1E;letter-spacing:.08em;text-transform:uppercase;">Bono 1 · ${escapeHtml(platform.name)}</p>
-          <p style="margin:0 0 14px;font-size:14.5px;color:#22262E;line-height:1.55;">Tu plataforma de práctica: audios con voz real, simulacro cronometrado, sala de Writing y plantillas. Entra con esta contraseña:</p>
+          <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#8C6A1E;letter-spacing:.08em;text-transform:uppercase;">${escapeHtml(platform.label ?? `Bono 1 · ${platform.name}`)}</p>
+          <p style="margin:0 0 14px;font-size:14.5px;color:#22262E;line-height:1.55;">${escapeHtml(platform.blurb ?? "Tu plataforma de práctica: audios con voz real, simulacro cronometrado, sala de Writing y plantillas. Entra con esta contraseña:")}</p>
           <p style="margin:0 0 16px;text-align:center;"><span style="display:inline-block;background:#FFFFFF;border:1px dashed #C9932E;border-radius:8px;padding:12px 20px;font-family:'Courier New',Courier,monospace;font-size:20px;font-weight:700;letter-spacing:.04em;color:#1B2A4A;">${escapeHtml(platform.password)}</span></p>
-          <div style="text-align:center;"><a href="${platform.url}" style="display:inline-block;background:#1B2A4A;color:#FFFFFF;font-weight:700;font-size:15px;padding:14px 24px;border-radius:8px;text-decoration:none;">Abrir la plataforma</a></div>
+          <div style="text-align:center;"><a href="${platform.url}" style="display:inline-block;background:#1B2A4A;color:#FFFFFF;font-weight:700;font-size:15px;padding:14px 24px;border-radius:8px;text-decoration:none;">${escapeHtml(platform.button ?? "Abrir la plataforma")}</a></div>
         </div>`
     : "";
 
@@ -101,11 +103,11 @@ export function buildConfirmationEmailHtml(params: {
         <h1 style="margin:10px 0 0;color:#FFFFFF;font-size:22px;font-family:Georgia,serif;">¡Gracias por tu compra!</h1>
       </div>
       <div style="padding:28px;">
-        <p style="margin:0 0 16px;font-size:15px;color:#22262E;line-height:1.6;">Tu pago de <strong>${amountLabel}</strong> por <strong>${productName}</strong> fue aprobado. Ya puedes descargar tus archivos${platformBlock ? " y entrar a tu plataforma de práctica" : ""}.</p>
+        <p style="margin:0 0 16px;font-size:15px;color:#22262E;line-height:1.6;">Tu pago de <strong>${amountLabel}</strong> por <strong>${productName}</strong> fue aprobado. ${hasDownload ? `Ya puedes descargar tus archivos${platformBlock ? " y entrar a tu plataforma de práctica" : ""}.` : "Ya tienes acceso a tu compra."}</p>
         <div style="text-align:center;margin:24px 0;">
-          <a href="${thankYouUrl}" style="display:inline-block;background:#C1403A;color:#FFFFFF;font-weight:900;font-size:16px;padding:16px 28px;border-radius:8px;text-decoration:none;">Ver mi compra y descargar</a>
+          <a href="${thankYouUrl}" style="display:inline-block;background:#C1403A;color:#FFFFFF;font-weight:900;font-size:16px;padding:16px 28px;border-radius:8px;text-decoration:none;">${hasDownload ? "Ver mi compra y descargar" : "Ver mi compra"}</a>
         </div>${platformBlock}
-        <p style="margin:0;font-size:13px;color:#5B6270;line-height:1.5;">Guarda este correo — este mismo enlace te sirve para volver a descargar tus archivos cuando quieras${platformBlock ? ", y aquí queda tu contraseña de la plataforma" : ""}.</p>
+        <p style="margin:0;font-size:13px;color:#5B6270;line-height:1.5;">Guarda este correo — este mismo enlace te sirve para volver a ${hasDownload ? "descargar tus archivos" : "ver tu acceso"} cuando quieras${platformBlock ? ", y aquí queda tu contraseña de la plataforma" : ""}.</p>
       </div>
     </div>
   </div>`;

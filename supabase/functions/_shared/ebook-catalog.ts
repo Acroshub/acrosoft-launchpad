@@ -21,13 +21,20 @@ export type EbookPlatform = {
   path: string;
   /** Secret con la contraseña. Nunca va en el repo ni en el bundle del frontend. */
   passwordEnv: string;
+  /** Etiqueta del bloque en el email. Por defecto "Bono 1 · <name>" (TOEFL). */
+  emailLabel?: string;
+  /** Texto del bloque en el email, antes de la contraseña. Por defecto el de TOEFL Audio Lab. */
+  emailBlurb?: string;
+  /** Texto del botón del email. Por defecto "Abrir la plataforma". */
+  emailButton?: string;
 };
 
 export type EbookProduct = {
   name: string;
   shortName: string;
-  filename: string;
-  storagePath: string;
+  /** Archivo a descargar. Sin él (y sin storagePath) el producto se entrega solo por su plataforma. */
+  filename?: string;
+  storagePath?: string;
   /** Thank-you page del producto (el email apunta acá, con ?session_id=). */
   thankYouPath: string;
   meta: EbookMeta;
@@ -64,6 +71,23 @@ export const EBOOK_CATALOG: Record<string, EbookProduct> = {
     meta: { pixelId: "1446406424021779", accessTokenEnv: "META_CAPI_ACCESS_TOKEN_TOEFL", testEventCodeEnv: "META_CAPI_TEST_EVENT_CODE_TOEFL" },
     platform: { name: "TOEFL Audio Lab", path: "/toefl-plataforma", passwordEnv: "TOEFL_LAB_PASSWORD" },
     paymentLinkIdsEnv: "TOEFL_PAYMENT_LINK_IDS",
+  },
+  // Sin ZIP: el ebook y los 3 bonos viven cifrados dentro de la webapp (pestaña Biblioteca).
+  // Mismo pixel que src/lib/auxiliosConfig.ts. Solo el token (secreto) va en Supabase.
+  auxilios: {
+    name: "Primeros Auxilios del Bebé (0 a 12 Meses) + 3 Bonos",
+    shortName: "Primeros Auxilios del Bebé",
+    thankYouPath: "/auxilios-ty",
+    meta: { pixelId: "1209613534467929", accessTokenEnv: "META_CAPI_ACCESS_TOKEN_AUXILIOS", testEventCodeEnv: "META_CAPI_TEST_EVENT_CODE_AUXILIOS" },
+    platform: {
+      name: "Primeros Auxilios del Bebé",
+      path: "/primeros-auxilios-bebe-app",
+      passwordEnv: "PRIMEROS_AUXILIOS_BEBE_APP_PASSWORD",
+      emailLabel: "Tu app y tus libros",
+      emailBlurb: "Tu ebook, tus 3 bonos y las tarjetas de emergencia están dentro de la app (pestaña Biblioteca). Entra con esta contraseña:",
+      emailButton: "Abrir la app",
+    },
+    paymentLinkIdsEnv: "AUXILIOS_PAYMENT_LINK_IDS",
   },
 };
 

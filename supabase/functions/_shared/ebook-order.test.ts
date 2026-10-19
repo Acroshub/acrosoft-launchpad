@@ -152,3 +152,43 @@ Deno.test("email - la contraseña se escapa (no se puede colar HTML)", () => {
   assert(!html.includes("<b>"));
   assertStringIncludes(html, "&lt;b&gt;&quot;a&quot;&amp;b");
 });
+
+// ─── auxilios (sin ZIP: solo webapp) ─────────────────────────────────────────
+
+Deno.test("auxilios - se reconoce por client_reference_id y no trae archivo para descargar", () => {
+  assertEquals(resolveProductSlug({ client_reference_id: "auxilios" }, envOf({})), "auxilios");
+  assertEquals(resolveProductSlug({ client_reference_id: "auxilios_6f1c2d3e-0a1b-4c5d-8e9f-0123456789ab" }, envOf({})), "auxilios");
+  assertEquals(EBOOK_CATALOG["auxilios"].storagePath, undefined);
+  assertEquals(EBOOK_CATALOG["auxilios"].filename, undefined);
+});
+
+Deno.test("auxilios - pixel propio y token propio (no reutiliza el de TOEFL ni el de DELF)", () => {
+  const meta = resolveMeta(EBOOK_CATALOG["auxilios"], envOf({ META_CAPI_ACCESS_TOKEN_AUXILIOS: "tok" }));
+  assertEquals(meta?.pixelId, "1209613534467929");
+  assertEquals(meta?.accessToken, "tok");
+  assertEquals(resolveMeta(EBOOK_CATALOG["auxilios"], envOf({ META_CAPI_ACCESS_TOKEN_TOEFL: "otro" })), null);
+});
+
+Deno.test("auxilios - la contraseña sale del secret de la app", () => {
+  assertEquals(platformAccess(EBOOK_CATALOG["auxilios"], envOf({ PRIMEROS_AUXILIOS_BEBE_APP_PASSWORD: " clave " }))?.password, "clave");
+  assertEquals(platformAccess(EBOOK_CATALOG["auxilios"], envOf({}))?.password, null);
+});
+
+Deno.test("email - sin descarga y con textos propios de la plataforma", () => {
+  const html = buildConfirmationEmailHtml({
+    ...base,
+    hasDownload: false,
+    platform: { name: "App", url: "https://x/app", password: "abc", label: "Tu app", blurb: "Entra con esta contraseña:", button: "Abrir la app" },
+  });
+  assertStringIncludes(html, "Tu app");
+  assertStringIncludes(html, "Abrir la app");
+  assertStringIncludes(html, "Ver mi compra<");
+  assert(!html.includes("descargar"));
+  assert(!html.includes("Bono 1"));
+});
+
+Deno.test("catálogo - el pixel de auxilios del servidor es el mismo que usa el navegador", async () => {
+  const config = await Deno.readTextFile(new URL("../../../src/lib/auxiliosConfig.ts", import.meta.url));
+  const browserPixel = config.match(/AUXILIOS_PIXEL_ID = "(\d+)"/)?.[1];
+  assertEquals(EBOOK_CATALOG["auxilios"].meta.pixelId, browserPixel);
+});

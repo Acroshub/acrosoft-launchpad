@@ -208,7 +208,15 @@ Deno.serve(async (req: Request) => {
     productName: catalogEntry.name,
     thankYouUrl,
     amountLabel,
-    platform: platform && { name: platform.name, url: `${APP_URL}${platform.path}`, password: platform.password },
+    platform: platform && {
+      name: platform.name,
+      url: `${APP_URL}${platform.path}`,
+      password: platform.password,
+      label: catalogEntry.platform?.emailLabel,
+      blurb: catalogEntry.platform?.emailBlurb,
+      button: catalogEntry.platform?.emailButton,
+    },
+    hasDownload: !!catalogEntry.storagePath,
   });
 
   const sent = await sendConfirmationEmail({ to: email, html, shortName: catalogEntry.shortName });

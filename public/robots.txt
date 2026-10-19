@@ -12,4 +12,9 @@ Disallow: /toefl-plataforma
 Disallow: /toefl-ty
 Disallow: /toefl-audiolab/
 
+# Webapp Primeros Auxilios del Bebé (acceso con contraseña)
+Disallow: /primeros-auxilios-bebe-app
+Disallow: /primeros-auxilios-bebe-pack/
+Disallow: /auxilios-ty
+
 Sitemap: https://acrosoftlabs.com/sitemap.xml

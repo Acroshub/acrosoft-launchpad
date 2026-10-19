@@ -26,6 +26,9 @@ const WebsiteViewer = lazy(() => import("./pages/websites/WebsiteViewer.tsx"));
 const Toefl = lazy(() => import("./pages/Toefl.tsx"));
 const TyToefl = lazy(() => import("./pages/TyToefl.tsx"));
 const ToeflPlataforma = lazy(() => import("./pages/ToeflPlataforma.tsx"));
+const PrimerosAuxiliosBebeApp = lazy(() => import("./pages/PrimerosAuxiliosBebeApp.tsx"));
+const AuxiliosLp = lazy(() => import("./pages/AuxiliosLp.tsx"));
+const AuxiliosTy = lazy(() => import("./pages/AuxiliosTy.tsx"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -59,6 +62,9 @@ const App = () => (
             <Route path="/toefl-ty" element={<TyToefl />} />
             {/* Bono 1 del ebook TOEFL: webapp con contraseña compartida; maneja sus propias sub-rutas */}
             <Route path="/toefl-plataforma/*" element={<ToeflPlataforma />} />
+            <Route path="/primeros-auxilios-bebe-app/*" element={<PrimerosAuxiliosBebeApp />} />
+            <Route path="/auxilios-lp" element={<AuxiliosLp />} />
+            <Route path="/auxilios-ty" element={<AuxiliosTy />} />
 
             {/* Client invitation setup — public (session comes from invite link) */}
             <Route path="/crm-setup" element={<CrmSetup />} />
