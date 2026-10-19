@@ -145,3 +145,9 @@ verify_jwt = false
 # resumen de la compra y el acceso a la plataforma TOEFL Audio Lab.
 [functions.toefl-get-order]
 verify_jwt = false
+
+# auxilios-get-order: pública (la usa /auxilios-ty sin sesión de usuario), protegida por el
+# session_id de Stripe. Devuelve el resumen de la compra y el acceso a la webapp de
+# Primeros Auxilios del Bebé (sin descarga).
+[functions.auxilios-get-order]
+verify_jwt = false
