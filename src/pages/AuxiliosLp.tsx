@@ -28,6 +28,11 @@ const originalPrice = AUXILIOS_LIST_PRICE;
 const discountPct = Math.round((1 - price / originalPrice) * 100);
 const IMG = "/auxilios/imagenes";
 
+// Interruptores de la UI de confianza para tráfico frío. Ponlos en true para recuperar
+// el contador con barra en reversa y el precio de lista tachado; en false los quita (versión etiquetada "ui-antes-confianza").
+const SHOW_TIMER = true;
+const SHOW_LIST_PRICE = true;
+
 // ─── Contador de oferta (mismo mecanismo que /toefl) ─────────────────────────
 // 30 min desde la primera visita, recordados en localStorage; a quien vuelve solo le quedan 9 (la barra arranca al 30%).
 const OFFER_DURATION_MS = 30 * 60 * 1000;
@@ -140,18 +145,14 @@ const FAQ: { q: string; a: string }[] = [
   { q: "¿Puedo dárselo a la abuela o a la niñera?", a: "Sí. Es una contraseña compartida: quien cuide a tu bebé puede abrir las tarjetas desde su propio celular, y el bono incluye una hoja imprimible con qué hacer y cómo pedírselo sin ofender." },
 ];
 
-function InstantAccessNote() {
+/** Tres señales de confianza en una sola fila, justo debajo del botón. */
+function TrustRow() {
   return (
-    <div className="cta-notes">
-      <p className="instant-access">
-        <svg className="icon" aria-hidden="true"><use href="#i-mail" /></svg>
-        Acceso inmediato en tu celular
-      </p>
-      <p className="instant-access guarantee-note">
-        <svg className="icon" aria-hidden="true"><use href="#i-shield" /></svg>
-        Garantía de {AUXILIOS_GUARANTEE_DAYS} días
-      </p>
-    </div>
+    <ul className="trust-row">
+      <li><svg className="icon" aria-hidden="true"><use href="#i-lock" /></svg>Pago seguro</li>
+      <li><svg className="icon" aria-hidden="true"><use href="#i-bolt" /></svg>Acceso inmediato</li>
+      <li><svg className="icon" aria-hidden="true"><use href="#i-undo" /></svg>Reembolso {AUXILIOS_GUARANTEE_DAYS} días</li>
+    </ul>
   );
 }
 
@@ -230,24 +231,26 @@ function PaymentIcons({ dark = false }: { dark?: boolean }) {
   );
 }
 
-function PriceOffer({ dark = false }: { dark?: boolean }) {
+function PriceOffer({ dark = false, timer = true }: { dark?: boolean; timer?: boolean }) {
   return (
     <div className={`pc-discount${dark ? " on-dark" : ""}`}>
       <div className="pc-price">
-        <span className="pc-old-price">${originalPrice} USD</span>
+        {SHOW_LIST_PRICE && <span className="pc-old-price">${originalPrice} USD</span>}
         <span className="amount">${price} USD</span>
       </div>
       <div className="pc-price-meta">
-        <span className="unit">pago único</span>
-        <span className="pc-discount-chip">-{discountPct}%</span>
+        <span className="unit">pago único · sin suscripción</span>
+        {SHOW_LIST_PRICE && <span className="pc-discount-chip">{discountPct}% de descuento</span>}
       </div>
-      <div className="pc-timer">
-        <svg className="icon" aria-hidden="true"><use href="#i-clock" /></svg>
-        <span>Te quedan <strong className="js-countdown">30:00</strong> para asegurar este precio</span>
-      </div>
-      <div className="pc-progress">
-        <div className="pc-progress-bar"><div className="pc-progress-fill js-countdown-bar" /></div>
-      </div>
+      {SHOW_TIMER && timer && (
+        <div className="pc-offer-end">
+          <p className="pc-offer-text">
+            <svg className="icon" aria-hidden="true"><use href="#i-clock" /></svg>
+            Asegura este precio: te quedan <strong className="js-countdown">30:00</strong>
+          </p>
+          <div className="pc-progress-bar" aria-hidden="true"><div className="pc-progress-fill js-countdown-bar" /></div>
+        </div>
+      )}
     </div>
   );
 }
@@ -360,14 +363,24 @@ const AuxiliosLp = () => {
     </a>
   );
 
+  // CTA ligero: siempre con mockup del paquete, precio como texto sobre el botón y la fila de confianza.
   const sectionCta = (label: string) => (
-    <div className="section-cta">
-      <img src={`${IMG}/mockup-bundle.webp`} alt="Ebook, app y 3 bonos de Primeros Auxilios del Bebé" className="pack-mockup-img" width={1024} height={1024} loading="lazy" decoding="async" />
+    <div className="section-cta section-cta-light">
+      <img src={`${IMG}/mockup-bundle.webp`} alt="Guía en PDF, app y 3 bonos de Primeros Auxilios del Bebé" className="pack-mockup-img" width={1024} height={1024} loading="lazy" decoding="async" />
       <PriceOffer />
-      <Cta>{label}</Cta>
-      <InstantAccessNote />
-      <PaymentIcons />
+      <Cta block>{label}</Cta>
+      {proof(false, false)}
     </div>
+  );
+
+  // Pie de confianza (todos los CTA): fila de confianza, acceso, medios de pago (solo en las cards completas) y origen del contenido.
+  const proof = (dark = false, full = true) => (
+    <>
+      <TrustRow />
+      <p className="after-pay">Accede al instante desde tu correo</p>
+      {full && <PaymentIcons dark={dark} />}
+      <p className="cta-source">Basado en guías de la Cruz Roja, la AAP y la OMS.</p>
+    </>
   );
 
   return (
@@ -592,6 +605,58 @@ const AuxiliosLp = () => {
 .aux-page .sticky-timer{font-size:11px;font-weight:700;color:var(--cta-dark);white-space:nowrap;}
 .aux-page .sticky-timer strong{font-variant-numeric:tabular-nums;}
 
+/* Confianza en los CTA (tráfico frío) */
+.aux-page .trust-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:16px 0 0;font-size:12px;font-weight:700;line-height:1.25;color:var(--ink-soft);}
+.aux-page .trust-row li{display:flex;flex-direction:column;align-items:center;gap:5px;text-align:center;}
+.aux-page .trust-row .icon{width:20px;height:20px;color:var(--teal);stroke-width:2;}
+.aux-page .after-pay{margin:12px 0 0;font-size:12.5px;color:var(--ink-soft);}
+.aux-page .cta-source{margin:12px 0 0;font-size:11.5px;color:var(--ink-soft);opacity:.85;}
+.aux-page .section-cta-light{padding:22px 22px 20px;}
+.aux-page .section-cta-light .btn{margin-top:0;}
+.aux-page .final-cta .trust-row{color:#CFE3E3;}
+.aux-page .final-cta .trust-row .icon{color:#fff;}
+.aux-page .final-cta .after-pay,.aux-page .final-cta .cta-source{color:#CFE3E3;}
+
+/* Contador de oferta sobrio (confiable, sin alarma) */
+.aux-page .pc-offer-end{margin-top:14px;}
+.aux-page .pc-offer-text{display:flex;align-items:center;justify-content:center;gap:7px;font-size:13px;font-weight:600;color:var(--ink-soft);margin-bottom:8px;}
+.aux-page .pc-offer-text .icon{width:15px;height:15px;color:var(--teal);}
+.aux-page .pc-offer-text strong{font-variant-numeric:tabular-nums;color:var(--teal);font-weight:800;}
+.aux-page .pc-offer-end .pc-progress-bar{height:6px;background:#E3EAEA;border:0;border-radius:999px;overflow:hidden;}
+.aux-page .pc-offer-end .pc-progress-fill{width:100%;height:100%;background:var(--teal);background-image:none;animation:none;border-radius:999px;transition:width 1s linear;}
+.aux-page .pc-discount.on-dark .pc-offer-text{color:#CFE3E3;}
+.aux-page .pc-discount.on-dark .pc-offer-text .icon,.aux-page .pc-discount.on-dark .pc-offer-text strong{color:#fff;}
+.aux-page .pc-discount.on-dark .pc-offer-end .pc-progress-bar{background:rgba(255,255,255,.18);}
+.aux-page .pc-discount.on-dark .pc-offer-end .pc-progress-fill{background:#fff;}
+.aux-page .pc-discount-chip{font-size:12.5px;}
+.aux-page .section-cta-light .pc-discount{margin:0 0 16px;padding:0;border:0;}
+.aux-page .section-cta-light .pack-mockup-img{max-width:260px;margin:0 auto 10px;}
+
+/* Barra fija del celular: descuento, pago seguro y acceso en columna; el botón gana ancho */
+.aux-page .sticky-text{gap:2px;}
+.aux-page .sticky-price{display:flex;align-items:baseline;gap:5px;font-size:15px;font-weight:800;white-space:nowrap;}
+.aux-page .sticky-note{display:flex;align-items:center;gap:4px;font-size:10.5px;font-weight:700;color:var(--teal);white-space:nowrap;line-height:1.2;}
+.aux-page .sticky-note .icon{width:11px;height:11px;stroke-width:2.4;}
+
+/* Ajustes móvil: meta de precio sin cortes y barra fija con botón más ancho */
+.aux-page .pc-price-meta{flex-wrap:wrap;justify-content:center;gap:6px 10px;}
+.aux-page .pc-price-meta .unit,.aux-page .pc-discount-chip{white-space:nowrap;}
+.aux-page .sticky-cta .sticky-btn{font-size:14px;padding:12px 12px;min-width:0;}
+@media(max-width:430px){
+  .aux-page .sticky-cta .sticky-thumb{width:40px;height:40px;}
+  .aux-page .sticky-cta .sticky-cta-inner{gap:10px;}
+  .aux-page .sticky-cta .sticky-price{font-size:14px;gap:4px;}
+  .aux-page .sticky-cta .sticky-price .old{font-size:12px;margin-right:0;}
+}
+
+@media(max-width:380px){
+  .aux-page .sticky-cta .sticky-thumb{width:34px;height:34px;}
+  .aux-page .sticky-cta .sticky-cta-inner{gap:8px;}
+  .aux-page .sticky-cta .sticky-btn{font-size:13.5px;padding:12px 8px;gap:6px;}
+  .aux-page .sticky-cta .sticky-price{font-size:13.5px;}
+  .aux-page .sticky-cta .sticky-note{font-size:10px;}
+}
+
 /* FAQ */
 .aux-page .faq{max-width:800px;margin:0;}
 .aux-page .faq details{background:var(--white);border-radius:18px;box-shadow:var(--shadow-soft);padding:4px 22px;margin-bottom:12px;}
@@ -641,6 +706,9 @@ const AuxiliosLp = () => {
           <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z" /></symbol>
           <symbol id="i-card" viewBox="0 0 24 24"><rect x="2.5" y="5" width="19" height="14" rx="2.5" /><line x1="2.5" y1="10" x2="21.5" y2="10" /></symbol>
           <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.4 3 8 7.5 9.5 4.5-1.5 7.5-5.1 7.5-9.5V6Z" /><polyline points="9 12 11.2 14.2 15.2 10" /></symbol>
+          <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></symbol>
+          <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z" /></symbol>
+          <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 14 4 9l5-5" /><path d="M4 9h10a6 6 0 0 1 0 12h-3" /></symbol>
           <symbol id="i-layers" viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="3" /><line x1="8" y1="9" x2="16" y2="9" /><line x1="8" y1="13" x2="16" y2="13" /><line x1="8" y1="17" x2="12" y2="17" /></symbol>
           <symbol id="i-triangle-right" viewBox="0 0 24 24"><path d="M7 4v16l14-8z" fill="currentColor" stroke="none" /></symbol>
           <symbol id="i-gift" viewBox="0 0 24 24"><rect x="3" y="8" width="18" height="4" rx="1" /><rect x="4" y="12" width="16" height="9" rx="1" /><line x1="12" y1="8" x2="12" y2="21" /><path d="M12 8c0-2.5-1.6-4.5-3.5-4.5S6 4.8 6 6c0 1.6 2 2 6 2Z" /><path d="M12 8c0-2.5 1.6-4.5 3.5-4.5S18 4.8 18 6c0 1.6-2 2-6 2Z" /></symbol>
@@ -725,9 +793,8 @@ const AuxiliosLp = () => {
                 </ul>
                 <PriceOffer />
                 <div className="pc-cta">
-                  <Cta block>Sí, Quiero Mi Guía + App</Cta>
-                  <InstantAccessNote />
-                  <PaymentIcons />
+                  <Cta block>Obtener mi Guía + App</Cta>
+                  {proof()}
                 </div>
               </div>
             </aside>
@@ -763,7 +830,7 @@ const AuxiliosLp = () => {
                 </article>
               ))}
             </div>
-            {sectionCta("Quiero la Guía + App + 3 Bonos")}
+            {sectionCta("Obtener la Guía + App")}
           </div>
         </section>
 
@@ -814,9 +881,8 @@ const AuxiliosLp = () => {
             </div>
             <div className="cta-wrap">
               <PriceOffer dark />
-              <Cta block>Sí, Quiero Mi Guía + App Ahora</Cta>
-              <InstantAccessNote />
-              <PaymentIcons dark />
+              <Cta block>Obtener mi Guía + App</Cta>
+              {proof(true)}
             </div>
           </div>
         </section>
@@ -834,8 +900,12 @@ const AuxiliosLp = () => {
             <div className="sticky-thumb">
               <img src={`${IMG}/mockup-bundle.webp`} alt="" className="sticky-thumb-img" />
             </div>
-            <span className="sticky-text"><span className="sticky-price"><span className="old">${originalPrice}</span>${price} USD</span><span className="sticky-timer">Termina en <strong className="js-countdown">30:00</strong></span></span>
-            <a href={checkoutHref} onClick={handleCheckoutClick} className="btn btn-primary sticky-btn"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Quiero Mi Guía + App</a>
+            <span className="sticky-text">
+              <span className="sticky-price">{SHOW_LIST_PRICE && <span className="old">${originalPrice}</span>}${price} USD</span>
+              <span className="sticky-note"><svg className="icon" aria-hidden="true"><use href="#i-lock" /></svg>Pago seguro</span>
+              <span className="sticky-note"><svg className="icon" aria-hidden="true"><use href="#i-bolt" /></svg>Acceso inmediato</span>
+            </span>
+            <a href={checkoutHref} onClick={handleCheckoutClick} className="btn btn-primary sticky-btn"><svg className="btn-arrow" aria-hidden="true"><use href="#i-triangle-right" /></svg>Obtener Guía + App</a>
           </div>
         </div>
       </div>
