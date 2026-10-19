@@ -152,7 +152,9 @@ verify_jwt = false
 [functions.auxilios-get-order]
 verify_jwt = false
 
-# auxilios-track-event: pública (la llama /auxilios-lp sin sesión). Reenvía ViewContent e
-# InitiateCheckout a la API de Conversiones; se protege con lista de eventos, origen y límite por IP.
-[functions.auxilios-track-event]
+# product-track-event: pública (la llaman las landings /<palabra>-lp sin sesión). UNA función para todos los
+# productos: reenvía ViewContent e InitiateCheckout a la API de Conversiones usando pixel, token, precio y
+# landing del catálogo (ebook-catalog.ts, bloque `tracking`). Se protege con lista de eventos, producto del
+# catálogo, origen permitido y límite por IP.
+[functions.product-track-event]
 verify_jwt = false

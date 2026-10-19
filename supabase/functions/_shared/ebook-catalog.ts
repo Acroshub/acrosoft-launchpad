@@ -29,6 +29,22 @@ export type EbookPlatform = {
   emailButton?: string;
 };
 
+/**
+ * Datos públicos de la landing para reenviar ViewContent/InitiateCheckout por Conversions API
+ * (función product-track-event). Sin esto el producto no acepta esos eventos.
+ * Deben coincidir con el config del frontend (src/lib/<palabra>Config.ts).
+ */
+export type EbookTracking = {
+  /** content_name de los eventos (el mismo que el pixel del navegador). */
+  contentName: string;
+  /** Precio de venta (unidades de moneda, no centavos). Lo fija el servidor, no el cliente. */
+  price: number;
+  /** Por defecto USD. */
+  currency?: string;
+  /** Ruta de la landing, ej. "/auxilios-lp": los eventos solo se aceptan si vienen de esa URL. */
+  landingPath: string;
+};
+
 export type EbookProduct = {
   name: string;
   shortName: string;
@@ -38,6 +54,7 @@ export type EbookProduct = {
   /** Thank-you page del producto (el email apunta acá, con ?session_id=). */
   thankYouPath: string;
   meta: EbookMeta;
+  tracking?: EbookTracking;
   platform?: EbookPlatform;
   /** Secret con los ids `plink_…` (separados por coma) de los Payment Links de este producto. Respaldo para reconocerlo si el link no trae el slug. */
   paymentLinkIdsEnv?: string;
@@ -79,6 +96,7 @@ export const EBOOK_CATALOG: Record<string, EbookProduct> = {
     shortName: "Primeros Auxilios del Bebé",
     thankYouPath: "/auxilios-ty",
     meta: { pixelId: "1209613534467929", accessTokenEnv: "META_CAPI_ACCESS_TOKEN_AUXILIOS", testEventCodeEnv: "META_CAPI_TEST_EVENT_CODE_AUXILIOS" },
+    tracking: { contentName: "Primeros Auxilios del Bebé", price: 25, landingPath: "/auxilios-lp" },
     platform: {
       name: "Primeros Auxilios del Bebé",
       path: "/primeros-auxilios-bebe-app",

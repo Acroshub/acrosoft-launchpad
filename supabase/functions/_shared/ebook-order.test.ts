@@ -192,3 +192,11 @@ Deno.test("catálogo - el pixel de auxilios del servidor es el mismo que usa el 
   const browserPixel = config.match(/AUXILIOS_PIXEL_ID = "(\d+)"/)?.[1];
   assertEquals(EBOOK_CATALOG["auxilios"].meta.pixelId, browserPixel);
 });
+
+Deno.test("catálogo - tracking de auxilios (nombre, precio, slug) coincide con el config del navegador", async () => {
+  const config = await Deno.readTextFile(new URL("../../../src/lib/auxiliosConfig.ts", import.meta.url));
+  const t = EBOOK_CATALOG["auxilios"].tracking!;
+  assertEquals(t.contentName, config.match(/AUXILIOS_CONTENT_NAME = "([^"]+)"/)?.[1]);
+  assertEquals(t.price, Number(config.match(/AUXILIOS_PRICE = (\d+)/)?.[1]));
+  assertEquals("auxilios", config.match(/AUXILIOS_PRODUCT_SLUG = "([^"]+)"/)?.[1]);
+});

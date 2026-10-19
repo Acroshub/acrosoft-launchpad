@@ -1,12 +1,13 @@
 import { EBOOK_CATALOG, resolveMeta } from "../_shared/ebook-catalog.ts";
 import { sendMetaWebEvent } from "../_shared/meta-capi.ts";
-import { ALLOWED_ORIGINS, clientIpFrom, customDataFor, makeRateLimiter, parseTrackRequest } from "../_shared/auxilios-events.ts";
+import { ALLOWED_ORIGINS, clientIpFrom, customDataFor, makeRateLimiter, parseTrackRequest } from "../_shared/product-events.ts";
 
-// ─── Pública — la llama /auxilios-lp para reenviar ViewContent e InitiateCheckout a la API de
-// Conversiones de Meta (el pixel del navegador manda el mismo evento con el mismo event_id y Meta
-// deduplica). Al ser pública no confía en nada del cliente: lista cerrada de eventos, origen
-// permitido, producto/valor/moneda fijados acá y límite por IP. Pixel y token: los del producto
-// `auxilios` (secret META_CAPI_ACCESS_TOKEN_AUXILIOS).
+// ─── Pública — la llaman las landings de los productos (/<palabra>-lp) para reenviar ViewContent e
+// InitiateCheckout a la API de Conversiones de Meta (el pixel del navegador manda el mismo evento con el mismo
+// event_id y Meta deduplica). UNA sola función para todos los productos: pixel, token, nombre, precio y
+// landing salen del catálogo (ebook-catalog.ts, bloque `tracking`). Al ser pública no confía en nada del
+// cliente: lista cerrada de eventos, producto del catálogo, origen permitido, valor/moneda fijados acá y
+// límite por IP.
 
 const allowRequest = makeRateLimiter(30, 60_000);
 
@@ -42,9 +43,10 @@ Deno.serve(async (req: Request) => {
   const parsed = parseTrackRequest(body);
   if (!parsed) return reply(req, 400, { error: "invalid event" });
 
-  const meta = resolveMeta(EBOOK_CATALOG.auxilios);
+  // Pixel y token son del producto: si falta cualquiera NO se manda (mejor sin evento que al pixel equivocado).
+  const meta = resolveMeta(EBOOK_CATALOG[parsed.product]);
   if (!meta) {
-    console.warn("[auxilios-track-event] pixel o token sin configurar; evento no enviado");
+    console.warn(`[product-track-event] ${parsed.product}: pixel o token sin configurar; evento no enviado`);
     return reply(req, 200, { sent: false });
   }
 
@@ -58,7 +60,7 @@ Deno.serve(async (req: Request) => {
     accessToken: meta.accessToken,
     testEventCode: meta.testEventCode,
   });
-  if (!result.ok) console.warn(`[auxilios-track-event] ${parsed.event}:`, result.error);
+  if (!result.ok) console.warn(`[product-track-event] ${parsed.product} ${parsed.event}:`, result.error);
   // Nunca se rompe la landing por esto: el cliente ignora la respuesta.
   return reply(req, 200, { sent: result.ok });
 });

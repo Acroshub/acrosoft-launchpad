@@ -23,7 +23,7 @@ La entrega es **solo la app** (`/primeros-auxilios-bebe-app`, contraseña compar
 | `InitiateCheckout` (mismos parámetros) | landing | clic en **cualquier** CTA hacia el pago (hero, producto, secciones, final y sticky móvil) |
 | `Purchase` (valor de la orden, `event_id` = `session_id` de Stripe) | thank-you | una sola vez por compra, solo cuando la orden ya existe en `ebook_orders` (la crea el webhook de Stripe al confirmar el pago) |
 | `Purchase` por Conversions API | servidor (`stripe-webhook`) | mismo `event_id`: Meta deduplica navegador + servidor |
-| `ViewContent` e `InitiateCheckout` por Conversions API | servidor (`auxilios-track-event`) | la landing genera un `event_id` y lo manda al pixel (`eventID`) y a la función: Meta deduplica. Valor, moneda y producto los fija el servidor |
+| `ViewContent` e `InitiateCheckout` por Conversions API | servidor (`product-track-event`) | la landing genera un `event_id` y lo manda al pixel (`eventID`) y a la función: Meta deduplica. Valor, moneda y producto los fija el servidor |
 
 - Pixel: `1209613534467929` (en `auxiliosConfig.ts` y en el catálogo; un test comprueba que coinciden).
 - El valor del `Purchase` es el **neto** que cobra Stripe cuando está disponible (igual que TOEFL y DELF: `purchaseTrackingValue`), si no, el bruto. Es el mismo número de los dos lados para que la deduplicación funcione.
@@ -53,12 +53,12 @@ El token **no va en el repo, ni en Vercel, ni en el chat.** (Si ya lo pegaste en
 
 ### 3. Despliegue (no se hizo; lo haces tú o lo pides)
 ```bash
-supabase functions deploy stripe-webhook auxilios-get-order auxilios-track-event
+supabase functions deploy stripe-webhook auxilios-get-order product-track-event
 # frontend: push a la rama que despliega Vercel
 ```
 El cambio en `ebook-catalog.ts` / `ebook-order.ts` / `stripe-webhook` es compartido con DELF y TOEFL: los tests (`deno test --allow-read supabase/functions/_shared/`) confirman que su comportamiento no cambió. Revisa el diff antes de desplegar.
 
-**`auxilios-track-event`** (pública, `verify_jwt = false`): lista cerrada de eventos (`ViewContent`, `InitiateCheckout`), solo acepta `Origin` de `acrosoftlabs.com`, `source_url` de `/auxilios-lp`, `event_id` con formato estricto y 30 peticiones/min por IP. Usa el mismo secret `META_CAPI_ACCESS_TOKEN_AUXILIOS`. Para probar: pon `META_CAPI_TEST_EVENT_CODE_AUXILIOS`, abre la landing y mira en Events Manager → Test events un `ViewContent` de **navegador** y otro de **servidor** con el mismo `event_id` (deduplicado); luego quita el código.
+**`product-track-event`** (pública, `verify_jwt = false`; **una sola para todos los productos**: el slug viaja en `product` y pixel, token, nombre, precio y landing salen del bloque `tracking` de `ebook-catalog.ts`): lista cerrada de eventos (`ViewContent`, `InitiateCheckout`), solo acepta `Origin` de `acrosoftlabs.com`, `source_url` de `/auxilios-lp`, `event_id` con formato estricto y 30 peticiones/min por IP. Usa el mismo secret `META_CAPI_ACCESS_TOKEN_AUXILIOS`. Para probar: pon `META_CAPI_TEST_EVENT_CODE_AUXILIOS`, abre la landing y mira en Events Manager → Test events un `ViewContent` de **navegador** y otro de **servidor** con el mismo `event_id` (deduplicado); luego quita el código.
 
 ### 4. Vercel
 Solo variables `VITE_*` públicas (ya configuradas). La Biblioteca de la app solo ofrece **Descargar PDF** (verificado en producción); el visor «Ver» se quitó porque la CSP global bloquea los `blob:` en iframes y no hace falta tocarla.
