@@ -58,7 +58,7 @@ supabase functions deploy stripe-webhook auxilios-get-order
 El cambio en `ebook-catalog.ts` / `ebook-order.ts` / `stripe-webhook` es compartido con DELF y TOEFL: los tests (`deno test --allow-read supabase/functions/_shared/`) confirman que su comportamiento no cambió. Revisa el diff antes de desplegar.
 
 ### 4. Vercel
-Solo `VITE_*` públicas (ya configuradas). Para el visor de PDF dentro de la app falta la regla de CSP de `/primeros-auxilios-bebe-app/:path*` (ver `Info/parche-acrosoft.md` en la carpeta del producto).
+Solo variables `VITE_*` públicas (ya configuradas). La Biblioteca de la app solo ofrece **Descargar PDF** (verificado en producción); el visor «Ver» se quitó porque la CSP global bloquea los `blob:` en iframes y no hace falta tocarla.
 
 ### 5. Compra de prueba real (de punta a punta)
 1. Abre `/auxilios-lp` con `?fbclid=test`, pulsa un CTA → llegas a Stripe con `client_reference_id=auxilios_<uuid>`.

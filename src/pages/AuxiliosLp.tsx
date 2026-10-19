@@ -454,6 +454,8 @@ const AuxiliosLp = () => {
 .aux-page .section-head.left.mech-head{max-width:none;margin-left:0;text-align:left;}
 .aux-page .section-head.left.mech-head h2{max-width:40em;margin:0;text-align:left;}
 .aux-page .section-head.left.mech-head h2{font-size:clamp(21px,2.9vw,29px);}
+.aux-page .mech-br{display:none;}
+@media(min-width:640px){.aux-page .mech-br{display:inline;}}
 .aux-page .mech-name{display:inline;font-size:1.6em;line-height:1.18;letter-spacing:-.03em;font-weight:800;color:var(--cta);background:linear-gradient(transparent 70%,rgba(228,87,46,.22) 70%);padding:0 4px;-webkit-box-decoration-break:clone;box-decoration-break:clone;}
 @media(max-width:560px){.aux-page .mech-name{font-size:1.38em;}}
 .aux-page .hero .sub{margin-top:18px;font-size:17px;line-height:1.6;color:var(--ink-soft);max-width:54ch;}
@@ -685,7 +687,7 @@ const AuxiliosLp = () => {
         <section className="deliver" id="mecanismo">
           <div className="container">
             <div className="section-head left mech-head">
-              <h2>La forma más fácil de saber qué hacer en los <span className="hl">primeros 30 segundos</span> de una emergencia es usar...<br /><span className="mech-name">Una Guía con Tarjetas Rápidas de 3 Pasos para Emergencias Comunes</span></h2>
+              <h2>La forma más fácil de saber qué hacer en los <span className="hl">primeros 30 segundos</span> de una emergencia es usar...<br /><span className="mech-name">Una Guía Rápida de 3 Pasos<br className="mech-br" /> para Emergencias Comunes</span></h2>
             </div>
             <CardsMechanism />
             <p className="mech-copy">En una emergencia, con el susto, nadie piensa con claridad. Por eso <strong>los videos de YouTube y las capturas que guardaste</strong> no te sirven. Con nuestra guía en PDF y la App, tendrás <strong>tarjetas rápidas de 3 pasos</strong> para que no tengas que recordar nada: las abres en tu celular, ves qué hacer de un vistazo y actúas.</p>

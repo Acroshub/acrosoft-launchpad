@@ -1,4 +1,4 @@
-import { Download, Eye, FileText, Loader2, X } from "lucide-react";
+import { Download, FileText, Loader2 } from "lucide-react";
 import { useState } from "react";
 import { useApp } from "./app-context";
 import { getPdfUrl } from "./client";
@@ -9,24 +9,19 @@ export function Library() {
   const { content } = useApp();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [viewing, setViewing] = useState<{ item: LibraryItem; url: string } | null>(null);
 
-  const open = async (item: LibraryItem, mode: "view" | "download") => {
+  const download = async (item: LibraryItem) => {
     if (busy) return;
-    setBusy(item.id + mode);
+    setBusy(item.id);
     setError(null);
     try {
       const url = await getPdfUrl(item.id);
-      if (mode === "view") {
-        setViewing({ item, url });
-      } else {
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = item.filename;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      }
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = item.filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
     } catch {
       setError("No pudimos abrir el archivo. Revisa tu conexión e inténtalo de nuevo.");
     } finally {
@@ -52,11 +47,8 @@ export function Library() {
             </div>
             {it.available ? (
               <div className="pab-row">
-                <button type="button" className="pab-btn pab-btn-primary" disabled={!!busy} onClick={() => open(it, "view")}>
-                  {busy === it.id + "view" ? <Loader2 className="pab-spin" aria-hidden="true" /> : <Eye aria-hidden="true" />} Ver
-                </button>
-                <button type="button" className="pab-btn pab-btn-secondary" disabled={!!busy} onClick={() => open(it, "download")}>
-                  {busy === it.id + "download" ? <Loader2 className="pab-spin" aria-hidden="true" /> : <Download aria-hidden="true" />} Descargar
+                <button type="button" className="pab-btn pab-btn-primary" disabled={!!busy} onClick={() => download(it)}>
+                  {busy === it.id ? <Loader2 className="pab-spin" aria-hidden="true" /> : <Download aria-hidden="true" />} Descargar PDF
                 </button>
               </div>
             ) : (
@@ -65,16 +57,6 @@ export function Library() {
           </li>
         ))}
       </ul>
-      {viewing && (
-        <div className="pab-viewer" role="dialog" aria-modal="true" aria-label={viewing.item.title}>
-          <div className="pab-viewer-bar">
-            <strong>{viewing.item.title}</strong>
-            <a className="pab-btn pab-btn-ghost" href={viewing.url} target="_blank" rel="noreferrer">Abrir aparte</a>
-            <button type="button" className="pab-btn pab-btn-secondary" onClick={() => setViewing(null)}><X aria-hidden="true" /> Cerrar</button>
-          </div>
-          <iframe className="pab-viewer-frame" title={viewing.item.title} src={viewing.url} />
-        </div>
-      )}
     </section>
   );
 }
