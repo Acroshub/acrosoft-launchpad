@@ -176,3 +176,72 @@ export async function sendMetaPurchaseEvent(params: SendMetaPurchaseParams): Pro
   }
   return { ok: true, fields: Object.keys(userData) };
 }
+
+// ─── Eventos genéricos de la web (ViewContent, InitiateCheckout…) ────────────
+// Sin email: son visitantes anónimos. Meta los empareja con fbp/fbc, IP y user agent
+// (sin hashear, a diferencia de los datos personales).
+
+export type WebVisitor = {
+  clientIp?: string | null;
+  clientUserAgent?: string | null;
+  fbp?: string | null;
+  fbc?: string | null;
+};
+
+/** user_data de un visitante anónimo. Solo incluye lo que llegó y tiene formato válido. */
+export function buildWebUserData(visitor: WebVisitor): Record<string, string> {
+  const out: Record<string, string> = {};
+  const ip = (visitor.clientIp ?? "").trim();
+  if (IP_CHARS.test(ip)) out.client_ip_address = ip;
+  const ua = (visitor.clientUserAgent ?? "").trim().slice(0, 500);
+  if (ua) out.client_user_agent = ua;
+  const fbp = (visitor.fbp ?? "").trim();
+  if (FB_COOKIE.test(fbp)) out.fbp = fbp;
+  const fbc = (visitor.fbc ?? "").trim();
+  if (FB_COOKIE.test(fbc)) out.fbc = fbc;
+  return out;
+}
+
+export type SendMetaWebEventParams = {
+  eventName: string;
+  /** Mismo event_id que el fbq(..., {eventID}) del navegador: así Meta deduplica. */
+  eventId: string;
+  eventSourceUrl: string;
+  visitor: WebVisitor;
+  customData: Record<string, unknown>;
+  pixelId: string;
+  accessToken: string;
+  testEventCode?: string | null;
+};
+
+/** Envía un evento web a Meta CAPI. No lanza: devuelve el resultado. */
+export async function sendMetaWebEvent(params: SendMetaWebEventParams): Promise<{ ok: true } | { ok: false; error: string }> {
+  const userData = buildWebUserData(params.visitor);
+  // Meta descarta los eventos web de servidor sin client_user_agent.
+  if (!userData.client_user_agent) return { ok: false, error: "falta client_user_agent" };
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/${GRAPH_VERSION}/${params.pixelId}/events?access_token=${params.accessToken}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          data: [{
+            event_name: params.eventName,
+            event_time: Math.floor(Date.now() / 1000),
+            event_id: params.eventId,
+            action_source: "website",
+            event_source_url: params.eventSourceUrl,
+            user_data: userData,
+            custom_data: params.customData,
+          }],
+          ...(params.testEventCode ? { test_event_code: params.testEventCode } : {}),
+        }),
+      },
+    );
+    if (!res.ok) return { ok: false, error: `Meta CAPI error ${res.status}: ${await res.text()}` };
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: `Meta CAPI fetch falló: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}

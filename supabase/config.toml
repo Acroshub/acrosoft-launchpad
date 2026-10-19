@@ -151,3 +151,8 @@ verify_jwt = false
 # Primeros Auxilios del Bebé (sin descarga).
 [functions.auxilios-get-order]
 verify_jwt = false
+
+# auxilios-track-event: pública (la llama /auxilios-lp sin sesión). Reenvía ViewContent e
+# InitiateCheckout a la API de Conversiones; se protege con lista de eventos, origen y límite por IP.
+[functions.auxilios-track-event]
+verify_jwt = false

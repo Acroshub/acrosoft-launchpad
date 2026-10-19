@@ -2,6 +2,7 @@ import { Flame, FlaskConical, Moon, ShieldAlert, Thermometer, Wind } from "lucid
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { saveCheckoutAttribution } from "@/lib/checkoutAttribution";
 import { initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
+import { sendAuxiliosServerEvent } from "@/lib/auxiliosServerEvents";
 import { uuid } from "@/lib/uuid";
 import {
   AUXILIOS_GUARANTEE_DAYS,
@@ -325,7 +326,10 @@ const AuxiliosLp = () => {
     if (!AUXILIOS_PIXEL_ID) return;
     initMetaPixel(AUXILIOS_PIXEL_ID);
     trackMetaEvent("PageView", undefined, undefined, AUXILIOS_PIXEL_ID);
-    trackMetaEvent("ViewContent", { ...auxiliosEventParams(price), ab_version: version }, undefined, AUXILIOS_PIXEL_ID);
+    // Mismo event_id en navegador y servidor (Conversions API): Meta cuenta un solo ViewContent.
+    const eventId = uuid();
+    trackMetaEvent("ViewContent", { ...auxiliosEventParams(price), ab_version: version }, eventId, AUXILIOS_PIXEL_ID);
+    void sendAuxiliosServerEvent({ event: "ViewContent", eventId, abVersion: version, waitForFbpMs: 1500 });
   }, [version]);
 
   // El checkout lo hostea Stripe (Payment Link): InitiateCheckout se dispara al clic en cualquier CTA, antes de salir.
@@ -339,7 +343,11 @@ const AuxiliosLp = () => {
     if (!opensElsewhere) e.preventDefault();
 
     try {
-      if (AUXILIOS_PIXEL_ID) trackMetaEvent("InitiateCheckout", { ...auxiliosEventParams(price), ab_version: version }, undefined, AUXILIOS_PIXEL_ID);
+      if (AUXILIOS_PIXEL_ID) {
+        const eventId = uuid();
+        trackMetaEvent("InitiateCheckout", { ...auxiliosEventParams(price), ab_version: version }, eventId, AUXILIOS_PIXEL_ID);
+        void sendAuxiliosServerEvent({ event: "InitiateCheckout", eventId, abVersion: version });
+      }
       const sid = abSessionIdRef.current;
       if (sid && !ab.forced) {
         try { localStorage.setItem(AB_CHECKOUT_SESSION_KEY, sid); } catch { /* no crítico */ }
