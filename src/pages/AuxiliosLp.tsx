@@ -488,10 +488,10 @@ const AuxiliosLp = () => {
 .aux-page .achieve-item .icon-wrap{flex-shrink:0;width:32px;height:32px;border-radius:50%;background:var(--teal);display:flex;align-items:center;justify-content:center;margin-top:1px;}
 .aux-page .achieve-item .icon-wrap::before{counter-increment:achieve;content:counter(achieve);color:#fff;font-size:15px;font-weight:800;line-height:1;}
 .aux-page .achieve-item p{font-size:16.5px;min-width:0;}
-.aux-page .product-card{background:var(--white);border-radius:28px;box-shadow:var(--shadow-lift);overflow:hidden;display:grid;grid-template-columns:1fr;max-width:980px;}
+.aux-page .product-card{background:var(--white);border-radius:28px;box-shadow:var(--shadow-lift);overflow:hidden;display:grid;grid-template-columns:1fr;max-width:980px;margin:0 auto;}
 @media(min-width:860px){.aux-page .product-card{grid-template-columns:.85fr 1.15fr;}}
 .aux-page .pc-visual{padding:12px;background:#FFEDE6;display:flex;align-items:center;}
-.aux-page .pc-mockup-img{width:100%;aspect-ratio:1/1;object-fit:contain;display:block;}
+.aux-page .pc-mockup-img{width:100%;max-width:460px;margin:0 auto;aspect-ratio:1/1;object-fit:contain;display:block;}
 .aux-page .product-card .pc-body{padding:26px 26px 30px;}
 .aux-page .pc-name{font-size:22px;line-height:1.25;}
 .aux-page .pc-tag{margin-top:8px;font-size:12.5px;color:var(--cta);font-weight:800;text-transform:uppercase;letter-spacing:.06em;}
@@ -514,14 +514,15 @@ const AuxiliosLp = () => {
 .aux-page .pc-discount.on-dark .pc-price-meta .unit{color:#CFE3E3;}
 .aux-page .pc-cta{margin-top:20px;}
 
-.aux-page .section-cta{margin:40px 0 0;padding:28px 24px;border-radius:var(--radius);max-width:440px;text-align:left;background:var(--white);box-shadow:var(--shadow-soft);}
+.aux-page .section-cta{margin:40px auto 0;padding:28px 24px;border-radius:var(--radius);max-width:440px;text-align:left;background:var(--white);box-shadow:var(--shadow-soft);}
 .aux-page .section-cta .btn{width:100%;margin-top:20px;}
-.aux-page .pack-mockup-img{width:100%;max-width:300px;object-fit:contain;display:block;margin:0 0 14px;}
-.aux-page .final-mockup{margin:30px 0 0;max-width:340px;}
+.aux-page .pack-mockup-img{width:100%;max-width:300px;object-fit:contain;display:block;margin:0 auto 14px;}
+.aux-page .final-mockup{margin:30px auto 0;max-width:340px;}
 
 /* Bonos */
 .aux-page .bonuses{background:var(--cream);}
-.aux-page .bonus-head{display:flex;align-items:center;gap:16px;margin:0 0 36px;text-align:left;}
+.aux-page .bonus-head{display:flex;align-items:center;gap:16px;margin:0 0 36px;text-align:left;width:100%;}
+.aux-page .bonus-head > div{min-width:0;flex:1;}
 .aux-page .bonus-head h2{font-size:clamp(25px,3.6vw,36px);}
 .aux-page .bonus-head p{margin-top:6px;font-size:17px;color:var(--ink-soft);}
 .aux-page .gift-badge{flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;width:56px;height:56px;border-radius:20px;background:var(--butter);}
@@ -604,7 +605,7 @@ const AuxiliosLp = () => {
 .aux-page .final-cta{background:linear-gradient(180deg,var(--teal) 0%,var(--teal-dark) 100%);color:var(--cream);text-align:left;}
 .aux-page .final-cta h2{color:var(--white);font-size:clamp(26px,4vw,38px);}
 .aux-page .final-cta .sub{margin:14px 0 0;font-size:17px;color:#CFE3E3;max-width:54ch;}
-.aux-page .final-cta .cta-wrap{margin:30px 0 0;max-width:420px;}
+.aux-page .final-cta .cta-wrap{margin:30px auto 0;max-width:440px;}
 .aux-page .final-cta .btn{margin-top:20px;}
 
 /* Footer */
@@ -762,7 +763,7 @@ const AuxiliosLp = () => {
                 </article>
               ))}
             </div>
-            {sectionCta("Quiero la Guía + App con los 3 Bonos")}
+            {sectionCta("Quiero la Guía + App + 3 Bonos")}
           </div>
         </section>
 
