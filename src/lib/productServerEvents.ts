@@ -20,7 +20,8 @@ export async function sendProductServerEvent(opts: {
   product: string;
   event: ProductServerEvent;
   eventId: string;
-  abVersion: "A" | "B";
+  /** Solo si la landing corre un A/B; las que no lo hacen lo omiten. */
+  abVersion?: "A" | "B";
   waitForFbpMs?: number;
 }): Promise<void> {
   try {
