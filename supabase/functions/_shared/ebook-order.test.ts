@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertFalse, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
-import { EBOOK_CATALOG, resolveMeta, type EnvGetter } from "./ebook-catalog.ts";
-import { buildConfirmationEmailHtml, parseClientReference, platformAccess, resolveProductSlug } from "./ebook-order.ts";
+import { EBOOK_CATALOG, resolveMeta, SERVICE_ORDERS, type EnvGetter } from "./ebook-catalog.ts";
+import { buildConfirmationEmailHtml, isServiceOrder, parseClientReference, platformAccess, resolveProductSlug } from "./ebook-order.ts";
 
 const envOf = (vars: Record<string, string>): EnvGetter => (name) => vars[name];
 
@@ -96,7 +96,7 @@ Deno.test("catálogo - el pixel de TOEFL del servidor es el mismo que usa el nav
   // Si alguien cambia uno y no el otro, los eventos del navegador y de Conversions API irían a pixels distintos.
   const config = await Deno.readTextFile(new URL("../../../src/lib/toeflConfig.ts", import.meta.url));
   const browserPixel = config.match(/TOEFL_PIXEL_ID = "(\d+)"/)?.[1];
-  assertEquals(EBOOK_CATALOG["toefl-b2"].meta.pixelId, browserPixel);
+  assertEquals(EBOOK_CATALOG["toefl-b2"].meta?.pixelId, browserPixel);
 });
 
 // ─── email ──────────────────────────────────────────────────────────────────
@@ -190,7 +190,7 @@ Deno.test("email - sin descarga y con textos propios de la plataforma", () => {
 Deno.test("catálogo - el pixel de auxilios del servidor es el mismo que usa el navegador", async () => {
   const config = await Deno.readTextFile(new URL("../../../src/lib/auxiliosConfig.ts", import.meta.url));
   const browserPixel = config.match(/AUXILIOS_PIXEL_ID = "(\d+)"/)?.[1];
-  assertEquals(EBOOK_CATALOG["auxilios"].meta.pixelId, browserPixel);
+  assertEquals(EBOOK_CATALOG["auxilios"].meta?.pixelId, browserPixel);
 });
 
 Deno.test("catálogo - tracking de auxilios (nombre, precio, slug) coincide con el config del navegador", async () => {
@@ -199,4 +199,85 @@ Deno.test("catálogo - tracking de auxilios (nombre, precio, slug) coincide con 
   assertEquals(t.contentName, config.match(/AUXILIOS_CONTENT_NAME = "([^"]+)"/)?.[1]);
   assertEquals(t.price, Number(config.match(/AUXILIOS_PRICE = (\d+)/)?.[1]));
   assertEquals("auxilios", config.match(/AUXILIOS_PRODUCT_SLUG = "([^"]+)"/)?.[1]);
+});
+
+// ─── piscinas (ZIP, sin pixel) + upsells (servicios sin entrega) ─────────────
+
+Deno.test("piscinas - se reconoce por client_reference_id (con y sin id de atribución) y entrega un ZIP", () => {
+  assertEquals(resolveProductSlug({ client_reference_id: "piscinas" }, envOf({})), "piscinas");
+  assertEquals(resolveProductSlug({ client_reference_id: "piscinas_6f1c2d3e-0a1b-4c5d-8e9f-0123456789ab" }, envOf({})), "piscinas");
+  const p = EBOOK_CATALOG["piscinas"];
+  assertEquals(p.filename, "Kit-Conseguir-Clientes-Piscinas.zip");
+  assertEquals(p.thankYouPath, "/piscinas-ty");
+  assert(!!p.storagePath);
+  assertEquals(p.platform, undefined); // sin plataforma con contraseña
+  assertEquals(platformAccess(p, envOf({})), null);
+});
+
+Deno.test("piscinas - reconoce su Payment Link por id aunque el link no traiga el slug", () => {
+  const env = envOf({ PISCINAS_PAYMENT_LINK_IDS: "plink_KIT" });
+  assertEquals(resolveProductSlug({ payment_link: "plink_KIT" }, env), "piscinas");
+  assertEquals(resolveProductSlug({ payment_link: "plink_OTRO" }, env), "delf-a2");
+});
+
+Deno.test("piscinas - sin pixel ni tracking a propósito (pendiente de Daniel): no manda Purchase por CAPI ni acepta eventos de servidor", () => {
+  const p = EBOOK_CATALOG["piscinas"];
+  assertEquals(p.meta, undefined);
+  assertEquals(p.tracking, undefined);
+  // Ni con un token de otro producto en el entorno se manda nada al pixel equivocado.
+  assertEquals(resolveMeta(p, envOf({ META_CAPI_ACCESS_TOKEN: "x", META_CAPI_ACCESS_TOKEN_TOEFL: "y", META_CAPI_ACCESS_TOKEN_AUXILIOS: "z" })), null);
+});
+
+Deno.test("piscinas - el email de confirmación lleva el link a /piscinas-ty?session_id= y habla de descarga (no de plataforma)", () => {
+  const p = EBOOK_CATALOG["piscinas"];
+  const html = buildConfirmationEmailHtml({
+    productName: p.name,
+    thankYouUrl: `https://www.acrosoftlabs.com${p.thankYouPath}?session_id=cs_test_1`,
+    amountLabel: "$30.00 USD",
+    platform: null,
+    hasDownload: !!p.storagePath,
+  });
+  assertStringIncludes(html, 'href="https://www.acrosoftlabs.com/piscinas-ty?session_id=cs_test_1"');
+  assertStringIncludes(html, "Ver mi compra y descargar");
+  assert(!html.includes("plataforma de práctica"));
+});
+
+Deno.test("upsells - un pago de upsell se reconoce como servicio (no cae en DELF) y no es un producto del catálogo", () => {
+  assertEquals(resolveProductSlug({ client_reference_id: "piscinas-up1" }, envOf({})), "piscinas-up1");
+  assertEquals(resolveProductSlug({ client_reference_id: "piscinas-up2" }, envOf({})), "piscinas-up2");
+  assertEquals(resolveProductSlug({ client_reference_id: "piscinas-up2_6f1c2d3e-0a1b-4c5d-8e9f-0123456789ab" }, envOf({})), "piscinas-up2");
+  assert(isServiceOrder("piscinas-up1"));
+  assert(isServiceOrder("piscinas-up2"));
+  assertFalse(isServiceOrder("piscinas"));
+  assertFalse(isServiceOrder("toefl-b2"));
+  assertFalse(isServiceOrder("delf-a2"));
+  assertFalse(isServiceOrder("constructor"));
+  assertFalse(Object.hasOwn(EBOOK_CATALOG, "piscinas-up1"));
+});
+
+Deno.test("upsells - también se reconocen por el id de su Payment Link y DELF/TOEFL/auxilios siguen igual", () => {
+  const env = envOf({ PISCINAS_UP1_PAYMENT_LINK_IDS: "plink_U1", PISCINAS_UP2_PAYMENT_LINK_IDS: "plink_U2a, plink_U2b", TOEFL_PAYMENT_LINK_IDS: "plink_T" });
+  assertEquals(resolveProductSlug({ payment_link: "plink_U1" }, env), "piscinas-up1");
+  assertEquals(resolveProductSlug({ payment_link: "plink_U2b" }, env), "piscinas-up2");
+  assertEquals(resolveProductSlug({ payment_link: "plink_T" }, env), "toefl-b2");
+  assertEquals(resolveProductSlug({ payment_link: "plink_X" }, env), "delf-a2");
+  assertEquals(resolveProductSlug({ client_reference_id: "auxilios" }, env), "auxilios");
+});
+
+Deno.test("upsells - el catálogo de servicios tiene los slugs que usan las páginas del navegador", async () => {
+  const config = await Deno.readTextFile(new URL("../../../src/lib/piscinasConfig.ts", import.meta.url));
+  assertEquals(Object.keys(SERVICE_ORDERS).sort(), [
+    config.match(/PISCINAS_UP1_SLUG = "([^"]+)"/)?.[1],
+    config.match(/PISCINAS_UP2_SLUG = "([^"]+)"/)?.[1],
+  ].sort());
+});
+
+Deno.test("catálogo - piscinas: slug, nombre y precio del navegador; el pixel sigue vacío mientras el catálogo no tenga `meta`", async () => {
+  const config = await Deno.readTextFile(new URL("../../../src/lib/piscinasConfig.ts", import.meta.url));
+  assertEquals("piscinas", config.match(/PISCINAS_PRODUCT_SLUG = "([^"]+)"/)?.[1]);
+  assertEquals(config.match(/PISCINAS_CONTENT_NAME = "([^"]+)"/)?.[1], EBOOK_CATALOG["piscinas"].name);
+  assertEquals(Number(config.match(/PISCINAS_PRICE = (\d+)/)?.[1]), 30);
+  // Pixel del navegador y del servidor van juntos: si algún día uno se llena, el otro también (y se agrega `tracking`).
+  const browserPixel = config.match(/PISCINAS_PIXEL_ID: string = "(\d*)"/)?.[1];
+  assertEquals(browserPixel, EBOOK_CATALOG["piscinas"].meta?.pixelId ?? "");
 });

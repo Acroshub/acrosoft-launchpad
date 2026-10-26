@@ -1,9 +1,10 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { crypto } from "https://deno.land/std@0.208.0/crypto/mod.ts";
 import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
-import { EBOOK_CATALOG, resolveMeta } from "../_shared/ebook-catalog.ts";
-import { buildConfirmationEmailHtml, parseClientReference, platformAccess, resolveProductSlug } from "../_shared/ebook-order.ts";
+import { EBOOK_CATALOG, SERVICE_ORDERS, resolveMeta } from "../_shared/ebook-catalog.ts";
+import { buildConfirmationEmailHtml, isServiceOrder, parseClientReference, platformAccess, resolveProductSlug } from "../_shared/ebook-order.ts";
 import { sendMetaPurchaseEvent } from "../_shared/meta-capi.ts";
+import { describeUpsellEvent } from "../_shared/piscinas-checkout.ts";
 import { fetchStripeNet, purchaseTrackingValue } from "../_shared/stripe-balance.ts";
 
 // ─── Webhook de Stripe — checkout.session.completed de un Payment Link ───────
@@ -103,6 +104,15 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: "bad json" }), { status: 400 });
   }
 
+  // Upsells de Piscinas cobrados en un clic (payment_intent.succeeded / invoice.paid / customer.subscription.created con
+  // metadata.product="piscinas", step up1|up2): solo se REGISTRAN en el log (ids, monto, moneda; nada sensible) para el
+  // cumplimiento manual. No hay email, ni ebook_orders, ni nada más. Los eventos que no son de upsell siguen el camino de siempre.
+  const upsell = describeUpsellEvent(event);
+  if (upsell) {
+    console.log(`[stripe-webhook] upsell piscinas cobrado; cumplimiento manual ${JSON.stringify(upsell)}`);
+    return new Response(JSON.stringify({ received: true, logged: "piscinas upsell", step: upsell.step }), { status: 200 });
+  }
+
   // Solo nos importa la sesión de checkout pagada — el resto lo confirmamos
   // (200) para que Stripe no siga reintentando un evento que no vamos a usar.
   if (event.type !== "checkout.session.completed") {
@@ -132,15 +142,24 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ received: true, skipped: "not paid" }), { status: 200 });
   }
 
+  // Un mismo webhook atiende todos los Payment Links de la cuenta: qué producto
+  // se compró sale de la propia sesión (ver resolveProductSlug).
+  const productSlug = resolveProductSlug(session);
+
+  // Servicios sin entrega (upsells de Piscinas: campaña y gestión de anuncios): no hay ZIP ni plataforma que
+  // entregar, así que no se manda el email del producto (ni el de DELF por defecto) ni se toca ebook_orders. Se deja
+  // en el log y se responde 200 para que Stripe no reintente; el servicio se cumple a mano desde Stripe.
+  if (isServiceOrder(productSlug)) {
+    console.log(`[stripe-webhook] servicio sin entrega (${SERVICE_ORDERS[productSlug].label}); sesión ${session.id}; cumplimiento manual`);
+    return new Response(JSON.stringify({ received: true, ignored: "service order", product: productSlug }), { status: 200 });
+  }
+
   const email = session.customer_details?.email ?? session.customer_email ?? null;
   if (!email) {
     console.error("[stripe-webhook] sesión pagada sin email:", session.id);
     return new Response(JSON.stringify({ error: "session has no email" }), { status: 400 });
   }
 
-  // Un mismo webhook atiende todos los Payment Links de la cuenta: qué producto
-  // se compró sale de la propia sesión (ver resolveProductSlug).
-  const productSlug = resolveProductSlug(session);
   const catalogEntry = Object.hasOwn(EBOOK_CATALOG, productSlug) ? EBOOK_CATALOG[productSlug] : undefined;
   if (!catalogEntry) {
     console.error("[stripe-webhook] product_slug desconocido:", productSlug);

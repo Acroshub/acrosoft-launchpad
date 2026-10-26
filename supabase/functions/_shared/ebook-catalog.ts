@@ -53,7 +53,8 @@ export type EbookProduct = {
   storagePath?: string;
   /** Thank-you page del producto (el email apunta acá, con ?session_id=). */
   thankYouPath: string;
-  meta: EbookMeta;
+  /** Pixel + token de Conversions API. Sin él (producto aún sin pixel) el webhook no manda Purchase por CAPI. */
+  meta?: EbookMeta;
   tracking?: EbookTracking;
   platform?: EbookPlatform;
   /** Secret con los ids `plink_…` (separados por coma) de los Payment Links de este producto. Respaldo para reconocerlo si el link no trae el slug. */
@@ -89,6 +90,20 @@ export const EBOOK_CATALOG: Record<string, EbookProduct> = {
     platform: { name: "TOEFL Audio Lab", path: "/toefl-plataforma", passwordEnv: "TOEFL_LAB_PASSWORD" },
     paymentLinkIdsEnv: "TOEFL_PAYMENT_LINK_IDS",
   },
+  // Kit Llena tu Calendario de Piscinas: ZIP (4 PDFs + 60 imágenes). SIN `meta` ni `tracking` a propósito: Daniel pidió
+  // avanzar sin Pixel de Meta ni API de Conversiones. Cuando existan, ver docs/piscinas-lanzamiento.md
+  // (sección «PENDIENTE: Pixel de Meta + API de Conversiones»). Sin `meta`, resolveMeta devuelve null y el
+  // webhook no manda Purchase; sin `tracking`, product-track-event rechaza los eventos de este producto.
+  // storagePath: ruta del ZIP en el bucket privado (piscinas-get-order permite sobrescribirla con el secret
+  // PISCINAS_ZIP_PATH, o servir el ZIP desde otra URL con PISCINAS_ZIP_URL).
+  piscinas: {
+    name: "Kit Llena tu Calendario de Piscinas",
+    shortName: "Kit Llena tu Calendario de Piscinas",
+    filename: "Kit-Conseguir-Clientes-Piscinas.zip",
+    storagePath: "piscinas/Kit-Conseguir-Clientes-Piscinas.zip",
+    thankYouPath: "/piscinas-ty",
+    paymentLinkIdsEnv: "PISCINAS_PAYMENT_LINK_IDS",
+  },
   // Sin ZIP: el ebook y los 3 bonos viven cifrados dentro de la webapp (pestaña Biblioteca).
   // Mismo pixel que src/lib/auxiliosConfig.ts. Solo el token (secreto) va en Supabase.
   auxilios: {
@@ -109,6 +124,21 @@ export const EBOOK_CATALOG: Record<string, EbookProduct> = {
   },
 };
 
+/**
+ * Compras de SERVICIOS que no entregan archivo ni plataforma (hoy: los upsells del embudo de Piscinas). Se reconocen
+ * por client_reference_id ("piscinas-up1", "piscinas-up2", que la página del upsell agrega al Payment Link) o por el
+ * id del Payment Link listado en el secret `paymentLinkIdsEnv`. El webhook las registra en el log y responde 200
+ * SIN enviar el email del producto ni tocar ebook_orders: el servicio se cumple a mano (Stripe + formulario de
+ * onboarding). Sin esto, un Payment Link sin pista caería en el producto por defecto (DELF) y mandaría el email equivocado.
+ * Deben coincidir con PISCINAS_UP1_SLUG / PISCINAS_UP2_SLUG de src/lib/piscinasConfig.ts (lo comprueba ebook-order.test.ts).
+ */
+export type ServiceOrder = { label: string; paymentLinkIdsEnv?: string };
+
+export const SERVICE_ORDERS: Record<string, ServiceOrder> = {
+  "piscinas-up1": { label: "Piscinas · Upsell 1 · Creación de campaña (US$100)", paymentLinkIdsEnv: "PISCINAS_UP1_PAYMENT_LINK_IDS" },
+  "piscinas-up2": { label: "Piscinas · Upsell 2 · Gestión de anuncios (US$1,000/mes)", paymentLinkIdsEnv: "PISCINAS_UP2_PAYMENT_LINK_IDS" },
+};
+
 export type EnvGetter = (name: string) => string | undefined;
 const denoEnv: EnvGetter = (name) => Deno.env.get(name);
 
@@ -120,9 +150,11 @@ export function resolveMeta(
   product: EbookProduct,
   env: EnvGetter = denoEnv,
 ): { pixelId: string; accessToken: string; testEventCode: string | null } | null {
-  const pixelId = (product.meta.pixelId ?? (product.meta.pixelIdEnv ? env(product.meta.pixelIdEnv) : undefined))?.trim();
-  const accessToken = env(product.meta.accessTokenEnv)?.trim();
+  const productMeta = product.meta;
+  if (!productMeta) return null; // producto sin pixel todavía: no se manda nada
+  const pixelId = (productMeta.pixelId ?? (productMeta.pixelIdEnv ? env(productMeta.pixelIdEnv) : undefined))?.trim();
+  const accessToken = env(productMeta.accessTokenEnv)?.trim();
   if (!pixelId || !accessToken) return null;
-  const testEventCode = (product.meta.testEventCodeEnv ? env(product.meta.testEventCodeEnv)?.trim() : undefined) || null;
+  const testEventCode = (productMeta.testEventCodeEnv ? env(productMeta.testEventCodeEnv)?.trim() : undefined) || null;
   return { pixelId, accessToken, testEventCode };
 }

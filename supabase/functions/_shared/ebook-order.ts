@@ -5,8 +5,10 @@
 import {
   DEFAULT_PRODUCT_SLUG,
   EBOOK_CATALOG,
+  SERVICE_ORDERS,
   type EbookProduct,
   type EnvGetter,
+  type ServiceOrder,
 } from "./ebook-catalog.ts";
 
 const denoEnv: EnvGetter = (name) => Deno.env.get(name);
@@ -40,26 +42,41 @@ export function parseClientReference(ref: string | null | undefined): { slug: st
  *  2. client_reference_id — la landing lo agrega al link (?client_reference_id=toefl-b2_<uuid>)
  *  3. el id del Payment Link, si está listado en el secret del producto
  *  4. delf-a2, porque los links de DELF no llevan ninguna de las anteriores
+ * Los servicios (SERVICE_ORDERS, ej. los upsells de Piscinas) se reconocen igual por client_reference_id o por el id
+ * del Payment Link y devuelven su slug; el llamador debe comprobar `isServiceOrder` antes de buscar en el catálogo.
  */
 export function resolveProductSlug(
   session: CheckoutSessionRef,
   env: EnvGetter = denoEnv,
   catalog: Record<string, EbookProduct> = EBOOK_CATALOG,
+  services: Record<string, ServiceOrder> = SERVICE_ORDERS,
 ): string {
   const fromMetadata = session.metadata?.product_slug?.trim();
   if (fromMetadata) return fromMetadata;
 
   const ref = parseClientReference(session.client_reference_id)?.slug;
   if (ref && Object.hasOwn(catalog, ref)) return ref;
+  if (ref && Object.hasOwn(services, ref)) return ref;
 
   const link = session.payment_link?.trim();
   if (link) {
+    const listed = (envName?: string) => {
+      const ids = envName ? env(envName) : undefined;
+      return !!ids && ids.split(",").map((s) => s.trim()).includes(link);
+    };
     for (const [slug, product] of Object.entries(catalog)) {
-      const ids = product.paymentLinkIdsEnv ? env(product.paymentLinkIdsEnv) : undefined;
-      if (ids && ids.split(",").map((s) => s.trim()).includes(link)) return slug;
+      if (listed(product.paymentLinkIdsEnv)) return slug;
+    }
+    for (const [slug, service] of Object.entries(services)) {
+      if (listed(service.paymentLinkIdsEnv)) return slug;
     }
   }
   return DEFAULT_PRODUCT_SLUG;
+}
+
+/** ¿Es una compra de un servicio sin entrega (upsell)? El webhook la registra en el log y no envía el email del producto. */
+export function isServiceOrder(slug: string, services: Record<string, ServiceOrder> = SERVICE_ORDERS): boolean {
+  return Object.hasOwn(services, slug);
 }
 
 export type PlatformAccess = { name: string; path: string; password: string | null };

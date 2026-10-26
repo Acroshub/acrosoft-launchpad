@@ -152,9 +152,24 @@ verify_jwt = false
 [functions.auxilios-get-order]
 verify_jwt = false
 
+# piscinas-get-order: pública (la usa /piscinas-ty sin sesión de usuario), protegida por el
+# session_id de Stripe. Devuelve el resumen de la compra del kit y la URL de descarga del ZIP.
+[functions.piscinas-get-order]
+verify_jwt = false
+
 # product-track-event: pública (la llaman las landings /<palabra>-lp sin sesión). UNA función para todos los
 # productos: reenvía ViewContent e InitiateCheckout a la API de Conversiones usando pixel, token, precio y
 # landing del catálogo (ebook-catalog.ts, bloque `tracking`). Se protege con lista de eventos, producto del
 # catálogo, origen permitido y límite por IP.
 [functions.product-track-event]
+verify_jwt = false
+
+# piscinas-create-checkout: pública (la llaman las landings /piscinas-lp… sin sesión). Crea la Checkout Session del
+# kit que guarda la tarjeta para el cobro en un clic de los upsells. Valida origen y limita por IP.
+[functions.piscinas-create-checkout]
+verify_jwt = false
+
+# piscinas-upsell-charge: pública (la llaman /piscinas-up1 y /piscinas-up2). Cobra el upsell con la tarjeta guardada
+# del kit; el "token" es el session_id de Stripe de esa compra. Idempotente.
+[functions.piscinas-upsell-charge]
 verify_jwt = false

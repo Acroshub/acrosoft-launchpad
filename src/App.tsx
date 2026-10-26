@@ -29,6 +29,13 @@ const ToeflPlataforma = lazy(() => import("./pages/ToeflPlataforma.tsx"));
 const PrimerosAuxiliosBebeApp = lazy(() => import("./pages/PrimerosAuxiliosBebeApp.tsx"));
 const AuxiliosLp = lazy(() => import("./pages/AuxiliosLp.tsx"));
 const AuxiliosTy = lazy(() => import("./pages/AuxiliosTy.tsx"));
+const PiscinasLp = lazy(() => import("./pages/PiscinasLp.tsx"));
+const PiscinasLp2 = lazy(() => import("./pages/PiscinasLp2.tsx"));
+const PiscinasLp3 = lazy(() => import("./pages/PiscinasLp3.tsx"));
+const PiscinasLp4 = lazy(() => import("./pages/PiscinasLp4.tsx"));
+const PiscinasUp1 = lazy(() => import("./pages/PiscinasUp1.tsx"));
+const PiscinasUp2 = lazy(() => import("./pages/PiscinasUp2.tsx"));
+const PiscinasTy = lazy(() => import("./pages/PiscinasTy.tsx"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -65,6 +72,14 @@ const App = () => (
             <Route path="/primeros-auxilios-bebe-app/*" element={<PrimerosAuxiliosBebeApp />} />
             <Route path="/auxilios-lp" element={<AuxiliosLp />} />
             <Route path="/auxilios-ty" element={<AuxiliosTy />} />
+            {/* Embudo «Kit Llena tu Calendario de Piscinas»: landing, upsell 1 (campaña), upsell 2 (gestión) y thank-you con la descarga */}
+            <Route path="/piscinas-lp" element={<PiscinasLp />} />
+            <Route path="/piscinas-lp2" element={<PiscinasLp2 />} />
+            <Route path="/piscinas-lp3" element={<PiscinasLp3 />} />
+            <Route path="/piscinas-lp4" element={<PiscinasLp4 />} />
+            <Route path="/piscinas-up1" element={<PiscinasUp1 />} />
+            <Route path="/piscinas-up2" element={<PiscinasUp2 />} />
+            <Route path="/piscinas-ty" element={<PiscinasTy />} />
 
             {/* Client invitation setup — public (session comes from invite link) */}
             <Route path="/crm-setup" element={<CrmSetup />} />

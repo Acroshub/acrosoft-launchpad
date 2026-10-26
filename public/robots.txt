@@ -17,4 +17,13 @@ Disallow: /primeros-auxilios-bebe-app
 Disallow: /primeros-auxilios-bebe-pack/
 Disallow: /auxilios-ty
 
+# Embudo Kit Llena tu Calendario de Piscinas (upsells y thank-you privados; la landing /piscinas-lp sí se indexa)
+# Versiones de landing en comparación (v2 larga, v3 tras el VSL): no indexar mientras se comparan
+Disallow: /piscinas-lp2
+Disallow: /piscinas-lp3
+Disallow: /piscinas-lp4
+Disallow: /piscinas-up1
+Disallow: /piscinas-up2
+Disallow: /piscinas-ty
+
 Sitemap: https://acrosoftlabs.com/sitemap.xml
