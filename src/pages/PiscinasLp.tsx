@@ -267,7 +267,7 @@ const PiscinasLp = () => {
               Para dueños de negocios de limpieza de piscinas en EE.UU.
             </span>
             <h1><span className="hl">Consigue Clientes Nuevos</span> para tu Negocio de Limpieza de Piscinas</h1>
-            <p className="sub hero-sub">Con un Kit de Anuncios Virales Listos para Publicar y Empezar a Vender</p>
+            <p className="sub hero-sub">Con un <span className="hl">Kit de Anuncios Virales</span> Listos para Publicar y Empezar a Vender</p>
             {heroVisual && (
               <PiscinasImage
                 src={`${IMG}/antes-despues.jpg`}
@@ -302,7 +302,7 @@ const PiscinasLp = () => {
         <section id="para-ti" className="sec-light">
           <div className="container">
             <div className="section-head">
-              <h2>Esto es para ti si…</h2>
+              <h2>Este Kit de Anuncios es para ti si...</h2>
             </div>
             <ul className="id-list">
               {PARA_TI.map((item) => (
