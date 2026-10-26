@@ -9,7 +9,7 @@ export const PIS_LP1_CSS = `
 .pis-lp1 .btn-hero .btn-main{gap:9px;align-self:center;}
 .pis-lp1 .btn-label{text-wrap:balance;}
 .pis-lp1 .btn-hero .btn-label{max-width:16.5ch;}
-.pis-lp1 .hero .sub.hero-sub .kit-ul{color:inherit;text-decoration:underline;text-decoration-color:#F2C14E;text-decoration-thickness:4px;text-underline-offset:5px;text-decoration-skip-ink:none;}
+.pis-lp1 .hero .sub.hero-sub .kit-ul{color:inherit;text-decoration:underline;text-decoration-color:#F2C14E;text-decoration-thickness:2px;text-underline-offset:2px;text-decoration-skip-ink:none;}
 .pis-lp1 #para-ti .section-head h2{font-size:clamp(30px,5.4vw,50px);line-height:1.12;}
 /* Sin animaciones en los íconos de «Este Kit de Anuncios es para ti si…» y de «En los próximos 7 días, vas a:» (mismos estados finales que usa reduced-motion). */
 .pis-lp1 .pt-dot,.pis-lp1 .pt-mega,.pis-lp1 .pt-wave,.pis-lp1 .pt-q,.pis-lp1 .pt-ring-phone,.pis-lp1 .pt-ripple{animation:none !important;opacity:1;}
