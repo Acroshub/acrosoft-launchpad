@@ -267,7 +267,7 @@ const PiscinasLp = () => {
               Para dueños de negocios de limpieza de piscinas en EE.UU.
             </span>
             <h1><span className="hl">Consigue Clientes Nuevos</span> para tu Negocio de Limpieza de Piscinas</h1>
-            <p className="sub hero-sub">Con un <span className="hl">Kit de Anuncios Virales</span> Listos para Publicar y Empezar a Vender</p>
+            <p className="sub hero-sub">Con un <span className="kit-ul">Kit de Anuncios Virales</span> Listos para Publicar y Empezar a Vender</p>
             {heroVisual && (
               <PiscinasImage
                 src={`${IMG}/antes-despues.jpg`}
