@@ -220,12 +220,17 @@ Deno.test("piscinas - reconoce su Payment Link por id aunque el link no traiga e
   assertEquals(resolveProductSlug({ payment_link: "plink_OTRO" }, env), "delf-a2");
 });
 
-Deno.test("piscinas - sin pixel ni tracking a propósito (pendiente de Daniel): no manda Purchase por CAPI ni acepta eventos de servidor", () => {
+Deno.test("piscinas - pixel propio: sin su token no se manda nada por CAPI (ni con el de otros productos); con su token, al pixel de Piscinas", () => {
   const p = EBOOK_CATALOG["piscinas"];
-  assertEquals(p.meta, undefined);
-  assertEquals(p.tracking, undefined);
-  // Ni con un token de otro producto en el entorno se manda nada al pixel equivocado.
+  assertEquals(p.meta?.pixelId, "4801611716791999");
+  assertEquals(p.tracking?.price, 30);
+  // Sin META_CAPI_ACCESS_TOKEN_PISCINAS: aunque haya tokens de otros productos o el global, no se manda nada al pixel equivocado.
   assertEquals(resolveMeta(p, envOf({ META_CAPI_ACCESS_TOKEN: "x", META_CAPI_ACCESS_TOKEN_TOEFL: "y", META_CAPI_ACCESS_TOKEN_AUXILIOS: "z" })), null);
+  // Con su propio token sí.
+  assertEquals(
+    resolveMeta(p, envOf({ META_CAPI_ACCESS_TOKEN_PISCINAS: "tok", META_CAPI_TEST_EVENT_CODE_PISCINAS: "TEST1" })),
+    { pixelId: "4801611716791999", accessToken: "tok", testEventCode: "TEST1" },
+  );
 });
 
 Deno.test("piscinas - el email de confirmación lleva el link a /piscinas-ty?session_id= y habla de descarga (no de plataforma)", () => {
@@ -272,7 +277,7 @@ Deno.test("upsells - el catálogo de servicios tiene los slugs que usan las pág
   ].sort());
 });
 
-Deno.test("catálogo - piscinas: slug, nombre y precio del navegador; el pixel sigue vacío mientras el catálogo no tenga `meta`", async () => {
+Deno.test("catálogo - piscinas: slug, nombre y precio del navegador; el pixel del navegador y el del servidor coinciden, y `tracking` calza con la landing", async () => {
   const config = await Deno.readTextFile(new URL("../../../src/lib/piscinasConfig.ts", import.meta.url));
   assertEquals("piscinas", config.match(/PISCINAS_PRODUCT_SLUG = "([^"]+)"/)?.[1]);
   assertEquals(config.match(/PISCINAS_CONTENT_NAME = "([^"]+)"/)?.[1], EBOOK_CATALOG["piscinas"].name);
@@ -280,4 +285,9 @@ Deno.test("catálogo - piscinas: slug, nombre y precio del navegador; el pixel s
   // Pixel del navegador y del servidor van juntos: si algún día uno se llena, el otro también (y se agrega `tracking`).
   const browserPixel = config.match(/PISCINAS_PIXEL_ID: string = "(\d*)"/)?.[1];
   assertEquals(browserPixel, EBOOK_CATALOG["piscinas"].meta?.pixelId ?? "");
+  assertEquals(browserPixel, "4801611716791999");
+  assertEquals(EBOOK_CATALOG["piscinas"].tracking?.price, 30);
+  assertEquals(EBOOK_CATALOG["piscinas"].tracking?.contentName, EBOOK_CATALOG["piscinas"].name);
+  assertEquals(EBOOK_CATALOG["piscinas"].tracking?.landingPath, "/piscinas-lp");
+  assertEquals(EBOOK_CATALOG["piscinas"].meta?.accessTokenEnv, "META_CAPI_ACCESS_TOKEN_PISCINAS");
 });

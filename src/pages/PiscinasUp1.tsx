@@ -3,6 +3,7 @@ import { DecisionCard } from "@/components/piscinas/PiscinasShared";
 import { Up1Layout } from "@/components/piscinas/Up1Layout";
 import { useUpsellCharge } from "@/components/piscinas/useUpsellCharge";
 import { PISCINAS_UP1_PAYMENT_LINK, PISCINAS_UP1_PRICE, PISCINAS_UP1_SLUG, piscinasCheckoutUrl } from "@/lib/piscinasConfig";
+import { trackUpsellPageView } from "@/lib/piscinasPixel";
 import { AB_UP1_EXPERIMENT, FRONT_SESSION_KEY, UP1_FLAG_KEY, addNoindex, registerAbSession, trackAbClick, writeSession } from "@/lib/piscinasFunnel";
 
 // Upsell 1 — /piscinas-up1 — Creación de campaña publicitaria, US$100 pago único. Formato del método (06e-funnel-interrogatorio.md): una sola decisión por página.
@@ -35,6 +36,8 @@ const PiscinasUp1 = () => {
     const sessionId = new URLSearchParams(window.location.search).get("session_id");
     if (sessionId) writeSession(FRONT_SESSION_KEY, sessionId);
   }, []);
+
+  useEffect(() => trackUpsellPageView(), []);
 
   useEffect(() => {
     abSessionIdRef.current = registerAbSession(AB_UP1_EXPERIMENT, String(PISCINAS_UP1_PRICE));

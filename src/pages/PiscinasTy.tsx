@@ -6,6 +6,7 @@ import { PIS_UP1_CSS } from "@/components/piscinas/piscinasUp1Styles";
 import { PIS_TY_CSS } from "@/components/piscinas/piscinasTyStyles";
 import { initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
 import { PISCINAS_PIXEL_ID, PISCINAS_TY_EMAIL, PISCINAS_TY_WHATSAPP } from "@/lib/piscinasConfig";
+import { trackUpsellPurchase } from "@/lib/piscinasPixel";
 import { FRONT_SESSION_KEY, UP1_FLAG_KEY, UP2_FLAG_KEY, addNoindex, readSession, trackAbPurchase, writeSession } from "@/lib/piscinasFunnel";
 
 // Thank-you de «Kit Llena tu Calendario de Piscinas» — /piscinas-ty — noindex. Estructura de 06d-pagina-gracias.md. Copy en Info/copy-landings.md (página 4).
@@ -112,6 +113,11 @@ const PiscinasTy = () => {
     }
     load(sessionId, MAX_AUTO_RETRIES);
   }, [sessionId, load, attempt]);
+
+  // Purchase del upsell 2 ($1,000, primer mes) al llegar tras pagarlo (?up=2). El del kit sale abajo, con el valor real de la orden.
+  useEffect(() => {
+    if (!IS_DEMO && new URLSearchParams(window.location.search).get("up") === "2") trackUpsellPurchase("up2");
+  }, []);
 
   // Purchase una sola vez por compra confirmada (event_id = session_id de Stripe, igual que el servidor). Sin pixel, no hace nada.
   useEffect(() => {

@@ -3,6 +3,7 @@ import { DecisionCard } from "@/components/piscinas/PiscinasShared";
 import { Up2Layout, Up2PriceSteps } from "@/components/piscinas/Up2Layout";
 import { useUpsellCharge } from "@/components/piscinas/useUpsellCharge";
 import { PISCINAS_UP2_PAYMENT_LINK, PISCINAS_UP2_PRICE_MONTHLY, PISCINAS_UP2_SLUG, piscinasCheckoutUrl } from "@/lib/piscinasConfig";
+import { trackUpsellPageView, trackUpsellPurchase } from "@/lib/piscinasPixel";
 import { AB_UP2_EXPERIMENT, UP1_FLAG_KEY, UP2_FLAG_KEY, addNoindex, readSession, registerAbSession, trackAbClick, writeSession } from "@/lib/piscinasFunnel";
 
 // Upsell 2 — /piscinas-up2 — Gestión completa de anuncios, US$1,000/mes (suscripción). Formato del método
@@ -41,6 +42,12 @@ const PiscinasUp2 = () => {
   useEffect(() => {
     document.title = PAGE_TITLE;
     return addNoindex();
+  }, []);
+
+  // Pixel: PageView y, si llega de pagar el upsell 1 (?from=up1), el Purchase de $100 (una sola vez).
+  useEffect(() => {
+    trackUpsellPageView();
+    if (new URLSearchParams(window.location.search).get("from") === "up1") trackUpsellPurchase("up1");
   }, []);
 
   useEffect(() => {

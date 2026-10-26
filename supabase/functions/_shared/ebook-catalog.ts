@@ -90,18 +90,18 @@ export const EBOOK_CATALOG: Record<string, EbookProduct> = {
     platform: { name: "TOEFL Audio Lab", path: "/toefl-plataforma", passwordEnv: "TOEFL_LAB_PASSWORD" },
     paymentLinkIdsEnv: "TOEFL_PAYMENT_LINK_IDS",
   },
-  // Kit Llena tu Calendario de Piscinas: ZIP (4 PDFs + 60 imágenes). SIN `meta` ni `tracking` a propósito: Daniel pidió
-  // avanzar sin Pixel de Meta ni API de Conversiones. Cuando existan, ver docs/piscinas-lanzamiento.md
-  // (sección «PENDIENTE: Pixel de Meta + API de Conversiones»). Sin `meta`, resolveMeta devuelve null y el
-  // webhook no manda Purchase; sin `tracking`, product-track-event rechaza los eventos de este producto.
+  // Kit Llena tu Calendario de Piscinas: ZIP (4 PDFs + 60 imágenes). Mismo pixel que src/lib/piscinasConfig.ts; solo el token (secreto)
+  // va en Supabase (META_CAPI_ACCESS_TOKEN_PISCINAS): mientras no exista, resolveMeta devuelve null y el servidor no manda nada (el navegador sí).
   // storagePath: ruta del ZIP en el bucket privado (piscinas-get-order permite sobrescribirla con el secret
-  // PISCINAS_ZIP_PATH, o servir el ZIP desde otra URL con PISCINAS_ZIP_URL).
+  // PISCINAS_ZIP_PATH, o servir el ZIP desde otra URL con PISCINAS_ZIP_URL, que es lo que se usa hoy).
   piscinas: {
     name: "Kit Llena tu Calendario de Piscinas",
     shortName: "Kit Llena tu Calendario de Piscinas",
     filename: "Kit-Conseguir-Clientes-Piscinas.zip",
     storagePath: "piscinas/Kit-Conseguir-Clientes-Piscinas.zip",
     thankYouPath: "/piscinas-ty",
+    meta: { pixelId: "4801611716791999", accessTokenEnv: "META_CAPI_ACCESS_TOKEN_PISCINAS", testEventCodeEnv: "META_CAPI_TEST_EVENT_CODE_PISCINAS" },
+    tracking: { contentName: "Kit Llena tu Calendario de Piscinas", price: 30, landingPath: "/piscinas-lp" },
     paymentLinkIdsEnv: "PISCINAS_PAYMENT_LINK_IDS",
   },
   // Sin ZIP: el ebook y los 3 bonos viven cifrados dentro de la webapp (pestaña Biblioteca).

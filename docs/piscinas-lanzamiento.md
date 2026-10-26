@@ -2,19 +2,12 @@
 
 Producto: **Kit Llena tu Calendario de Piscinas** — 4 PDFs + 60 imágenes editables (ES/EN), ZIP. Pago único **US$30**, garantía **30 días**. Upsell 1: campaña publicitaria **US$100 único**. Upsell 2: gestión de anuncios **US$1,000/mes** (suscripción). Copy fuente: `CRASHING/Kit Clientes Piscinas/Info/copy-landings.md`.
 
-> ## ⚠️ PENDIENTE: Pixel de Meta + API de Conversiones
-> Daniel pidió **avanzar sin pixel ni CAPI**. Hoy: `PISCINAS_PIXEL_ID = ""` en `src/lib/piscinasConfig.ts` (la landing y la thank-you no inicializan el pixel ni disparan ningún evento) y la entrada `piscinas` del catálogo **no tiene `meta` ni `tracking`** (el webhook no manda `Purchase` por CAPI; `product-track-event` rechaza eventos de este producto). Las visitas y clics sí se miden con `ab_sessions`/`ab_track` (`piscinas_price`). **Sin esto, los anuncios no podrán optimizar por compra.** Pasos exactos (mismos que `docs/auxilios-lanzamiento.md`):
-> 1. Events Manager → Conectar orígenes de datos → Web → crear el **Pixel de Meta** del producto (uno propio; no reutilizar el de otro producto).
-> 2. Events Manager → ese pixel → Configuración → API de conversiones → **Generar token de acceso**. El token **no va en el repo, ni en Vercel, ni en el chat**.
-> 3. `src/lib/piscinasConfig.ts`: `PISCINAS_PIXEL_ID = "<id>"`.
-> 4. `supabase/functions/_shared/ebook-catalog.ts`, entrada `piscinas`, agregar:
->    `meta: { pixelId: "<id>", accessTokenEnv: "META_CAPI_ACCESS_TOKEN_PISCINAS", testEventCodeEnv: "META_CAPI_TEST_EVENT_CODE_PISCINAS" }` y
->    `tracking: { contentName: "Kit Llena tu Calendario de Piscinas", price: 30, landingPath: "/piscinas-lp" }` (debe coincidir con `PISCINAS_CONTENT_NAME` y `PISCINAS_PRICE`).
-> 5. Actualizar el test `catálogo - piscinas…` de `ebook-order.test.ts` (hoy exige pixel vacío en ambos lados) y añadir los tests de `tracking`/pixel como los de `auxilios`.
-> 6. Secrets en Supabase (Dashboard → Edge Functions → Secrets o `supabase secrets set`; lo haces tú): `META_CAPI_ACCESS_TOKEN_PISCINAS` y, solo para probar, `META_CAPI_TEST_EVENT_CODE_PISCINAS` (quitarlo después).
-> 7. Desplegar: `supabase functions deploy stripe-webhook piscinas-get-order product-track-event` y push del frontend.
-> 8. Probar en Events Manager → Test events: `ViewContent` e `InitiateCheckout` (navegador + servidor, mismo `event_id`) y un `Purchase` (navegador + servidor, `event_id` = `session_id`). Meta → dominio verificado y evento Purchase priorizado.
-> El código ya está listo: `PiscinasLp.tsx` emite PageView/ViewContent/InitiateCheckout (con `eventId` y `sendProductServerEvent`) y `PiscinasTy.tsx` emite `Purchase` una sola vez por compra; todo es no-op mientras el pixel esté vacío.
+> ## Pixel de Meta (hecho en el navegador) + API de Conversiones (pendiente: el token)
+> **Pixel `4801611716791999`** (dado por Daniel, 2026-10-26) en `PISCINAS_PIXEL_ID` y en la entrada `piscinas` del catálogo (`meta` + `tracking`).
+> **Navegador (ya activo):** `/piscinas-lp` → PageView, ViewContent (al cargar) e InitiateCheckout (en cada botón que lleva al checkout del kit, con `event_id`); `/piscinas-up1` y `/piscinas-up2` → PageView; `/piscinas-ty` → **Purchase del kit** (valor real de la orden, `event_id` = session_id, una vez por compra).
+> **Upsells:** cada uno es su PROPIO Purchase con su valor y event_id (Meta suma los ingresos): upsell 1 ($100) al llegar a `/piscinas-up2?from=up1`; upsell 2 ($1,000, primer mes) al llegar a `/piscinas-ty?up=2`; event_id `piscinas-up1-<session_id>` / `piscinas-up2-<session_id>`; una vez por compra (`localStorage`). Código: `src/lib/piscinasPixel.ts`. Las renovaciones mensuales no se reportan.
+> **Servidor (CAPI) — pendiente:** falta el token. Events Manager → pixel `4801611716791999` → Configuración → API de conversiones → Generar token de acceso → guardarlo como secret `META_CAPI_ACCESS_TOKEN_PISCINAS` en Supabase (no en el repo ni en el chat) y, solo para probar, `META_CAPI_TEST_EVENT_CODE_PISCINAS`. Sin el token `resolveMeta` devuelve `null` y el servidor no manda nada (el navegador sí). Con el token, `stripe-webhook` manda el Purchase del kit y `product-track-event` el ViewContent/InitiateCheckout de `/piscinas-lp` (solo esa ruta: `tracking.landingPath`). Los Purchase de los upsells hoy salen solo del navegador (mejora futura: mandarlos también por CAPI desde el webhook con el mismo event_id).
+> Verificar en Events Manager → Test events.
 
 ## Piezas
 

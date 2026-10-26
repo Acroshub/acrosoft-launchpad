@@ -19,11 +19,10 @@ export const PISCINAS_UP2_SLUG = "piscinas-up2";
 export const PISCINAS_CONTENT_NAME = "Kit Llena tu Calendario de Piscinas";
 
 /**
- * Pixel de Meta del producto. VACÍO a propósito: Daniel pidió avanzar sin pixel ni API de Conversiones.
- * Con "" la landing no inicializa el pixel ni dispara eventos. Cuando exista, ver la sección
- * «PENDIENTE: Pixel de Meta + API de Conversiones» de docs/piscinas-lanzamiento.md.
+ * Pixel de Meta del producto (dado por Daniel, 2026-10-26). El navegador dispara PageView, ViewContent, InitiateCheckout y Purchase;
+ * la API de Conversiones (servidor) solo envía cuando existe el secret META_CAPI_ACCESS_TOKEN_PISCINAS en Supabase (ver docs/piscinas-lanzamiento.md).
  */
-export const PISCINAS_PIXEL_ID: string = "";
+export const PISCINAS_PIXEL_ID: string = "4801611716791999";
 
 /** Precio de venta del kit (USD, pago único) y precio de lista tachado (vacío = no se muestra; lo define Daniel). */
 export const PISCINAS_PRICE = 30;
