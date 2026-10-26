@@ -73,7 +73,11 @@ Stripe → Payment links → cada link → Después del pago → «No mostrar p�
 
 Mientras un link esté vacío en `piscinasConfig.ts`, su botón registra el clic y no navega. Pega además los `plink_…` como respaldo (secrets opcionales, ver §3).
 
-## 2. Entrega por ZIP — subir el archivo (⚠️ tamaño)
+## 2. Entrega por ZIP — HOY: enlace de Google Drive (`PISCINAS_ZIP_URL`)
+
+Decisión de Daniel (2026-10-26): el bucket `ebook-deliverables` tiene tope de 100 MB y subirlo cuesta plan; la entrega usa el secret `PISCINAS_ZIP_URL` = `https://drive.usercontent.google.com/download?id=<ID del archivo de Drive>&export=download&confirm=t` (descarga directa, sin la página de aviso de virus). El archivo de Drive debe estar compartido como «Cualquier persona con el enlace». Riesgo: Drive limita las descargas masivas de un mismo archivo («demasiadas descargas»); si pasa, mover el ZIP a un CDN (Bunny/R2) y cambiar el secret. Lo de abajo describe la opción por bucket, por si algún día se sube el límite.
+
+## 2b. (Alternativa) Entrega por ZIP en el bucket
 
 ZIP: `CRASHING/Kit Clientes Piscinas/Kit-Conseguir-Clientes-Piscinas.zip` (**~105 MB**, 68 archivos). Ruta esperada en el bucket privado `ebook-deliverables`: `piscinas/Kit-Conseguir-Clientes-Piscinas.zip` (Dashboard → Storage → carpeta `piscinas` → subir solo el .zip).
 

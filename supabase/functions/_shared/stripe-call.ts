@@ -8,7 +8,7 @@ export type StripeResult = { ok: boolean; status: number; body: Record<string, u
 
 export async function stripeCall(
   key: string,
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   path: string,
   params?: { [k: string]: FormValue },
   opts: { idempotencyKey?: string; timeoutMs?: number } = {},

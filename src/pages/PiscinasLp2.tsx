@@ -357,10 +357,7 @@ const PiscinasLp2 = () => {
         <footer>
           <div className="container">
             <p>Este producto es material de apoyo para el marketing de tu negocio. No garantiza resultados ni una cantidad de clientes: dependen de tu zona, tu servicio, tu presupuesto y de cuánto lo apliques.</p>
-            <p>
-              <a href="/terminos_y_politicas_de_privacidad">Términos y política de privacidad</a>
-              {PISCINAS_SUPPORT_EMAIL && <> · Soporte: <a href={`mailto:${PISCINAS_SUPPORT_EMAIL}`}>{PISCINAS_SUPPORT_EMAIL}</a></>}
-            </p>
+            {PISCINAS_SUPPORT_EMAIL && <p>Soporte: <a href={`mailto:${PISCINAS_SUPPORT_EMAIL}`}>{PISCINAS_SUPPORT_EMAIL}</a></p>}
           </div>
         </footer>
 

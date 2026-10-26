@@ -67,20 +67,29 @@ async function invoiceAlreadyPaid(key: string, customerId: string, frontSessionI
   return hasExistingUpsell("up1", frontSessionId, data, "invoice");
 }
 
-/** Upsell 1 con producto: factura de ese price, finalizada y pagada con la tarjeta guardada. Si algo falla, anula la factura y devuelve el error de Stripe. */
-async function chargeUp1WithInvoice(key: string, priceId: string, charge: { customerId: string; paymentMethodId: string; currency: string; frontSessionId: string }): Promise<StripeResult> {
+/**
+ * Upsell 1 con producto: factura de ese price, finalizada y pagada con la tarjeta guardada.
+ * `setupFailed` = falló un paso ANTES de cobrar (p. ej. la clave restringida no tiene permiso de Invoice Items): no se cobró nada, se borra el
+ * borrador y el que llama cae al pago directo de US$100. Un fallo del propio pago (tarjeta rechazada, 3DS) NO es setupFailed: no se reintenta.
+ */
+async function chargeUp1WithInvoice(
+  key: string,
+  priceId: string,
+  charge: { customerId: string; paymentMethodId: string; currency: string; frontSessionId: string },
+): Promise<{ result: StripeResult; setupFailed: boolean }> {
   const inv = await stripeCall(key, "POST", "/invoices", buildUp1InvoiceParams(charge), { idempotencyKey: invoiceStepKey("invoice", charge.frontSessionId) });
   const invoiceId = inv.body.id;
-  if (!inv.ok || typeof invoiceId !== "string") return inv;
-  const voidInvoice = async () => { await stripeCall(key, "POST", `/invoices/${invoiceId}/void`, {}); };
+  if (!inv.ok || typeof invoiceId !== "string") return { result: inv, setupFailed: true };
 
+  const dropDraft = async () => { await stripeCall(key, "DELETE", `/invoices/${invoiceId}`); };
   const item = await stripeCall(key, "POST", "/invoiceitems", buildUp1InvoiceItemParams(charge, invoiceId, priceId), { idempotencyKey: invoiceStepKey("item", charge.frontSessionId) });
-  if (!item.ok) { await voidInvoice(); return item; }
+  if (!item.ok) { await dropDraft(); return { result: item, setupFailed: true }; }
   const fin = await stripeCall(key, "POST", `/invoices/${invoiceId}/finalize_invoice`, { auto_advance: false }, { idempotencyKey: invoiceStepKey("finalize", charge.frontSessionId) });
-  if (!fin.ok) return fin; // sigue en borrador: Stripe la limpia sola; no se puede anular un borrador
+  if (!fin.ok) { await dropDraft(); return { result: fin, setupFailed: true }; }
+
   const paid = await stripeCall(key, "POST", `/invoices/${invoiceId}/pay`, buildUp1InvoicePayParams(charge), { idempotencyKey: invoiceStepKey("pay", charge.frontSessionId) });
-  if (!paid.ok || paid.body.status !== "paid") await voidInvoice();
-  return paid;
+  if (!paid.ok || paid.body.status !== "paid") await stripeCall(key, "POST", `/invoices/${invoiceId}/void`, {});
+  return { result: paid, setupFailed: false };
 }
 
 /** ¿Ya existe el cobro/suscripción de esta oferta para esta compra del kit? null = no se pudo comprobar (se sigue con la idempotency key). */
@@ -166,9 +175,17 @@ Deno.serve(async (req: Request) => {
 
     const charge = { customerId: front.customerId, paymentMethodId: front.paymentMethodId, currency: front.currency, frontSessionId };
     let result: StripeResult;
+    let viaInvoice = false;
     if (offer === "up1" && useInvoice) {
-      // (b') Factura del price del upsell 1, finalizada y pagada.
-      result = await chargeUp1WithInvoice(key, up1PriceId as string, charge);
+      // (b') Factura del price del upsell 1, finalizada y pagada. Si no se puede ni preparar (permisos, etc.), cae al pago directo.
+      const inv = await chargeUp1WithInvoice(key, up1PriceId as string, charge);
+      if (inv.setupFailed) {
+        console.warn(`[piscinas-upsell-charge] up1: la factura no se pudo preparar (${stripeErrorSummary(inv.result)}); se cobra con pago directo`);
+        result = await stripeCall(key, "POST", "/payment_intents", buildUp1PaymentIntentParams(charge), { idempotencyKey: idempotencyKey("up1", frontSessionId) });
+      } else {
+        result = inv.result;
+        viaInvoice = true;
+      }
     } else if (offer === "up1") {
       // (b) PaymentIntent US$100 con Idempotency-Key determinista.
       result = await stripeCall(key, "POST", "/payment_intents", buildUp1PaymentIntentParams(charge), { idempotencyKey: idempotencyKey("up1", frontSessionId) });
@@ -180,7 +197,7 @@ Deno.serve(async (req: Request) => {
     }
 
     const outcome = result.ok
-      ? (offer === "up1" && useInvoice ? outcomeFromInvoice(result.body as { status?: string }) : outcomeFromObject(offer, result.body as { status?: string }))
+      ? (viaInvoice ? outcomeFromInvoice(result.body as { status?: string }) : outcomeFromObject(offer, result.body as { status?: string }))
       : outcomeFromStripeError(errorOf(result));
     // Log sin datos de tarjeta ni de cliente: oferta, sesión, resultado y código de error de Stripe.
     console.log(`[piscinas-upsell-charge] ${offer} ${frontSessionId} → ${outcome.status}${result.ok ? "" : ` (${stripeErrorSummary(result)})`}`);
