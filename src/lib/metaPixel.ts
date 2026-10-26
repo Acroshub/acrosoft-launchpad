@@ -76,3 +76,21 @@ export function trackMetaEvent(event: string, params?: Record<string, unknown>, 
   if (eventId) fn("track", event, params, { eventID: eventId });
   else fn("track", event, params);
 }
+
+/**
+ * Evento PERSONALIZADO (nombre propio, no estándar de Meta): se manda con trackCustom / trackSingleCustom. Con un nombre no estándar,
+ * `track` no lo reconoce. Mismo trato de eventId y pixelId que trackMetaEvent.
+ */
+export function trackMetaCustomEvent(event: string, params?: Record<string, unknown>, eventId?: string, pixelId?: string): void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const fn = (window as any).fbq;
+  if (typeof fn !== "function") return;
+  const opts = eventId ? { eventID: eventId } : undefined;
+  if (pixelId) {
+    if (opts) fn("trackSingleCustom", pixelId, event, params ?? {}, opts);
+    else fn("trackSingleCustom", pixelId, event, params ?? {});
+    return;
+  }
+  if (opts) fn("trackCustom", event, params ?? {}, opts);
+  else fn("trackCustom", event, params ?? {});
+}
