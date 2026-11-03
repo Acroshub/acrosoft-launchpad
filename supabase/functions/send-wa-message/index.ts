@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { recipientField } from "../_shared/wa-recipient.ts";
+import { isTenantSuspended } from "../_shared/tenant-access.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -67,6 +68,12 @@ Deno.serve(async (req: Request) => {
 
   if (!isOwner && !isAuthorizedStaff) {
     return new Response(JSON.stringify({ error: "forbidden" }), { status: 403, headers: corsHeaders });
+  }
+
+  // Servicio sin pagar: aunque la sesión siga viva (el JWT vale hasta ~1 h tras el ban),
+  // no se manda nada por el número del negocio.
+  if (await isTenantSuspended(supabase, conv.user_id)) {
+    return new Response(JSON.stringify({ error: "tenant_suspended" }), { status: 403, headers: corsHeaders });
   }
 
   // Cargar credenciales del agente

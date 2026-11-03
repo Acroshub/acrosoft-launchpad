@@ -4,6 +4,7 @@ import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
 import { encodeBase64 } from "https://deno.land/std@0.208.0/encoding/base64.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 import { isInternalCall } from "../_shared/internal-auth.ts";
+import { isTenantSuspended } from "../_shared/tenant-access.ts";
 import { enrichAdFromMeta, fetchAdThumbnail } from "../_shared/meta-ads.ts";
 import { isBsuid, normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
 import { extractDeliverableStoragePath, sendDeliverableDocument, RETRYABLE_MEDIA_ERROR_CODES } from "../_shared/product-deliverable.ts";
@@ -144,6 +145,17 @@ async function handlePost(req: Request): Promise<Response> {
     if (!valid) return new Response("invalid signature", { status: 401 });
   }
   if (!config) return new Response("ok", { status: 200 });
+
+  // Tenant suspendido (servicio sin pagar): se descarta el aviso. Meta recibe su 200 igual
+  // (nunca se le devuelve error, ver wa-inbox-retry), pero no se guarda el mensaje, ni responde
+  // el agente IA, ni se disparan automatizaciones o notificaciones. Los avisos de estado de
+  // plantillas sí pasan: solo actualizan el estado de la plantilla, no cuestan nada.
+  if (!isTemplateEvent && await isTenantSuspended(supabase, config.user_id)) {
+    console.warn(`[webhook] tenant ${config.user_id} suspendido — aviso descartado`);
+    return new Response(JSON.stringify({ ok: true, suspended: true }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
+  }
 
   if (isTemplateEvent) {
     // Process template status updates async

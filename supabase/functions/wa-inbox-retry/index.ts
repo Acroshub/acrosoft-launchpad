@@ -21,6 +21,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireInternal } from "../_shared/internal-auth.ts";
+import { getSuspendedTenantIds } from "../_shared/tenant-access.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -145,12 +146,23 @@ Deno.serve(async (req: Request) => {
       if (c.phone_number_id) phoneIdPorTenant.set(c.user_id, c.phone_number_id);
     }
 
+    const suspendidos = await getSuspendedTenantIds(supabase);
+
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const webhookUrl = `${Deno.env.get("SUPABASE_URL")!}/functions/v1/whatsapp-webhook`;
 
     let reintentados = 0, recuperados = 0, descartados = 0;
 
     for (const row of (pendientes as InboxRow[])) {
+      // Servicio sin pagar: el webhook ya descarta sus avisos, así que reintentarlos no
+      // llevaría a nada. Se cierran sin evento de salud: no es una avería, no debe alertar.
+      if (row.tenant_user_id && suspendidos.has(row.tenant_user_id)) {
+        await supabase.from("crm_wa_inbox")
+          .update({ status: "failed", processed_at: new Date().toISOString(), last_error: "tenant suspendido" })
+          .eq("wa_message_id", row.wa_message_id)
+          .eq("status", "pending");
+        continue;
+      }
       if (row.attempts >= MAX_ATTEMPTS) {
         await descartar(row, `agotados los ${MAX_ATTEMPTS} intentos a lo largo de ~46 horas`);
         descartados++;

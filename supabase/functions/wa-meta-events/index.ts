@@ -15,6 +15,7 @@
  */
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireInternal } from "../_shared/internal-auth.ts";
+import { getSuspendedTenantIds } from "../_shared/tenant-access.ts";
 import { resolveAdProduct } from "../_shared/ad-product.ts";
 
 const supabase = createClient(
@@ -162,9 +163,13 @@ Deno.serve(async (req: Request) => {
   if (denied) return denied;
 
   const nowIso = new Date().toISOString();
-  const { data: due } = await supabase.from("crm_wa_meta_events")
-    .select("id").eq("status", "pending").lte("next_attempt_at", nowIso)
-    .order("next_attempt_at").limit(BATCH);
+  // Servicio sin pagar: sus eventos quedan pendientes (no se envían a Meta ni se marcan como
+  // fallidos). Se excluyen en la consulta para que no ocupen los lugares del lote de los demás.
+  const suspended = await getSuspendedTenantIds(supabase);
+  let dueQuery = supabase.from("crm_wa_meta_events")
+    .select("id").eq("status", "pending").lte("next_attempt_at", nowIso);
+  if (suspended.size) dueQuery = dueQuery.not("user_id", "in", `(${[...suspended].join(",")})`);
+  const { data: due } = await dueQuery.order("next_attempt_at").limit(BATCH);
   if (!due?.length) return new Response(JSON.stringify({ ok: true, processed: 0 }), { headers: { "Content-Type": "application/json" } });
 
   // Reclamo: se adelanta next_attempt_at para que una invocación solapada no procese los mismos.

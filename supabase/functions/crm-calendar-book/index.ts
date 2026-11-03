@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sanitizeText, isValidUUID, isValidEmail, isValidPhone, isValidDate, isValidHour, isValidMinute } from "../_shared/validate.ts";
 import { PUBLIC_CORS_HEADERS } from "../_shared/cors.ts";
+import { isTenantSuspended } from "../_shared/tenant-access.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -156,6 +157,8 @@ Deno.serve(async (req) => {
       .single();
 
     if (calError || !calendar) return respond({ error: "Calendario no encontrado" }, 404);
+    // Servicio del dueño suspendido (sin pagar): el calendario embebido deja de funcionar.
+    if (await isTenantSuspended(supabase, calendar.user_id)) return respond({ error: "Calendario no encontrado" }, 404);
 
     const [{ data: profile }, { data: blockedSlots }, formResult] = await Promise.all([
       supabase
@@ -224,6 +227,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (calError || !calendar) return respond({ error: "Calendar not found" }, 404);
+    if (await isTenantSuspended(supabase, calendar.user_id)) return respond({ error: "Calendar not found" }, 404);
 
     const duration: number = calendar.duration_min ?? 30;
     const buffer: number   = (calendar as any).buffer_min ?? 0;

@@ -1032,6 +1032,27 @@ export const useMyClientAccount = () => {
   });
 };
 
+// ¿Hay que bloquearle el CRM a este usuario? Sí si su servicio está suspendido: su propia cuenta de
+// cliente deshabilitada, o es staff de un negocio suspendido (useMyClientAccount solo veía lo primero,
+// y solo para account_type 'saas_client', así que el staff entraba como si nada). La decisión vive en
+// la BD (my_access_blocked) para que sea la misma que aplica el ban de Auth y las Edge Functions.
+// Se refresca para que una sesión ya abierta se bloquee sin recargar.
+export const useMyAccessBlocked = () => {
+  const { user } = useCurrentUser();
+  return useQuery({
+    queryKey: ["my_access_blocked", user?.id],
+    queryFn: async () => {
+      const { data, error } = await supabase.rpc("my_access_blocked");
+      if (error) throw error;
+      return data === true;
+    },
+    enabled: !!user,
+    staleTime: 60_000,
+    refetchInterval: 5 * 60_000,
+    refetchOnWindowFocus: true,
+  });
+};
+
 export const useClientAccounts = () => {
   const { user } = useCurrentUser();
   const { ownerUserId } = useStaffPermissions();

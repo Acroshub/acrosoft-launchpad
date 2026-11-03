@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireInternal } from "../_shared/internal-auth.ts";
+import { getSuspendedTenantIds } from "../_shared/tenant-access.ts";
 import { isBsuid, normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
 
 const corsHeaders = {
@@ -181,6 +182,7 @@ Deno.serve(async (req) => {
   if (!queueItems?.length) return respond({ processed: 0, sent: 0, failed: 0, skipped: 0 });
 
   let sent = 0, failed = 0, skipped = 0;
+  const suspended = await getSuspendedTenantIds(supabase);
 
   for (const item of queueItems) {
     const { data: reminder } = await supabase
@@ -195,6 +197,13 @@ Deno.serve(async (req) => {
         .update({ status: "failed", error: "Reminder not found" })
         .eq("id", item.id);
       failed++;
+      continue;
+    }
+
+    // Servicio sin pagar: no se manda nada a nombre del tenant. El item queda pendiente (no se
+    // marca fallido) para no perder el recordatorio si el cliente vuelve a pagar a tiempo.
+    if (reminder.user_id && suspended.has(reminder.user_id)) {
+      skipped++;
       continue;
     }
 

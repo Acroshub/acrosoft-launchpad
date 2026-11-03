@@ -14,6 +14,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireInternal } from "../_shared/internal-auth.ts";
+import { getSuspendedTenantIds } from "../_shared/tenant-access.ts";
 import { buildAudience } from "../_shared/wa-audience.ts";
 import { normalizeUrl } from "../_shared/wa-url.ts";
 import { isBsuid, normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
@@ -413,7 +414,7 @@ async function startSequence(
 // of crm_wa_conversations.last_message_at, which can be updated by AI responses
 // and flow events and would give incorrect inactivity readings.
 
-async function detectInactivity() {
+async function detectInactivity(suspended: Set<string>) {
   const { data: automations } = await supabase
     .from("crm_wa_automations")
     .select("id, user_id, trigger_inactivity_hours, audience_type, audience_filters, audience_match")
@@ -422,6 +423,7 @@ async function detectInactivity() {
     .eq("trigger_type", "inactivity");
 
   for (const auto of automations ?? []) {
+    if (suspended.has(auto.user_id)) continue;   // servicio sin pagar: no se encola nada
     if (!auto.trigger_inactivity_hours) continue;
     const cutoff    = new Date(Date.now() - auto.trigger_inactivity_hours * 3_600_000);
     const cutoffMin = new Date(cutoff.getTime() - 2 * 60_000); // ventana de sondeo de 2 min
@@ -514,16 +516,19 @@ async function detectInactivity() {
 
 // ── 2. Process queue ───────────────────────────────────────────────────────────
 
-async function processQueue() {
+async function processQueue(suspended: Set<string>) {
   const now = new Date().toISOString();
   const activeGuardCutoff = new Date(Date.now() - ACTIVE_CONV_GUARD_MS).toISOString();
 
-  const { data: items } = await supabase
+  // Los tenants suspendidos se excluyen en la propia consulta (no después): con el tope de 50,
+  // un tenant suspendido con cola larga dejaría sin turno a los demás.
+  let itemsQuery = supabase
     .from("crm_wa_automation_queue")
     .select("id, user_id, automation_id, conversation_id, created_at")
     .eq("status", "pending")
-    .lte("scheduled_at", now)
-    .limit(50);
+    .lte("scheduled_at", now);
+  if (suspended.size) itemsQuery = itemsQuery.not("user_id", "in", `(${[...suspended].join(",")})`);
+  const { data: items } = await itemsQuery.limit(50);
 
   if (!items?.length) return;
 
@@ -789,8 +794,9 @@ Deno.serve(async (req: Request) => {
   if (unauthorized) return unauthorized;
 
   try {
-    await detectInactivity();
-    await processQueue();
+    const suspended = await getSuspendedTenantIds(supabase);
+    await detectInactivity(suspended);
+    await processQueue(suspended);
     await expireStaleSequences();
     return new Response(JSON.stringify({ ok: true }), { status: 200 });
   } catch (err) {

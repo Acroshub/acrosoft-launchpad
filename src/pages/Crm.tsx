@@ -28,7 +28,7 @@ import CrmServices from "@/components/crm/CrmServices";
 import CrmProductos from "@/components/crm/CrmProductos";
 import CrmProductosDigitales from "@/components/crm/CrmProductosDigitales";
 import CrmPushNotifications from "@/components/crm/CrmPushNotifications";
-import { useBusinessProfile, useMyClientAccount, useSupportUnreadCount, useAdminUnreadCount, useSales, useAiPendingSales } from "@/hooks/useCrmData";
+import { useBusinessProfile, useMyClientAccount, useMyAccessBlocked, useSupportUnreadCount, useAdminUnreadCount, useSales, useAiPendingSales } from "@/hooks/useCrmData";
 
 const SUPER_ADMIN_EMAIL = "e.daniel.acero.r@gmail.com";
 
@@ -111,6 +111,7 @@ const Crm = () => {
   const { isStaff, navItems: allowedNavItems, can, ownerUserId } = useStaffPermissions();
   const { data: businessProfile } = useBusinessProfile();
   const { data: myClientAccount, isLoading: accountLoading } = useMyClientAccount();
+  const { data: accessBlocked, isLoading: accessLoading } = useMyAccessBlocked();
   const isBranded    = businessProfile?.theme === "branded";
   const brandLogo    = isBranded ? (businessProfile?.logo_url ?? null) : null;
   const brandPrimary = isBranded ? (businessProfile?.color_primary ?? null) : null;
@@ -173,7 +174,7 @@ const Crm = () => {
   const avatarColor   = getAvatarColor(userEmail);
   const displayEmail  = userEmail.length > 26 ? userEmail.slice(0, 24) + "…" : userEmail;
 
-  if (isSaasClient && accountLoading) {
+  if ((isSaasClient && accountLoading) || accessLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Loader2 size={24} className="animate-spin text-muted-foreground" />
@@ -181,7 +182,9 @@ const Crm = () => {
     );
   }
 
-  if (isSaasClient && myClientAccount?.status === "disabled") {
+  // Servicio suspendido: bloquea al cliente y también a su staff. accessBlocked viene de la BD; la
+  // segunda condición es el chequeo anterior, que se conserva por si la consulta nueva fallara.
+  if (accessBlocked || (isSaasClient && myClientAccount?.status === "disabled")) {
     return (
       <div className="min-h-screen bg-secondary/20 flex items-center justify-center p-4">
         <div className="w-full max-w-sm text-center space-y-4">
@@ -189,9 +192,10 @@ const Crm = () => {
             <ShieldOff size={28} className="text-destructive" />
           </div>
           <div className="space-y-1">
-            <h1 className="text-lg font-semibold">Cuenta deshabilitada</h1>
+            <h1 className="text-lg font-semibold">Cuenta suspendida</h1>
             <p className="text-sm text-muted-foreground">
-              Tu acceso al CRM ha sido suspendido. Contacta a Acrosoft Labs para más información.
+              El servicio de esta cuenta está suspendido, por lo que el acceso al CRM no está disponible.
+              Contacta a Acros Software para reactivarlo.
             </p>
           </div>
           <button

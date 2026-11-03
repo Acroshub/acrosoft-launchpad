@@ -20,7 +20,12 @@ const Login = () => {
     // trim: el autocompletado de iOS deja un espacio al final del email
     const { error: authError } = await signIn(email.trim(), password);
     if (authError) {
-      setError("Email o contraseña incorrectos.");
+      // Un usuario baneado es una cuenta con el servicio suspendido (ver tenant_suspension): Auth
+      // solo lo dice tras validar la contraseña, así que no revela si un email existe.
+      const banned = (authError as { code?: string }).code === "user_banned" || /banned/i.test(authError.message);
+      setError(banned
+        ? "El servicio de esta cuenta está suspendido. Contacta a Acros Software para reactivarlo."
+        : "Email o contraseña incorrectos.");
       setLoading(false);
       return;
     }

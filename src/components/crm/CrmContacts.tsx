@@ -1520,8 +1520,10 @@ const SaasAccessPanel = ({
 
   const today = new Date().toISOString().split("T")[0];
   const isExpired = !!(saasAccess?.expires_at && saasAccess.expires_at < today);
+  // Suspendido manda sobre vencido: si el acceso ya se cortó a mano hay que verlo como "Suspendido",
+  // no como "Vencido" (que además dejaba la cuenta bloqueada sin ninguna señal en pantalla).
   const effectiveStatus = saasAccess
-    ? isExpired ? "expired" : saasAccess.status
+    ? saasAccess.status === "suspended" ? "suspended" : isExpired ? "expired" : saasAccess.status
     : null;
 
   const statusLabel: Record<string, string> = {
@@ -1577,25 +1579,28 @@ const SaasAccessPanel = ({
 
         <div className="flex flex-col gap-1.5 pt-0.5">
           {effectiveStatus === "active" && (
-            <>
-              <button
-                onClick={() => onAccessCrm(contactId)}
-                disabled={accessingCrm === contactId}
-                className="w-full h-8 rounded-lg text-xs font-semibold border-2 border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-1.5"
-              >
-                {accessingCrm === contactId ? <Loader2 size={11} className="animate-spin" /> : <span>🔐</span>}
-                Acceder al CRM
-              </button>
-              <button
-                onClick={handleSuspend}
-                disabled={updateAccess.isPending}
-                className="w-full h-7 rounded-lg text-[11px] font-medium border border-orange-200 text-orange-600 hover:bg-orange-50 transition-colors"
-              >
-                Suspender acceso
-              </button>
-            </>
+            <button
+              onClick={() => onAccessCrm(contactId)}
+              disabled={accessingCrm === contactId}
+              className="w-full h-8 rounded-lg text-xs font-semibold border-2 border-emerald-300 text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors flex items-center justify-center gap-1.5"
+            >
+              {accessingCrm === contactId ? <Loader2 size={11} className="animate-spin" /> : <span>🔐</span>}
+              Acceder al CRM
+            </button>
           )}
-          {(effectiveStatus === "suspended" || effectiveStatus === "expired") && (
+          {/* Suspender también cuando está vencido: un plan vencido no corta nada por sí solo, hay
+              que suspenderlo. Antes el botón solo salía con el acceso al día, y un vencido ofrecía
+              únicamente "Reactivar" (que no hace nada porque ya está activo). */}
+          {saasAccess.status === "active" && (
+            <button
+              onClick={handleSuspend}
+              disabled={updateAccess.isPending}
+              className="w-full h-7 rounded-lg text-[11px] font-medium border border-orange-200 text-orange-600 hover:bg-orange-50 transition-colors"
+            >
+              Suspender acceso
+            </button>
+          )}
+          {saasAccess.status === "suspended" && (
             <button
               onClick={handleReactivate}
               disabled={updateAccess.isPending}

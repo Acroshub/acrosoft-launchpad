@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireInternal } from "../_shared/internal-auth.ts";
+import { getSuspendedTenantIds } from "../_shared/tenant-access.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -291,6 +292,9 @@ Deno.serve(async (req) => {
   let totalQueued = 0;
 
   try {
+    // Servicio sin pagar: no se encolan recordatorios a nombre de esos tenants.
+    const suspended = await getSuspendedTenantIds(supabase);
+
     // ════════════════════════════════════════════════════════════════════════════
     // PASS A — Legacy auto-config (crm_reminder_config.auto_enabled = true)
     // ════════════════════════════════════════════════════════════════════════════
@@ -300,6 +304,7 @@ Deno.serve(async (req) => {
       .eq("auto_enabled", true);
 
     for (const cfg of configs ?? []) {
+      if (suspended.has(cfg.user_id)) continue;
       const windowHours = cfg.auto_reminder_before_hours ?? 24;
       const windowEnd   = new Date(now.getTime() + windowHours * 3_600_000);
 
@@ -382,6 +387,7 @@ Deno.serve(async (req) => {
       .not("reminder_rules", "is", null);
 
     for (const calConfig of calendarConfigs ?? []) {
+      if (suspended.has(calConfig.user_id)) continue;
       const calRules = (calConfig.reminder_rules ?? []) as ReminderRule[];
       if (!calRules.length) continue;
 

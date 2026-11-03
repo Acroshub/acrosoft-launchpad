@@ -18,6 +18,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireInternal } from "../_shared/internal-auth.ts";
+import { getSuspendedTenantIds } from "../_shared/tenant-access.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 
 const supabase = createClient(
@@ -526,9 +527,13 @@ Deno.serve(async (req: Request) => {
       if (t.label) labels.set(t.user_id, t.label);
     }
 
-    const activos = (configs ?? []).filter(c => c.is_active);
+    // Un tenant suspendido (servicio sin pagar) tiene el webhook y el agente apagados a propósito:
+    // "no responde" o "no guarda mensajes" es lo esperado, no una avería. Sin este filtro el
+    // administrador recibiría una alerta crítica cada pocos minutos por algo que él mismo decidió.
+    const suspendidos = await getSuspendedTenantIds(supabase);
+    const activos = (configs ?? []).filter(c => c.is_active && !suspendidos.has(c.user_id));
 
-    const findings: Finding[] = [
+    const todos: Finding[] = [
       ...(await checkMessagesNotSaved(labels)),
       ...(await checkSendFailures(labels)),
       ...(await checkDeliverableFailures(labels)),
@@ -538,6 +543,7 @@ Deno.serve(async (req: Request) => {
       ...(await checkInboxDiscarded(labels)),
       ...(await checkInboxStuck(labels)),
     ];
+    const findings = todos.filter(f => !f.tenantUserId || !suspendidos.has(f.tenantUserId));
 
     const resultados: Record<string, string> = {};
     for (const f of findings) {

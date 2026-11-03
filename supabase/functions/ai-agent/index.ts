@@ -4,6 +4,7 @@ import { logAiUsage } from "../_shared/ai-usage.ts";
 import { normalizeUrl } from "../_shared/wa-url.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 import { requireInternal } from "../_shared/internal-auth.ts";
+import { isTenantSuspended } from "../_shared/tenant-access.ts";
 import { isBsuid, recipientField } from "../_shared/wa-recipient.ts";
 import { parseAndStripPayment, resolveVariant, resolvePlan, computeExpectedPriceAndCurrency, writeWithRetry } from "./payment-resolution.ts";
 
@@ -3322,6 +3323,16 @@ Deno.serve(async (req: Request) => {
     : null;
   if (!conversation_id || !tenant_user_id || !phone) {
     return new Response("missing fields", { status: 400 });
+  }
+
+  // Tenant suspendido (servicio sin pagar): el agente no responde ni gasta tokens. Se contesta
+  // 200 para que el llamador no lo trate como fallo y reintente. El webhook ya descarta estos
+  // avisos antes de llegar aquí; esto cubre cualquier otro camino que invoque al agente.
+  if (await isTenantSuspended(supabase, tenant_user_id)) {
+    console.warn(`[ai-agent] tenant ${tenant_user_id} suspendido — sin respuesta`);
+    return new Response(JSON.stringify({ ok: true, skipped: "tenant_suspended" }), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    });
   }
 
   // Tope por número: cada invocación es una llamada facturada a Anthropic, y un

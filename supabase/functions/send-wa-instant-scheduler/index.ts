@@ -16,6 +16,7 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireInternal } from "../_shared/internal-auth.ts";
+import { getSuspendedTenantIds } from "../_shared/tenant-access.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -50,21 +51,31 @@ Deno.serve(async (req: Request) => {
       return await res.json().catch(() => ({}));
     };
 
-    const [{ data: tplDue }, { data: tplRunning }, { data: freeDue }, { data: freeRunning }] = await Promise.all([
-      supabase.from("crm_wa_campaigns").select("id").eq("status", "scheduled").lte("scheduled_at", now),
-      supabase.from("crm_wa_campaigns").select("id").eq("status", "processing"),
-      supabase.from("crm_wa_instant_campaigns").select("id")
+    // Tenants con el servicio sin pagar: sus campañas se saltan SIN tocar su estado. Quedan
+    // como estaban (programadas / a medias) para retomarse si el cliente vuelve a pagar. Marcarlas
+    // como fallidas las habría perdido para siempre.
+    const suspended = await getSuspendedTenantIds(supabase);
+    const active = <T extends { user_id: string }>(rows: T[] | null) =>
+      (rows ?? []).filter(r => !suspended.has(r.user_id));
+
+    const [{ data: tplDueAll }, { data: tplRunningAll }, { data: freeDueAll }, { data: freeRunningAll }] = await Promise.all([
+      supabase.from("crm_wa_campaigns").select("id, user_id").eq("status", "scheduled").lte("scheduled_at", now),
+      supabase.from("crm_wa_campaigns").select("id, user_id").eq("status", "processing"),
+      supabase.from("crm_wa_instant_campaigns").select("id, user_id")
         .eq("status", "scheduled").lte("scheduled_at", now),
-      supabase.from("crm_wa_instant_campaigns").select("id")
+      supabase.from("crm_wa_instant_campaigns").select("id, user_id")
         .eq("status", "processing"),
     ]);
+    const tplDue = active(tplDueAll), tplRunning = active(tplRunningAll);
+    const freeDue = active(freeDueAll), freeRunning = active(freeRunningAll);
 
     let tplProcessed = 0;
 
     // Una campaña puede terminar entre el SELECT de arriba y la llamada: ahí la
     // función responde 'already_processed', que NO es un fallo. Marcarla como
     // fallida pisaba una campaña recién completada con éxito.
-    const isBenign = (js: any) => js?.error === "already_processed";
+    // "tenant_suspended" tampoco es un fallo: el cliente se suspendió entre la consulta y la llamada.
+    const isBenign = (js: any) => js?.error === "already_processed" || js?.error === "tenant_suspended";
 
     const dispatch = async (fn: string, table: string, ids: { id: string }[]) => {
       for (const c of ids) {

@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { buildAudience, buildAudienceBase } from "../_shared/wa-audience.ts";
 import { requireInternalOrUser } from "../_shared/internal-auth.ts";
+import { isTenantSuspended } from "../_shared/tenant-access.ts";
 import { filterByLocalTime, allTimezonesReached } from "../_shared/wa-timezone.ts";
 import { isBsuid, normalizeWaIdentifier, recipientField } from "../_shared/wa-recipient.ts";
 
@@ -123,6 +124,9 @@ Deno.serve(async (req: Request) => {
   if (caller!.kind === "user" && campaign.user_id !== caller!.userId) {
     return json({ error: "campaign_not_found" }, 404);
   }
+
+  // Servicio sin pagar: no se envía nada, ni siquiera un lote retomado a medias.
+  if (await isTenantSuspended(supabase, campaign.user_id)) return json({ error: "tenant_suspended" }, 403);
 
   // Desde la UI solo se lanzan borradores. El cron además dispara las programadas
   // ('scheduled') y retoma las que quedaron a medias ('processing').

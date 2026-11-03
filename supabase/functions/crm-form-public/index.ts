@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sanitizeText, isValidUUID, isValidEmail, isValidPhone } from "../_shared/validate.ts";
 import { PUBLIC_CORS_HEADERS } from "../_shared/cors.ts";
+import { isTenantSuspended } from "../_shared/tenant-access.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -348,6 +349,10 @@ Deno.serve(async (req) => {
 
     if (formErr || !form) return respond({ error: "Formulario no encontrado" }, 404);
 
+    // Servicio del dueño suspendido (sin pagar): el formulario embebido deja de funcionar.
+    // Se responde igual que un formulario inexistente para no revelar el estado de la cuenta.
+    if (await isTenantSuspended(supabase, form.user_id)) return respond({ error: "Formulario no encontrado" }, 404);
+
     const [{ data: profile }, { data: services }] = await Promise.all([
       supabase
         .from("crm_business_profile")
@@ -380,6 +385,7 @@ Deno.serve(async (req) => {
       .single();
 
     if (formError || !form) return respond({ error: "Formulario no encontrado" }, 404);
+    if (await isTenantSuspended(supabase, form.user_id)) return respond({ error: "Formulario no encontrado" }, 404);
 
     const termsAt: string | null = typeof terms_accepted_at === "string" ? terms_accepted_at : null;
     const { data: submission, error: submissionError } = await supabase

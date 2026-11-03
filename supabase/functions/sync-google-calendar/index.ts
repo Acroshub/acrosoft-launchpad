@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { requireInternalOrUser } from "../_shared/internal-auth.ts";
+import { getSuspendedTenantIds, isTenantSuspended } from "../_shared/tenant-access.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -177,7 +178,8 @@ Deno.serve(async (req) => {
       .eq("google_channel_id", channelId)
       .maybeSingle();
 
-    if (cfg?.google_token && cfg?.google_calendar_id) {
+    // Servicio sin pagar: no se sincroniza el calendario del tenant.
+    if (cfg?.google_token && cfg?.google_calendar_id && !(await isTenantSuspended(supabase, cfg.user_id))) {
       await syncTenant(cfg.id, cfg.user_id, cfg.google_calendar_id, cfg.google_token as GoogleToken);
     }
     return ok();
@@ -226,9 +228,12 @@ Deno.serve(async (req) => {
 
   if (targetId) query.eq("id", targetId);
 
-  const { data: configs, error } = await query;
+  const { data: allConfigs, error } = await query;
   if (error) return new Response(JSON.stringify({ error: error.message }), { status: 500 });
-  if (!configs || configs.length === 0) return ok({ ok: true, synced: 0 });
+  // Servicio sin pagar: el barrido ignora los calendarios de tenants suspendidos.
+  const suspended = await getSuspendedTenantIds(supabase);
+  const configs = (allConfigs ?? []).filter((c: any) => !suspended.has(c.user_id));
+  if (configs.length === 0) return ok({ ok: true, synced: 0 });
 
   await Promise.all(configs.map(async (cfg: any) => {
     const token = cfg.google_token as GoogleToken;
