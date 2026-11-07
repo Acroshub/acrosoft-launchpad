@@ -1,13 +1,12 @@
 # Landing «Kit de 50 anuncios virales para negocios de tree services» — `/estimados-lp`
 
-Estado a **2026-11-07**:
-- **Landing `/estimados-lp`: desplegada en producción** (commit `ccbdf99` en `origin/main`, con `noindex`). Tiene Payment Link live
-  (`plink_1UZ0rIBeHVZCHGk0vL0ycOEX` → `ESTIMADOS_PAYMENT_LINK`) del producto «+50 Anuncios Virales - Mega Pack para Negocios de Tree Services»
-  (`prod_VVDEkbY4CnH4nv`, US$30). **La versión desplegada todavía NO tiene el pixel** (se agregó después, en local). La imagen del producto en Stripe
-  (`/estimados/stripe-producto.png`) ya sirve `image/png`.
-- **Páginas `/estimados-ty` (el regalo) y `/estimados-gracias` (la final, tras agendar), el pixel de Meta `1013028214851437` y todo lo del servidor: construidos y probados
-  en LOCAL, sin commit ni despliegue.** Ver las secciones siguientes. Mientras no se desplieguen la migración, las funciones y el frontend, quien pague hoy cae en una
-  página inexistente y el servidor no reconoce el producto (no registra la orden ni manda el correo).
+Estado a **2026-11-07: EL EMBUDO ESTÁ PUBLICADO (LIVE).**
+- **Frontend en producción** (commit `014b70c` en `origin/main`, Vercel): landing `/estimados-lp` con el pixel de Meta `1013028214851437`, página del regalo `/estimados-ty` y página final
+  `/estimados-gracias`. Payment Link live `plink_1UZ0rIBeHVZCHGk0vL0ycOEX` (→ `ESTIMADOS_PAYMENT_LINK`) del producto «+50 Anuncios Virales - Mega Pack para Negocios de Tree Services»
+  (`prod_VVDEkbY4CnH4nv`, US$30); la imagen del producto en Stripe (`/estimados/stripe-producto.png`) sirve `image/png`.
+- **Servidor en producción** (Supabase «Acrosoft», `rhlnjtrbydwzzuvqayfo`): `stripe-webhook` v28, `product-track-event` v8 y `estimados-get-order` v1 (desplegadas con permiso explícito de Daniel el 2026-11-07;
+  antes: v27 y v7). La columna `ebook_orders.customer_name` la creó Daniel a mano en el SQL Editor y se comprobó que existe. El secret `META_CAPI_ACCESS_TOKEN_ESTIMADOS` está cargado.
+- **Falta:** la URL del video (`ESTIMADOS_TY_VIDEO_URL`; mientras esté vacía la página no lo muestra) y una **compra de prueba real** (ver «Prueba de punta a punta» abajo): hasta hoy no se ha probado una compra real, ni el correo real de Resend, ni Meta recibiendo eventos.
 - El producto de Stripe era el del kit de Piscinas (Daniel lo renombró); el Payment Link viejo de Piscinas `plink_1UUCpx…` sigue activo sobre el mismo precio.
 
 Prototipo, copy aprobado, decisiones de diseño y registro de cambios: carpeta `CRASHING/Kit Clientes Tree Services/` (`Landing/NOTAS.md`,
@@ -144,12 +143,15 @@ función `estimados-get-order`, página `/estimados-ty` con su ruta y `Disallow`
 marca de `ab_sessions` como comprada (`ESTIMADOS_AB_CHECKOUT_SESSION_KEY`) y pruebas de catálogo que comparan `tracking` con `estimadosConfig.ts`.
 **Sin diseñar:** upsells/downsells (hoy solo el kit de US$30 + la llamada) y el seguimiento a quien no reserva (el correo de compra ya trae el enlace a esta página).
 
-**Despliegue** (lo hace Daniel o con su orden expresa), en este orden:
+**Cómo se desplegó (2026-11-07)** y cómo repetirlo (lo hace Daniel o con su orden expresa):
 0. (Opcional) el secret `ESTIMADOS_ZIP_URL` solo si se quiere reemplazar el enlace de Drive del catálogo sin tocar código.
-1. `supabase db push` (migración `20261107_ebook_orders_customer_name.sql`; el webhook tolera que falte, pero entonces no se guarda el nombre).
-2. `supabase functions deploy stripe-webhook estimados-get-order product-track-event`.
-3. Push del frontend a Vercel (`main`).
-Sin los pasos 1 y 2, el servidor no reconoce el producto: el pago se cobra pero no se registra la orden ni sale el correo.
+1. **Migraciones: SQL a mano en el SQL Editor (o con el MCP de Supabase). NO usar `supabase db push`**: el historial de migraciones local y el remoto no coinciden (la remota tiene cientos con versión de
+   timestamp completo y decenas de archivos locales de solo fecha figuran como pendientes aunque ya están aplicadas), y `db push` intentaría reaplicarlas sobre producción. La de Estimados:
+   `alter table public.ebook_orders add column if not exists customer_name text;` (el webhook tolera que falte: solo no se guarda el nombre y el contacto del CRM queda «Sin nombre»).
+2. Funciones: `supabase functions deploy stripe-webhook estimados-get-order product-track-event --use-api --project-ref rhlnjtrbydwzzuvqayfo` (sin Docker; `--use-api` empaqueta en el servidor).
+   El modo automático de Claude Code bloqueó este comando la primera vez; funcionó después de que Daniel dio permiso explícito.
+3. Push del frontend a Vercel (`main`), ~2 minutos.
+Orden recomendado: 1, 2 y recién 3 (si el frontend sale antes que las funciones, quien pague ve «Todavía no vemos tu compra»). Sin 1 y 2 el servidor no reconoce el producto: el pago se cobra pero no se registra la orden ni sale el correo.
 **Prueba de punta a punta sugerida** (compra real de US$30 reembolsable): el correo llega por Resend con el botón «Descargar mi kit» (que abre el Drive) y el botón «Reclamar mi regalo»;
 ese botón abre `/estimados-ty?session_id=…` con el nombre y el correo correctos; se reserva una llamada y el contacto aparece en el CRM con nombre, correo y WhatsApp.
 Otros secrets: `META_CAPI_ACCESS_TOKEN_ESTIMADOS`, opcional `META_CAPI_TEST_EVENT_CODE_ESTIMADOS` (solo para probar; **quitarlo después**) y `ESTIMADOS_PAYMENT_LINK_IDS`.
