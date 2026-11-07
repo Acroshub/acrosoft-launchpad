@@ -37,6 +37,8 @@ const PiscinasUp1 = lazy(() => import("./pages/PiscinasUp1.tsx"));
 const PiscinasUp2 = lazy(() => import("./pages/PiscinasUp2.tsx"));
 const PiscinasTy = lazy(() => import("./pages/PiscinasTy.tsx"));
 const EstimadosLp = lazy(() => import("./pages/EstimadosLp.tsx"));
+const EstimadosTy = lazy(() => import("./pages/EstimadosTy.tsx"));
+const EstimadosGracias = lazy(() => import("./pages/EstimadosGracias.tsx"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -81,8 +83,11 @@ const App = () => (
             <Route path="/piscinas-up1" element={<PiscinasUp1 />} />
             <Route path="/piscinas-up2" element={<PiscinasUp2 />} />
             <Route path="/piscinas-ty" element={<PiscinasTy />} />
-            {/* Landing «Kit de 50 anuncios virales para negocios de tree services» (nace con noindex; pago y thank-you pendientes) */}
+            {/* Landing «+50 Anuncios Virales - Mega Pack para Negocios de Tree Services» (nace con noindex) y su página post-compra: regalo de llamada de consultoría + descarga */}
             <Route path="/estimados-lp" element={<EstimadosLp />} />
+            <Route path="/estimados-ty" element={<EstimadosTy />} />
+            {/* Página FINAL del embudo (tras agendar la llamada): barra al 100 % con confeti, cómo descargar el kit, resumen de la cita, ayuda. Aquí sale el evento Lead. */}
+            <Route path="/estimados-gracias" element={<EstimadosGracias />} />
 
             {/* Client invitation setup — public (session comes from invite link) */}
             <Route path="/crm-setup" element={<CrmSetup />} />

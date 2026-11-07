@@ -2,7 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { crypto } from "https://deno.land/std@0.208.0/crypto/mod.ts";
 import { encodeHex } from "https://deno.land/std@0.208.0/encoding/hex.ts";
 import { EBOOK_CATALOG, SERVICE_ORDERS, resolveMeta } from "../_shared/ebook-catalog.ts";
-import { buildConfirmationEmailHtml, isServiceOrder, parseClientReference, platformAccess, resolveProductSlug } from "../_shared/ebook-order.ts";
+import { buildConfirmationEmailHtml, emailDownloadUrl, isServiceOrder, parseClientReference, platformAccess, resolveProductSlug } from "../_shared/ebook-order.ts";
 import { sendMetaPurchaseEvent } from "../_shared/meta-capi.ts";
 import { describeUpsellEvent } from "../_shared/piscinas-checkout.ts";
 import { fetchStripeNet, purchaseTrackingValue } from "../_shared/stripe-balance.ts";
@@ -205,6 +205,15 @@ Deno.serve(async (req: Request) => {
       return new Response(JSON.stringify({ error: "could not save order" }), { status: 500 });
     }
     orderId = inserted.id;
+
+    // Nombre del comprador tal como lo capturó Stripe (/estimados-ty lo pasa al CRM al agendar la llamada). Va aparte del insert y es
+    // best-effort a propósito: si la columna customer_name todavía no existe (migración sin aplicar), no debe romper el registro de la
+    // compra de NINGÚN producto.
+    const buyerName = session.customer_details?.name?.trim();
+    if (buyerName) {
+      const { error: nameErr } = await supabase.from("ebook_orders").update({ customer_name: buyerName.slice(0, 200) }).eq("id", orderId);
+      if (nameErr) console.warn("[stripe-webhook] no se guardó customer_name:", nameErr.message);
+    }
   }
 
   if (existing?.deliverable_sent_at) {
@@ -223,10 +232,23 @@ Deno.serve(async (req: Request) => {
   if (platform && !platform.password) {
     console.error(`[stripe-webhook] ${productSlug}: falta el secret de la contraseña de la plataforma; el email sale sin ella (orden ${orderId})`);
   }
+
+  // Productos cuya entrega es un enlace directo en el correo (ej. el kit de Tree Services en Google Drive): sin ese enlace no hay entrega
+  // por ningún otro camino (la página no ofrece descarga). Si el producto declara un enlace y ninguno es un https válido NO se manda un
+  // correo vacío ni se marca como entregado: se responde 500, Stripe reintenta, y la entrega sale sola en cuanto se corrige. La orden ya
+  // está guardada (es idempotente).
+  const directDownloadUrl = emailDownloadUrl(catalogEntry);
+  if ((catalogEntry.emailDownloadUrlDefault || catalogEntry.emailDownloadUrlEnv) && !directDownloadUrl) {
+    console.error(`[stripe-webhook] ${productSlug}: el enlace de descarga del correo no es un https válido (catálogo o secret ${catalogEntry.emailDownloadUrlEnv ?? "-"}); no se manda el correo y Stripe reintentará (orden ${orderId})`);
+    return new Response(JSON.stringify({ error: "download link not configured" }), { status: 500 });
+  }
+
   const html = buildConfirmationEmailHtml({
     productName: catalogEntry.name,
     thankYouUrl,
     amountLabel,
+    downloadUrl: directDownloadUrl,
+    gift: catalogEntry.emailGift ?? null,
     platform: platform && {
       name: platform.name,
       url: `${APP_URL}${platform.path}`,

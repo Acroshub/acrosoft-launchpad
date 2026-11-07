@@ -50,12 +50,15 @@ export function trackAbClick(sessionId: string | null): void {
   }).catch(() => { /* no crítico */ });
 }
 
-/** Marca la sesión de A/B del kit como comprada (una sola vez: borra el id al usarlo). */
-export function trackAbPurchase(): void {
+/**
+ * Marca la sesión de A/B del kit como comprada (una sola vez: borra el id al usarlo). `storageKey` es la clave de localStorage donde la
+ * landing guardó el id al hacer clic en comprar; por defecto la de Piscinas (otros productos pasan la suya, ej. Estimados).
+ */
+export function trackAbPurchase(storageKey: string = AB_CHECKOUT_SESSION_KEY): void {
   try {
-    const sid = localStorage.getItem(AB_CHECKOUT_SESSION_KEY);
+    const sid = localStorage.getItem(storageKey);
     if (!sid) return;
-    localStorage.removeItem(AB_CHECKOUT_SESSION_KEY);
+    localStorage.removeItem(storageKey);
     fetch(`${SUPABASE_URL}/rest/v1/rpc/ab_track_purchase`, {
       method: "POST",
       headers: { apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },

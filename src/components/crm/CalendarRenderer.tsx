@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Loader2, Check, Clock, Calendar, Globe } fro
 import { widgetTranslations } from "@/i18n/widgets";
 import type { WidgetLang } from "@/hooks/useLangWidget";
 import { usePublicCalendar, usePublicAppointments } from "@/hooks/useCrmData";
+import { wallClockToUtcMs, formatSlotInTz } from "@/lib/slotTime";
 import type { CrmBlockedSlot } from "@/lib/supabase";
 import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
 
@@ -96,49 +97,7 @@ const formatSlot = (h: number, m: number): string => {
   return `${h - 12}:${mm} PM`;
 };
 
-// ─── Timezone utilities ───────────────────────────────────────────────────────
-
-/**
- * Converts a wall-clock time in a given IANA timezone to absolute UTC ms.
- * Uses 2-iteration convergence to handle DST transitions correctly.
- */
-const wallClockToUtcMs = (
-  year: number, month: number, day: number,
-  hour: number, minute: number,
-  tz: string,
-): number => {
-  const fmt = new Intl.DateTimeFormat("en", {
-    timeZone: tz,
-    year: "numeric", month: "numeric", day: "numeric",
-    hour: "numeric", minute: "numeric", hour12: false,
-  });
-  let utcMs = Date.UTC(year, month - 1, day, hour, minute);
-  for (let i = 0; i < 2; i++) {
-    const parts = fmt.formatToParts(new Date(utcMs));
-    const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
-    const h = get("hour") % 24;
-    const displayedMs = Date.UTC(get("year"), get("month") - 1, get("day"), h, get("minute"));
-    utcMs += Date.UTC(year, month - 1, day, hour, minute) - displayedMs;
-  }
-  return utcMs;
-};
-
-/**
- * Formats a wall-clock slot (in calendarTz) for display in displayTz.
- * Returns a label like "3:00 PM" in the visitor's local time.
- */
-const formatSlotInTz = (
-  date: string, hour: number, minute: number,
-  calendarTz: string, displayTz: string,
-): string => {
-  const [y, m, d] = date.split("-").map(Number);
-  const utcMs = wallClockToUtcMs(y, m, d, hour, minute, calendarTz);
-  const parts = new Intl.DateTimeFormat("en", {
-    timeZone: displayTz,
-    hour: "numeric", minute: "2-digit", hour12: true,
-  }).formatToParts(new Date(utcMs));
-  return parts.map((p) => p.value).join("").replace(/\s?(AM|PM)/, " $1").trim();
-};
+// Timezone utilities (wallClockToUtcMs, formatSlotInTz): viven en src/lib/slotTime.ts para compartirlas con la página final de Estimados.
 
 // ─── Step indicator ───────────────────────────────────────────────────────────
 
@@ -190,9 +149,33 @@ const inputCls =
 // ─── Booking Form ─────────────────────────────────────────────────────────────
 
 
+/**
+ * Datos que la página que incrusta el calendario ya conoce (p. ej. el nombre y el correo de una compra en Stripe). Esos campos no
+ * se vuelven a pedir, pero SÍ viajan con la reserva: el CRM recibe el contacto completo. Sin esto el formulario es el de siempre.
+ */
+export interface BookingPrefill {
+  name?: string;
+  email?: string;
+}
+
+/** Forma mínima de un campo del formulario de reserva (los del formulario vinculado al calendario traen más propiedades). */
+interface BookingField {
+  id: string;
+  label?: string;
+  type: string;
+  required?: boolean;
+  placeholder?: string;
+  locked?: boolean;
+}
+
 interface BookingFormProps {
   calendarId: string;
   formFields: any[] | null;
+  prefill?: BookingPrefill;
+  /** El teléfono pasa a ser obligatorio y se llama «WhatsApp» (la persona solo escribe eso cuando nombre y correo vienen precargados). */
+  requireWhatsapp?: boolean;
+  /** Prefijo con el que arranca el selector de país del teléfono (ej. "+1"). Sin esto arranca en el país por defecto del selector (Bolivia). */
+  phoneDefaultDial?: string;
   selectedDate: string;
   selectedHour: number;
   selectedMinute: number;
@@ -209,6 +192,9 @@ interface BookingFormProps {
 const BookingForm = ({
   calendarId,
   formFields,
+  prefill,
+  requireWhatsapp = false,
+  phoneDefaultDial,
   selectedDate,
   selectedHour,
   selectedMinute,
@@ -244,6 +230,38 @@ const BookingForm = ({
     return f.length > 0 ? f : defaultBookingFields;
   }, [formFields, defaultBookingFields]);
 
+  // Campos que la página ya conoce: no se piden otra vez, pero se envían con la reserva. Misma regla que `extractContact` de la función
+  // crm-calendar-book para decidir cuál es el campo del nombre (el bloqueado o «f-name»; si no, el primero cuya etiqueta dice nombre/name)
+  // y cuál el del correo (el primero de tipo email). Solo se rellena un campo de cada uno, así «Nombre de tu empresa» no recibe el nombre.
+  const prefilled = useMemo(() => {
+    const out: Record<string, string> = {};
+    const name = prefill?.name?.trim();
+    const email = prefill?.email?.trim();
+    const all = fields as BookingField[];
+    if (name) {
+      const target = all.find((f) => f.type === "text" && (f.id === "f-name" || f.locked))
+        ?? all.find((f) => f.type === "text" && /nombre|name/i.test(String(f.label ?? "")));
+      if (target) out[target.id] = name;
+    }
+    if (email) {
+      const target = all.find((f) => f.type === "email");
+      if (target) out[target.id] = email;
+    }
+    return out;
+  }, [fields, prefill?.name, prefill?.email]);
+
+  // Campos que se le muestran a la persona: los precargados se omiten. Con `requireWhatsapp` se muestra ÚNICAMENTE el WhatsApp (obligatorio),
+  // aunque el formulario vinculado al calendario traiga otros campos: la página ya tiene los demás datos y no debe pedirlos. El servidor
+  // (crm-calendar-book) no exige los campos del formulario, solo lee nombre/correo/teléfono, así que omitirlos no rompe la reserva. Si el
+  // formulario del calendario no tiene teléfono se agrega uno: sin WhatsApp la reserva no sirve de nada.
+  const shownFields = useMemo(() => {
+    const visible = (fields as BookingField[]).filter((f) => !(f.id in prefilled));
+    if (!requireWhatsapp) return visible;
+    const phones = visible.filter((f) => f.type === "phone");
+    const onlyPhone: BookingField[] = phones.length > 0 ? phones : [{ id: "f-phone", label: "WhatsApp", type: "phone", required: true, placeholder: T.fieldPhonePh }];
+    return onlyPhone.map((f) => ({ ...f, required: true, label: "WhatsApp" }));
+  }, [fields, prefilled, requireWhatsapp, T]);
+
   const validateField = (field: any, value: string): string | null => {
     const trimmed = value?.trim() ?? "";
     if (!trimmed) return null; // vacío lo maneja el check de required
@@ -261,7 +279,7 @@ const BookingForm = ({
   };
 
   const handleBlur = (fieldId: string) => {
-    const field = fields.find((f: any) => f.id === fieldId);
+    const field = shownFields.find((f: any) => f.id === fieldId);
     if (!field) return;
     const err = validateField(field, values[fieldId] ?? "");
     if (err) setFieldErrors(fe => ({ ...fe, [fieldId]: err }));
@@ -269,7 +287,7 @@ const BookingForm = ({
 
   const handleSubmit = async () => {
     const newErrors: Record<string, string> = {};
-    for (const f of fields as any[]) {
+    for (const f of shownFields as any[]) {
       const val = values[f.id]?.trim() ?? "";
       if (f.required && !val) {
         newErrors[f.id] = TF.requiredError(f.label);
@@ -299,7 +317,7 @@ const BookingForm = ({
           "Content-Type": "application/json",
           "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ calendar_id: calendarId, date: selectedDate, hour: selectedHour, minute: selectedMinute, form_data: values, terms_accepted_at: termsAt }),
+        body: JSON.stringify({ calendar_id: calendarId, date: selectedDate, hour: selectedHour, minute: selectedMinute, form_data: { ...prefilled, ...values }, terms_accepted_at: termsAt }),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? T.errorBooking);
       onSuccess();
@@ -335,7 +353,13 @@ const BookingForm = ({
       {/* Fields */}
       <div className="space-y-3.5">
         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{T.yourData}</p>
-        {fields.map((field: any) => (
+        {Object.keys(prefilled).length > 0 && (
+          <p className="text-xs text-gray-500" data-testid="booking-prefill-note">
+            {lang === "en" ? "Booking as" : "Reservando como"}{" "}
+            <span className="font-medium text-gray-700">{[prefill?.name?.trim(), prefill?.email?.trim()].filter(Boolean).join(" · ")}</span>
+          </p>
+        )}
+        {shownFields.map((field: any) => (
           <Field key={field.id} label={field.label} required={field.required} error={fieldErrors[field.id]}>
             {field.type === "textarea" ? (
               <textarea
@@ -349,7 +373,7 @@ const BookingForm = ({
             ) : field.type === "phone" ? (
               <div onBlur={() => handleBlur(field.id)}>
                 <PhoneInput
-                  value={values[field.id] ?? ""}
+                  value={values[field.id] ?? (phoneDefaultDial ? `${phoneDefaultDial} ` : "")}
                   onChange={(v) => { setValues((sv) => ({ ...sv, [field.id]: v })); if (fieldErrors[field.id]) setFieldErrors(fe => ({ ...fe, [field.id]: "" })); }}
                   placeholder={field.placeholder}
                 />
@@ -435,9 +459,15 @@ interface CalendarRendererProps {
   primaryColorOverride?: string;
   /** Called right after a booking succeeds, in addition to showing the built-in success step (e.g. to redirect to a dedicated thank-you page). */
   onBookingSuccess?: (booking: { date: string; hour: number; minute: number; calendarTz: string; visitorTz: string; calendarName: string }) => void;
+  /** Nombre/correo ya conocidos: no se piden de nuevo en el formulario, pero se envían con la reserva (ver BookingPrefill). */
+  prefill?: BookingPrefill;
+  /** Pide solo el WhatsApp como dato obligatorio (úsese junto con `prefill`). */
+  requireWhatsapp?: boolean;
+  /** Prefijo con el que arranca el selector de país del teléfono (ej. "+1" para público de EE.UU.). */
+  phoneDefaultDial?: string;
 }
 
-const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, onBookingSuccess }: CalendarRendererProps) => {
+const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, onBookingSuccess, prefill, requireWhatsapp, phoneDefaultDial }: CalendarRendererProps) => {
   const today = new Date();
   const [viewYear, setViewYear]   = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -633,6 +663,9 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
       <BookingForm
         calendarId={resolvedCalendarId ?? calendarId}
         formFields={formFields}
+        prefill={prefill}
+        requireWhatsapp={requireWhatsapp}
+        phoneDefaultDial={phoneDefaultDial}
         selectedDate={selectedDate}
         selectedHour={selectedSlot.hour}
         selectedMinute={selectedSlot.minute}

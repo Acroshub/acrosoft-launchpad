@@ -59,6 +59,17 @@ export type EbookProduct = {
   platform?: EbookPlatform;
   /** Secret con los ids `plink_…` (separados por coma) de los Payment Links de este producto. Respaldo para reconocerlo si el link no trae el slug. */
   paymentLinkIdsEnv?: string;
+  /**
+   * Producto cuya entrega es UN ENLACE (ej. Google Drive) que viaja directo en el correo de confirmación (Resend), sin descarga en la
+   * página. El enlace no pasa nunca por una función pública ni por el frontend (este catálogo solo lo leen las Edge Functions).
+   * `emailDownloadUrlDefault` es el enlace fijo; `emailDownloadUrlEnv` es el nombre de un secret OPCIONAL que lo reemplaza (para cambiar
+   * el enlace sin tocar código). Solo se aceptan enlaces https. Si el producto declara alguno de los dos y ninguno da un https válido, el
+   * webhook NO manda el correo y responde 500: Stripe reintenta y la entrega sale sola cuando se corrige.
+   */
+  emailDownloadUrlDefault?: string;
+  emailDownloadUrlEnv?: string;
+  /** Bloque del correo que invita a reclamar un regalo en la página del producto (`thankYouPath`), ej. la llamada de consultoría de /estimados-ty. */
+  emailGift?: { title: string; blurb: string; button: string };
 };
 
 export const EBOOK_STORAGE_BUCKET = "ebook-deliverables";
@@ -121,6 +132,29 @@ export const EBOOK_CATALOG: Record<string, EbookProduct> = {
       emailButton: "Abrir la app",
     },
     paymentLinkIdsEnv: "AUXILIOS_PAYMENT_LINK_IDS",
+  },
+  // +50 Anuncios Virales - Mega Pack para Negocios de Tree Services (US$30): ZIP de ~210 MB (PDF de guía + 100 imágenes) en Google Drive.
+  // No cabe en el Storage de Supabase (tope 100 MB) y NO se descarga desde la página: el enlace (dado por Daniel el 2026-11-07, acceso
+  // «cualquiera con el enlace») viaja directo en el correo de confirmación que manda el webhook por Resend. Se puede reemplazar sin tocar
+  // código con el secret ESTIMADOS_ZIP_URL (`emailDownloadUrlEnv`).
+  // Pixel de Meta (dado por Daniel el 2026-11-07): el MISMO ID que ESTIMADOS_PIXEL_ID en src/lib/estimadosConfig.ts (lo comprueba
+  // ebook-order.test.ts). Solo el token de la API de Conversiones (secret META_CAPI_ACCESS_TOKEN_ESTIMADOS) es secreto y va en Supabase:
+  // mientras no exista, resolveMeta devuelve null y el servidor no manda nada (el navegador sí).
+  // thankYouPath: /estimados-ty NO es una thank-you de agradecimiento sino la página del regalo (llamada de consultoría gratis, valor US$100).
+  estimados: {
+    name: "+50 Anuncios Virales - Mega Pack para Negocios de Tree Services",
+    shortName: "+50 Anuncios Virales Tree Services",
+    thankYouPath: "/estimados-ty",
+    meta: { pixelId: "1013028214851437", accessTokenEnv: "META_CAPI_ACCESS_TOKEN_ESTIMADOS", testEventCodeEnv: "META_CAPI_TEST_EVENT_CODE_ESTIMADOS" },
+    tracking: { contentName: "+50 Anuncios Virales - Mega Pack para Negocios de Tree Services", price: 30, landingPath: "/estimados-lp" },
+    paymentLinkIdsEnv: "ESTIMADOS_PAYMENT_LINK_IDS",
+    emailDownloadUrlDefault: "https://drive.google.com/file/d/1K-mbNjJBqJlkJ_ZC-AXWhAtqPqQc7af_/view?usp=sharing",
+    emailDownloadUrlEnv: "ESTIMADOS_ZIP_URL",
+    emailGift: {
+      title: "Tu regalo: llamada de consultoría gratis",
+      blurb: "Una llamada para aconsejarte cómo conseguir más clientes con anuncios de pago en Facebook y Google Ads. Su valor normal es de US$100; para ti es gratis. Resérvala desde tu página: solo necesitas tu WhatsApp.",
+      button: "Reclamar mi regalo",
+    },
   },
 };
 

@@ -26,4 +26,8 @@ Disallow: /piscinas-up1
 Disallow: /piscinas-up2
 Disallow: /piscinas-ty
 
+# Kit +50 Anuncios Virales para Tree Services: la página del regalo (muestra una compra y su descarga) es privada
+Disallow: /estimados-ty
+Disallow: /estimados-gracias
+
 Sitemap: https://acrosoftlabs.com/sitemap.xml

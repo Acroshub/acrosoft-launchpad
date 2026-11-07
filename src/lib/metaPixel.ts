@@ -37,8 +37,27 @@ function bootstrapFbq(w: FbqWindow): void {
   firstScript.parentNode?.insertBefore(script, firstScript);
 }
 
+/**
+ * En desarrollo local (localhost / 127.0.0.1) el pixel NO se carga y no se manda ningún evento: así abrir las páginas en tu computadora no
+ * ensucia el pixel real con visitas y compras de «localhost». Para probar el pixel a propósito en local (por ejemplo con Meta Pixel Helper) se
+ * abre la página con `?fbtest=1`, o se pone `window.__metaPixelAllowLocal = true` (así lo hacen las pruebas). En producción nunca se bloquea.
+ */
+function blockedOnLocalhost(): boolean {
+  const w = window as FbqWindow;
+  if (w.__metaPixelAllowLocal) return false;
+  const host = window.location?.hostname ?? "";
+  if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(host)) return false;
+  // `?fbtest=1` se RECUERDA durante la sesión de esa pestaña: el embudo cambia de página dentro de la app (sin recargar) y el parámetro se pierde en la URL.
+  if (new URLSearchParams(window.location.search).has("fbtest")) {
+    try { sessionStorage.setItem("__metaPixelFbtest", "1"); } catch { /* sin storage: solo vale en esa URL */ }
+    return false;
+  }
+  try { return sessionStorage.getItem("__metaPixelFbtest") !== "1"; } catch { return true; }
+}
+
 /** Bootstrap del pixel — no-op si ya está cargado (doble mount en dev, u otra página del mismo funnel ya lo inició). */
 export function initMetaPixel(pixelId?: string): void {
+  if (blockedOnLocalhost()) return;
   const w = window as FbqWindow;
 
   if (pixelId === undefined) {
@@ -65,6 +84,7 @@ export function initMetaPixel(pixelId?: string): void {
  * pixelId (opcional): manda el evento únicamente a ese pixel (trackSingle).
  */
 export function trackMetaEvent(event: string, params?: Record<string, unknown>, eventId?: string, pixelId?: string): void {
+  if (blockedOnLocalhost()) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fn = (window as any).fbq;
   if (typeof fn !== "function") return;
@@ -82,6 +102,7 @@ export function trackMetaEvent(event: string, params?: Record<string, unknown>, 
  * `track` no lo reconoce. Mismo trato de eventId y pixelId que trackMetaEvent.
  */
 export function trackMetaCustomEvent(event: string, params?: Record<string, unknown>, eventId?: string, pixelId?: string): void {
+  if (blockedOnLocalhost()) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const fn = (window as any).fbq;
   if (typeof fn !== "function") return;

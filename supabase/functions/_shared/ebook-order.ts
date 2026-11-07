@@ -88,6 +88,19 @@ export function platformAccess(product: EbookProduct, env: EnvGetter = denoEnv):
   return { name: product.platform.name, path: product.platform.path, password };
 }
 
+/**
+ * Enlace de descarga del correo (ej. Google Drive) de un producto con `emailDownloadUrlDefault` y/o `emailDownloadUrlEnv`: el secret
+ * (si existe y es https) reemplaza al enlace fijo; si no, vale el fijo. null si el producto no usa ninguno o ninguno es un https válido
+ * (el llamador decide qué hacer: el webhook no manda el correo y deja que Stripe reintente).
+ */
+export function emailDownloadUrl(product: EbookProduct, env: EnvGetter = denoEnv): string | null {
+  const isHttps = (u: string | undefined): u is string => !!u && /^https:\/\//i.test(u);
+  const fromEnv = product.emailDownloadUrlEnv ? env(product.emailDownloadUrlEnv)?.trim() : undefined;
+  if (isHttps(fromEnv)) return fromEnv;
+  const fixed = product.emailDownloadUrlDefault?.trim();
+  return isHttps(fixed) ? fixed : null;
+}
+
 const escapeHtml = (s: string) =>
   s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
@@ -99,8 +112,39 @@ export function buildConfirmationEmailHtml(params: {
   platform?: { name: string; url: string; password: string | null; label?: string; blurb?: string; button?: string } | null;
   /** false = el producto no trae archivo para descargar (solo plataforma). Por defecto true. */
   hasDownload?: boolean;
+  /** Enlace de descarga directa (ej. Google Drive): botón principal del correo. Solo se usa junto con `gift`. */
+  downloadUrl?: string | null;
+  /**
+   * Producto con regalo (ej. /estimados-ty): el correo lleva el kit (botón de `downloadUrl`) y un bloque que invita a reclamar el regalo
+   * en `thankYouUrl`, en vez del botón genérico «Ver mi compra». Sin `gift`, el correo es el de siempre.
+   */
+  gift?: { title: string; blurb: string; button: string } | null;
 }): string {
-  const { productName, thankYouUrl, amountLabel, platform, hasDownload = true } = params;
+  const { productName, thankYouUrl, amountLabel, platform, hasDownload = true, downloadUrl, gift } = params;
+
+  if (gift) {
+    return `
+  <div style="font-family:Arial,Helvetica,sans-serif;background:#FAF6EF;padding:32px 16px;">
+    <div style="max-width:480px;margin:0 auto;background:#FFFFFF;border-radius:14px;overflow:hidden;border:1px solid #DED6BC;">
+      <div style="background:#1B2A4A;padding:28px 28px 24px;text-align:center;">
+        <p style="margin:0;color:#C9932E;font-weight:700;font-size:12.5px;letter-spacing:.08em;text-transform:uppercase;">Compra confirmada</p>
+        <h1 style="margin:10px 0 0;color:#FFFFFF;font-size:22px;font-family:Georgia,serif;">¡Gracias por tu compra!</h1>
+      </div>
+      <div style="padding:28px;">
+        <p style="margin:0 0 16px;font-size:15px;color:#22262E;line-height:1.6;">Tu pago de <strong>${amountLabel}</strong> por <strong>${productName}</strong> fue aprobado.${downloadUrl ? " Aquí tienes tu kit:" : ""}</p>${downloadUrl ? `
+        <div style="text-align:center;margin:24px 0;">
+          <a href="${escapeHtml(downloadUrl)}" style="display:inline-block;background:#C1403A;color:#FFFFFF;font-weight:900;font-size:16px;padding:16px 28px;border-radius:8px;text-decoration:none;">Descargar mi kit</a>
+        </div>` : ""}
+        <div style="margin:0 0 24px;padding:20px;background:#FAF6EF;border:1px solid #DED6BC;border-radius:10px;">
+          <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#8C6A1E;letter-spacing:.08em;text-transform:uppercase;">${escapeHtml(gift.title)}</p>
+          <p style="margin:0 0 16px;font-size:14.5px;color:#22262E;line-height:1.55;">${escapeHtml(gift.blurb)}</p>
+          <div style="text-align:center;"><a href="${escapeHtml(thankYouUrl)}" style="display:inline-block;background:#1B2A4A;color:#FFFFFF;font-weight:700;font-size:15px;padding:14px 24px;border-radius:8px;text-decoration:none;">${escapeHtml(gift.button)}</a></div>
+        </div>
+        <p style="margin:0;font-size:13px;color:#5B6270;line-height:1.5;">Guarda este correo: aquí quedan ${downloadUrl ? "tu enlace de descarga y " : ""}el enlace para reclamar tu regalo.</p>
+      </div>
+    </div>
+  </div>`;
+  }
 
   const platformBlock = platform?.password
     ? `

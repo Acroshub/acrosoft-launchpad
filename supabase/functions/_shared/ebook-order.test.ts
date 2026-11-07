@@ -1,6 +1,6 @@
 import { assert, assertEquals, assertFalse, assertStringIncludes } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import { EBOOK_CATALOG, resolveMeta, SERVICE_ORDERS, type EnvGetter } from "./ebook-catalog.ts";
-import { buildConfirmationEmailHtml, isServiceOrder, parseClientReference, platformAccess, resolveProductSlug } from "./ebook-order.ts";
+import { buildConfirmationEmailHtml, emailDownloadUrl, isServiceOrder, parseClientReference, platformAccess, resolveProductSlug } from "./ebook-order.ts";
 
 const envOf = (vars: Record<string, string>): EnvGetter => (name) => vars[name];
 
@@ -290,4 +290,132 @@ Deno.test("catálogo - piscinas: slug, nombre y precio del navegador; el pixel d
   assertEquals(EBOOK_CATALOG["piscinas"].tracking?.contentName, EBOOK_CATALOG["piscinas"].name);
   assertEquals(EBOOK_CATALOG["piscinas"].tracking?.landingPath, "/piscinas-lp");
   assertEquals(EBOOK_CATALOG["piscinas"].meta?.accessTokenEnv, "META_CAPI_ACCESS_TOKEN_PISCINAS");
+});
+
+// ─── estimados (ZIP por enlace externo, sin pixel todavía; /estimados-ty = página del regalo) ───────────────
+
+Deno.test("estimados - se reconoce por client_reference_id (con y sin id de atribución) y entrega UN ENLACE por correo (no hay descarga en la página)", () => {
+  assertEquals(resolveProductSlug({ client_reference_id: "estimados" }, envOf({})), "estimados");
+  assertEquals(resolveProductSlug({ client_reference_id: "estimados_6f1c2d3e-0a1b-4c5d-8e9f-0123456789ab" }, envOf({})), "estimados");
+  // El Payment Link live lleva metadata.product_slug = estimados: también basta con eso.
+  assertEquals(resolveProductSlug({ metadata: { product_slug: "estimados" } }, envOf({})), "estimados");
+  const p = EBOOK_CATALOG["estimados"];
+  assertEquals(p.thankYouPath, "/estimados-ty");
+  // El kit (ZIP en Google Drive) viaja solo en el correo: ni archivo en Storage ni descarga en la página.
+  assertEquals(p.filename, undefined);
+  assertEquals(p.storagePath, undefined);
+  assertEquals(p.emailDownloadUrlEnv, "ESTIMADOS_ZIP_URL");
+  assertEquals(p.platform, undefined); // sin plataforma con contraseña
+  assertEquals(platformAccess(p, envOf({})), null);
+  assertFalse(isServiceOrder("estimados")); // es un producto con entrega, no un servicio sin entrega
+});
+
+Deno.test("estimados - reconoce su Payment Link por id aunque el link no traiga el slug", () => {
+  const env = envOf({ ESTIMADOS_PAYMENT_LINK_IDS: "plink_TREE" });
+  assertEquals(resolveProductSlug({ payment_link: "plink_TREE" }, env), "estimados");
+  assertEquals(resolveProductSlug({ payment_link: "plink_OTRO" }, env), "delf-a2");
+});
+
+Deno.test("estimados - pixel propio: sin su token no se manda nada por CAPI (ni con tokens de otros productos); con su token, al pixel de Estimados", () => {
+  const p = EBOOK_CATALOG["estimados"];
+  assertEquals(p.meta?.pixelId, "1013028214851437");
+  assertEquals(p.meta?.accessTokenEnv, "META_CAPI_ACCESS_TOKEN_ESTIMADOS");
+  // Sin META_CAPI_ACCESS_TOKEN_ESTIMADOS: aunque haya tokens de otros productos o el global, no se manda nada al pixel equivocado.
+  assertEquals(resolveMeta(p, envOf({ META_CAPI_ACCESS_TOKEN: "x", META_CAPI_ACCESS_TOKEN_PISCINAS: "y", META_CAPI_ACCESS_TOKEN_AUXILIOS: "z" })), null);
+  // Con su propio token sí.
+  assertEquals(
+    resolveMeta(p, envOf({ META_CAPI_ACCESS_TOKEN_ESTIMADOS: "tok", META_CAPI_TEST_EVENT_CODE_ESTIMADOS: "TEST1" })),
+    { pixelId: "1013028214851437", accessToken: "tok", testEventCode: "TEST1" },
+  );
+});
+
+const ESTIMADOS_DRIVE = "https://drive.google.com/file/d/1K-mbNjJBqJlkJ_ZC-AXWhAtqPqQc7af_/view?usp=sharing";
+
+Deno.test("estimados - el enlace del kit en el catálogo es el de Drive que dio Daniel (https), y es el que va al correo si no hay secret", () => {
+  const p = EBOOK_CATALOG["estimados"];
+  assertEquals(p.emailDownloadUrlDefault, ESTIMADOS_DRIVE);
+  assertEquals(emailDownloadUrl(p, envOf({})), ESTIMADOS_DRIVE);
+});
+
+Deno.test("estimados - emailDownloadUrl: el secret (https) reemplaza al enlace fijo; un secret inválido se ignora y vale el fijo", () => {
+  const p = EBOOK_CATALOG["estimados"];
+  const otro = "https://drive.google.com/uc?export=download&id=ABC123";
+  assertEquals(emailDownloadUrl(p, envOf({ ESTIMADOS_ZIP_URL: otro })), otro);
+  assertEquals(emailDownloadUrl(p, envOf({ ESTIMADOS_ZIP_URL: `  ${otro}  ` })), otro); // recorta espacios
+  assertEquals(emailDownloadUrl(p, envOf({ ESTIMADOS_ZIP_URL: "" })), ESTIMADOS_DRIVE);
+  assertEquals(emailDownloadUrl(p, envOf({ ESTIMADOS_ZIP_URL: "http://drive.google.com/x" })), ESTIMADOS_DRIVE);
+  assertEquals(emailDownloadUrl(p, envOf({ ESTIMADOS_ZIP_URL: "javascript:alert(1)" })), ESTIMADOS_DRIVE);
+});
+
+Deno.test("estimados - emailDownloadUrl: nunca devuelve algo que no sea https, y los productos sin enlace de correo no se ven afectados", () => {
+  const p = EBOOK_CATALOG["estimados"];
+  // Enlace fijo roto (http) y sin secret válido: null (el webhook no manda el correo y Stripe reintenta).
+  assertEquals(emailDownloadUrl({ ...p, emailDownloadUrlDefault: "http://drive.google.com/x" }, envOf({})), null);
+  assertEquals(emailDownloadUrl({ ...p, emailDownloadUrlDefault: undefined }, envOf({})), null);
+  assertEquals(emailDownloadUrl({ ...p, emailDownloadUrlDefault: undefined }, envOf({ ESTIMADOS_ZIP_URL: ESTIMADOS_DRIVE })), ESTIMADOS_DRIVE);
+  // Productos que se entregan de otra forma.
+  assertEquals(emailDownloadUrl(EBOOK_CATALOG["piscinas"], envOf({ ESTIMADOS_ZIP_URL: ESTIMADOS_DRIVE, PISCINAS_ZIP_URL: ESTIMADOS_DRIVE })), null);
+  assertEquals(emailDownloadUrl(EBOOK_CATALOG["auxilios"], envOf({})), null);
+});
+
+Deno.test("estimados - el correo trae el kit (enlace de Drive directo) y el regalo con el link a /estimados-ty?session_id=", () => {
+  const p = EBOOK_CATALOG["estimados"];
+  const html = buildConfirmationEmailHtml({
+    productName: p.name,
+    thankYouUrl: `https://www.acrosoftlabs.com${p.thankYouPath}?session_id=cs_test_1`,
+    amountLabel: "$30.00 USD",
+    platform: null,
+    hasDownload: false,
+    downloadUrl: emailDownloadUrl(p, envOf({})),
+    gift: p.emailGift ?? null,
+  });
+  // El enlace de Drive del catálogo va tal cual en el botón (el `?usp=sharing` no lleva `&`, pero cualquier `&` se escaparía a &amp;).
+  assertStringIncludes(html, `href="${ESTIMADOS_DRIVE}"`);
+  assertStringIncludes(html, "Descargar mi kit");
+  assertStringIncludes(html, 'href="https://www.acrosoftlabs.com/estimados-ty?session_id=cs_test_1"');
+  assertStringIncludes(html, "Reclamar mi regalo");
+  assertStringIncludes(html, "US$100");
+  assertFalse(html.includes("Ver mi compra")); // sin el botón genérico: el regalo lo reemplaza
+});
+
+Deno.test("estimados - sin enlace de descarga el correo no inventa un botón de descarga (el webhook ni siquiera lo manda en ese caso)", () => {
+  const p = EBOOK_CATALOG["estimados"];
+  const html = buildConfirmationEmailHtml({
+    productName: p.name,
+    thankYouUrl: `https://www.acrosoftlabs.com${p.thankYouPath}?session_id=cs_test_1`,
+    amountLabel: "$30.00 USD",
+    platform: null,
+    downloadUrl: null,
+    gift: p.emailGift ?? null,
+  });
+  assertFalse(html.includes("Descargar mi kit"));
+  assertStringIncludes(html, "Reclamar mi regalo");
+});
+
+Deno.test("correo de siempre: sin `gift` los demás productos mantienen su correo (botón «Ver mi compra y descargar»)", () => {
+  const html = buildConfirmationEmailHtml({
+    productName: "Kit", thankYouUrl: "https://www.acrosoftlabs.com/piscinas-ty?session_id=cs_test_1", amountLabel: "$30.00 USD", platform: null, hasDownload: true,
+    downloadUrl: "https://drive.google.com/x", // se ignora sin `gift`
+  });
+  assertStringIncludes(html, "Ver mi compra y descargar");
+  assertFalse(html.includes("Descargar mi kit"));
+});
+
+Deno.test("catálogo - estimados: slug, nombre, precio y ruta del navegador coinciden con `tracking`; el pixel del navegador y el del servidor coinciden, y el asunto del correo es el que anuncia la página final", async () => {
+  const config = await Deno.readTextFile(new URL("../../../src/lib/estimadosConfig.ts", import.meta.url));
+  assertEquals(config.match(/ESTIMADOS_PRODUCT_SLUG = "([^"]+)"/)?.[1], "estimados");
+  assertEquals(config.match(/ESTIMADOS_CONTENT_NAME = "([^"]+)"/)?.[1], EBOOK_CATALOG["estimados"].name);
+  assertEquals(Number(config.match(/ESTIMADOS_PRICE = (\d+)/)?.[1]), 30);
+  assertEquals(config.match(/ESTIMADOS_TY_PATH = "([^"]+)"/)?.[1], EBOOK_CATALOG["estimados"].thankYouPath);
+  // Pixel del navegador y del servidor van juntos: si se cambia uno, hay que cambiar el otro.
+  const browserPixel = config.match(/ESTIMADOS_PIXEL_ID: string = "(\d*)"/)?.[1];
+  assertEquals(browserPixel, EBOOK_CATALOG["estimados"].meta?.pixelId ?? "");
+  assertEquals(browserPixel, "1013028214851437");
+  // Lo que la página final le dice a la persona que busque en su correo es EXACTAMENTE lo que manda el webhook (asunto y remitente).
+  assertEquals(config.match(/ESTIMADOS_EMAIL_SUBJECT = "([^"]+)"/)?.[1], `Descarga tu compra: ${EBOOK_CATALOG["estimados"].shortName}`);
+  assertEquals(config.match(/ESTIMADOS_EMAIL_SENDER = "([^"]+)"/)?.[1], EBOOK_CATALOG["estimados"].shortName);
+  assertEquals(config.match(/ESTIMADOS_DONE_PATH = "([^"]+)"/)?.[1], "/estimados-gracias");
+  assertEquals(EBOOK_CATALOG["estimados"].tracking?.price, 30);
+  assertEquals(EBOOK_CATALOG["estimados"].tracking?.contentName, EBOOK_CATALOG["estimados"].name);
+  assertEquals(EBOOK_CATALOG["estimados"].tracking?.landingPath, "/estimados-lp");
 });

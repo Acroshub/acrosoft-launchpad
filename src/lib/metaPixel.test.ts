@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { META_PIXEL_ID, initMetaPixel, trackMetaEvent } from "./metaPixel";
+import { META_PIXEL_ID, initMetaPixel, trackMetaCustomEvent, trackMetaEvent } from "./metaPixel";
 import { TOEFL_PRODUCT_SLUG, toeflCheckoutUrl } from "./toeflConfig";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -14,9 +14,51 @@ function resetPixel() {
 
 beforeEach(() => {
   resetPixel();
+  w.__metaPixelAllowLocal = true; // jsdom corre en «localhost»: estas pruebas ejercitan el pixel real, así que permiten local
   document.head.appendChild(document.createElement("script")); // initMetaPixel inserta antes del primer <script>
 });
-afterEach(resetPixel);
+afterEach(() => {
+  resetPixel();
+  delete w.__metaPixelAllowLocal;
+  sessionStorage.removeItem("__metaPixelFbtest");
+  window.history.pushState({}, "", "/");
+});
+
+describe("protección en desarrollo local (localhost)", () => {
+  it("en localhost no carga el pixel ni manda eventos (no ensucia el pixel real con visitas de tu computadora)", () => {
+    delete w.__metaPixelAllowLocal;
+    initMetaPixel("999");
+    trackMetaEvent("PageView", undefined, undefined, "999");
+    trackMetaCustomEvent("Algo", {}, undefined, "999");
+    expect(w.fbq).toBeUndefined();
+    expect(document.head.querySelectorAll('script[src*="fbevents"]')).toHaveLength(0);
+  });
+
+  it("con ?fbtest=1 sí funciona en local (para probar con Meta Pixel Helper)", () => {
+    delete w.__metaPixelAllowLocal;
+    window.history.pushState({}, "", "/estimados-lp?fbtest=1");
+    initMetaPixel("999");
+    trackMetaEvent("PageView", undefined, undefined, "999");
+    expect(w.fbq.queue).toEqual([["init", "999"], ["trackSingle", "999", "PageView", {}]]);
+  });
+
+  it("?fbtest=1 se recuerda en la sesión de la pestaña: al pasar a otra página del embudo (sin el parámetro en la URL) sigue funcionando", () => {
+    delete w.__metaPixelAllowLocal;
+    window.history.pushState({}, "", "/estimados-ty?session_id=cs_1&fbtest=1");
+    initMetaPixel("999");
+    window.history.pushState({}, "", "/estimados-gracias"); // navegación dentro de la app: se pierde el parámetro
+    trackMetaEvent("Lead", { content_name: "x" }, "lead_1", "999");
+    expect(w.fbq.queue.at(-1)).toEqual(["trackSingle", "999", "Lead", { content_name: "x" }, { eventID: "lead_1" }]);
+  });
+
+  it("sin haber usado ?fbtest=1 en esa pestaña, una URL de localhost normal sigue bloqueada", () => {
+    delete w.__metaPixelAllowLocal;
+    sessionStorage.removeItem("__metaPixelFbtest");
+    window.history.pushState({}, "", "/estimados-gracias");
+    initMetaPixel("999");
+    expect(w.fbq).toBeUndefined();
+  });
+});
 
 describe("initMetaPixel / trackMetaEvent", () => {
   it("sin argumentos se comporta como siempre: pixel de DELF y `track`", () => {
