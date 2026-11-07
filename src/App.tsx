@@ -36,6 +36,7 @@ const PiscinasLp4 = lazy(() => import("./pages/PiscinasLp4.tsx"));
 const PiscinasUp1 = lazy(() => import("./pages/PiscinasUp1.tsx"));
 const PiscinasUp2 = lazy(() => import("./pages/PiscinasUp2.tsx"));
 const PiscinasTy = lazy(() => import("./pages/PiscinasTy.tsx"));
+const EstimadosLp = lazy(() => import("./pages/EstimadosLp.tsx"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -80,6 +81,8 @@ const App = () => (
             <Route path="/piscinas-up1" element={<PiscinasUp1 />} />
             <Route path="/piscinas-up2" element={<PiscinasUp2 />} />
             <Route path="/piscinas-ty" element={<PiscinasTy />} />
+            {/* Landing «Kit de 50 anuncios virales para negocios de tree services» (nace con noindex; pago y thank-you pendientes) */}
+            <Route path="/estimados-lp" element={<EstimadosLp />} />
 
             {/* Client invitation setup — public (session comes from invite link) */}
             <Route path="/crm-setup" element={<CrmSetup />} />
