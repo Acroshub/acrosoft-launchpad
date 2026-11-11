@@ -46,24 +46,6 @@ const listPrice = ESTIMADOS_LIST_PRICE;
 const showListPrice = listPrice !== null && listPrice > price;
 const days = ESTIMADOS_GUARANTEE_DAYS;
 
-const ES_ADS = [
-  { n: 5, alt: "Anuncio de ejemplo: el precio de tener el árbol más grande de la cuadra" },
-  { n: 2, alt: "Anuncio de ejemplo: revisas ventanas y techo antes de la tormenta, ¿y el árbol?" },
-  { n: 10, alt: "Anuncio de ejemplo: lo que nadie te cuenta sobre los tocones" },
-  { n: 33, alt: "Anuncio de ejemplo: una forma de podar que deja pasar el viento" },
-  { n: 40, alt: "Anuncio de ejemplo: quitar árboles es nuestro trabajo diario, para que tú no tengas que arriesgarte" },
-  { n: 32, alt: "Anuncio de ejemplo: hay una razón por la que dos estimados del mismo árbol cuestan tan distinto" },
-  { n: 1, alt: "Anuncio de ejemplo: hay una rama sobre tu techo que parece inofensiva, hasta la próxima tormenta" },
-];
-const EN_ADS = [
-  { n: 5, alt: "Example ad: the price of having the biggest tree on the block" },
-  { n: 2, alt: "Example ad: you check windows and roof before the storm, what about the tree?" },
-  { n: 10, alt: "Example ad: here's what nobody tells you about tree stumps" },
-  { n: 33, alt: "Example ad: there's a way to prune that lets the wind pass through the tree" },
-  { n: 40, alt: "Example ad: removing trees is our daily work, so you don't have to take the risk" },
-  { n: 32, alt: "Example ad: there's a reason two estimates for the same tree cost so differently" },
-  { n: 1, alt: "Example ad: there's a branch over your roof that looks harmless, until the next storm" },
-];
 
 const NOTS = [
   { t: "Publicar la foto del trabajo terminado", d: "No le da al cliente una razón para escribirte hoy." },
@@ -150,22 +132,43 @@ function Bundle() {
   );
 }
 
-function AdRow({ ads, lang, dir }: { ads: typeof ES_ADS; lang: "es" | "en"; dir: "left" | "right" }) {
-  // El mismo grupo dos veces: la animación recorre exactamente un grupo (50 %), así el bucle no tiene salto.
+/**
+ * Una fila de la galería: un video corto en bucle (siete anuncios que se mueven sin salto), no un carrusel de <img> con CSS.
+ * El carrusel parpadeaba en Safari de iPhone (cuadros en blanco que aparecen y desaparecen); un <video> muted + playsInline
+ * lo reproduce el sistema igual en todos los navegadores. Se generan con Landing/_src/galeria/build_galeria.py. El póster es el
+ * primer cuadro: si el celular no deja reproducir solo (ahorro de batería), se ve igual de bien, quieto.
+ */
+function AdVideo({ lang, label }: { lang: "es" | "en"; label: string }) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    const v = ref.current;
+    if (!v) return;
+    v.muted = true; // React no refleja el atributo muted en el DOM; iOS lo exige para reproducir solo
+    // play() devuelve una promesa en navegadores modernos; en otros (y en jsdom) no devuelve nada.
+    const play = () => { try { void v.play()?.catch(() => undefined); } catch { /* sin reproducción automática: queda el póster */ } };
+    if (typeof IntersectionObserver === "undefined") { play(); return; }
+    // Solo se reproduce mientras se ve: ahorra batería y datos.
+    const io = new IntersectionObserver(([e]) => { if (e?.isIntersecting) play(); else v.pause(); }, { threshold: 0.15 });
+    io.observe(v);
+    return () => io.disconnect();
+  }, []);
   return (
-    <div className="est-marq">
-      <div className={`est-track est-track--${dir}`}>
-        {ads.map((a) => (
-          <div className="est-ad" key={`a${a.n}`}>
-            <img src={`${IMG}/ads/${lang}-${String(a.n).padStart(2, "0")}.jpg`} width={336} height={448} loading="eager" decoding="async" alt={a.alt} lang={lang} />
-          </div>
-        ))}
-        {ads.map((a) => (
-          <div className="est-ad est-dup" key={`b${a.n}`} aria-hidden="true">
-            <img src={`${IMG}/ads/${lang}-${String(a.n).padStart(2, "0")}.jpg`} width={336} height={448} loading="lazy" alt="" />
-          </div>
-        ))}
-      </div>
+    <div className="est-vrow">
+      <video
+        ref={ref}
+        className="est-vid"
+        src={`${IMG}/galeria-${lang}.mp4`}
+        poster={`${IMG}/galeria-${lang}.jpg`}
+        width={1280}
+        height={534}
+        muted
+        loop
+        autoPlay
+        playsInline
+        preload="metadata"
+        disablePictureInPicture
+        aria-label={label}
+      />
     </div>
   );
 }
@@ -368,9 +371,9 @@ const EstimadosLp = () => {
             <p>Son decenas de variaciones y estilos de posts virales con más de 5K likes en cada post, señal de que capta la atención de los usuarios.</p>
             <div className="est-gal">
               <span className="est-lab">Español</span>
-              <AdRow ads={ES_ADS} lang="es" dir="right" />
+              <AdVideo lang="es" label="Ejemplos de anuncios en español para negocios de tree services" />
               <span className="est-lab">English</span>
-              <AdRow ads={EN_ADS} lang="en" dir="left" />
+              <AdVideo lang="en" label="Example ads in English for tree service businesses" />
             </div>
             <div className="est-cta" style={{ marginTop: 6 }}>
               {buy(<span>Quiero estos anuncios · US${price}</span>)}

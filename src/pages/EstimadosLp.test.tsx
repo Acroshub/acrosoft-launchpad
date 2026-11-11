@@ -59,24 +59,21 @@ describe("EstimadosLp — contenido", () => {
     expect(buyButtons()).toHaveLength(5);
   });
 
-  it("las dos filas de la galería tienen 7 anuncios reales y 7 copias ocultas para el bucle", () => {
+  it("la galería son dos videos en bucle (ES y EN), mudos y en línea: el carrusel de <img> parpadeaba en Safari de iPhone", () => {
     const { container } = render(<EstimadosLp />);
-    const rows = container.querySelectorAll(".est-marq");
-    expect(rows).toHaveLength(2);
-    rows.forEach((row) => {
-      expect(row.querySelectorAll(".est-ad:not(.est-dup)")).toHaveLength(7);
-      const dups = row.querySelectorAll(".est-ad.est-dup");
-      expect(dups).toHaveLength(7);
-      dups.forEach((d) => expect(d.getAttribute("aria-hidden")).toBe("true"));
+    const vids = Array.from(container.querySelectorAll(".est-gal video")) as HTMLVideoElement[];
+    expect(vids).toHaveLength(2);
+    expect(vids.map((v) => v.getAttribute("src"))).toEqual(["/estimados/galeria-es.mp4", "/estimados/galeria-en.mp4"]);
+    expect(vids.map((v) => v.getAttribute("poster"))).toEqual(["/estimados/galeria-es.jpg", "/estimados/galeria-en.jpg"]);
+    vids.forEach((v) => {
+      expect(v.loop).toBe(true);
+      expect(v.muted).toBe(true); // iOS solo reproduce solo si está mudo
+      expect(v.hasAttribute("playsinline")).toBe(true);
+      expect(v.hasAttribute("autoplay")).toBe(true);
+      expect(v.getAttribute("aria-label")).toBeTruthy();
     });
-  });
-
-  it("los anuncios reales de la galería cargan de inmediato (loading=eager): con lazy, los de la derecha del carrusel quedaban en blanco", () => {
-    const { container } = render(<EstimadosLp />);
-    const real = container.querySelectorAll(".est-ad:not(.est-dup) img");
-    expect(real).toHaveLength(14);
-    real.forEach((img) => expect(img.getAttribute("loading")).toBe("eager"));
-    container.querySelectorAll(".est-ad.est-dup img").forEach((img) => expect(img.getAttribute("loading")).toBe("lazy"));
+    // ya no hay filas de imágenes con scroll
+    expect(container.querySelectorAll(".est-marq, .est-track, .est-gal img")).toHaveLength(0);
   });
 
   it("«Listos en 3 pasos» va dentro de la oferta, justo debajo del texto «Para llenar tu calendario…», y ya no es una sección aparte", () => {
