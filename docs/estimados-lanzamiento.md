@@ -6,8 +6,9 @@ Estado a **2026-11-07: EL EMBUDO ESTÁ PUBLICADO (LIVE).**
   (`prod_VVDEkbY4CnH4nv`, US$30); la imagen del producto en Stripe (`/estimados/stripe-producto.png`) sirve `image/png`.
 - **Servidor en producción** (Supabase «Acrosoft», `rhlnjtrbydwzzuvqayfo`): `stripe-webhook` v28, `product-track-event` v8 y `estimados-get-order` v1 (desplegadas con permiso explícito de Daniel el 2026-11-07;
   antes: v27 y v7). La columna `ebook_orders.customer_name` la creó Daniel a mano en el SQL Editor y se comprobó que existe. El secret `META_CAPI_ACCESS_TOKEN_ESTIMADOS` está cargado.
-- **Falta:** la URL del video (`ESTIMADOS_TY_VIDEO_URL`; mientras esté vacía la página no lo muestra) y una **compra de prueba real** (ver «Prueba de punta a punta» abajo): hasta hoy no se ha probado una compra real, ni el correo real de Resend, ni Meta recibiendo eventos.
-- El producto de Stripe era el del kit de Piscinas (Daniel lo renombró); el Payment Link viejo de Piscinas `plink_1UUCpx…` sigue activo sobre el mismo precio.
+- **Video (2026-11-11):** el VSL de 2:50 (1.25x, con música) está en **Bunny Stream** (biblioteca 628395) y `ESTIMADOS_TY_VIDEO_URL` apunta a su reproductor con `autoplay=false`. Archivo y guion en `CRASHING/Kit Clientes Tree Services/VSL/`.
+- **Falta:** una **compra de prueba real** (ver «Prueba de punta a punta» abajo): hasta hoy no se ha probado una compra real, ni el correo real de Resend, ni Meta recibiendo eventos.
+- El producto de Stripe era el del kit de Piscinas (Daniel lo renombró); el Payment Link viejo de Piscinas `plink_1UUCpx…` (`https://buy.stripe.com/dRmbJ0fBo6Us5eOgKCbbG08`) se **desactivó el 2026-11-07** a pedido de Daniel (Stripe no permite borrar Payment Links, solo `active:false`; se puede reactivar). Pendiente de Piscinas: `PISCINAS_PAYMENT_LINK` en `src/lib/piscinasConfig.ts` sigue apuntando a él, y el secret `PISCINAS_KIT_PRICE_ID` apunta al mismo precio que ahora es el de Estimados.
 
 Prototipo, copy aprobado, decisiones de diseño y registro de cambios: carpeta `CRASHING/Kit Clientes Tree Services/` (`Landing/NOTAS.md`,
 `Info/estado.md`). El nombre del producto es **provisional** (elegido por Daniel el 2026-11-05).

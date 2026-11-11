@@ -142,7 +142,7 @@ function VideoSlot({ url }: { url: string }) {
           {isFile ? (
             <video src={url} controls playsInline preload="metadata" title="Video sobre tu regalo" />
           ) : (
-            <iframe src={url} title="Video sobre tu regalo" allow="autoplay; fullscreen; picture-in-picture" allowFullScreen loading="lazy" />
+            <iframe src={url} title="Video sobre tu regalo" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen loading="lazy" />
           )}
         </div>
       </div>
