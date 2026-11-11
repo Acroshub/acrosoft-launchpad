@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { MouseEvent, ReactNode } from "react";
 import { EST_CSS, EST_FONT_HREF } from "@/components/estimados/estimadosStyles";
+import { EST_CSS_EXTRA } from "@/components/estimados/estimadosStylesExtra";
 import { saveCheckoutAttribution } from "@/lib/checkoutAttribution";
 import { initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
 import { addNoindex, registerAbSession, trackAbClick } from "@/lib/piscinasFunnel";
@@ -156,12 +157,12 @@ function AdRow({ ads, lang, dir }: { ads: typeof ES_ADS; lang: "es" | "en"; dir:
       <div className={`est-track est-track--${dir}`}>
         {ads.map((a) => (
           <div className="est-ad" key={`a${a.n}`}>
-            <img src={`${IMG}/ads/${lang}-${String(a.n).padStart(2, "0")}.jpg`} width={432} height={576} loading="lazy" alt={a.alt} lang={lang} />
+            <img src={`${IMG}/ads/${lang}-${String(a.n).padStart(2, "0")}.jpg`} width={336} height={448} loading="eager" decoding="async" alt={a.alt} lang={lang} />
           </div>
         ))}
         {ads.map((a) => (
           <div className="est-ad est-dup" key={`b${a.n}`} aria-hidden="true">
-            <img src={`${IMG}/ads/${lang}-${String(a.n).padStart(2, "0")}.jpg`} width={432} height={576} loading="lazy" alt="" />
+            <img src={`${IMG}/ads/${lang}-${String(a.n).padStart(2, "0")}.jpg`} width={336} height={448} loading="lazy" alt="" />
           </div>
         ))}
       </div>
@@ -270,7 +271,7 @@ const EstimadosLp = () => {
           <img height="1" width="1" style={{ display: "none" }} src={`https://www.facebook.com/tr?id=${ESTIMADOS_PIXEL_ID}&ev=PageView&noscript=1`} alt="" />
         </noscript>
       )}
-      <style>{EST_CSS}</style>
+      <style>{EST_CSS}{EST_CSS_EXTRA}</style>
 
       <div className="est-page" data-product={ESTIMADOS_PRODUCT_SLUG} aria-label={ESTIMADOS_CONTENT_NAME}>
         <Icons />
@@ -329,6 +330,14 @@ const EstimadosLp = () => {
               <h2 className="est-product">Kit de 50 <span className="est-hl">anuncios virales</span> para negocios de tree services</h2>
               <p className="est-tagline">Para llenar tu calendario de estimados y tener más clientes recurrentemente.</p>
 
+              {/* Listos en 3 pasos: va aquí, dentro de la oferta, debajo del texto de arriba (pedido de Daniel, 2026-11-11). */}
+              <p className="est-inc-label">Listos en 3 pasos</p>
+              <div className="est-steps est-steps--offer">
+                <div className="est-step"><span className="est-n">1</span><div><b>Elige tu anuncio viral</b></div></div>
+                <div className="est-step"><span className="est-n">2</span><div><b>Ponle tu logo, fácil y rápido desde el celular</b></div></div>
+                <div className="est-step"><span className="est-n">3</span><div><b>Publícalo y Promociónalo</b></div></div>
+              </div>
+
               <Bundle />
 
               <p className="est-inc-label">Dentro del kit</p>
@@ -352,19 +361,7 @@ const EstimadosLp = () => {
           </div>
         </section>
 
-        {/* ============ 4. LISTOS EN 3 PASOS ============ */}
-        <section className="est-sec">
-          <div className="est-wrap">
-            <h2>Listos en 3 pasos</h2>
-            <div className="est-steps">
-              <div className="est-step"><span className="est-n">1</span><div><b>Elige tu anuncio viral</b></div></div>
-              <div className="est-step"><span className="est-n">2</span><div><b>Ponle tu logo, fácil y rápido desde el celular</b></div></div>
-              <div className="est-step"><span className="est-n">3</span><div><b>Publícalo y Promociónalo</b></div></div>
-            </div>
-          </div>
-        </section>
-
-        {/* ============ 5. GALERÍA ============ */}
+        {/* ============ 4. GALERÍA ============ */}
         <section className="est-sec" style={{ paddingTop: 20 }}>
           <div className="est-wrap">
             <h2>Algunos de los anuncios a los que vas a acceder</h2>

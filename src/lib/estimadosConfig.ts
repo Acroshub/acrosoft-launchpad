@@ -102,11 +102,11 @@ export const ESTIMADOS_CALL_CALENDAR_ID: string = "24dab059-b724-4a13-b900-c2d73
 
 /**
  * Video de la página: URL de un .mp4/.webm o de un reproductor (se incrusta en un iframe). Hoy: el VSL de 2:50 alojado en Bunny Stream
- * (biblioteca 628395), con `autoplay=false` a propósito: el mensaje depende del audio y un autoplay silencioso haría que mucha gente
+ * (biblioteca 628395), con `autoplay=false` a propósito (y el dominio iframe.mediadelivery.net, el único de Bunny que permite el `frame-src` del CSP de vercel.json): el mensaje depende del audio y un autoplay silencioso haría que mucha gente
  * baje al calendario sin oírlo. Vacío = no se muestra video (en desarrollo, un recuadro rotulado).
  */
 export const ESTIMADOS_TY_VIDEO_URL: string =
-  "https://player.mediadelivery.net/embed/628395/55a90e57-af9e-4e2a-8bc9-412e496d8977?autoplay=false&loop=false&preload=true&responsive=true";
+  "https://iframe.mediadelivery.net/embed/628395/55a90e57-af9e-4e2a-8bc9-412e496d8977?autoplay=false&loop=false&preload=true&responsive=true";
 
 /** Lo que Acrosoft cobra normalmente por esta llamada (USD). Declarado por Daniel el 2026-11-07: para quien compró el kit es gratis. */
 export const ESTIMADOS_CALL_VALUE = 100;

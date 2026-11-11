@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
+import vercelRaw from "../../vercel.json?raw";
 import {
   ESTIMADOS_CONTENT_NAME,
   ESTIMADOS_LIST_PRICE,
   ESTIMADOS_PRICE,
   ESTIMADOS_PRODUCT_SLUG,
+  ESTIMADOS_TY_VIDEO_URL,
   estimadosCheckoutUrl,
   estimadosEventParams,
 } from "./estimadosConfig";
@@ -41,5 +43,21 @@ describe("estimadosEventParams", () => {
 
   it("el precio de lista, si existe, es mayor que el de venta (nunca se muestra un tachado menor)", () => {
     if (ESTIMADOS_LIST_PRICE !== null) expect(ESTIMADOS_LIST_PRICE).toBeGreaterThan(ESTIMADOS_PRICE);
+  });
+});
+
+describe("video de /estimados-ty", () => {
+  it("la URL del video usa un dominio que permite el frame-src del CSP de vercel.json (si no, el navegador bloquea el reproductor en producción)", () => {
+    expect(ESTIMADOS_TY_VIDEO_URL).toMatch(/^https:\/\//);
+    const csp = (JSON.parse(vercelRaw).headers as { headers: { key: string; value: string }[] }[])
+      .flatMap((h) => h.headers)
+      .find((h) => h.key === "Content-Security-Policy")!.value;
+    const frameSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("frame-src"))!;
+    const origin = new URL(ESTIMADOS_TY_VIDEO_URL).origin;
+    expect(frameSrc.split(/\s+/)).toContain(origin);
+  });
+
+  it("el video no arranca solo (autoplay=false): el mensaje depende del audio", () => {
+    expect(new URL(ESTIMADOS_TY_VIDEO_URL).searchParams.get("autoplay")).toBe("false");
   });
 });

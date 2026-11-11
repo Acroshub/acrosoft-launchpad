@@ -71,6 +71,36 @@ describe("EstimadosLp — contenido", () => {
     });
   });
 
+  it("los anuncios reales de la galería cargan de inmediato (loading=eager): con lazy, los de la derecha del carrusel quedaban en blanco", () => {
+    const { container } = render(<EstimadosLp />);
+    const real = container.querySelectorAll(".est-ad:not(.est-dup) img");
+    expect(real).toHaveLength(14);
+    real.forEach((img) => expect(img.getAttribute("loading")).toBe("eager"));
+    container.querySelectorAll(".est-ad.est-dup img").forEach((img) => expect(img.getAttribute("loading")).toBe("lazy"));
+  });
+
+  it("«Listos en 3 pasos» va dentro de la oferta, justo debajo del texto «Para llenar tu calendario…», y ya no es una sección aparte", () => {
+    const { container } = render(<EstimadosLp />);
+    const card = container.querySelector(".est-offer-card") as HTMLElement;
+    const tagline = card.querySelector(".est-tagline") as HTMLElement;
+    const steps = card.querySelector(".est-steps") as HTMLElement;
+    expect(steps).not.toBeNull();
+    expect(steps.querySelectorAll(".est-step")).toHaveLength(3);
+    expect(Array.from(steps.querySelectorAll(".est-step b")).map((b) => b.textContent)).toEqual([
+      "Elige tu anuncio viral",
+      "Ponle tu logo, fácil y rápido desde el celular",
+      "Publícalo y Promociónalo",
+    ]);
+    // orden en la tarjeta: tagline -> etiqueta «Listos en 3 pasos» -> pasos -> mockup del kit
+    const label = tagline.nextElementSibling as HTMLElement;
+    expect(label.textContent).toBe("Listos en 3 pasos");
+    expect(label.nextElementSibling).toBe(steps);
+    expect(steps.compareDocumentPosition(card.querySelector(".est-bundle") as Element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // y no queda ninguna otra lista de pasos fuera de la tarjeta
+    expect(container.querySelectorAll(".est-steps")).toHaveLength(1);
+    expect(Array.from(container.querySelectorAll("h2")).some((h) => /Listos en 3 pasos/.test(h.textContent ?? ""))).toBe(false);
+  });
+
   it("todas las clases llevan el prefijo est- (no chocan con las globales del proyecto)", () => {
     const { container } = render(<EstimadosLp />);
     container.querySelectorAll("[class]").forEach((el) => {
