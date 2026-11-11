@@ -17,6 +17,7 @@ import {
   ESTIMADOS_TY_PATH,
   estimadosCallEventParams,
 } from "@/lib/estimadosConfig";
+import { isEstimadosPreview } from "@/lib/estimadosPreview";
 
 // /estimados-gracias — la página FINAL del embudo, a la que se llega al agendar la llamada en /estimados-ty (decisión de Daniel, 2026-11-07).
 //   · Barra superior: la del 90 % de la página anterior ahora sube hasta el 100 % y suelta confeti (una sola vez; sin movimiento si la persona lo pidió).
@@ -25,15 +26,15 @@ import {
 //   · Sección 3: datos de contacto para ayuda (pie oscuro): el WhatsApp y el correo de soporte.
 // Pixel de Meta: PageView y, SOLO si hay una cita recién agendada, el evento Lead (una vez por cita, aunque se recargue). Nunca en localhost salvo con
 // ?fbtest=1. Página privada: noindex. Sin cita (se abre directo) muestra la sección 2 como «aún no agendas» con un botón para volver a agendar.
-// Vista previa: SOLO con `import.meta.env.DEV`, `?demo=1` usa una cita simulada (sin eventos de Meta). En producción ese parámetro se ignora.
+// Vista previa: `?demo=1` (desarrollo) o `?demo=<ESTIMADOS_PREVIEW_KEY>` (producción), o venir de la vista previa de /estimados-ty: cita simulada o la que se eligió, sin eventos de Meta.
 
 const PAGE_TITLE = "¡Todo listo! Tu llamada está agendada | +50 Anuncios Virales para Tree Services";
 const CONFETTI_COLORS = ["#EA5A0B", "#1F4D36", "#FFB27A", "#F2C94C", "#7DDBA3", "#C94E08"];
 const CONFETTI_PIECES = 48;
 const CONFETTI_MS = 5200; // lo que dura la caída más el retraso de la barra; después se quita del DOM
 
-/** Vista previa: solo en desarrollo (Vite). En producción `import.meta.env.DEV` es false y el parámetro se ignora. */
-const IS_DEMO = import.meta.env.DEV && new URLSearchParams(window.location.search).get("demo") === "1";
+/** Vista previa (ver estimadosPreview.ts). */
+const IS_DEMO = isEstimadosPreview();
 
 /** Cita simulada: mañana a las 12:00 en La Paz (la zona del calendario del admin), mostrada en la zona de quien abre la página. */
 function demoBooking(): EstimadosBooking {
@@ -77,7 +78,7 @@ function Confetti() {
 }
 
 const EstimadosGracias = () => {
-  const [booking] = useState<EstimadosBooking | null>(() => (IS_DEMO ? demoBooking() : readBooking()));
+  const [booking] = useState<EstimadosBooking | null>(() => (IS_DEMO ? readBooking() ?? demoBooking() : readBooking()));
   const [showConfetti, setShowConfetti] = useState(() => {
     const reduce = typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     return !reduce;

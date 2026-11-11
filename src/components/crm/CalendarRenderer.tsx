@@ -176,6 +176,8 @@ interface BookingFormProps {
   requireWhatsapp?: boolean;
   /** Prefijo con el que arranca el selector de país del teléfono (ej. "+1"). Sin esto arranca en el país por defecto del selector (Bolivia). */
   phoneDefaultDial?: string;
+  /** Vista previa: recorre todo el formulario pero NO reserva (no llama a crm-calendar-book): no se crea ninguna cita ni contacto. */
+  previewOnly?: boolean;
   selectedDate: string;
   selectedHour: number;
   selectedMinute: number;
@@ -195,6 +197,7 @@ const BookingForm = ({
   prefill,
   requireWhatsapp = false,
   phoneDefaultDial,
+  previewOnly = false,
   selectedDate,
   selectedHour,
   selectedMinute,
@@ -311,6 +314,7 @@ const BookingForm = ({
     setIsSubmitting(true);
     const termsAt = new Date().toISOString();
     try {
+      if (previewOnly) { await new Promise((r) => setTimeout(r, 700)); onSuccess(); return; }
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/crm-calendar-book`, {
         method: "POST",
         headers: {
@@ -465,9 +469,11 @@ interface CalendarRendererProps {
   requireWhatsapp?: boolean;
   /** Prefijo con el que arranca el selector de país del teléfono (ej. "+1" para público de EE.UU.). */
   phoneDefaultDial?: string;
+  /** Vista previa: no reserva de verdad (ver BookingFormProps.previewOnly). */
+  previewOnly?: boolean;
 }
 
-const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, onBookingSuccess, prefill, requireWhatsapp, phoneDefaultDial }: CalendarRendererProps) => {
+const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, onBookingSuccess, prefill, requireWhatsapp, phoneDefaultDial, previewOnly }: CalendarRendererProps) => {
   const today = new Date();
   const [viewYear, setViewYear]   = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -666,6 +672,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
         prefill={prefill}
         requireWhatsapp={requireWhatsapp}
         phoneDefaultDial={phoneDefaultDial}
+        previewOnly={previewOnly}
         selectedDate={selectedDate}
         selectedHour={selectedSlot.hour}
         selectedMinute={selectedSlot.minute}

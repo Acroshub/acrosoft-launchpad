@@ -124,3 +124,11 @@ export function estimadosCallEventParams() {
     content_category: "consultoria",
   };
 }
+
+/**
+ * Vista previa en PRODUCCIÓN de /estimados-ty y /estimados-gracias sin comprar: se abre con `?demo=<esta clave>`. Es solo para ver el
+ * diseño y el video: usa una compra simulada, NO manda eventos de Meta, NO llama al servidor de pedidos y el calendario NO reserva
+ * (no se crea ninguna cita ni contacto en el CRM). Por eso la clave puede estar en el código público: no abre nada que cueste ni que
+ * contamine los datos. Cambiarla invalida los links viejos.
+ */
+export const ESTIMADOS_PREVIEW_KEY = "ceGRt0TW7Ec7qHteJuR4Fg";

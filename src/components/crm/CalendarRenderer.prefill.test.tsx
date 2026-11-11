@@ -106,6 +106,19 @@ describe("CalendarRenderer — modo «solo WhatsApp» (prefill + requireWhatsapp
     await waitFor(() => expect(onBookingSuccess).toHaveBeenCalledTimes(1));
   });
 
+  it("en vista previa (previewOnly) recorre todo el formulario y avisa que «reservó», pero NO llama a crm-calendar-book: no se crea ninguna cita ni contacto", async () => {
+    const onBookingSuccess = vi.fn();
+    const { container } = render(
+      <CalendarRenderer calendarId={CALENDAR_ID} lang="es" prefill={{ name: "Carlos Ramírez", email: "carlos@ejemplo.com" }} requireWhatsapp phoneDefaultDial="+1" previewOnly onBookingSuccess={onBookingSuccess} />
+    );
+    await goToForm();
+    fireEvent.click(container.querySelector("label div") as HTMLElement);
+    fireEvent.change(container.querySelector('input[type="tel"]') as HTMLInputElement, { target: { value: "3055551234" } });
+    fireEvent.click(screen.getByRole("button", { name: /confirmar cita/i }));
+    await waitFor(() => expect(onBookingSuccess).toHaveBeenCalledTimes(1), { timeout: 4000 });
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes("crm-calendar-book"))).toHaveLength(0);
+  });
+
   it("si el formulario del calendario no tuviera teléfono, agrega el WhatsApp (sin WhatsApp la reserva no sirve)", async () => {
     CONFIG.formFields = [FORM_FIELDS[0], FORM_FIELDS[1]];
     try {

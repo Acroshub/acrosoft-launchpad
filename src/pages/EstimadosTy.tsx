@@ -21,6 +21,7 @@ import {
   ESTIMADOS_TY_VIDEO_URL,
   estimadosCallEventParams,
 } from "@/lib/estimadosConfig";
+import { isEstimadosPreview } from "@/lib/estimadosPreview";
 
 // /estimados-ty — la página que ve quien acaba de pagar el kit de US$30. NO es una thank-you de agradecimiento ni un upsell que vende:
 // REGALA una llamada de consultoría (valor normal US$100, «aquí y ahora» gratis) sobre cómo conseguir más clientes con anuncios de pago en
@@ -70,7 +71,8 @@ type LoadState = "loading" | "ok" | "no-session" | "error";
 
 /** Vista previa: solo en desarrollo (Vite). En producción `import.meta.env.DEV` es false y los parámetros se ignoran. */
 const DEMO_PARAMS = import.meta.env.DEV ? new URLSearchParams(window.location.search) : null;
-const IS_DEMO = !!DEMO_PARAMS && DEMO_PARAMS.get("demo") === "1";
+/** Vista previa (compra simulada, sin eventos ni servidor, el calendario no reserva): `?demo=1` en desarrollo o `?demo=<ESTIMADOS_PREVIEW_KEY>` en producción. */
+const IS_DEMO = isEstimadosPreview();
 const DEMO_ORDER: OrderData = {
   productName: ESTIMADOS_CONTENT_NAME,
   name: "Carlos Ramírez",
@@ -228,7 +230,7 @@ const EstimadosTy = () => {
   // —product-track-event— es cerrada y no incluye Schedule), (2) se guarda el resumen de la cita y (3) se pasa a la página FINAL del embudo
   // (/estimados-gracias), que muestra la cita y dispara el evento Lead. Es navegación dentro de la app (sin recargar), así el evento de arriba sale completo.
   const handleBooked = (booking: CalendarBooking) => {
-    if (ESTIMADOS_PIXEL_ID) {
+    if (ESTIMADOS_PIXEL_ID && !IS_DEMO) {
       try {
         trackMetaEvent("Schedule", estimadosCallEventParams(), uuid(), ESTIMADOS_PIXEL_ID);
       } catch { /* no crítico */ }
@@ -343,6 +345,7 @@ const EstimadosTy = () => {
                 prefill={{ name: order.name ?? undefined, email: order.email }}
                 requireWhatsapp
                 phoneDefaultDial="+1"
+                previewOnly={IS_DEMO}
                 onBookingSuccess={handleBooked}
               />
             </div>
