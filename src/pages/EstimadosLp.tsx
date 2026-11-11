@@ -150,7 +150,11 @@ function AdVideo({ lang, label }: { lang: "es" | "en"; label: string }) {
     // Solo se reproduce mientras se ve: ahorra batería y datos.
     const io = new IntersectionObserver(([e]) => { if (e?.isIntersecting) play(); else v.pause(); }, { threshold: 0.15 });
     io.observe(v);
-    return () => io.disconnect();
+    // Empieza a descargar el video cuando falta ~1,5 pantallas para llegar a la galería (no al abrir la página): así, al llegar, ya
+    // está en memoria y no se entrecorta esperando datos.
+    const near = new IntersectionObserver(([e]) => { if (e?.isIntersecting) { v.preload = "auto"; near.disconnect(); } }, { rootMargin: "1500px 0px" });
+    near.observe(v);
+    return () => { io.disconnect(); near.disconnect(); };
   }, []);
   return (
     <div className="est-vrow">
