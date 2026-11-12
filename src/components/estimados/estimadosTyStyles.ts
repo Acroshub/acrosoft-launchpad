@@ -58,6 +58,14 @@ export const EST_TY_CSS = `
   max-width:min(100%,max(300px,calc((100vh - 358px) * 1.7778)));
   max-width:min(100%,max(300px,calc((100svh - 358px) * 1.7778)))}
 .est-ty .est-ty-video iframe,.est-ty .est-ty-video video{position:absolute;inset:0;width:100%;height:100%;border:0;background:#000}
+/* Video de fondo con un solo botón Play (EstimadosPreviewVideo): hasta el primer toque, el video no recibe toques ni muestra controles. */
+.est-ty .est-ty-video .est-ty-vid-bg{pointer-events:none}
+.est-ty .est-ty-play{position:absolute;inset:0;z-index:2;display:grid;place-items:center;width:100%;height:100%;margin:0;padding:0;border:0;cursor:pointer;background:linear-gradient(rgba(0,0,0,.10),rgba(0,0,0,.30));-webkit-tap-highlight-color:transparent}
+.est-ty .est-ty-play>span{width:84px;height:84px;border-radius:50%;background:#EA5A0B;display:grid;place-items:center;box-shadow:0 8px 24px rgba(0,0,0,.45),0 0 0 7px rgba(255,255,255,.38);transition:transform .15s}
+.est-ty .est-ty-play:hover>span,.est-ty .est-ty-play:focus-visible>span{transform:translateY(-1px)}
+.est-ty .est-ty-play:focus-visible{outline:3px solid #fff;outline-offset:-6px}
+.est-ty .est-ty-play svg{width:38px;height:38px;margin-left:5px;fill:#fff}
+@media (max-width:420px){.est-ty .est-ty-play>span{width:68px;height:68px}.est-ty .est-ty-play svg{width:30px;height:30px}}
 .est-ty .est-ty-video--empty{display:grid;place-items:center;text-align:center;padding:14px;border:2px dashed rgba(255,255,255,.35)}
 .est-ty .est-ty-video--empty p{margin:0;font-size:13px;line-height:1.4;color:#DCE8E0}
 .est-ty .est-ty-video--empty b{display:block;margin-bottom:4px;font:800 21px/1 var(--head);letter-spacing:.03em;text-transform:uppercase;color:#fff}

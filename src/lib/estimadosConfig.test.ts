@@ -47,17 +47,23 @@ describe("estimadosEventParams", () => {
 });
 
 describe("video de /estimados-ty", () => {
-  it("la URL del video usa un dominio que permite el frame-src del CSP de vercel.json (si no, el navegador bloquea el reproductor en producción)", () => {
-    expect(ESTIMADOS_TY_VIDEO_URL).toMatch(/^https:\/\//);
-    const csp = (JSON.parse(vercelRaw).headers as { headers: { key: string; value: string }[] }[])
+  const csp = () => {
+    const value = (JSON.parse(vercelRaw).headers as { headers: { key: string; value: string }[] }[])
       .flatMap((h) => h.headers)
       .find((h) => h.key === "Content-Security-Policy")!.value;
-    const frameSrc = csp.split(";").map((d) => d.trim()).find((d) => d.startsWith("frame-src"))!;
-    const origin = new URL(ESTIMADOS_TY_VIDEO_URL).origin;
-    expect(frameSrc.split(/\s+/)).toContain(origin);
-  });
+    return (name: string) => (value.split(";").map((d) => d.trim()).find((d) => d.startsWith(name)) ?? "").split(/\s+/).slice(1);
+  };
 
-  it("el video no arranca solo (autoplay=false): el mensaje depende del audio", () => {
-    expect(new URL(ESTIMADOS_TY_VIDEO_URL).searchParams.get("autoplay")).toBe("false");
+  it("la URL del video es https y el CSP de vercel.json la deja cargar (si no, el navegador la bloquea en producción)", () => {
+    expect(ESTIMADOS_TY_VIDEO_URL).toMatch(/^https:\/\//);
+    const dir = csp();
+    if (/\.(mp4|webm|m4v)(\?|#|$)/i.test(ESTIMADOS_TY_VIDEO_URL)) {
+      // <video>: manda media-src (y el póster, img-src)
+      expect(dir("media-src")).toContain("https:");
+      expect(dir("img-src")).toContain("https:");
+    } else {
+      // iframe: manda frame-src, con el origen exacto
+      expect(dir("frame-src")).toContain(new URL(ESTIMADOS_TY_VIDEO_URL).origin);
+    }
   });
 });

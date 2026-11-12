@@ -101,12 +101,12 @@ export const ESTIMADOS_EMAIL_SENDER = "+50 Anuncios Virales Tree Services";
 export const ESTIMADOS_CALL_CALENDAR_ID: string = "24dab059-b724-4a13-b900-c2d73fc4438f";
 
 /**
- * Video de la página: URL de un .mp4/.webm o de un reproductor (se incrusta en un iframe). Hoy: el VSL de 2:50 alojado en Bunny Stream
- * (biblioteca 628395), con `autoplay=false` a propósito (y el dominio iframe.mediadelivery.net, el único de Bunny que permite el `frame-src` del CSP de vercel.json): el mensaje depende del audio y un autoplay silencioso haría que mucha gente
- * baje al calendario sin oírlo. Vacío = no se muestra video (en desarrollo, un recuadro rotulado).
+ * Video de la página: el VSL de 2:50 en Bunny Stream (biblioteca 628395), como mp4 de 720p directo del CDN (play_720p.mp4; Bunny lo genera solo).
+ * Se muestra como <video> propio (ver EstimadosPreviewVideo): de fondo, sin sonido y en bucle, con un solo botón Play que lo reinicia desde cero
+ * con sonido. URL de un reproductor (iframe) o de otro .mp4 también valen. Vacío = no se muestra video (en desarrollo, un recuadro rotulado).
  */
 export const ESTIMADOS_TY_VIDEO_URL: string =
-  "https://iframe.mediadelivery.net/embed/628395/55a90e57-af9e-4e2a-8bc9-412e496d8977?autoplay=false&loop=false&preload=true&responsive=true";
+  "https://vz-72bbf19c-ff4.b-cdn.net/55a90e57-af9e-4e2a-8bc9-412e496d8977/play_720p.mp4";
 
 /** Lo que Acrosoft cobra normalmente por esta llamada (USD). Declarado por Daniel el 2026-11-07: para quien compró el kit es gratis. */
 export const ESTIMADOS_CALL_VALUE = 100;

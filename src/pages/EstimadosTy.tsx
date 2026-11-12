@@ -22,6 +22,7 @@ import {
   estimadosCallEventParams,
 } from "@/lib/estimadosConfig";
 import { isEstimadosPreview } from "@/lib/estimadosPreview";
+import { EstimadosPreviewVideo, bunnyPosterFor } from "@/components/estimados/EstimadosPreviewVideo";
 
 // /estimados-ty — la página que ve quien acaba de pagar el kit de US$30. NO es una thank-you de agradecimiento ni un upsell que vende:
 // REGALA una llamada de consultoría (valor normal US$100, «aquí y ahora» gratis) sobre cómo conseguir más clientes con anuncios de pago en
@@ -122,7 +123,7 @@ const LaptopIcon = () => (
     <path d="M9.5 17h5" />
   </svg>
 );
-/** Video de la página. Nunca inventa video: con URL lo incrusta (.mp4/.webm → <video>; otra URL → reproductor en iframe); sin URL, solo en desarrollo muestra un recuadro rotulado. */
+/** Video de la página. Nunca inventa video: con URL lo incrusta (.mp4/.webm → <video> de fondo con un solo botón Play, ver EstimadosPreviewVideo; otra URL → reproductor en iframe); sin URL, solo en desarrollo muestra un recuadro rotulado. */
 function VideoSlot({ url }: { url: string }) {
   if (!url) {
     if (!import.meta.env.DEV) return null;
@@ -142,7 +143,7 @@ function VideoSlot({ url }: { url: string }) {
       <div className="est-wrap">
         <div className="est-ty-video">
           {isFile ? (
-            <video src={url} controls playsInline preload="metadata" title="Video sobre tu regalo" />
+            <EstimadosPreviewVideo url={url} poster={bunnyPosterFor(url)} />
           ) : (
             <iframe src={url} title="Video sobre tu regalo" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen loading="lazy" />
           )}
