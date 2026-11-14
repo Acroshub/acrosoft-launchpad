@@ -293,8 +293,8 @@ const EstimadosLp = () => {
         <header className="est-hero est-hero--center">
           <div className="est-wrap">
             <span className="est-eyebrow">Para dueños de tree service en EE.UU.</span>
-            <h1>Consigue <span className="est-hl">más clientes</span> para tu negocio de tree service</h1>
-            <p className="est-sub">Con <b>50 anuncios virales validados</b> para Facebook e Instagram</p>
+            <h1>Kit de <span className="est-hl">50 anuncios virales</span> para negocios de tree services</h1>
+            <p className="est-sub">Para llenar tu calendario de estimados y tener más clientes recurrentemente.</p>
 
             <div className="est-nokno">
               <Ic id="phone" />
@@ -334,8 +334,8 @@ const EstimadosLp = () => {
           <div className="est-wrap">
             <div className="est-offer-card">
               <span className="est-offer-tag">Entonces, ¿qué sí funciona?</span>
-              <h2 className="est-product">Kit de 50 <span className="est-hl">anuncios virales</span> para negocios de tree services</h2>
-              <p className="est-tagline">Para llenar tu calendario de estimados y tener más clientes recurrentemente.</p>
+              <h2 className="est-product">PUBLICAR <span className="est-hl">ANUNCIOS VIRALES VALIDADOS</span> QUE SÍ ATRAEN A TU CLIENTE DESDE EL PRIMER CLIC</h2>
+              <p className="est-tagline">Anuncios Ya Hechos y 100% Editables para tu propio negocio</p>
 
               {/* Listos en 3 pasos: va aquí, dentro de la oferta, debajo del texto de arriba (pedido de Daniel, 2026-11-11). */}
               <p className="est-inc-label">Listos en 3 pasos</p>
