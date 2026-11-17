@@ -11,7 +11,7 @@ export const PREVIEW_SECONDS = 20;
  * pasar por postMessage, y iOS solo deja activar el sonido dentro del mismo toque de la persona. Aquí todo ocurre en el mismo gesto.
  * Sin reproducción automática (ahorro de batería, movimiento reducido), se ve el póster quieto y el botón Play funciona igual.
  */
-export function EstimadosPreviewVideo({ url, poster }: { url: string; poster?: string }) {
+export function EstimadosPreviewVideo({ url, poster, title = "Video sobre tu regalo" }: { url: string; poster?: string; title?: string }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const startedRef = useRef(false);
   const [started, setStarted] = useState(false);
@@ -55,7 +55,7 @@ export function EstimadosPreviewVideo({ url, poster }: { url: string; poster?: s
         playsInline
         preload="metadata"
         disablePictureInPicture={!started}
-        title="Video sobre tu regalo"
+        title={title}
       />
       {!started && (
         <button type="button" className="est-ty-play" onClick={start} aria-label="Reproducir el video con sonido">

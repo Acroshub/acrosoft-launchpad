@@ -2,6 +2,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { sanitizeText, isValidUUID, isValidEmail, isValidPhone, isValidDate, isValidHour, isValidMinute } from "../_shared/validate.ts";
 import { PUBLIC_CORS_HEADERS } from "../_shared/cors.ts";
 import { isTenantSuspended } from "../_shared/tenant-access.ts";
+import { applyBookingPlaceholders, buildBookingVars, parseBookingMeta } from "../_shared/booking-meta.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -327,6 +328,14 @@ Deno.serve(async (req) => {
     const email = isValidEmail(rawContact.email) ? rawContact.email.toLowerCase().slice(0, 254) : "";
     const phone = isValidPhone(rawContact.phone) ? sanitizeText(rawContact.phone, 30) : "";
 
+    // Datos extra que manda la página (todos opcionales y sanitizados): etiqueta de origen del contacto, respuestas de confirmación
+    // y la zona horaria del visitante. Se usan para etiquetar al contacto, guardar el negocio y completar los correos de reserva.
+    const meta = parseBookingMeta(body.booking_meta);
+    const sourceTag = meta.source;
+    const business = sanitizeText((form_data as Record<string, unknown> | undefined)?.field_business, 200);
+    const bookingVars = buildBookingVars({ business, scheduledMs, visitorTz: meta.visitorTz || calTz, answers: meta.answers });
+    const applyBookingVars = (text: string): string => applyBookingPlaceholders(text, bookingVars);
+
     const formKey = calendar.linked_form_id ?? "booking";
     const formDataToStore = form_data && Object.keys(form_data).length > 0
       ? { [formKey]: form_data } : {};
@@ -336,7 +345,7 @@ Deno.serve(async (req) => {
     if (email) {
       const { data: existingContact } = await supabase
         .from("crm_contacts")
-        .select("id, custom_fields")
+        .select("id, custom_fields, tags")
         .eq("user_id", calendar.user_id)
         .eq("email", email)
         .maybeSingle();
@@ -347,21 +356,23 @@ Deno.serve(async (req) => {
         await supabase.from("crm_contacts").update({
           ...(name ? { name } : {}),
           ...(phone ? { phone } : {}),
+          ...(business ? { company: business } : {}),
+          ...(sourceTag ? { tags: Array.from(new Set([...(((existingContact as any).tags as string[]) ?? []), sourceTag])) } : {}),
           custom_fields: mergedFields,
         }).eq("id", contactId);
       } else {
         const { data: nc } = await supabase.from("crm_contacts").insert({
           user_id: calendar.user_id, name: name || "Sin nombre", email,
-          phone: phone || null, tags: [],
-          company: null, notes: null, custom_fields: formDataToStore,
+          phone: phone || null, tags: sourceTag ? [sourceTag] : [],
+          company: business || null, notes: null, custom_fields: formDataToStore,
         }).select("id").single();
         contactId = nc?.id ?? null;
       }
     } else if (name) {
       const { data: nc } = await supabase.from("crm_contacts").insert({
         user_id: calendar.user_id, name, email: null,
-        phone: phone || null, tags: [],
-        company: null, notes: null, custom_fields: formDataToStore,
+        phone: phone || null, tags: sourceTag ? [sourceTag] : [],
+        company: business || null, notes: null, custom_fields: formDataToStore,
       }).select("id").single();
       contactId = nc?.id ?? null;
     }
@@ -423,7 +434,7 @@ Deno.serve(async (req) => {
               channels: ruleChannels,
               recipient_email: hasEmail ? emailVal : null,
               recipient_phone: hasPhone ? phoneVal : null,
-              scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
+              scheduled_at: nowIso, subject: rule.subject ? (applyBookingVars(rule.subject).trim() || null) : null, message: applyBookingVars(msg), status: "pending", is_auto: true,
               business_target: `rule:${calendar_id}:${rule.id}:contact`,
               whatsapp_template_id:  rule.whatsapp_template_id ?? null,
               whatsapp_variable_map: rule.whatsapp_variable_map ?? null,
@@ -465,7 +476,7 @@ Deno.serve(async (req) => {
                 channels: ruleChannels,
                 recipient_email: hasEmail ? emailVal : null,
                 recipient_phone: hasPhone ? phoneVal : null,
-                scheduled_at: nowIso, subject: rule.subject?.trim() || null, message: msg, status: "pending", is_auto: true,
+                scheduled_at: nowIso, subject: rule.subject ? (applyBookingVars(rule.subject).trim() || null) : null, message: applyBookingVars(msg), status: "pending", is_auto: true,
                 business_target: `rule:${calendar_id}:${rule.id}:${targetId}`,
                 whatsapp_template_id:  rule.whatsapp_template_id ?? null,
                 whatsapp_variable_map: rule.whatsapp_variable_map ?? null,

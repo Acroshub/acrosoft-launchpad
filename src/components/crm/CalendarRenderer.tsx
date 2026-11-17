@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import PhoneInput from "@/components/shared/PhoneInput";
 import { ChevronLeft, ChevronRight, Loader2, Check, Clock, Calendar, Globe } from "lucide-react";
 import { widgetTranslations } from "@/i18n/widgets";
@@ -158,6 +158,19 @@ export interface BookingPrefill {
   email?: string;
 }
 
+/**
+ * Formulario propio de una página (reemplaza al del calendario): campos de texto/correo/teléfono + preguntas de confirmación Sí / No.
+ * Si CUALQUIER confirmación se responde «No» no se puede reservar: el botón se bloquea y se muestra `blockedMessage`. Las respuestas viajan
+ * en `form_data` como «Sí» / «No» bajo el id de cada confirmación. No usa `prefill` ni `requireWhatsapp`.
+ */
+export interface BookingQualification {
+  fields: { id: string; label: string; type: "text" | "email" | "phone"; placeholder?: string }[];
+  confirmations: { id: string; text: string }[];
+  blockedMessage: string;
+  /** Etiqueta (slug) que el servidor agrega a los tags del contacto para saber de qué página vino. */
+  source?: string;
+}
+
 /** Forma mínima de un campo del formulario de reserva (los del formulario vinculado al calendario traen más propiedades). */
 interface BookingField {
   id: string;
@@ -166,6 +179,13 @@ interface BookingField {
   required?: boolean;
   placeholder?: string;
   locked?: boolean;
+}
+
+/** Desplaza hasta `el` (suave, salvo que la persona pida menos movimiento). Sin `scrollIntoView` (jsdom) no hace nada. */
+function scrollToEl(el: Element | null | undefined, block: ScrollLogicalPosition) {
+  if (!el || typeof (el as HTMLElement).scrollIntoView !== "function") return;
+  const reduce = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  (el as HTMLElement).scrollIntoView({ behavior: reduce ? "auto" : "smooth", block });
 }
 
 interface BookingFormProps {
@@ -178,10 +198,11 @@ interface BookingFormProps {
   phoneDefaultDial?: string;
   /** Vista previa: recorre todo el formulario pero NO reserva (no llama a crm-calendar-book): no se crea ninguna cita ni contacto. */
   previewOnly?: boolean;
+  /** Formulario propio de la página con confirmaciones Sí / No (ver BookingQualification). */
+  qualification?: BookingQualification;
   selectedDate: string;
   selectedHour: number;
   selectedMinute: number;
-  calendarName: string;
   durationMin: number;
   primaryColor: string;
   calendarTz: string;
@@ -198,10 +219,10 @@ const BookingForm = ({
   requireWhatsapp = false,
   phoneDefaultDial,
   previewOnly = false,
+  qualification,
   selectedDate,
   selectedHour,
   selectedMinute,
-  calendarName,
   durationMin,
   primaryColor,
   calendarTz,
@@ -218,6 +239,13 @@ const BookingForm = ({
   const [submitError, setSubmitError] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsError, setTermsError] = useState(false);
+  // Confirmaciones Sí / No del formulario propio de la página: sin responder = undefined.
+  const [answers, setAnswers] = useState<Record<string, "yes" | "no">>({});
+  const [answersError, setAnswersError] = useState(false);
+  // Al abrir el formulario se vuelve arriba: se ve la fecha elegida y el primer campo.
+  const summaryRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { scrollToEl(summaryRef.current, "start"); }, []);
+  const failedRequirement = !!qualification && qualification.confirmations.some((c) => answers[c.id] === "no");
 
   const defaultBookingFields = useMemo(() => [
     { id: "f-name",  label: T.fieldName,  type: "text",  required: true,  placeholder: T.fieldNamePh  },
@@ -226,18 +254,20 @@ const BookingForm = ({
   ], [T]);
 
   const fields = useMemo(() => {
+    if (qualification) return qualification.fields.map((f) => ({ ...f, required: true }));
     if (!formFields) return defaultBookingFields;
     const f = (formFields as any[]).filter(
       (f: any) => ["text", "email", "phone", "textarea"].includes(f.type),
     );
     return f.length > 0 ? f : defaultBookingFields;
-  }, [formFields, defaultBookingFields]);
+  }, [formFields, defaultBookingFields, qualification]);
 
   // Campos que la página ya conoce: no se piden otra vez, pero se envían con la reserva. Misma regla que `extractContact` de la función
   // crm-calendar-book para decidir cuál es el campo del nombre (el bloqueado o «f-name»; si no, el primero cuya etiqueta dice nombre/name)
   // y cuál el del correo (el primero de tipo email). Solo se rellena un campo de cada uno, así «Nombre de tu empresa» no recibe el nombre.
   const prefilled = useMemo(() => {
     const out: Record<string, string> = {};
+    if (qualification) return out; // el formulario propio pide todo: nada viene precargado
     const name = prefill?.name?.trim();
     const email = prefill?.email?.trim();
     const all = fields as BookingField[];
@@ -251,7 +281,7 @@ const BookingForm = ({
       if (target) out[target.id] = email;
     }
     return out;
-  }, [fields, prefill?.name, prefill?.email]);
+  }, [fields, prefill?.name, prefill?.email, qualification]);
 
   // Campos que se le muestran a la persona: los precargados se omiten. Con `requireWhatsapp` se muestra ÚNICAMENTE el WhatsApp (obligatorio),
   // aunque el formulario vinculado al calendario traiga otros campos: la página ya tiene los demás datos y no debe pedirlos. El servidor
@@ -259,11 +289,11 @@ const BookingForm = ({
   // formulario del calendario no tiene teléfono se agrega uno: sin WhatsApp la reserva no sirve de nada.
   const shownFields = useMemo(() => {
     const visible = (fields as BookingField[]).filter((f) => !(f.id in prefilled));
-    if (!requireWhatsapp) return visible;
+    if (!requireWhatsapp || qualification) return visible;
     const phones = visible.filter((f) => f.type === "phone");
     const onlyPhone: BookingField[] = phones.length > 0 ? phones : [{ id: "f-phone", label: "WhatsApp", type: "phone", required: true, placeholder: T.fieldPhonePh }];
     return onlyPhone.map((f) => ({ ...f, required: true, label: "WhatsApp" }));
-  }, [fields, prefilled, requireWhatsapp, T]);
+  }, [fields, prefilled, requireWhatsapp, qualification, T]);
 
   const validateField = (field: any, value: string): string | null => {
     const trimmed = value?.trim() ?? "";
@@ -281,6 +311,14 @@ const BookingForm = ({
     return null;
   };
 
+  // Formulario propio: sin TODOS los datos válidos y las confirmaciones respondidas, el botón queda bloqueado (no se puede enviar a medias).
+  const qualificationIncomplete = !!qualification && (
+    (shownFields as BookingField[]).some((f) => {
+      const v = values[f.id]?.trim() ?? "";
+      return !v || validateField(f, v) !== null;
+    }) || qualification.confirmations.some((c) => !answers[c.id])
+  );
+
   const handleBlur = (fieldId: string) => {
     const field = shownFields.find((f: any) => f.id === fieldId);
     if (!field) return;
@@ -289,6 +327,7 @@ const BookingForm = ({
   };
 
   const handleSubmit = async () => {
+    if (failedRequirement || qualificationIncomplete) return; // el botón ya está bloqueado; esto es solo una red de seguridad
     const newErrors: Record<string, string> = {};
     for (const f of shownFields as any[]) {
       const val = values[f.id]?.trim() ?? "";
@@ -304,6 +343,10 @@ const BookingForm = ({
       setSubmitError("");
       return;
     }
+    if (qualification && qualification.confirmations.some((c) => !answers[c.id])) {
+      setAnswersError(true);
+      return;
+    }
     if (!termsAccepted) {
       setTermsError(true);
       return;
@@ -313,6 +356,9 @@ const BookingForm = ({
     setTermsError(false);
     setIsSubmitting(true);
     const termsAt = new Date().toISOString();
+    const confirmationData: Record<string, string> = Object.fromEntries(
+      (qualification?.confirmations ?? []).map((c) => [c.id, answers[c.id] === "yes" ? "Sí" : "No"]),
+    );
     try {
       if (previewOnly) { await new Promise((r) => setTimeout(r, 700)); onSuccess(); return; }
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/crm-calendar-book`, {
@@ -321,7 +367,14 @@ const BookingForm = ({
           "Content-Type": "application/json",
           "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
-        body: JSON.stringify({ calendar_id: calendarId, date: selectedDate, hour: selectedHour, minute: selectedMinute, form_data: { ...prefilled, ...values }, terms_accepted_at: termsAt }),
+        body: JSON.stringify({ calendar_id: calendarId, date: selectedDate, hour: selectedHour, minute: selectedMinute, form_data: { ...prefilled, ...values, ...confirmationData }, terms_accepted_at: termsAt,
+          // El servidor completa los correos de reserva: la hora en la zona del visitante, el negocio y las confirmaciones; y etiqueta al contacto.
+          booking_meta: {
+            visitor_tz: visitorTz,
+            ...(qualification?.source ? { source: qualification.source } : {}),
+            ...(qualification ? { answers: qualification.confirmations.map((c) => ({ label: c.text, value: confirmationData[c.id] })) } : {}),
+          },
+        }),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? T.errorBooking);
       onSuccess();
@@ -339,10 +392,11 @@ const BookingForm = ({
     <div className="space-y-6 font-sans">
       {/* Appointment summary */}
       <div
-        className="rounded-lg px-4 py-3.5 border-l-4"
+        ref={summaryRef}
+        className="rounded-lg px-4 py-3.5 border-l-4 scroll-mt-3"
         style={{ borderLeftColor: primaryColor, backgroundColor: `${primaryColor}08` }}
       >
-        <p className="text-sm font-semibold text-gray-800">{calendarName}</p>
+        <p className="text-sm font-semibold text-gray-800">{T.yourDateTime}</p>
         <div className="flex items-center gap-1.5 mt-1">
           <Calendar size={11} className="text-gray-400" />
           <p className="text-xs text-gray-500">{dateLabel}</p>
@@ -400,6 +454,40 @@ const BookingForm = ({
         <p className="text-xs text-red-500 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{submitError}</p>
       )}
 
+      {/* Confirmaciones Sí / No (formulario propio de la página) */}
+      {qualification && (
+        <div className="space-y-3" data-testid="booking-confirmations">
+          {qualification.confirmations.map((c) => {
+            const answer = answers[c.id];
+            const missing = answersError && !answer;
+            return (
+              <div key={c.id} className={`rounded-lg border px-3.5 py-3 ${missing ? "border-red-300 bg-red-50/40" : answer === "no" ? "border-red-200 bg-red-50/40" : "border-gray-200 bg-white"}`}>
+                <p className="text-sm text-gray-700 leading-snug">{c.text}</p>
+                <div className="mt-2.5 grid grid-cols-2 gap-2" role="radiogroup" aria-label={c.text}>
+                  {(["yes", "no"] as const).map((opt) => {
+                    const on = answer === opt;
+                    return (
+                      <button
+                        key={opt}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        onClick={() => { setAnswers((a) => ({ ...a, [c.id]: opt })); setAnswersError(false); }}
+                        className={`rounded-lg border-2 px-3 py-2 text-sm font-semibold transition-all ${on ? "text-white border-transparent" : "bg-white text-gray-600 border-gray-200 hover:border-gray-300"}`}
+                        style={on ? { backgroundColor: opt === "yes" ? primaryColor : "#B91C1C" } : undefined}
+                      >
+                        {opt === "yes" ? "Sí" : "No"}
+                      </button>
+                    );
+                  })}
+                </div>
+                {missing && <p className="text-xs text-red-500 mt-1.5">Elige Sí o No.</p>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {/* Terms checkbox */}
       <div className="space-y-1">
         <label
@@ -434,6 +522,16 @@ const BookingForm = ({
         )}
       </div>
 
+      {failedRequirement ? (
+        <p role="alert" data-testid="booking-blocked" className="text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 text-center">
+          {qualification!.blockedMessage}
+        </p>
+      ) : qualificationIncomplete ? (
+        <p data-testid="booking-incomplete" className="text-xs text-gray-500 text-center">
+          Completa todos los datos para agendar.
+        </p>
+      ) : null}
+
       <div className="flex gap-2.5">
         <button
           onClick={onBack}
@@ -443,9 +541,9 @@ const BookingForm = ({
         </button>
         <button
           onClick={handleSubmit}
-          disabled={isSubmitting}
+          disabled={isSubmitting || failedRequirement || qualificationIncomplete}
           style={{ backgroundColor: primaryColor }}
-          className="flex-1 text-white rounded-lg px-4 py-3 text-sm font-semibold disabled:opacity-50 transition-all hover:opacity-90"
+          className="flex-1 text-white rounded-lg px-4 py-3 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed transition-all hover:opacity-90"
         >
           {isSubmitting ? T.confirming : T.confirm}
         </button>
@@ -471,9 +569,11 @@ interface CalendarRendererProps {
   phoneDefaultDial?: string;
   /** Vista previa: no reserva de verdad (ver BookingFormProps.previewOnly). */
   previewOnly?: boolean;
+  /** Formulario propio de la página (campos + confirmaciones Sí / No que bloquean la reserva). Reemplaza al formulario del calendario. */
+  qualification?: BookingQualification;
 }
 
-const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, onBookingSuccess, prefill, requireWhatsapp, phoneDefaultDial, previewOnly }: CalendarRendererProps) => {
+const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, onBookingSuccess, prefill, requireWhatsapp, phoneDefaultDial, previewOnly, qualification }: CalendarRendererProps) => {
   const today = new Date();
   const [viewYear, setViewYear]   = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -481,6 +581,19 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
   const [selectedSlot, setSelectedSlot] = useState<{ hour: number; minute: number } | null>(null);
   const [step, setStep] = useState<"calendar" | "form" | "success">("calendar");
   const [visitorTz, setVisitorTz] = useState(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  // Desplazamientos automáticos: fecha → sección de horarios; horario → botón Continuar.
+  const slotsMobileRef = useRef<HTMLDivElement>(null);
+  const slotsSideRef = useRef<HTMLDivElement>(null);
+  const ctaRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!selectedDate) return;
+    // Hay dos secciones de horarios (debajo del calendario en celular, al costado en pantallas anchas): se va a la que se ve.
+    const visible = [slotsMobileRef.current, slotsSideRef.current].find((el) => el && el.offsetParent !== null);
+    scrollToEl(visible ?? slotsMobileRef.current, "start"); // (jsdom no calcula el diseño: ahí se usa la de celular)
+  }, [selectedDate]);
+  useEffect(() => {
+    if (selectedSlot) scrollToEl(ctaRef.current, "nearest");
+  }, [selectedSlot]);
 
   const { data: publicCalendar, isLoading } = usePublicCalendar(calendarId);
   const calendar     = publicCalendar?.calendar;
@@ -544,7 +657,9 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
   const todayInCalTz = new Intl.DateTimeFormat("en-CA", { timeZone: calendarTz, year: "numeric", month: "2-digit", day: "2-digit" }).format(today);
   const [cty, ctm, ctd] = todayInCalTz.split("-").map(Number);
   const maxDateMs  = Date.UTC(cty, ctm - 1, ctd + maxFutureDays);
-  const maxDateKey = new Intl.DateTimeFormat("en-CA", { timeZone: calendarTz }).format(new Date(maxDateMs));
+  // `maxDateMs` ya es la fecha de calendario (a medianoche UTC): se lee en UTC. Leerla en la zona del calendario la corría un día atrás en
+  // zonas al oeste de Greenwich (p. ej. La Paz): con `max_future_days = 2` solo dejaba reservar mañana, aunque el servidor acepta hasta pasado mañana.
+  const maxDateKey = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(new Date(maxDateMs));
 
   const appointmentsByDate = useMemo(() => {
     const map: Record<string, { startMin: number; endMin: number }[]> = {};
@@ -673,10 +788,10 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
         requireWhatsapp={requireWhatsapp}
         phoneDefaultDial={phoneDefaultDial}
         previewOnly={previewOnly}
+        qualification={qualification}
         selectedDate={selectedDate}
         selectedHour={selectedSlot.hour}
         selectedMinute={selectedSlot.minute}
-        calendarName={calendar.name ?? T.appointmentName}
         lang={lang}
         durationMin={calendar.duration_min ?? 30}
         primaryColor={primaryColor}
@@ -839,6 +954,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
 
           {/* Right column (sm+): slides in from right when date selected */}
           <div
+            ref={slotsSideRef}
             className="hidden sm:flex shrink-0 flex-col overflow-hidden transition-all duration-300 ease-in-out"
             style={{
               width:       selectedDate ? 108 : 0,
@@ -885,7 +1001,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
 
         {/* Mobile slots: shown below calendar as a 3-column grid (hidden on sm+) */}
         {selectedDate && (
-          <div className="sm:hidden mt-4 border-t border-gray-100 pt-3">
+          <div ref={slotsMobileRef} className="sm:hidden mt-4 border-t border-gray-100 pt-3 scroll-mt-3">
             <StepLabel number={2} label={T.step2} primaryColor={primaryColor} />
             {availableSlots.length === 0 ? (
               <p className="text-[11px] text-gray-400 leading-relaxed">
@@ -922,7 +1038,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
 
       {/* ── CTA ── */}
       {selectedDate && selectedSlot !== null && (
-        <div className="pt-4">
+        <div ref={ctaRef} className="pt-4 scroll-mb-4">
           <button
             onClick={() => setStep("form")}
             style={{ backgroundColor: primaryColor }}

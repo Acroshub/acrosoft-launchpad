@@ -18,7 +18,12 @@ const ChatIcon = () => (
   </svg>
 );
 
-export function EstimadosSupportFooter({ title = "¿Necesitas ayuda con tu kit?", badge }: { title?: ReactNode; badge?: string }) {
+export function EstimadosSupportFooter({
+  title = "¿Necesitas ayuda con tu kit?",
+  badge,
+  waText = SUPPORT_WA_TEXT,
+  mailSubject = SUPPORT_MAIL_SUBJECT,
+}: { title?: ReactNode; badge?: string; waText?: string; mailSubject?: string }) {
   return (
     <div className="est-page est-ty est-ty-footwrap">
       <footer className="est-ty-foot">
@@ -27,13 +32,13 @@ export function EstimadosSupportFooter({ title = "¿Necesitas ayuda con tu kit?"
           <div className="est-ty-foot-links">
             <a
               className="est-ty-foot-link"
-              href={`https://wa.me/${ESTIMADOS_SUPPORT_WHATSAPP}?text=${encodeURIComponent(SUPPORT_WA_TEXT)}`}
+              href={`https://wa.me/${ESTIMADOS_SUPPORT_WHATSAPP}?text=${encodeURIComponent(waText)}`}
               target="_blank"
               rel="noopener noreferrer"
             >
               <ChatIcon />WhatsApp {ESTIMADOS_SUPPORT_WHATSAPP_LABEL}
             </a>
-            <a className="est-ty-foot-link" href={`mailto:${ESTIMADOS_SUPPORT_EMAIL}?subject=${encodeURIComponent(SUPPORT_MAIL_SUBJECT)}`}>
+            <a className="est-ty-foot-link" href={`mailto:${ESTIMADOS_SUPPORT_EMAIL}?subject=${encodeURIComponent(mailSubject)}`}>
               <MailIcon />{ESTIMADOS_SUPPORT_EMAIL}
             </a>
           </div>
