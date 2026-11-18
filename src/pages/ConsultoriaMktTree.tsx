@@ -38,6 +38,10 @@ import { uuid } from "@/lib/uuid";
 //   Meta y Google, 3. «¿por qué las agencias no pueden llenarte el calendario?» (3 tarjetas deslizables con puntos), 4. el sistema validado en 3
 //   pasos (4 pasos cortos: formatos virales, campañas en orden, citas automatizadas, seguimiento semanal), 5. qué te llevas de la consultoría (3 pasos
 //   unidos por flechas punteadas), 6. FAQ, 7. cierre. (Quitados el 2026-11-16 a pedido de Daniel: galería de anuncios, «¿Es para tu negocio?», garantía y pie de soporte.)
+// El VSL manda: la página nace solo con el hero (título, «Sin…» y el video). Todo lo demás (botón de agendar, sellos, secciones, FAQ, barra fija) se muestra
+// 2:50 (lo que dura el VSL) después de que el visitante toca Play; el momento del Play se recuerda en el navegador (`ct_vsl_played_at`). Solo vale con un mp4
+// propio (único que avisa del Play); sin VSL o con iframe se muestra todo. En vista previa, `?todo=1` lo muestra todo.
+// EXCEPCIÓN: el logo de Acros Software con los sellos de Meta y Google (sección 2b) se ve siempre, también antes del Play.
 // TODOS los botones (incluida la barra fija móvil) abren un POPUP con el calendario (el mismo de /estimados-ty); la página no tiene calendario
 // incrustado. Al agendar NO se sale de la página: dentro del popup el calendario se reemplaza por la confirmación (día y hora en la zona de quien
 // reservó) y salen los eventos Lead y Schedule de Meta. Nace con noindex (como el resto del embudo). Vista previa sin reservar: `?demo=1` (desarrollo) o
@@ -53,6 +57,19 @@ const CALENDAR_COLOR = "#1F4D36";
 const IS_DEMO = isEstimadosPreview();
 
 const BUDGET = `US$${CONSULTORIA_TREE_MIN_BUDGET.toLocaleString("en-US")}`;
+
+/** El VSL dura 2:50: el resto de la página (botones, secciones, preguntas…) aparece cuando pasó ese tiempo desde que el visitante tocó Play. */
+const VSL_REVEAL_MS = (2 * 60 + 50) * 1000;
+/** Momento (ms) en que el visitante tocó Play: se recuerda en el navegador para que recargar la página no vuelva a esconder todo ni reinicie la cuenta. */
+const VSL_PLAYED_KEY = "ct_vsl_played_at";
+const VSL_IS_FILE = (url: string) => /\.(mp4|webm|m4v)(\?|#|$)/i.test(url);
+
+const readPlayedAt = (): number | null => {
+  try {
+    const n = Number(localStorage.getItem(VSL_PLAYED_KEY));
+    return Number.isFinite(n) && n > 0 && n <= Date.now() ? n : null;
+  } catch { return null; }
+};
 
 type Booking = { date: string; hour: number; minute: number; calendarTz: string; visitorTz: string; calendarName: string; formData?: Record<string, string> };
 
@@ -147,7 +164,7 @@ const Ic = ({ id }: { id: keyof typeof ICON_PATHS }) => (
 );
 
 /** VSL. Nunca inventa video: con URL lo muestra (.mp4/.webm → de fondo con un solo botón Play; otra URL → reproductor en iframe); sin URL, solo en desarrollo hay un recuadro rotulado. */
-function Vsl({ url }: { url: string }) {
+function Vsl({ url, onPlay }: { url: string; onPlay?: () => void }) {
   if (!url) {
     if (!import.meta.env.DEV) return null;
     return (
@@ -163,12 +180,11 @@ function Vsl({ url }: { url: string }) {
     <div className="ct-vid">
       <div className="est-ty-video">
         {isFile ? (
-          <EstimadosPreviewVideo url={url} poster={bunnyPosterFor(url)} title="Video: cómo conseguir más estimados para tu tree service" />
+          <EstimadosPreviewVideo url={url} poster={bunnyPosterFor(url)} title="Video: cómo conseguir más estimados para tu tree service" onStart={onPlay} />
         ) : (
           <iframe src={url} title="Video: cómo conseguir más estimados para tu tree service" allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture; fullscreen" allowFullScreen loading="lazy" />
         )}
       </div>
-      <p className="ct-vid-cap">Míralo completo: en pocos minutos entiendes cómo trabajamos.</p>
     </div>
   );
 }
@@ -217,6 +233,28 @@ const ConsultoriaMktTree = () => {
   const [booking, setBooking] = useState<Booking | null>(null);
   /** La persona ya tocó «Confirmar Consultoría Gratis» (abrió WhatsApp): recién entonces aparece el botón para cerrar el popup. */
   const [confirmed, setConfirmed] = useState(false);
+
+  // Hasta que el VSL se vea, la página es solo el hero (título + «Sin…» + video). Se esconde TODO lo demás (incluido el botón de agendar) desde que carga
+  // hasta 2:50 después de que el visitante toque Play. Solo se esconde si el VSL es un mp4 propio (es el único que avisa del Play); sin VSL o con un
+  // reproductor en iframe no hay forma de saber cuándo lo vio, así que se muestra todo. En vista previa, `?todo=1` también lo muestra todo.
+  const [gated] = useState(() => VSL_IS_FILE(CONSULTORIA_TREE_VIDEO_URL) && !(isEstimadosPreview() && new URLSearchParams(window.location.search).has("todo")));
+  const [playedAt, setPlayedAt] = useState<number | null>(() => (gated ? readPlayedAt() : null));
+  const [now, setNow] = useState(() => Date.now());
+  const revealed = !gated || (playedAt !== null && now - playedAt >= VSL_REVEAL_MS);
+  useEffect(() => {
+    if (revealed || playedAt === null) return;
+    const check = () => setNow(Date.now());
+    const timer = window.setTimeout(check, Math.max(0, playedAt + VSL_REVEAL_MS - Date.now()));
+    document.addEventListener("visibilitychange", check); // pestaña en segundo plano: el temporizador puede atrasarse, se revisa al volver
+    return () => { window.clearTimeout(timer); document.removeEventListener("visibilitychange", check); };
+  }, [revealed, playedAt]);
+  const onVslPlay = () => {
+    if (playedAt !== null) return; // la cuenta empieza con el primer Play y no se reinicia
+    const t = Date.now();
+    try { localStorage.setItem(VSL_PLAYED_KEY, String(t)); } catch { /* sin storage: la cuenta vale solo en esta visita */ }
+    setPlayedAt(t);
+    setNow(t);
+  };
   const [open, setOpen] = useState(false);
   const [slide, setSlide] = useState(0);
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -334,21 +372,23 @@ const ConsultoriaMktTree = () => {
                 ))}
               </ul>
 
-              <Vsl url={CONSULTORIA_TREE_VIDEO_URL} />
+              <Vsl url={CONSULTORIA_TREE_VIDEO_URL} onPlay={onVslPlay} />
 
-              <div className="est-cta">
-                {book()}
-                <ul className="est-trust">
-                  <li><Ic id="gift" />100% gratis</li>
-                  <li><Ic id="video" />Zoom, Meet o WhatsApp</li>
-                  <li><Ic id="clock" />{CONSULTORIA_TREE_MINUTES} minutos</li>
-                </ul>
-              </div>
+              {revealed && (
+                <div className="est-cta">
+                  {book()}
+                  <ul className="est-trust">
+                    <li><Ic id="gift" />100% gratis</li>
+                    <li><Ic id="video" />Zoom, Meet o WhatsApp</li>
+                    <li><Ic id="clock" />{CONSULTORIA_TREE_MINUTES} minutos</li>
+                  </ul>
+                </div>
+              )}
             </div>
           </header>
           <div ref={triggerRef} />
 
-          {/* ============ 2b. SELLOS: Meta y Google (texto en inglés, empieza con la marca) ============ */}
+          {/* ============ 2b. SELLOS: logo de Acros Software + Meta y Google (texto en inglés, empieza con la marca). ÚNICA parte de debajo del VSL que se ve siempre, antes de tocar Play ============ */}
           <section className="ct-badges" aria-label="Respaldo profesional">
             <div className="est-wrap">
               <div className="ct-by">
@@ -362,102 +402,106 @@ const ConsultoriaMktTree = () => {
             </div>
           </section>
 
-          {/* ============ 3. POR QUÉ LAS AGENCIAS NO TE LLENAN EL CALENDARIO ============ */}
-          <section className="est-sec">
-            <div className="est-wrap">
-              <h2 className="est-long">¿Por qué la mayoría de las agencias de marketing <span className="est-hl">no pueden llenarte el calendario</span>?</h2>
-              {/* Carrusel: tarjetas lado a lado, se asoma la siguiente y los puntos marcan en cuál estás (se desliza con el dedo o con el trackpad). */}
-              <div className="ct-carousel">
-                <div className="ct-track" ref={trackRef} onScroll={onTrackScroll} role="group" aria-label="Desliza para ver los tres motivos" tabIndex={0}>
-                  {NOTS.map((n) => (
-                    <div className="est-not ct-card" key={n.t}>
-                      <span className="est-x"><Ic id="x" /></span>
-                      <div><h3>{n.t}</h3><p>{n.d}</p></div>
-                    </div>
-                  ))}
+          {revealed && (
+            <>
+            {/* ============ 3. POR QUÉ LAS AGENCIAS NO TE LLENAN EL CALENDARIO ============ */}
+            <section className="est-sec">
+              <div className="est-wrap">
+                <h2 className="est-long">¿Por qué la mayoría de las agencias de marketing <span className="est-hl">no pueden llenarte el calendario</span>?</h2>
+                {/* Carrusel: tarjetas lado a lado, se asoma la siguiente y los puntos marcan en cuál estás (se desliza con el dedo o con el trackpad). */}
+                <div className="ct-carousel">
+                  <div className="ct-track" ref={trackRef} onScroll={onTrackScroll} role="group" aria-label="Desliza para ver los tres motivos" tabIndex={0}>
+                    {NOTS.map((n) => (
+                      <div className="est-not ct-card" key={n.t}>
+                        <span className="est-x"><Ic id="x" /></span>
+                        <div><h3>{n.t}</h3><p>{n.d}</p></div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="ct-dots">
+                    {NOTS.map((n, i) => (
+                      <button key={n.t} type="button" className={i === slide ? "is-on" : ""} aria-label={`Ir al motivo ${i + 1} de ${NOTS.length}`} aria-current={i === slide ? "true" : undefined} onClick={() => goToSlide(i)} />
+                    ))}
+                  </div>
                 </div>
-                <div className="ct-dots">
-                  {NOTS.map((n, i) => (
-                    <button key={n.t} type="button" className={i === slide ? "is-on" : ""} aria-label={`Ir al motivo ${i + 1} de ${NOTS.length}`} aria-current={i === slide ? "true" : undefined} onClick={() => goToSlide(i)} />
+              </div>
+            </section>
+
+            {/* ============ 4. EL SISTEMA ============ */}
+            <section className="est-sec est-sec--offer">
+              <div className="est-wrap">
+                <div className="est-offer-card">
+                  <span className="est-offer-tag">Entonces, ¿qué sí funciona?</span>
+                  <PuzzleIcon />
+                  <h2 className="est-product">UN <span className="est-hl">SISTEMA VALIDADO</span> PARA CONSEGUIR ESTIMADOS GARANTIZADOS</h2>
+
+                  <p className="ct-how-intro">Así funciona el sistema, en <b>4 pasos</b>:</p>
+                  <ol className="ct-how">
+                    {HOW.map((h, i) => (
+                      <li key={h.name}>
+                        <span className="ct-how-n" aria-hidden="true">{i + 1}</span>
+                        <div>
+                          <h3>{h.name}</h3>
+                          <p>{h.text}</p>
+                        </div>
+                      </li>
+                    ))}
+                  </ol>
+
+                  <div className="est-cta" style={{ marginTop: 18 }}>
+                    {book()}
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            {/* ============ 5. QUÉ TE LLEVAS DE LA CONSULTORÍA ============ */}
+            <section className="est-sec ct-get" style={{ paddingTop: 20 }}>
+              <div className="est-wrap">
+                <div className="ct-sec-head">
+                  <h2>Qué te llevas de la consultoría</h2>
+                </div>
+                <ol className="ct-flow">
+                  {GETS.map((g, i) => (
+                    <li key={i}><span className="ct-n" aria-hidden="true">{i + 1}</span><span>{g}</span></li>
+                  ))}
+                </ol>
+              </div>
+            </section>
+
+            {/* Barra fija móvil */}
+            <div className={`est-sticky${stickyVisible && !booking && !open ? " est-is-visible" : ""}`}>
+              {book()}
+            </div>
+
+            {/* ============ 6. PREGUNTAS FRECUENTES ============ */}
+            <section className="est-sec">
+              <div className="est-wrap">
+                <h2>Preguntas frecuentes</h2>
+                <div className="est-faq">
+                  {FAQ.map((f) => (
+                    <details key={f.q}><summary>{f.q}</summary><p>{f.a}</p></details>
                   ))}
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          {/* ============ 4. EL SISTEMA ============ */}
-          <section className="est-sec est-sec--offer">
-            <div className="est-wrap">
-              <div className="est-offer-card">
-                <span className="est-offer-tag">Entonces, ¿qué sí funciona?</span>
-                <PuzzleIcon />
-                <h2 className="est-product">UN <span className="est-hl">SISTEMA VALIDADO</span> PARA CONSEGUIR ESTIMADOS GARANTIZADOS</h2>
-
-                <p className="ct-how-intro">Así funciona el sistema, en <b>4 pasos</b>:</p>
-                <ol className="ct-how">
-                  {HOW.map((h, i) => (
-                    <li key={h.name}>
-                      <span className="ct-how-n" aria-hidden="true">{i + 1}</span>
-                      <div>
-                        <h3>{h.name}</h3>
-                        <p>{h.text}</p>
-                      </div>
-                    </li>
-                  ))}
-                </ol>
-
-                <div className="est-cta" style={{ marginTop: 18 }}>
+            {/* ============ 7. CIERRE ============ */}
+            <section className="est-sec est-final ct-final">
+              <div className="est-wrap">
+                <h2>Tu plan para conseguir más estimados, <span className="est-hl">gratis y sin compromiso</span></h2>
+                <ul className="est-checks">
+                  <li><Ic id="check" />Una consultoría de {CONSULTORIA_TREE_MINUTES} minutos con un plan claro para tu negocio</li>
+                  <li><Ic id="check" />Google Ads y Facebook Ads con un sistema que ya funciona</li>
+                  <li><Ic id="check" />El plan es tuyo, trabajes o no con nosotros</li>
+                </ul>
+                <div className="est-cta">
                   {book()}
                 </div>
               </div>
-            </div>
-          </section>
-
-          {/* ============ 5. QUÉ TE LLEVAS DE LA CONSULTORÍA ============ */}
-          <section className="est-sec ct-get" style={{ paddingTop: 20 }}>
-            <div className="est-wrap">
-              <div className="ct-sec-head">
-                <h2>Qué te llevas de la consultoría</h2>
-              </div>
-              <ol className="ct-flow">
-                {GETS.map((g, i) => (
-                  <li key={i}><span className="ct-n" aria-hidden="true">{i + 1}</span><span>{g}</span></li>
-                ))}
-              </ol>
-            </div>
-          </section>
-
-          {/* Barra fija móvil */}
-          <div className={`est-sticky${stickyVisible && !booking && !open ? " est-is-visible" : ""}`}>
-            {book()}
-          </div>
-
-          {/* ============ 6. PREGUNTAS FRECUENTES ============ */}
-          <section className="est-sec">
-            <div className="est-wrap">
-              <h2>Preguntas frecuentes</h2>
-              <div className="est-faq">
-                {FAQ.map((f) => (
-                  <details key={f.q}><summary>{f.q}</summary><p>{f.a}</p></details>
-                ))}
-              </div>
-            </div>
-          </section>
-
-          {/* ============ 7. CIERRE ============ */}
-          <section className="est-sec est-final ct-final">
-            <div className="est-wrap">
-              <h2>Tu plan para conseguir más estimados, <span className="est-hl">gratis y sin compromiso</span></h2>
-              <ul className="est-checks">
-                <li><Ic id="check" />Una consultoría de {CONSULTORIA_TREE_MINUTES} minutos con un plan claro para tu negocio</li>
-                <li><Ic id="check" />Google Ads y Facebook Ads con un sistema que ya funciona</li>
-                <li><Ic id="check" />El plan es tuyo, trabajes o no con nosotros</li>
-              </ul>
-              <div className="est-cta">
-                {book()}
-              </div>
-            </div>
-          </section>
+            </section>
+            </>
+          )}
         </div>
 
         {/* ============ POPUP DEL CALENDARIO (el mismo de /estimados-ty). Va en un portal, FUERA de .est-page: sus estilos de Tailwind se deformarían dentro. ============ */}

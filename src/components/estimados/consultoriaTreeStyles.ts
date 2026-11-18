@@ -38,7 +38,6 @@ export const CT_CSS = `
 .ct .ct-vid .est-ty-video{max-width:100%;box-shadow:0 18px 40px rgba(17,17,17,.24);border:3px solid var(--green)}
 /* En escritorio el VSL se achica lo justo para que su borde inferior quede dentro de la ventana (lo de arriba mide ~450 px); en celular manda el ancho. */
 @media (min-width:760px){.ct .ct-vid .est-ty-video{max-width:min(100%,max(320px,calc((100vh - 470px) * 1.7778)));max-width:min(100%,max(320px,calc((100svh - 470px) * 1.7778)))}}
-.ct .ct-vid-cap{margin:10px 0 0;font:600 13px/1.3 var(--text);color:#6D7066;text-align:center}
 
 /* ── Sellos de Meta y Google (entre el hero y «¿Por qué las agencias…?») ── */
 .ct .ct-badges{padding:4px 0 26px}

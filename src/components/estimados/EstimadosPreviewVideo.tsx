@@ -10,8 +10,9 @@ export const PREVIEW_SECONDS = 20;
  * Es un <video> propio y no el iframe de Bunny a propósito: con el iframe, el «quitar el sonido de fondo y reiniciar con sonido» tendría que
  * pasar por postMessage, y iOS solo deja activar el sonido dentro del mismo toque de la persona. Aquí todo ocurre en el mismo gesto.
  * Sin reproducción automática (ahorro de batería, movimiento reducido), se ve el póster quieto y el botón Play funciona igual.
+ * `onStart` (opcional) se llama una vez por toque en Play, justo cuando el video arranca desde cero con sonido.
  */
-export function EstimadosPreviewVideo({ url, poster, title = "Video sobre tu regalo" }: { url: string; poster?: string; title?: string }) {
+export function EstimadosPreviewVideo({ url, poster, title = "Video sobre tu regalo", onStart }: { url: string; poster?: string; title?: string; onStart?: () => void }) {
   const ref = useRef<HTMLVideoElement | null>(null);
   const startedRef = useRef(false);
   const [started, setStarted] = useState(false);
@@ -34,6 +35,7 @@ export function EstimadosPreviewVideo({ url, poster, title = "Video sobre tu reg
     if (!v) return;
     startedRef.current = true;
     setStarted(true);
+    onStart?.(); // la página puede reaccionar al primer Play (p. ej. empezar a contar el tiempo del VSL)
     v.loop = false;
     v.muted = false;
     v.volume = 1;

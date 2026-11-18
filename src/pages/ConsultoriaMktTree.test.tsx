@@ -305,6 +305,103 @@ describe("/consultoria-mkt-tree", () => {
     expect(b.container.querySelector(".ct-vid iframe")?.getAttribute("src")).toBe("https://player.ejemplo.com/embed/abc");
   });
 
+  describe("el resto de la página aparece 2:50 después de tocar Play en el VSL", () => {
+    const MP4 = "https://cdn.ejemplo.com/vsl/play_720p.mp4";
+    const playBtn = () => screen.getByRole("button", { name: /Reproducir el video con sonido/i });
+    const faq = () => screen.queryByRole("heading", { name: "Preguntas frecuentes" });
+    const agendar = () => screen.queryAllByRole("button", { name: /Agendar ahora/i });
+    afterEach(() => { vi.useRealTimers(); });
+
+    it("no hay texto «Míralo completo…» debajo del VSL", () => {
+      cfg.video = MP4;
+      const { container } = render(<ConsultoriaMktTree />);
+      expect(container.textContent).not.toMatch(/Míralo completo/);
+      expect(container.querySelector(".ct-vid-cap")).toBeNull();
+    });
+
+    it("antes del Play solo se ve el hero hasta el video (título, «Sin…» y el VSL) y, como excepción, el logo con los sellos de Meta y Google; nada de botones, secciones ni preguntas", () => {
+      cfg.video = MP4;
+      const { container } = render(<ConsultoriaMktTree />);
+      expect(screen.getByRole("heading", { level: 1 })).toBeTruthy();
+      expect(container.querySelector(".ct-sin")).not.toBeNull();
+      expect(container.querySelector(".ct-vid video")).not.toBeNull();
+      expect(agendar()).toHaveLength(0);
+      expect(container.querySelector(".est-trust")).toBeNull();
+      // excepción: el logo de Acros Software y los sellos de Meta y Google se ven desde el principio, justo debajo del video
+      const badges = container.querySelector(".ct-badges") as HTMLElement;
+      expect(badges).not.toBeNull();
+      expect(badges.textContent).toMatch(/Expertos en Marketing y Tecnología/);
+      expect(badges.textContent).toMatch(/Meta.*Media Buying Professional/);
+      expect(badges.textContent).toMatch(/Google.*Marketing Certified/);
+      expect(badges.querySelector('svg[aria-label="Meta"]')).not.toBeNull();
+      expect(badges.querySelector('svg[aria-label="Google"]')).not.toBeNull();
+      expect(container.querySelector(".ct-vid")!.compareDocumentPosition(badges) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy(); // va después del video
+      expect(container.querySelector(".ct-carousel")).toBeNull();
+      expect(container.querySelector(".ct-how")).toBeNull();
+      expect(container.querySelector(".ct-flow")).toBeNull();
+      expect(faq()).toBeNull();
+      expect(container.querySelector(".est-final")).toBeNull();
+      expect(container.querySelector(".est-sticky")).toBeNull();
+    });
+
+    it("la cuenta empieza al tocar Play: a los 2:49 sigue oculto y a los 2:50 aparece todo, incluido el botón de agendar", () => {
+      vi.useFakeTimers();
+      cfg.video = MP4;
+      render(<ConsultoriaMktTree />);
+      act(() => { vi.advanceTimersByTime(60_000); }); // un minuto en la página sin tocar Play: nada cambia
+      expect(faq()).toBeNull();
+      fireEvent.click(playBtn());
+      expect(faq()).toBeNull();
+      act(() => { vi.advanceTimersByTime(169_999); });
+      expect(faq()).toBeNull();
+      expect(agendar()).toHaveLength(0);
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(faq()).not.toBeNull();
+      expect(agendar().length).toBeGreaterThan(0);
+      expect(screen.getByRole("heading", { level: 2, name: /Qué te llevas de la consultoría/ })).toBeTruthy();
+    });
+
+    it("al recargar se recuerda: con Play tocado hace más de 2:50 se ve todo de inmediato; con menos tiempo, solo falta lo que resta", () => {
+      vi.useFakeTimers();
+      cfg.video = MP4;
+      localStorage.setItem("ct_vsl_played_at", String(Date.now() - 171_000));
+      render(<ConsultoriaMktTree />);
+      expect(faq()).not.toBeNull();
+      cleanup();
+
+      localStorage.setItem("ct_vsl_played_at", String(Date.now() - 100_000));
+      render(<ConsultoriaMktTree />);
+      expect(faq()).toBeNull();
+      act(() => { vi.advanceTimersByTime(69_999); });
+      expect(faq()).toBeNull();
+      act(() => { vi.advanceTimersByTime(1); });
+      expect(faq()).not.toBeNull();
+    });
+
+    it("sin VSL, o con un reproductor en iframe (que no avisa del Play), se muestra todo desde el principio", () => {
+      render(<ConsultoriaMktTree />);
+      expect(faq()).not.toBeNull();
+      cleanup();
+      cfg.video = "https://player.ejemplo.com/embed/abc";
+      render(<ConsultoriaMktTree />);
+      expect(faq()).not.toBeNull();
+      expect(agendar().length).toBeGreaterThan(0);
+    });
+
+    it("en vista previa, `?todo=1` muestra todo sin esperar (para revisar la página completa)", () => {
+      cfg.video = MP4;
+      sessionStorage.setItem("estimados_preview", "1");
+      window.history.pushState({}, "", "/consultoria-mkt-tree?todo=1");
+      render(<ConsultoriaMktTree />);
+      expect(faq()).not.toBeNull();
+      // sin vista previa activa, `?todo=1` no hace nada (un visitante no puede saltarse la espera)
+      cleanup();
+      sessionStorage.clear();
+      render(<ConsultoriaMktTree />);
+      expect(faq()).toBeNull();
+    });
+  });
+
   it("sin calendario configurado el popup avisa que no está disponible", () => {
     cfg.calendar = "";
     render(<ConsultoriaMktTree />);
