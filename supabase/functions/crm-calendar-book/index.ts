@@ -3,6 +3,8 @@ import { sanitizeText, isValidUUID, isValidEmail, isValidPhone, isValidDate, isV
 import { PUBLIC_CORS_HEADERS } from "../_shared/cors.ts";
 import { isTenantSuspended } from "../_shared/tenant-access.ts";
 import { applyBookingPlaceholders, buildBookingVars, parseBookingMeta } from "../_shared/booking-meta.ts";
+import { notifyAdminOfBooking } from "../_shared/booking-push.ts";
+import { sendPushToUsers } from "../_shared/push.ts";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -507,6 +509,24 @@ Deno.serve(async (req) => {
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${serviceKey}` },
       body:    JSON.stringify({ appointment_id: appointment.id, action: "create" }),
     }).catch(() => {});
+
+    // ── Aviso push al superadmin (solo si el calendario es suyo: el del kit y el de la consultoría gratis son el mismo) ──
+    // Va al final y no puede romper la reserva: nunca lanza y espera como máximo unos segundos (ver _shared/booking-push.ts).
+    const pushStatus = await notifyAdminOfBooking(
+      {
+        getAdminId: async () => {
+          const { data } = await supabase.rpc("get_admin_user_id");
+          return (data as string | null) ?? null;
+        },
+        send: async (adminId, payload) => {
+          const r = await sendPushToUsers(supabase, [adminId], payload);
+          console.log("[booking-push] suscripciones:", r.recipients, "ok:", r.successCount, "fallidas:", r.failureCount);
+          return r;
+        },
+      },
+      { calendarOwnerId: calendar.user_id, source: sourceTag, name: name || email, business, scheduledMs, tz: calTz },
+    );
+    if (pushStatus === "timeout" || pushStatus === "error") console.error("[booking-push] resultado:", pushStatus);
 
     return respond({ appointment_id: appointment.id, contact_id: contactId });
   } catch (err) {
