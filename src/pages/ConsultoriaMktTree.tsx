@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import CalendarRenderer from "@/components/crm/CalendarRenderer";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import { EstimadosPreviewVideo, bunnyPosterFor } from "@/components/estimados/EstimadosPreviewVideo";
+import WhatsAppIcon from "@/components/shared/WhatsAppIcon";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { CT_CSS } from "@/components/estimados/consultoriaTreeStyles";
 import { EST_CSS, EST_FONT_HREF } from "@/components/estimados/estimadosStyles";
@@ -16,6 +17,7 @@ import {
   CONSULTORIA_TREE_QUALIFICATION,
   CONSULTORIA_TREE_SLUG,
   CONSULTORIA_TREE_VIDEO_URL,
+  consultoriaTreeConfirmUrl,
   consultoriaTreeEventParams,
 } from "@/lib/consultoriaTreeConfig";
 import { ESTIMADOS_IMG as IMG } from "@/lib/estimadosConfig";
@@ -42,8 +44,7 @@ import { uuid } from "@/lib/uuid";
 // `?demo=<ESTIMADOS_PREVIEW_KEY>` (producción): el calendario no crea ninguna cita ni se manda ningún evento.
 //
 // Color de acento: naranja del kit. (2026-11-16 se probó guindo #7D1B3A y se devolvió al naranja a pedido de Daniel.)
-// PENDIENTES: el VSL (CONSULTORIA_TREE_VIDEO_URL en src/lib/consultoriaTreeConfig.ts; sin URL, en producción la sección no se muestra) y decidir
-// si esta campaña usa un pixel propio. Copy sin testimonios, cifras de resultados ni escasez inventados.
+// PENDIENTE: decidir si esta campaña usa un pixel propio. (El VSL ya está: CONSULTORIA_TREE_VIDEO_URL en src/lib/consultoriaTreeConfig.ts; sin URL, en producción la sección no se muestra.) Copy sin testimonios, cifras de resultados ni escasez inventados.
 
 const PAGE_TITLE = "Consultoría de marketing gratis para Tree Services | Plan claro con Google Ads y Facebook Ads";
 const NOINDEX = true;
@@ -53,7 +54,7 @@ const IS_DEMO = isEstimadosPreview();
 
 const BUDGET = `US$${CONSULTORIA_TREE_MIN_BUDGET.toLocaleString("en-US")}`;
 
-type Booking = { date: string; hour: number; minute: number; calendarTz: string; visitorTz: string; calendarName: string };
+type Booking = { date: string; hour: number; minute: number; calendarTz: string; visitorTz: string; calendarName: string; formData?: Record<string, string> };
 
 const NOTS = [
   { t: "Queman tu dinero probando estrategias a ver si funcionan", d: "No tienen un plan claro, solo quieren cobrar y aprender con tu dinero." },
@@ -119,7 +120,7 @@ const GETS = [
 const FAQ = [
   { q: "¿De verdad es gratis?", a: "Sí. La consultoría no tiene costo ni compromiso, y para agendarla no te pedimos tarjeta." },
   { q: "¿Y si después no quiero trabajar con ustedes?", a: "Te llevas tu plan igual. Puedes ponerlo en marcha por tu cuenta, con tu equipo o con quien tú quieras. Si decides trabajar con nosotros en alguno de nuestros planes de pago, perfecto; si no, sin presión." },
-  { q: "¿Cómo es la reunión?", a: `Dura ${CONSULTORIA_TREE_MINUTES} minutos y es por Zoom, Google Meet o WhatsApp, lo que te quede más cómodo. Después de agendar te escribimos por WhatsApp para confirmar y coordinar.` },
+  { q: "¿Cómo es la reunión?", a: `Dura ${CONSULTORIA_TREE_MINUTES} minutos y es por Zoom, Google Meet o WhatsApp, lo que te quede más cómodo. Después de agendar, confirmas tu cita con un mensaje por WhatsApp y coordinamos el detalle.` },
   { q: "¿Cuánto tengo que invertir en anuncios?", a: `Trabajamos con negocios de tree service que pueden invertir más de ${BUDGET} al mes en anuncios. En la llamada vemos cuánto te conviene según tu zona, tus servicios y tu meta de estimados.` },
   { q: "¿En qué se diferencian de otras agencias de marketing?", a: "Una agencia tradicional prueba estrategias hasta que alguna funciona, y ese aprendizaje lo pagas tú. Nosotros tenemos un sistema armado: formatos de anuncios virales validados, Google Ads y Facebook Ads, y más de 5 años de experiencia." },
   { q: "¿Sirve para poda, remoción de árboles y tocones?", a: "Sí. El sistema está pensado para negocios de tree service: poda, remoción de árboles, tocones, ramas sobre el techo, preparación para tormentas y estimados." },
@@ -214,6 +215,8 @@ const ConsultoriaMktTree = () => {
   const popupRef = useRef<HTMLDivElement | null>(null);
   const [stickyVisible, setStickyVisible] = useState(false);
   const [booking, setBooking] = useState<Booking | null>(null);
+  /** La persona ya tocó «Confirmar Consultoría Gratis» (abrió WhatsApp): recién entonces aparece el botón para cerrar el popup. */
+  const [confirmed, setConfirmed] = useState(false);
   const [open, setOpen] = useState(false);
   const [slide, setSlide] = useState(0);
   const trackRef = useRef<HTMLDivElement | null>(null);
@@ -458,12 +461,12 @@ const ConsultoriaMktTree = () => {
         </div>
 
         {/* ============ POPUP DEL CALENDARIO (el mismo de /estimados-ty). Va en un portal, FUERA de .est-page: sus estilos de Tailwind se deformarían dentro. ============ */}
-        <Dialog open={open} onOpenChange={setOpen}>
-          <DialogContent ref={popupRef} className="ct-pop gap-0 border-0 p-0 w-[calc(100%-24px)] max-w-[480px] max-h-[94vh] overflow-y-auto rounded-2xl bg-[#F9F8F5]">
+        <Dialog open={open} onOpenChange={(o) => { if (!o && booking && !confirmed) return; setOpen(o); }}>
+          <DialogContent ref={popupRef} hideClose={!!booking && !confirmed} className="ct-pop gap-0 border-0 p-0 w-[calc(100%-24px)] max-w-[480px] max-h-[94vh] overflow-y-auto rounded-2xl bg-[#F9F8F5]">
             <div className="ct-pop-head">
-              <DialogTitle className={booking ? "sr-only" : "ct-pop-title"}>{booking ? "Consultoría agendada" : "Agenda tu consultoría gratis"}</DialogTitle>
+              <DialogTitle className={booking ? "sr-only" : "ct-pop-title"}>{booking ? "Cita reservada, falta confirmar" : "Agenda tu consultoría gratis"}</DialogTitle>
               <DialogDescription className={booking ? "sr-only" : "ct-pop-sub"}>
-                {booking ? "Tu consultoría quedó agendada." : "Elige el día y la hora que mejor te queden. Te confirmamos por WhatsApp."}
+                {booking ? "Tu cita quedó reservada. Falta confirmarla por WhatsApp." : "Elige el día y la hora que mejor te queden. Al terminar, confirmas tu cita por WhatsApp."}
               </DialogDescription>
               {!booking && (
                 <ul className="ct-pills">
@@ -476,20 +479,30 @@ const ConsultoriaMktTree = () => {
             <div className="ct-pop-body">
               {booking && summary ? (
                 <div className="ct-done" role="status" data-testid="consultoria-agendada">
-                  <span className="ct-done-check"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg></span>
-                  <h2>¡Listo! Tu consultoría está agendada</h2>
+                  {/* Icono de «falta un paso»: un aro a medio llenar (90 %) con un reloj, no un check. El check aparecería recién al confirmar por WhatsApp. */}
+                  <span className="ct-done-ring" aria-hidden="true">
+                    <svg viewBox="0 0 54 54" focusable="false">
+                      <circle className="ct-ring-bg" cx="27" cy="27" r="23" />
+                      <circle className="ct-ring-fg" cx="27" cy="27" r="23" pathLength={100} strokeDasharray="90 100" transform="rotate(-90 27 27)" />
+                      <path className="ct-ring-clock" d="M27 16v11.5l7 4" />
+                    </svg>
+                  </span>
+                  <h2>Ya reservamos tu cita. Solo falta confirmar.</h2>
+                  {/* Barra al 90 %: la reserva aún no termina hasta que el cliente confirma por WhatsApp. */}
+                  <div className="ct-prog" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={90} aria-label="Avance de tu reserva: 90 %" data-testid="avance-reserva">
+                    <div className="ct-prog-track"><i /></div>
+                  </div>
                   <div className="ct-done-when" data-testid="resumen-cita">
                     <span className="ct-done-day">{summary.dateLabel}</span>
                     <span className="ct-done-time">{summary.timeLabel}</span>
                     <span className="ct-done-tz">{summary.tzLabel}</span>
                   </div>
-                  <p><b>Te escribiremos por WhatsApp</b> para confirmar y coordinar si la hacemos por Zoom, Meet o WhatsApp.</p>
-                  <ul>
-                    <li>Ten a la mano <b>qué servicios ofreces</b> y <b>en qué ciudades trabajas</b>.</li>
-                    <li>Piensa <b>cuánto estás invirtiendo hoy</b> en conseguir clientes.</li>
-                    <li>Conéctate unos minutos antes, en un lugar tranquilo.</li>
-                  </ul>
-                  <button type="button" className="ct-done-close" onClick={() => setOpen(false)}>Cerrar</button>
+                  <p><b>Toca el botón y envíanos el mensaje por WhatsApp</b> para confirmar tu consultoría y coordinar si la hacemos por Zoom, Meet o WhatsApp.</p>
+                  <a className="ct-wa" data-testid="confirmar-whatsapp" href={consultoriaTreeConfirmUrl(booking.formData)} target="_blank" rel="noopener noreferrer" onClick={() => setConfirmed(true)}>
+                    <WhatsAppIcon className="ct-wa-ic" />Confirmar Consultoría Gratis
+                  </a>
+                  {/* Sin «X» y sin «Cerrar» hasta que toque el botón verde: lo único que puede hacer es confirmar por WhatsApp. */}
+                  {confirmed && <button type="button" className="ct-done-close" onClick={() => setOpen(false)}>Cerrar</button>}
                 </div>
               ) : CONSULTORIA_TREE_CALENDAR_ID ? (
                 <div className="ct-pop-cal">
@@ -500,6 +513,7 @@ const ConsultoriaMktTree = () => {
                     phoneDefaultDial="+1"
                     qualification={CONSULTORIA_TREE_QUALIFICATION}
                     previewOnly={IS_DEMO}
+                    fireLead={false} /* el Lead de esta página sale en handleBooked (con event_id): el del calendario lo contaría dos veces */
                     onBookingSuccess={handleBooked}
                   />
                 </div>

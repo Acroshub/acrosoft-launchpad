@@ -95,8 +95,19 @@ export const CT_CSS = `
 /* ── Confirmación al agendar (reemplaza el calendario) ── */
 .ct-done{width:100%;max-width:460px;margin:0 auto;background:#fff;border:2px solid #1F4D36;border-radius:18px;padding:24px 20px 22px;text-align:center;
   box-shadow:0 0 0 4px rgba(31,77,54,.12),0 10px 28px rgba(17,17,17,.08);font:400 16px/1.5 'Inter',system-ui,-apple-system,'Segoe UI',Roboto,Arial,sans-serif;color:#55584F}
-.ct-done-check{display:grid;place-items:center;width:54px;height:54px;margin:0 auto 12px;border-radius:50%;background:#1F4D36;color:#fff}
-.ct-done-check svg{width:30px;height:30px;stroke:currentColor;fill:none;stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round}
+.ct-done-ring{display:block;width:60px;height:60px;margin:0 auto 12px}
+.ct-done-ring svg{display:block;width:100%;height:100%}
+.ct-ring-bg{fill:#FFF3EA;stroke:#F1D9C8;stroke-width:5}
+.ct-ring-fg{fill:none;stroke:#EA5A0B;stroke-width:5;stroke-linecap:round}
+.ct-ring-clock{fill:none;stroke:#EA5A0B;stroke-width:3.4;stroke-linecap:round;stroke-linejoin:round}
+.ct-prog{margin:12px 0 4px}
+.ct-prog-track{position:relative;height:14px;border-radius:999px;background:#EFE9DA;overflow:hidden;box-shadow:inset 0 1px 2px rgba(17,17,17,.12)}
+.ct-prog-track i{position:absolute;left:0;top:0;bottom:0;width:90%;border-radius:999px;
+  background:repeating-linear-gradient(135deg,#EA5A0B 0 12px,#F27A3A 12px 24px);background-size:34px 34px;
+  animation:ct-prog-grow 1.3s cubic-bezier(.22,.8,.3,1) both,ct-prog-move 1.1s linear infinite}
+@keyframes ct-prog-grow{from{width:0}to{width:90%}}
+@keyframes ct-prog-move{from{background-position:0 0}to{background-position:34px 0}}
+@media (prefers-reduced-motion:reduce){.ct-prog-track i{animation:none}}
 .ct-done h2{margin:0 0 6px;font:800 clamp(30px,8.4vw,38px)/1 'Barlow Condensed','Arial Narrow',Arial,sans-serif;letter-spacing:.02em;text-transform:uppercase;color:#111}
 .ct-done-when{margin:14px 0;padding:13px 10px;background:#F3F9F5;border:1px solid #BBD6C5;border-radius:14px}
 .ct-done-when span{display:block}
@@ -123,6 +134,10 @@ export const CT_CSS = `
 .ct-pop-body{padding:12px 14px 16px}
 .ct-pop-cal{width:100%;background:#fff;border:1px solid #E6E1D4;border-radius:16px;padding:16px 15px;box-shadow:0 6px 18px rgba(17,17,17,.06)}
 .ct-pop-body .est-ty-calmsg{margin-top:8px}
+.ct-wa{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;margin:6px 0 4px;padding:14px 12px;border-radius:12px;background:#1DA851;color:#fff;text-decoration:none;box-shadow:0 3px 0 #11713A;font:800 21px/1.05 'Barlow Condensed','Arial Narrow',Arial,sans-serif;letter-spacing:.04em;text-transform:uppercase}
+.ct-wa:hover{transform:translateY(2px);box-shadow:0 1px 0 #11713A}
+.ct-wa:focus-visible{outline:3px solid #111;outline-offset:2px}
+.ct-wa-ic{width:26px;height:26px;flex:none}
 .ct-done-close{margin-top:14px;width:100%;padding:12px;border:0;border-radius:12px;background:#EA5A0B;color:#fff;box-shadow:0 3px 0 #B84405;cursor:pointer;font:800 20px/1 'Barlow Condensed','Arial Narrow',Arial,sans-serif;letter-spacing:.04em;text-transform:uppercase}
 .ct-done-close:hover{transform:translateY(2px);box-shadow:0 1px 0 #B84405}
 .ct-pop-body .ct-done{box-shadow:none;border-width:1px}

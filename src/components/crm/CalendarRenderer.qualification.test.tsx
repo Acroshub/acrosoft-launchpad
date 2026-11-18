@@ -76,6 +76,8 @@ describe("CalendarRenderer — formulario propio con confirmaciones Sí / No", (
     expect(container.querySelectorAll('input[type="text"]')).toHaveLength(2); // nombre y negocio
     expect(container.querySelectorAll('input[type="email"]')).toHaveLength(1);
     expect(container.querySelectorAll('input[type="tel"]')).toHaveLength(1);
+    expect(screen.getByText("WhatsApp").querySelector('[data-testid="whatsapp-icon"]')).not.toBeNull(); // el campo de WhatsApp lleva su icono
+    expect(screen.getByText("Correo electrónico").querySelector("svg")).toBeNull(); // los demás campos, sin icono
     expect((container.querySelector("select") as HTMLSelectElement).value).toBe("+1");
     expect(screen.getAllByRole("radiogroup")).toHaveLength(3);
     expect(screen.getByText(/busco ayuda para recibir más clientes con marketing profesional/)).toBeTruthy();
@@ -175,6 +177,41 @@ describe("CalendarRenderer — formulario propio con confirmaciones Sí / No", (
     expect(body.booking_meta.answers).toHaveLength(3);
     expect(body.booking_meta.answers[1]).toEqual({ label: expect.stringMatching(/puedo invertir más de \$2000 USD/), value: "Sí" });
     await waitFor(() => expect(onBookingSuccess).toHaveBeenCalledTimes(1));
+    // La página recibe lo que se llenó (para armar el mensaje de confirmación por WhatsApp).
+    expect(onBookingSuccess.mock.calls[0][0].formData).toEqual(expect.objectContaining({
+      field_name: "Carlos Ramírez", field_email: "carlos@ejemplo.com", field_business: "Ramírez Tree Service",
+    }));
+  });
+});
+
+describe("CalendarRenderer — evento Lead de Meta al reservar", () => {
+  async function reservar(extra: Record<string, unknown>) {
+    const onBookingSuccess = vi.fn();
+    const { container } = renderForm({ onBookingSuccess, ...extra });
+    await goToForm();
+    fillFields(container); acceptTerms(container);
+    answer(0, "Sí"); answer(1, "Sí"); answer(2, "Sí");
+    fireEvent.click(bookBtn());
+    await waitFor(() => expect(onBookingSuccess).toHaveBeenCalledTimes(1));
+  }
+  const leads = (fbq: ReturnType<typeof vi.fn>) => fbq.mock.calls.filter((c) => c[0] === "track" && c[1] === "Lead");
+
+  it("por defecto el calendario manda el Lead al reservar (como siempre, para las demás páginas)", async () => {
+    const fbq = vi.fn();
+    (window as unknown as { fbq?: unknown }).fbq = fbq;
+    try {
+      await reservar({});
+      expect(leads(fbq)).toHaveLength(1);
+    } finally { delete (window as unknown as { fbq?: unknown }).fbq; }
+  });
+
+  it("con fireLead={false} el calendario NO manda su Lead (la página manda el suyo con event_id)", async () => {
+    const fbq = vi.fn();
+    (window as unknown as { fbq?: unknown }).fbq = fbq;
+    try {
+      await reservar({ fireLead: false });
+      expect(leads(fbq)).toHaveLength(0);
+    } finally { delete (window as unknown as { fbq?: unknown }).fbq; }
   });
 });
 

@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Config mutable: los getters se leen en cada render.
@@ -18,7 +18,11 @@ vi.mock("@/lib/piscinasFunnel", () => ({ addNoindex: vi.fn(() => () => {}) }));
 
 const calendar = vi.hoisted(() => ({
   props: null as null | Record<string, unknown>,
-  booking: { date: "2026-11-23", hour: 12, minute: 0, calendarTz: "America/La_Paz", visitorTz: "America/New_York", calendarName: "Selecciona el día y la hora" },
+  booking: {
+    date: "2026-11-23", hour: 12, minute: 0, calendarTz: "America/La_Paz", visitorTz: "America/New_York", calendarName: "Selecciona el día y la hora",
+    // Lo que la persona llenó en el formulario (el calendario lo devuelve al terminar la reserva).
+    formData: { field_name: "Carlos Ramírez", field_email: "carlos@ejemplo.com", "f-1788373522211": "+1 3055551234", field_business: "Ramírez Tree Service" },
+  },
 }));
 vi.mock("@/components/crm/CalendarRenderer", async () => {
   const React = await import("react");
@@ -339,12 +343,71 @@ describe("/consultoria-mkt-tree", () => {
     openPopup();
     act(() => { fireEvent.click(screen.getByTestId("calendario")); });
     expect(screen.queryByTestId("calendario")).toBeNull();
-    expect(screen.getByTestId("consultoria-agendada").textContent).toMatch(/Tu consultoría está agendada/);
+    expect(screen.getByTestId("consultoria-agendada").textContent).toMatch(/Ya reservamos tu cita\. Solo falta confirmar\./);
     expect(screen.getByTestId("resumen-cita").textContent).toMatch(/11:00 AM/); // 12:00 La Paz (UTC-4) = 11:00 AM en Nueva York (EST)
+    expect(screen.queryAllByRole("button", { name: /Agendar ahora/i })).toHaveLength(0);
+  });
 
+  it("el calendario va con fireLead={false}: el Lead de la página (con event_id) es el único, así la reserva no cuenta dos Leads", () => {
+    render(<ConsultoriaMktTree />);
+    openPopup();
+    expect(calendar.props?.fireLead).toBe(false);
+  });
+
+  it("antes de confirmar NO hay botón de cerrar ni «X» y el popup no se cierra con Esc; al tocar «Confirmar Consultoría Gratis» aparece «Cerrar»", () => {
+    render(<ConsultoriaMktTree />);
+    openPopup();
+    act(() => { fireEvent.click(screen.getByTestId("calendario")); });
+    const dialog = screen.getByRole("dialog");
+    // el único botón del popup es el verde de WhatsApp (que es un enlace): ni «Cerrar» ni la «X» de la esquina
+    expect(within(dialog).queryAllByRole("button")).toHaveLength(0);
+    expect(within(dialog).queryByText("Close")).toBeNull();
+    expect(within(dialog).queryByRole("button", { name: "Cerrar" })).toBeNull();
+    expect(within(dialog).getByRole("link", { name: /Confirmar Consultoría Gratis/ })).toBeTruthy();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeNull(); // no se cierra sin confirmar
+
+    // al tocar el botón verde (se abre WhatsApp) aparece «Cerrar»
+    fireEvent.click(screen.getByTestId("confirmar-whatsapp"));
     fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
     expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryAllByRole("button", { name: /Agendar ahora/i })).toHaveLength(0);
+  });
+
+  it("la pantalla de «Ya reservamos tu cita» ya no trae la lista de «Ten a la mano…», «Piensa cuánto…» ni «Conéctate…»", () => {
+    render(<ConsultoriaMktTree />);
+    openPopup();
+    act(() => { fireEvent.click(screen.getByTestId("calendario")); });
+    const text = screen.getByTestId("consultoria-agendada").textContent ?? "";
+    expect(text).not.toMatch(/Ten a la mano|Piensa cuánto|Conéctate/);
+    expect(screen.getByTestId("consultoria-agendada").querySelector("ul")).toBeNull();
+  });
+
+  it("al agendar dice «Ya reservamos tu cita. Solo falta confirmar.» y ofrece un botón verde de WhatsApp que escribe al negocio con el mensaje y los datos llenados", () => {
+    render(<ConsultoriaMktTree />);
+    openPopup();
+    act(() => { fireEvent.click(screen.getByTestId("calendario")); });
+    expect(screen.getByRole("heading", { name: "Ya reservamos tu cita. Solo falta confirmar." })).toBeTruthy();
+    // Aún no termina: barra de avance al 90 % (no un check de «todo listo»).
+    const prog = screen.getByRole("progressbar");
+    expect(prog.getAttribute("aria-valuenow")).toBe("90");
+    expect(prog.textContent).toBe(""); // la barra va sola, sin texto debajo
+    expect(screen.queryByText(/Aún no termina el proceso/)).toBeNull();
+    expect(document.querySelector(".ct-done-check")).toBeNull();
+    expect(document.querySelector(".ct-done-ring")).not.toBeNull();
+    const btn = screen.getByTestId("confirmar-whatsapp") as HTMLAnchorElement;
+    expect(btn.textContent).toBe("Confirmar Consultoría Gratis");
+    expect(btn.querySelector("svg")).not.toBeNull(); // icono de WhatsApp
+    expect(btn.className).toContain("ct-wa");
+    expect(btn.target).toBe("_blank");
+    expect(btn.rel).toContain("noopener");
+    const url = new URL(btn.href);
+    expect(url.origin + url.pathname).toBe("https://wa.me/59157697071");
+    expect(url.searchParams.get("text")).toBe(
+      "Confirmo mi consultoria gratis\n\nNombre: Carlos Ramírez\nCorreo: carlos@ejemplo.com\nNombre del Negocio: Ramírez Tree Service",
+    );
+    // solo esos tres datos: no se manda el WhatsApp del cliente ni nada más
+    expect(url.searchParams.get("text")).not.toMatch(/3055551234/);
   });
 
   it("no promete resultados con cifras ni testimonios inventados (más allá de la meta declarada)", () => {

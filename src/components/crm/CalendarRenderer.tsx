@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useRef } from "react";
 import PhoneInput from "@/components/shared/PhoneInput";
+import WhatsAppIcon from "@/components/shared/WhatsAppIcon";
 import { ChevronLeft, ChevronRight, Loader2, Check, Clock, Calendar, Globe } from "lucide-react";
 import { widgetTranslations } from "@/i18n/widgets";
 import type { WidgetLang } from "@/hooks/useLangWidget";
@@ -129,7 +130,7 @@ const Field = ({
   error,
   children,
 }: {
-  label: string;
+  label: React.ReactNode;
   required?: boolean;
   error?: string;
   children: React.ReactNode;
@@ -207,7 +208,8 @@ interface BookingFormProps {
   primaryColor: string;
   calendarTz: string;
   visitorTz: string;
-  onSuccess: () => void;
+  /** Recibe los datos que la persona llenó (los precargados y los del formulario), para que la página los use después de reservar. */
+  onSuccess: (formData: Record<string, string>) => void;
   onBack: () => void;
   lang?: WidgetLang;
 }
@@ -360,7 +362,7 @@ const BookingForm = ({
       (qualification?.confirmations ?? []).map((c) => [c.id, answers[c.id] === "yes" ? "Sí" : "No"]),
     );
     try {
-      if (previewOnly) { await new Promise((r) => setTimeout(r, 700)); onSuccess(); return; }
+      if (previewOnly) { await new Promise((r) => setTimeout(r, 700)); onSuccess({ ...prefilled, ...values }); return; }
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/crm-calendar-book`, {
         method: "POST",
         headers: {
@@ -377,7 +379,7 @@ const BookingForm = ({
         }),
       });
       if (!res.ok) throw new Error((await res.json())?.error ?? T.errorBooking);
-      onSuccess();
+      onSuccess({ ...prefilled, ...values });
     } catch (e: any) {
       setSubmitError(e.message ?? T.errorGeneral);
     } finally {
@@ -418,7 +420,14 @@ const BookingForm = ({
           </p>
         )}
         {shownFields.map((field: any) => (
-          <Field key={field.id} label={field.label} required={field.required} error={fieldErrors[field.id]}>
+          <Field
+            key={field.id}
+            label={qualification && field.type === "phone"
+              ? <span className="inline-flex items-center gap-1.5"><WhatsAppIcon className="h-4 w-4 text-[#25D366]" data-testid="whatsapp-icon" />{field.label}</span>
+              : field.label}
+            required={field.required}
+            error={fieldErrors[field.id]}
+          >
             {field.type === "textarea" ? (
               <textarea
                 value={values[field.id] ?? ""}
@@ -560,7 +569,7 @@ interface CalendarRendererProps {
   /** Overrides the calendar's stored branding color (used by standalone campaign pages that need to match their own brand instead of the calendar owner's). */
   primaryColorOverride?: string;
   /** Called right after a booking succeeds, in addition to showing the built-in success step (e.g. to redirect to a dedicated thank-you page). */
-  onBookingSuccess?: (booking: { date: string; hour: number; minute: number; calendarTz: string; visitorTz: string; calendarName: string }) => void;
+  onBookingSuccess?: (booking: { date: string; hour: number; minute: number; calendarTz: string; visitorTz: string; calendarName: string; formData?: Record<string, string> }) => void;
   /** Nombre/correo ya conocidos: no se piden de nuevo en el formulario, pero se envían con la reserva (ver BookingPrefill). */
   prefill?: BookingPrefill;
   /** Pide solo el WhatsApp como dato obligatorio (úsese junto con `prefill`). */
@@ -571,9 +580,14 @@ interface CalendarRendererProps {
   previewOnly?: boolean;
   /** Formulario propio de la página (campos + confirmaciones Sí / No que bloquean la reserva). Reemplaza al formulario del calendario. */
   qualification?: BookingQualification;
+  /**
+   * Si al reservar el calendario manda él mismo el evento `Lead` de Meta (por defecto sí). Una página que ya manda su propio `Lead`
+   * (con `event_id`) lo pone en `false` para que la reserva no cuente dos Leads.
+   */
+  fireLead?: boolean;
 }
 
-const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, onBookingSuccess, prefill, requireWhatsapp, phoneDefaultDial, previewOnly, qualification }: CalendarRendererProps) => {
+const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, onBookingSuccess, prefill, requireWhatsapp, phoneDefaultDial, previewOnly, qualification, fireLead = true }: CalendarRendererProps) => {
   const today = new Date();
   const [viewYear, setViewYear]   = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -626,10 +640,10 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
   }, [calendar?.id, pixelId]);
 
   useEffect(() => {
-    if (step === "success") {
+    if (step === "success" && fireLead) {
       fbTrack("Lead");
     }
-  }, [step]);
+  }, [step, fireLead]);
 
   const calendarTz = (calendar as any)?.timezone ?? "America/La_Paz";
 
@@ -797,7 +811,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
         primaryColor={primaryColor}
         calendarTz={calendarTz}
         visitorTz={visitorTz}
-        onSuccess={() => {
+        onSuccess={(formData) => {
           setStep("success");
           onBookingSuccess?.({
             date: selectedDate,
@@ -806,6 +820,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
             calendarTz,
             visitorTz,
             calendarName: calendar.name ?? T.appointmentName,
+            formData,
           });
         }}
         onBack={() => setStep("calendar")}
