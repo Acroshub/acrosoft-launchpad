@@ -30,8 +30,8 @@ export const CT_CSS = `
 /* Eyebrow de una línea en casi todos los celulares (para ganar altura y que el VSL entre en la primera pantalla); si no cabe, baja a dos en vez de desbordar. */
 .ct .ct-hero .ct-eyebrow{font-size:clamp(9.4px,2.7vw,12.5px);line-height:1.2;letter-spacing:.05em;margin-bottom:8px}
 /* Los 3 datos bajo el botón (gratis · Zoom/Meet/WhatsApp · 30 min) siempre en una sola fila, aun en pantallas chicas */
-.ct .est-trust{flex-wrap:nowrap;gap:6px clamp(7px,2.4vw,16px);font-size:clamp(9.6px,2.95vw,13.5px)}
-.ct .est-trust li{white-space:nowrap;gap:clamp(3px,1vw,6px)}
+.ct .est-trust{flex-wrap:wrap;max-width:100%;gap:6px clamp(8px,2.4vw,16px);font-size:clamp(11px,3.1vw,13.5px)}
+.ct .est-trust li{white-space:nowrap;min-width:0;gap:clamp(3px,1vw,6px)}
 .ct .est-trust .est-ic{width:clamp(12px,3.4vw,16px);height:clamp(12px,3.4vw,16px)}
 /* El VSL: en este hero va mucho más abajo que en /estimados-ty, así que se quita el tope por altura de ventana que allí lo mantenía en la primera pantalla. */
 .ct .ct-vid{padding:0 0 4px}
@@ -145,9 +145,15 @@ export const CT_CSS = `
 .ct .ct-final{padding:46px 0 120px}
 .ct .ct-final h2{font-size:clamp(36px,10vw,50px)}
 .ct .ct-final .est-checks{margin:10px 0 6px}
-/* Botones: «Agendar ahora» y, dentro del mismo botón y debajo (más chico), «Consultoría gratis + plan garantizado» */
+/* Botones: «AGENDA GRATIS AHORA» y, dentro del mismo botón y debajo (más chico), «Consultoría gratis + Website de Regalo» */
 .ct .est-btn{padding:13px 20px}
 .ct .ct-btn-txt{display:block;min-width:0;text-align:center}
+/* Ícono y texto principal en la MISMA línea (antes el ícono quedaba centrado contra las dos líneas del botón y se veía bajo/descuadrado) */
+.ct .ct-btn-main{display:inline-flex;align-items:center;justify-content:center;gap:9px}
+.ct .ct-btn-main .est-ic{width:.95em;height:.95em;flex:none;margin-top:-.08em}
+/* «Website de Regalo» subrayado SOLO dentro del botón (línea blanca sobre el naranja) */
+.ct .est-btn .ct-gift{text-decoration:underline;font-weight:800;text-decoration-skip-ink:none;text-decoration-color:#fff;text-decoration-thickness:2px;text-underline-offset:2px}
+.ct .est-trust{margin-top:14px}
 .ct .ct-btn-txt small{display:block;margin-top:4px;font:600 clamp(11.5px,3.3vw,14px)/1.2 var(--text);letter-spacing:0;text-transform:none;opacity:.95;text-wrap:balance}
 /* Barra fija móvil: el mismo botón, más compacto */
 .ct .est-sticky .est-btn{width:100%;padding:9px 14px}

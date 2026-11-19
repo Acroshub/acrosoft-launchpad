@@ -57,7 +57,7 @@ afterEach(() => {
   cfg.video = "";
 });
 
-const openPopup = () => fireEvent.click(screen.getAllByRole("button", { name: /Agendar ahora/i })[0]);
+const openPopup = () => fireEvent.click(screen.getAllByRole("button", { name: /Agenda gratis ahora/i })[0]);
 
 describe("/consultoria-mkt-tree", () => {
   it("promete +10 estimados nuevos al mes con un sistema probado de 4 sencillos pasos y es privada (noindex)", () => {
@@ -212,43 +212,54 @@ describe("/consultoria-mkt-tree", () => {
     expect(container.querySelector(".est-support, .est-footer, a[href*='wa.me']")).toBeNull();
   });
 
-  it("«Qué te llevas de la consultoría»: sin el texto de «venta disfrazada», sin la caja «El plan es tuyo», y los 3 pasos que pediste", () => {
+  it("«Qué te llevas de la consultoría»: sin el texto de «venta disfrazada», sin la caja «El plan es tuyo», y los 4 pasos (el último, el website de regalo)", () => {
     const { container } = render(<ConsultoriaMktTree />);
     const text = container.querySelector(".est-page")!.textContent ?? "";
     expect(text).not.toMatch(/venta disfrazada/);
     expect(container.querySelector(".ct-yours")).toBeNull();
     expect(text).not.toMatch(/Si luego prefieres ejecutarlo por tu cuenta/);
     const steps = Array.from(container.querySelectorAll(".ct-flow li")).map((li) => li.textContent ?? "");
-    expect(steps).toHaveLength(3);
+    expect(steps).toHaveLength(4);
+    expect(steps[3]).toContain("te regalamos un website");
     expect(steps[1]).toContain("Te decimos cómo organizar tus anuncios en Google y Facebook para sacarle el máximo provecho a tu presupuesto.");
     expect(steps[2]).toContain("Te vas con un plan de marketing claro, adaptado a tu negocio, listo para ponerlo en marcha. Totalmente Gratis. Sin importar si luego trabajas o no con nosotros.");
   });
 
-  it("la barra fija es solo un botón: «Agendar ahora» y, dentro del mismo botón y debajo, «Consultoría gratis + plan garantizado»", () => {
+  it("la barra fija es solo un botón: «Agenda gratis ahora» y, dentro del mismo botón y debajo, «Consultoría gratis + Website de Regalo»", () => {
     const { container } = render(<ConsultoriaMktTree />);
     const sticky = container.querySelector(".est-sticky")!;
     expect(sticky.querySelector(".est-p")).toBeNull();
     expect(sticky.querySelectorAll("button")).toHaveLength(1);
     const btn = sticky.querySelector("button")!;
-    expect(btn.querySelector(".ct-btn-txt")!.firstChild?.textContent).toBe("Agendar ahora");
-    expect(btn.querySelector("small")?.textContent).toBe("Consultoría gratis + plan garantizado");
+    expect(btn.querySelector(".ct-btn-main")!.textContent).toBe("Agenda gratis ahora");
+    expect(btn.querySelector("small")?.textContent).toBe("Consultoría gratis + Website de Regalo");
     expect(sticky.textContent).toBe(btn.textContent); // nada fuera del botón
     fireEvent.click(btn);
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
 
-  it("todos los botones llevan ícono de calendario, «Agendar ahora» y el mismo subtexto «Consultoría gratis + plan garantizado» dentro del botón", () => {
+  it("todos los botones llevan ícono de calendario, «Agenda gratis ahora» y el mismo subtexto «Consultoría gratis + Website de Regalo» dentro del botón", () => {
     const { container } = render(<ConsultoriaMktTree />);
-    const buttons = screen.getAllByRole("button", { name: /Agendar ahora/i });
+    const buttons = screen.getAllByRole("button", { name: /Agenda gratis ahora/i });
     expect(buttons).toHaveLength(4); // hero, sistema, barra fija y cierre
     for (const btn of buttons) {
       expect(btn.querySelector("svg rect")).not.toBeNull(); // el cuadro del calendario
       expect(btn.querySelector("svg path[d^='M4 10h16']")).not.toBeNull();
-      expect(btn.querySelector(".ct-btn-txt")!.firstChild?.textContent).toBe("Agendar ahora");
-      expect(btn.querySelector("small")?.textContent).toBe("Consultoría gratis + plan garantizado");
+      expect(btn.querySelector(".ct-btn-main")!.textContent).toBe("Agenda gratis ahora");
+      expect(btn.querySelector("small")?.textContent).toBe("Consultoría gratis + Website de Regalo");
     }
-    // la lista de confianza del hero ya no repite el plan (lo dice el botón)
-    expect(container.querySelector(".est-trust")!.textContent).not.toMatch(/Plan de Marketing/);
+    // debajo de cada botón (menos en la barra fija) van siempre los mismos 3 textos de confianza
+    const trusts = Array.from(container.querySelectorAll(".est-trust"));
+    expect(trusts).toHaveLength(3); // hero, sistema y cierre
+    for (const t of trusts) {
+      expect(Array.from(t.querySelectorAll("li")).map((li) => li.textContent)).toEqual(["Website gratis por asistir", "Zoom, Meet o WhatsApp", "30 minutos"]);
+      expect(t.querySelector(".ct-gift")).toBeNull(); // sin subrayar
+    }
+    expect(container.querySelector(".est-sticky .est-trust")).toBeNull();
+    // el subrayado es solo del subtexto dentro de los botones
+    expect(container.querySelectorAll(".ct-gift")).toHaveLength(4);
+    for (const g of Array.from(container.querySelectorAll(".ct-gift"))) expect(g.closest("button")).not.toBeNull();
+    expect(container.textContent).not.toMatch(/100% gratis/);
     expect(container.textContent).not.toMatch(/plan claro garantizado/i);
   });
 
@@ -263,7 +274,7 @@ describe("/consultoria-mkt-tree", () => {
 
   it("TODOS los botones (incluida la barra fija) abren el popup", () => {
     render(<ConsultoriaMktTree />);
-    const buttons = screen.getAllByRole("button", { name: /Agendar ahora/i });
+    const buttons = screen.getAllByRole("button", { name: /Agenda gratis ahora/i });
     expect(buttons.length).toBeGreaterThanOrEqual(4);
     buttons.forEach((b) => {
       fireEvent.click(b);
@@ -309,7 +320,7 @@ describe("/consultoria-mkt-tree", () => {
     const MP4 = "https://cdn.ejemplo.com/vsl/play_720p.mp4";
     const playBtn = () => screen.getByRole("button", { name: /Reproducir el video con sonido/i });
     const faq = () => screen.queryByRole("heading", { name: "Preguntas frecuentes" });
-    const agendar = () => screen.queryAllByRole("button", { name: /Agendar ahora/i });
+    const agendar = () => screen.queryAllByRole("button", { name: /Agenda gratis ahora/i });
     afterEach(() => { vi.useRealTimers(); });
 
     it("no hay texto «Míralo completo…» debajo del VSL", () => {
@@ -442,7 +453,7 @@ describe("/consultoria-mkt-tree", () => {
     expect(screen.queryByTestId("calendario")).toBeNull();
     expect(screen.getByTestId("consultoria-agendada").textContent).toMatch(/Ya reservamos tu cita\. Solo falta confirmar\./);
     expect(screen.getByTestId("resumen-cita").textContent).toMatch(/11:00 AM/); // 12:00 La Paz (UTC-4) = 11:00 AM en Nueva York (EST)
-    expect(screen.queryAllByRole("button", { name: /Agendar ahora/i })).toHaveLength(0);
+    expect(screen.queryAllByRole("button", { name: /Agenda gratis ahora/i })).toHaveLength(0);
   });
 
   it("el calendario va con fireLead={false}: el Lead de la página (con event_id) es el único, así la reserva no cuenta dos Leads", () => {
@@ -468,7 +479,7 @@ describe("/consultoria-mkt-tree", () => {
     fireEvent.click(screen.getByTestId("confirmar-whatsapp"));
     fireEvent.click(screen.getByRole("button", { name: "Cerrar" }));
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(screen.queryAllByRole("button", { name: /Agendar ahora/i })).toHaveLength(0);
+    expect(screen.queryAllByRole("button", { name: /Agenda gratis ahora/i })).toHaveLength(0);
   });
 
   it("la pantalla de «Ya reservamos tu cita» ya no trae la lista de «Ten a la mano…», «Piensa cuánto…» ni «Conéctate…»", () => {

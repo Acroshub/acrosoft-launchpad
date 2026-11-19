@@ -44,8 +44,8 @@ import { uuid } from "@/lib/uuid";
 // EXCEPCIÓN: el logo de Acros Software con los sellos de Meta y Google (sección 2b) se ve siempre, también antes del Play.
 // TODOS los botones (incluida la barra fija móvil) abren un POPUP con el calendario (el mismo de /estimados-ty); la página no tiene calendario
 // incrustado. Al agendar NO se sale de la página: dentro del popup el calendario se reemplaza por la confirmación (día y hora en la zona de quien
-// reservó) y salen los eventos Lead y Schedule de Meta. Nace con noindex (como el resto del embudo). Vista previa sin reservar: `?demo=1` (desarrollo) o
-// `?demo=<ESTIMADOS_PREVIEW_KEY>` (producción): el calendario no crea ninguna cita ni se manda ningún evento.
+// reservó) y salen los eventos Lead y Schedule de Meta. Nace con noindex (como el resto del embudo).
+// SIEMPRE registra: no hay modo de vista previa que evite crear la cita (se quitó el 2026-11-19; `?demo` ya no afecta al calendario ni al pixel).
 //
 // Color de acento: naranja del kit. (2026-11-16 se probó guindo #7D1B3A y se devolvió al naranja a pedido de Daniel.)
 // PENDIENTE: decidir si esta campaña usa un pixel propio. (El VSL ya está: CONSULTORIA_TREE_VIDEO_URL en src/lib/consultoriaTreeConfig.ts; sin URL, en producción la sección no se muestra.) Copy sin testimonios, cifras de resultados ni escasez inventados.
@@ -54,7 +54,6 @@ const PAGE_TITLE = "Consultoría de marketing gratis para Tree Services | Plan c
 const NOINDEX = true;
 /** Verde de la marca de la página (el mismo de /estimados-ty); el calendario (de otro dueño) lo usa en vez de su color guardado. */
 const CALENDAR_COLOR = "#1F4D36";
-const IS_DEMO = isEstimadosPreview();
 
 const BUDGET = `US$${CONSULTORIA_TREE_MIN_BUDGET.toLocaleString("en-US")}`;
 
@@ -132,11 +131,13 @@ const GETS = [
   <>Revisamos <b>cómo estás consiguiendo clientes hoy</b> y qué te está costando.</>,
   <>Te decimos <b>cómo organizar tus anuncios en Google y Facebook</b> para sacarle el máximo provecho a tu presupuesto.</>,
   <>Te vas con <b>un plan de marketing claro</b>, adaptado a tu negocio, listo para ponerlo en marcha. <b>Totalmente Gratis.</b> Sin importar si luego trabajas o no con nosotros.</>,
+  <>Al asistir a la consultoría, <b>te regalamos un website para tu negocio.</b> Es nuestro regalo por tomarte el tiempo de asistir.</>,
 ];
 
 const FAQ = [
   { q: "¿De verdad es gratis?", a: "Sí. La consultoría no tiene costo ni compromiso, y para agendarla no te pedimos tarjeta." },
   { q: "¿Y si después no quiero trabajar con ustedes?", a: "Te llevas tu plan igual. Puedes ponerlo en marcha por tu cuenta, con tu equipo o con quien tú quieras. Si decides trabajar con nosotros en alguno de nuestros planes de pago, perfecto; si no, sin presión." },
+  { q: "¿Cómo funciona el website de regalo?", a: "Cuando asistes a tu consultoría, te regalamos un website para tu negocio de tree service. Es nuestro regalo por asistir a la llamada, y es tuyo trabajes o no con nosotros después." },
   { q: "¿Cómo es la reunión?", a: `Dura ${CONSULTORIA_TREE_MINUTES} minutos y es por Zoom, Google Meet o WhatsApp, lo que te quede más cómodo. Después de agendar, confirmas tu cita con un mensaje por WhatsApp y coordinamos el detalle.` },
   { q: "¿Cuánto tengo que invertir en anuncios?", a: `Trabajamos con negocios de tree service que pueden invertir más de ${BUDGET} al mes en anuncios. En la llamada vemos cuánto te conviene según tu zona, tus servicios y tu meta de estimados.` },
   { q: "¿En qué se diferencian de otras agencias de marketing?", a: "Una agencia tradicional prueba estrategias hasta que alguna funciona, y ese aprendizaje lo pagas tú. Nosotros tenemos un sistema armado: formatos de anuncios virales validados, Google Ads y Facebook Ads, y más de 5 años de experiencia." },
@@ -264,9 +265,9 @@ const ConsultoriaMktTree = () => {
     return NOINDEX ? addNoindex() : undefined;
   }, []);
 
-  // PageView + ViewContent al cargar. Con PIXEL_ID vacío (o en vista previa) no hace nada.
+  // PageView + ViewContent al cargar. Con PIXEL_ID vacío no hace nada.
   useEffect(() => {
-    if (IS_DEMO || !CONSULTORIA_TREE_PIXEL_ID) return;
+    if (!CONSULTORIA_TREE_PIXEL_ID) return;
     initMetaPixel(CONSULTORIA_TREE_PIXEL_ID);
     trackMetaEvent("PageView", undefined, undefined, CONSULTORIA_TREE_PIXEL_ID);
     trackMetaEvent("ViewContent", consultoriaTreeEventParams(), uuid(), CONSULTORIA_TREE_PIXEL_ID);
@@ -313,7 +314,7 @@ const ConsultoriaMktTree = () => {
   // La consultoría quedó agendada: Lead (la señal para optimizar) y Schedule, solo del navegador y con event_id propio. Después, el calendario del
   // popup se reemplaza por la confirmación (y el popup vuelve a su inicio para que se vea completa).
   const handleBooked = (b: Booking) => {
-    if (CONSULTORIA_TREE_PIXEL_ID && !IS_DEMO) {
+    if (CONSULTORIA_TREE_PIXEL_ID) {
       try {
         trackMetaEvent("Lead", consultoriaTreeEventParams(), uuid(), CONSULTORIA_TREE_PIXEL_ID);
         trackMetaEvent("Schedule", consultoriaTreeEventParams(), uuid(), CONSULTORIA_TREE_PIXEL_ID);
@@ -324,11 +325,24 @@ const ConsultoriaMktTree = () => {
   };
 
   // TODOS los botones abren el popup del calendario. Una vez agendada la consultoría ya no hay nada más que agendar: se quitan.
-  // Mismo texto en todos: «Agendar ahora» y, debajo (dentro del botón), «Consultoría gratis + plan garantizado».
-  const book = () => booking ? null : (
-    <button type="button" className="est-btn" onClick={() => setOpen(true)} aria-haspopup="dialog">
-      <Ic id="calendar" /><span className="ct-btn-txt">Agendar ahora<small>Consultoría gratis + plan garantizado</small></span>
-    </button>
+  // Mismo texto en todos: «AGENDA GRATIS AHORA» (con el ícono en la misma línea) y, debajo (dentro del botón), «Consultoría gratis + Website de Regalo».
+  // Debajo de cada botón van siempre los 3 textos de confianza (salvo en la barra fija móvil, que no tiene espacio: ahí solo el botón).
+  const book = (withTrust = true) => booking ? null : (
+    <>
+      <button type="button" className="est-btn" onClick={() => setOpen(true)} aria-haspopup="dialog">
+        <span className="ct-btn-txt">
+          <span className="ct-btn-main"><Ic id="calendar" />Agenda gratis ahora</span>
+          <small>Consultoría gratis + <span className="ct-gift">Website de Regalo</span></small>
+        </span>
+      </button>
+      {withTrust && (
+        <ul className="est-trust">
+          <li><Ic id="gift" />Website gratis por asistir</li>
+          <li><Ic id="video" />Zoom, Meet o WhatsApp</li>
+          <li><Ic id="clock" />{CONSULTORIA_TREE_MINUTES} minutos</li>
+        </ul>
+      )}
+    </>
   );
 
   const summary = booking ? formatBookingSummary(booking.date, booking.hour, booking.minute, booking.calendarTz, booking.visitorTz) : null;
@@ -338,7 +352,7 @@ const ConsultoriaMktTree = () => {
       <link rel="preconnect" href="https://fonts.googleapis.com" />
       <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
       <link href={EST_FONT_HREF} rel="stylesheet" />
-      {!IS_DEMO && CONSULTORIA_TREE_PIXEL_ID && (
+      {CONSULTORIA_TREE_PIXEL_ID && (
         <noscript>
           <img height="1" width="1" style={{ display: "none" }} src={`https://www.facebook.com/tr?id=${CONSULTORIA_TREE_PIXEL_ID}&ev=PageView&noscript=1`} alt="" />
         </noscript>
@@ -377,11 +391,6 @@ const ConsultoriaMktTree = () => {
               {revealed && (
                 <div className="est-cta">
                   {book()}
-                  <ul className="est-trust">
-                    <li><Ic id="gift" />100% gratis</li>
-                    <li><Ic id="video" />Zoom, Meet o WhatsApp</li>
-                    <li><Ic id="clock" />{CONSULTORIA_TREE_MINUTES} minutos</li>
-                  </ul>
                 </div>
               )}
             </div>
@@ -471,7 +480,7 @@ const ConsultoriaMktTree = () => {
 
             {/* Barra fija móvil */}
             <div className={`est-sticky${stickyVisible && !booking && !open ? " est-is-visible" : ""}`}>
-              {book()}
+              {book(false)}
             </div>
 
             {/* ============ 6. PREGUNTAS FRECUENTES ============ */}
@@ -494,6 +503,7 @@ const ConsultoriaMktTree = () => {
                   <li><Ic id="check" />Una consultoría de {CONSULTORIA_TREE_MINUTES} minutos con un plan claro para tu negocio</li>
                   <li><Ic id="check" />Google Ads y Facebook Ads con un sistema que ya funciona</li>
                   <li><Ic id="check" />El plan es tuyo, trabajes o no con nosotros</li>
+                  <li><Ic id="check" />Un website de regalo para tu negocio cuando asistas a la consultoría</li>
                 </ul>
                 <div className="est-cta">
                   {book()}
@@ -556,7 +566,6 @@ const ConsultoriaMktTree = () => {
                     primaryColorOverride={CALENDAR_COLOR}
                     phoneDefaultDial="+1"
                     qualification={CONSULTORIA_TREE_QUALIFICATION}
-                    previewOnly={IS_DEMO}
                     fireLead={false} /* el Lead de esta página sale en handleBooked (con event_id): el del calendario lo contaría dos veces */
                     onBookingSuccess={handleBooked}
                   />
