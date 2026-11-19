@@ -68,7 +68,7 @@ export const WH_CSS = `
 
 /* ── Por qué contratar: tarjetas minimalistas deslizables (icono, número y título) ── */
 .wh .wh-ben-sec{padding:34px 0 8px}
-.wh .wh-ben-track{display:flex;gap:12px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-padding-left:20px;padding:18px 20px 8px;scrollbar-width:none;-webkit-overflow-scrolling:touch;outline-offset:-2px}
+.wh .wh-ben-track{position:relative;display:flex;gap:12px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-padding-left:20px;padding:18px 20px 8px;margin:0 -20px;scrollbar-width:none;-webkit-overflow-scrolling:touch;outline-offset:-2px}
 .wh .wh-ben-track::-webkit-scrollbar{display:none}
 .wh .wh-ben-card{flex:0 0 clamp(224px,64vw,270px);scroll-snap-align:start;display:flex;flex-direction:column;align-items:flex-start;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 15px 18px;box-shadow:0 6px 16px rgba(11,58,110,.07)}
 .wh .wh-ben-ic{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--green-soft);color:var(--green);margin-bottom:4px}
@@ -76,12 +76,19 @@ export const WH_CSS = `
 .wh .wh-ben-n{font:800 clamp(52px,15vw,64px)/.9 var(--head);letter-spacing:.01em;color:var(--hl)}
 .wh .wh-ben-n small{font:800 .5em/1 var(--head);margin-left:3px;letter-spacing:.02em}
 .wh .wh-ben-card h3{margin:0;text-transform:none;letter-spacing:0;font:600 15.5px/1.35 var(--text);color:var(--ink)}
+/* Pantallas anchas: las 4 tarjetas en una fila centrada y sin deslizar (no caben ni 3 en la columna de 640 px); los puntos solo hacen falta en celular y tablet. */
+@media (min-width:900px){
+  .wh .wh-ben-sec .est-wrap{max-width:1100px}
+  .wh .wh-ben-track{margin:0;padding:18px 0 8px;overflow:visible;justify-content:center;scroll-snap-type:none}
+  .wh .wh-ben-card{flex:1 1 0;min-width:0;max-width:270px}
+  .wh .wh-ben-sec .wh-dots{display:none}
+}
 
 /* ── Ejemplos: carrusel de maquetas ── */
 .wh .wh-ex-sec{padding:40px 0 34px}
 .wh .wh-ex-head{text-align:center;margin-bottom:6px}
 .wh .wh-ex-head p{margin:0 auto;max-width:28em;font-size:15px;line-height:1.4}
-.wh .wh-track{display:flex;gap:16px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;padding:18px 20px 8px;margin:0 -20px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.wh .wh-track{position:relative;display:flex;gap:16px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;padding:18px 20px 8px;margin:0 -20px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
 .wh .wh-track::-webkit-scrollbar{display:none}
 .wh .wh-track>figure{flex:0 0 88%;scroll-snap-align:center;margin:0}
 .wh .wh-track figcaption{margin-top:6px;text-align:center;font:600 13px/1.3 var(--text);color:#6D7066}

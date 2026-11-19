@@ -378,8 +378,7 @@ const WebsiteHvac = () => {
           <section className="est-sec wh-ben-sec" aria-label="Por qué contratar una website con nuestra metodología">
             <div className="est-wrap">
               <h2 style={{ textAlign: "center" }}>¿Por qué contratar una website con <span className="est-hl">nuestra metodología</span>?</h2>
-            </div>
-            <div className="wh-ben-track" ref={benRef} onScroll={onBenScroll} role="group" aria-label="Desliza para ver los 4 motivos" tabIndex={0}>
+              <div className="wh-ben-track" ref={benRef} onScroll={onBenScroll} role="group" aria-label="Desliza para ver los 4 motivos" tabIndex={0}>
               {BENEFITS.map((b) => (
                 <div className="wh-ben-card" key={b.title}>
                   <span className="wh-ben-ic" aria-hidden="true"><Ic id={b.icon} /></span>
@@ -387,11 +386,12 @@ const WebsiteHvac = () => {
                   <h3>{b.title}</h3>
                 </div>
               ))}
-            </div>
-            <div className="wh-dots">
-              {BENEFITS.map((b, i) => (
-                <button key={b.title} type="button" className={i === benSlide ? "is-on" : ""} aria-label={`Ver motivo ${i + 1} de ${BENEFITS.length}`} aria-current={i === benSlide ? "true" : undefined} onClick={() => goBen(i)} />
-              ))}
+              </div>
+              <div className="wh-dots">
+                {BENEFITS.map((b, i) => (
+                  <button key={b.title} type="button" className={i === benSlide ? "is-on" : ""} aria-label={`Ver motivo ${i + 1} de ${BENEFITS.length}`} aria-current={i === benSlide ? "true" : undefined} onClick={() => goBen(i)} />
+                ))}
+              </div>
             </div>
           </section>
 
