@@ -41,6 +41,7 @@ const EstimadosTy = lazy(() => import("./pages/EstimadosTy.tsx"));
 const EstimadosGracias = lazy(() => import("./pages/EstimadosGracias.tsx"));
 const ConsultoriaMktTree = lazy(() => import("./pages/ConsultoriaMktTree.tsx"));
 const WebsiteHvac = lazy(() => import("./pages/WebsiteHvac.tsx"));
+const WebsiteTree = lazy(() => import("./pages/WebsiteTree.tsx"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -93,6 +94,7 @@ const App = () => (
             {/* Landing de agendamiento «Consultoría de marketing gratis para Tree Services»: VSL + el mismo calendario de /estimados-ty (nace con noindex) */}
             <Route path="/consultoria-mkt-tree" element={<ConsultoriaMktTree />} />
             <Route path="/website-hvac" element={<WebsiteHvac />} />
+            <Route path="/website-tree" element={<WebsiteTree />} />
 
             {/* Client invitation setup — public (session comes from invite link) */}
             <Route path="/crm-setup" element={<CrmSetup />} />

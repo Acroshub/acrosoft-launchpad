@@ -22,6 +22,13 @@ const SITES: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   "hvac-ejemplo-4":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample4 }))),
   "hvac-ejemplo-5":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample5 }))),
   "hvac-ejemplo-6":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample6 }))),
+  // Diseños de muestra para TREE SERVICE (tampoco están en el catálogo): de aquí salen las capturas de la landing /website-tree.
+  "tree-ejemplo-1":         lazy(() => import("./sites/TreeExamples").then((m) => ({ default: m.TreeExample1 }))),
+  "tree-ejemplo-2":         lazy(() => import("./sites/TreeExamples").then((m) => ({ default: m.TreeExample2 }))),
+  "tree-ejemplo-3":         lazy(() => import("./sites/TreeExamples").then((m) => ({ default: m.TreeExample3 }))),
+  "tree-ejemplo-4":         lazy(() => import("./sites/TreeExamples").then((m) => ({ default: m.TreeExample4 }))),
+  "tree-ejemplo-5":         lazy(() => import("./sites/TreeExamples").then((m) => ({ default: m.TreeExample5 }))),
+  "tree-ejemplo-6":         lazy(() => import("./sites/TreeExamples").then((m) => ({ default: m.TreeExample6 }))),
 };
 
 function LoadingScreen() {
