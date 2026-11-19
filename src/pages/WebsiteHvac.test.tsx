@@ -40,7 +40,6 @@ const llenarPaso2 = () => {
   fireEvent.click(screen.getByRole("button", { name: "Español" }));
   fireEvent.change(screen.getByPlaceholderText("Ej: Houston, TX"), { target: { value: "Houston, TX" } });
   fireEvent.click(screen.getByRole("button", { name: /Reparación de A\/C/ }));
-  fireEvent.click(screen.getByRole("button", { name: /Marcar el servicio 1 como servicio destacado/ }));
   document.querySelectorAll(".wh-conf").forEach((c) => fireEvent.click(c.querySelector("button")!));
 };
 
@@ -89,7 +88,7 @@ describe("formulario de /website-hvac (vista previa)", () => {
     expect((screen.getByPlaceholderText("Ej: Houston, TX") as HTMLInputElement).value).toBe("Houston, TX");
   });
 
-  it("paso 2: «Enviar» solo se habilita con idioma, ciudad, servicio destacado y las 4 confirmaciones en Sí", () => {
+  it("paso 2: «Enviar» se habilita con idioma, ciudad, un servicio y las 4 confirmaciones en Sí (el servicio destacado es opcional)", () => {
     renderPage();
     abrirPopup();
     fillStep1();
@@ -97,8 +96,7 @@ describe("formulario de /website-hvac (vista previa)", () => {
     fireEvent.click(screen.getByRole("button", { name: "Español" }));
     fireEvent.change(screen.getByPlaceholderText("Ej: Houston, TX"), { target: { value: "Houston, TX" } });
     fireEvent.click(screen.getByRole("button", { name: /Reparación de A\/C/ }));
-    expect(enviar().disabled).toBe(true); // falta el servicio destacado
-    fireEvent.click(screen.getByRole("button", { name: /Marcar el servicio 1 como servicio destacado/ }));
+    expect(enviar().disabled).toBe(true); // faltan las confirmaciones (NO hace falta elegir servicio destacado)
 
     const confirmaciones = Array.from(document.querySelectorAll(".wh-conf"));
     expect(confirmaciones).toHaveLength(4);

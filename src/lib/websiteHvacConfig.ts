@@ -95,9 +95,8 @@ export function cleanServices(f: WebsiteHvacForm): { services: string[]; star: s
 export function validateWebsiteHvacStep2(f: WebsiteHvacForm): string | null {
   if (!f.language) return "Elige el idioma de tu website";
   if (!f.city.trim()) return "Escribe la ciudad y el estado donde trabajas";
-  const { services, star } = cleanServices(f);
+  const { services } = cleanServices(f);
   if (services.length === 0) return "Agrega al menos un servicio";
-  if (!star) return "Elige tu Servicio Destacado (el que más quieres vender)";
   if (WEBSITE_HVAC_CONFIRMATIONS.some((c) => !f.answers[c.id])) return "Responde las 4 confirmaciones";
   if (WEBSITE_HVAC_CONFIRMATIONS.some((c) => f.answers[c.id] === "no")) return "Aún no cumples los requisitos para recibir tu website gratis";
   return null;

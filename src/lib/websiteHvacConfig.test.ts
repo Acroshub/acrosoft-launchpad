@@ -20,12 +20,12 @@ describe("formulario de /website-hvac", () => {
     expect(validateWebsiteHvacStep1({ ...ok(), business: " " })).toMatch(/negocio/i);
   });
 
-  it("paso 2: válido solo con idioma, ciudad, servicio destacado y las 4 confirmaciones en Sí", () => {
+  it("paso 2: válido con idioma, ciudad, al menos un servicio y las 4 confirmaciones en Sí; el servicio destacado es OPCIONAL", () => {
     expect(validateWebsiteHvacStep2(ok())).toBeNull();
     expect(validateWebsiteHvacStep2({ ...ok(), language: "" })).toMatch(/idioma/i);
     expect(validateWebsiteHvacStep2({ ...ok(), city: "" })).toMatch(/ciudad/i);
-    expect(validateWebsiteHvacStep2({ ...ok(), star: -1 })).toMatch(/destacado/i);
-    expect(validateWebsiteHvacStep2({ ...ok(), star: 1 })).toMatch(/destacado/i); // la fila 2 está vacía: no puede ser el destacado
+    expect(validateWebsiteHvacStep2({ ...ok(), star: -1 })).toBeNull(); // sin servicio destacado: se puede enviar
+    expect(validateWebsiteHvacStep2({ ...ok(), services: ["", "", "", "", "", ""], star: -1 })).toMatch(/servicio/i); // pero al menos un servicio sí
     expect(validateWebsiteHvacStep2({ ...ok(), answers: { confirm_material: "yes" } })).toMatch(/4 confirmaciones/);
     expect(validateWebsiteHvacStep2({ ...ok(), answers: { ...ok().answers, confirm_call: "no" } })).toMatch(/requisitos/);
   });

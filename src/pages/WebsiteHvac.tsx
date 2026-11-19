@@ -580,13 +580,13 @@ const WebsiteHvac = () => {
                           {form.services.map((s, i) => (
                             <div className="wh-svc" key={i}>
                               <input className="wh-in" value={s} onChange={(e) => setService(i, e.target.value)} aria-label={`Servicio ${i + 1}`} placeholder={i === 0 ? "Ej: Reparación de A/C" : `Servicio ${i + 1} (opcional)`} maxLength={80} />
-                              <button type="button" className="wh-star" aria-pressed={starIdx === i} disabled={!s.trim()} onClick={() => set("star", i)} aria-label={`Marcar el servicio ${i + 1} como servicio destacado`}>
+                              <button type="button" className="wh-star" aria-pressed={starIdx === i} disabled={!s.trim()} onClick={() => set("star", starIdx === i ? -1 : i)} aria-label={`Marcar el servicio ${i + 1} como servicio destacado`}>
                                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.9 6.9 7.4.6-5.6 4.8 1.7 7.2L12 17.6 5.6 21.5l1.7-7.2L1.7 9.5l7.4-.6z" /></svg>
                                 <span>{starIdx === i ? "Servicio destacado" : ""}</span>
                               </button>
                             </div>
                           ))}
-                          <p className="wh-hint">{hasAnyService ? "Toca la estrella del servicio que más quieres vender: será tu Servicio Destacado y el protagonista de tu website." : "Escribe tus servicios o toca los atajos de arriba. Luego toca la estrella del que será tu Servicio Destacado."}</p>
+                          <p className="wh-hint">{hasAnyService ? "Opcional: toca la estrella del servicio que más quieres vender para marcarlo como tu Servicio Destacado." : "Escribe tus servicios o toca los atajos de arriba. Si quieres, marca con la estrella tu Servicio Destacado (opcional)."}</p>
                         </div>
 
                         <div role="group" aria-label="Confirmaciones" style={{ marginTop: 16 }}>

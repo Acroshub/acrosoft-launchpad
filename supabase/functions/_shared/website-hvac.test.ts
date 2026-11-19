@@ -9,7 +9,7 @@ const ok = {
   confirm_material: true, confirm_cost: true, confirm_call: true, confirm_marketing: true,
 };
 
-Deno.test("pedido válido: normaliza correo y toma el servicio estrella tal como lo escribió en la lista", () => {
+Deno.test("pedido válido: normaliza correo y toma el servicio destacado tal como lo escribió en la lista", () => {
   const r = parseWebsiteHvacRequest(ok);
   assert(r.ok);
   if (r.ok) {
@@ -28,10 +28,18 @@ Deno.test("pedido: cada confirmación es obligatoria y tiene que ser true", () =
   }
 });
 
-Deno.test("pedido: servicios (1 a 6, sin repetidos) y estrella dentro de la lista", () => {
+Deno.test("pedido: servicios (1 a 6, sin repetidos); el destacado es opcional", () => {
   assertEquals(parseWebsiteHvacRequest({ ...ok, services: [] }).ok, false);
   assertEquals(parseWebsiteHvacRequest({ ...ok, services: ["a", "b", "c", "d", "e", "f", "g"], star: "a" }).ok, false);
-  assertEquals(parseWebsiteHvacRequest({ ...ok, star: "Otro" }).ok, false);
+  // El servicio destacado es lo ÚNICO opcional: sin él (o con uno que no está en la lista) el pedido es válido y queda vacío.
+  const sinDestacado = parseWebsiteHvacRequest({ ...ok, star: "" });
+  assert(sinDestacado.ok);
+  if (sinDestacado.ok) assertEquals(sinDestacado.value.star, "");
+  const sinCampo = parseWebsiteHvacRequest({ ...ok, star: undefined });
+  assert(sinCampo.ok);
+  const otro = parseWebsiteHvacRequest({ ...ok, star: "Otro" });
+  assert(otro.ok);
+  if (otro.ok) assertEquals(otro.value.star, "");
   const dup = parseWebsiteHvacRequest({ ...ok, services: ["Instalación", "instalación", " "], star: "Instalación" });
   assert(dup.ok);
   if (dup.ok) assertEquals(dup.value.services, ["Instalación"]);
@@ -55,6 +63,7 @@ Deno.test("datos guardados: llaves del formulario del CRM e idioma legible", () 
   assertEquals(d[WH_FIELD.language], "Español");
   assertEquals(d[WH_FIELD.services], "Reparación de A/C, Instalación, Mantenimiento");
   assertEquals(d[WH_FIELD.star], "Instalación");
+  assertEquals(buildSubmissionData({ ...r.value, star: "" })[WH_FIELD.star], "No indicó");
   assertEquals(d[WH_FIELD.marketing], "Sí");
 });
 

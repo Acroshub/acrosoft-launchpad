@@ -2,8 +2,8 @@
  * Lógica pura de la landing /website-hvac (website gratis para dueños de HVAC): validación del pedido, cupos del mes, datos que se guardan
  * en el formulario del CRM y el aviso push al superadmin. Sin red ni Supabase para poder probarla con `deno test`.
  *
- * Reglas del negocio (Daniel, 2026-11-19): máximo 10 websites al mes, las 4 confirmaciones son obligatorias, hasta 6 servicios con uno de
- * ellos como «servicio estrella», el cupo del mes se cuenta en la hora de Nueva York (donde vive el cliente), no en UTC.
+ * Reglas del negocio (Daniel, 2026-11-19): máximo 10 websites al mes, las 4 confirmaciones son obligatorias, hasta 6 servicios y, OPCIONALMENTE, uno de
+ * ellos como «servicio destacado» (es lo único opcional del formulario), el cupo del mes se cuenta en la hora de Nueva York (donde vive el cliente), no en UTC.
  */
 import { isValidEmail, isValidPhone, sanitizeText } from "./validate.ts";
 
@@ -43,6 +43,7 @@ export interface WebsiteHvacRequest {
   language: "es" | "en";
   city: string;
   services: string[];
+  /** Servicio destacado: opcional, "" si la persona no eligió ninguno. */
   star: string;
 }
 
@@ -74,9 +75,9 @@ export function parseWebsiteHvacRequest(body: unknown): ParseResult {
   if (services.length === 0) return { ok: false, error: "Agrega al menos un servicio" };
   if (services.length > WEBSITE_HVAC_MAX_SERVICES) return { ok: false, error: `Máximo ${WEBSITE_HVAC_MAX_SERVICES} servicios` };
 
+  // El servicio destacado es OPCIONAL: si no viene (o no coincide con ningún servicio de la lista) queda vacío; nunca bloquea el envío.
   const star = sanitizeText(b.star, 80);
-  const starMatch = services.find((s) => s.toLowerCase() === star.toLowerCase());
-  if (!starMatch) return { ok: false, error: "Elige tu servicio estrella" };
+  const starMatch = star ? services.find((s) => s.toLowerCase() === star.toLowerCase()) ?? "" : "";
 
   if (b.confirm_material !== true || b.confirm_cost !== true || b.confirm_call !== true || b.confirm_marketing !== true) {
     return { ok: false, error: "Debes aceptar las 4 confirmaciones" };
@@ -111,7 +112,7 @@ export function buildSubmissionData(v: WebsiteHvacRequest): Record<string, strin
     [WH_FIELD.language]: v.language === "es" ? "Español" : "Inglés",
     [WH_FIELD.city]: v.city,
     [WH_FIELD.services]: v.services.join(", "),
-    [WH_FIELD.star]: v.star,
+    [WH_FIELD.star]: v.star || "No indicó",
     [WH_FIELD.material]: "Sí",
     [WH_FIELD.cost]: "Sí",
     [WH_FIELD.call]: "Sí",
