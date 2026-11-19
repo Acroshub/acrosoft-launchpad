@@ -7,6 +7,9 @@ const px = vi.hoisted(() => ({ init: vi.fn(), track: vi.fn() }));
 vi.mock("@/lib/metaPixel", () => ({ initMetaPixel: px.init, trackMetaEvent: px.track }));
 vi.mock("@/lib/piscinasFunnel", () => ({ addNoindex: vi.fn(() => () => {}) }));
 
+// Estas pruebas renderizan la página completa y llenan el formulario: con la máquina cargada pueden pasar de los 5 s por defecto (una falla intermitente así se vio una vez).
+vi.setConfig({ testTimeout: 20000 });
+
 const PIXEL = "4563434847244973";
 let WebsiteHvac: ComponentType;
 

@@ -32,6 +32,13 @@ export const WH_CSS = `
 .wh .wh-checks li{display:block;font:500 clamp(14px,3.8vw,16px)/1.3 var(--text);color:var(--body)}
 .wh .wh-checks li b{color:var(--ink);font-weight:700}
 .wh .wh-checks .est-ic{display:inline-block;vertical-align:-.28em;margin:0 7px 0 0;width:1.3em;height:1.3em;color:var(--green);stroke-width:3.2}
+/* Precio de anclaje bajo el botón del hero */
+.wh .wh-anchor{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;max-width:400px;margin:14px auto 0;padding:11px 12px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 4px 12px rgba(11,58,110,.06)}
+.wh .wh-anchor div{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
+.wh .wh-anchor span{font:600 12.5px/1.2 var(--text);color:#6B7280;text-align:center}
+.wh .wh-anchor s{font:800 30px/1 var(--head);letter-spacing:.02em;color:#8A93A2;text-decoration-thickness:3px;text-decoration-color:var(--orange)}
+.wh .wh-anchor strong{font:800 36px/1 var(--head);letter-spacing:.02em;text-transform:uppercase;color:var(--hl)}
+.wh .wh-anchor .est-ic{width:20px;height:20px;color:var(--green);stroke-width:2.6}
 .wh .wh-meter{margin:14px auto 0;max-width:420px;text-align:left}
 .wh .wh-meter-row{display:flex;justify-content:space-between;gap:10px;font:600 13.5px/1.2 var(--text);color:var(--ink);margin-bottom:6px}
 .wh .wh-meter-row span:last-child{color:var(--hl)}

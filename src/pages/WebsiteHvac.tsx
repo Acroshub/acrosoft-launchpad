@@ -9,7 +9,7 @@ import { EST_CSS, EST_FONT_HREF } from "@/components/estimados/estimadosStyles";
 import { EST_CSS_EXTRA } from "@/components/estimados/estimadosStylesExtra";
 import { WH_CSS } from "@/components/website-hvac/websiteHvacStyles";
 import {
-  WEBSITE_HVAC_CALL_MINUTES, WEBSITE_HVAC_CONFIRMATIONS, WEBSITE_HVAC_DELIVERY_DAYS, WEBSITE_HVAC_DISPLAY_SLOTS, WEBSITE_HVAC_FN, WEBSITE_HVAC_FREE_MONTHS,
+  WEBSITE_HVAC_AGENCY_PRICE, WEBSITE_HVAC_CALL_MINUTES, WEBSITE_HVAC_CONFIRMATIONS, WEBSITE_HVAC_DELIVERY_DAYS, WEBSITE_HVAC_DISPLAY_SLOTS, WEBSITE_HVAC_FN, WEBSITE_HVAC_FREE_MONTHS,
   WEBSITE_HVAC_MAX_SERVICES, WEBSITE_HVAC_MONTHLY_LIMIT, WEBSITE_HVAC_MONTHLY_PRICE, WEBSITE_HVAC_PIXEL_ID, WEBSITE_HVAC_SERVICE_SUGGESTIONS,
   WEBSITE_HVAC_SLUG, buildWebsiteHvacBody, emptyWebsiteHvacForm, validateWebsiteHvacStep1, validateWebsiteHvacStep2, websiteHvacConfirmUrl,
   websiteHvacEventParams,
@@ -359,6 +359,12 @@ const WebsiteHvac = () => {
                   <li><Ic id="clock" />Entrega en {WEBSITE_HVAC_DELIVERY_DAYS} días</li>
                   <li><Ic id="globe" />Español o inglés</li>
                 </ul>
+              </div>
+              {/* Precio de anclaje bajo el botón: lo que cuesta normalmente (tachado) vs. aquí */}
+              <div className="wh-anchor" role="group" aria-label={`Con otra agencia una website cuesta desde US$${WEBSITE_HVAC_AGENCY_PRICE.toLocaleString("en-US")}. Aquí es gratis.`}>
+                <div><span>Con otra agencia:</span><s>US${WEBSITE_HVAC_AGENCY_PRICE.toLocaleString("en-US")}+</s></div>
+                <Ic id="arrow" />
+                <div><span>Aquí:</span><strong>Gratis</strong></div>
               </div>
               <div className="wh-meter" role="img" aria-label={`${used} de ${WEBSITE_HVAC_MONTHLY_LIMIT} cupos usados este mes`}>
                 <div className="wh-meter-row"><span>Cupos de este mes</span><span>{soldOut ? "Agotados" : `Quedan ${shown}`}</span></div>
