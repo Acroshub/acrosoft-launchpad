@@ -43,7 +43,10 @@ export const WH_CSS = `
 .wh .wh-meter-row{display:flex;justify-content:space-between;gap:10px;font:600 13.5px/1.2 var(--text);color:var(--ink);margin-bottom:6px}
 .wh .wh-meter-row span:last-child{color:var(--hl)}
 .wh .wh-meter-bar{height:12px;border-radius:99px;background:#DFE7F1;overflow:hidden;box-shadow:inset 0 1px 2px rgba(17,17,17,.12)}
-.wh .wh-meter-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--orange),#EE6A53);transition:width .6s cubic-bezier(.22,.8,.3,1)}
+.wh .wh-meter-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--orange),#EE6A53);position:relative;overflow:hidden;transition:width .6s cubic-bezier(.22,.8,.3,1)}
+/* Barra «en marcha»: franjas diagonales a 45° de ancho parejo (mosaico cuadrado: no se estrechan hacia un extremo) que corren hacia la derecha, así parece que avanza aunque el ancho no cambie. */
+.wh .wh-meter-bar i::before{content:"";position:absolute;inset:0;background-image:linear-gradient(45deg,rgba(255,255,255,.18) 25%,rgba(255,255,255,0) 25%,rgba(255,255,255,0) 50%,rgba(255,255,255,.18) 50%,rgba(255,255,255,.18) 75%,rgba(255,255,255,0) 75%,rgba(255,255,255,0));background-size:28px 28px;animation:wh-meter-run 1.4s linear infinite}
+@keyframes wh-meter-run{from{background-position:0 0}to{background-position:28px 0}}
 .wh .est-btn small{display:block;margin-top:3px;font:600 clamp(11.5px,3.3vw,14px)/1.2 var(--text);letter-spacing:0;text-transform:none;opacity:.95}
 .wh .wh-btn-txt{display:block;min-width:0;text-align:center}
 .wh button.est-btn{border:0;cursor:pointer}
@@ -183,5 +186,5 @@ export const WH_CSS = `
 .wh .wh-foot{padding:6px 0 110px;text-align:center}
 .wh .wh-foot p{margin:8px 0 0;font-size:12.5px;color:#8A8C82}
 @media (min-width:760px){.wh .wh-foot{padding-bottom:50px}.wh .wh-track>figure{flex-basis:78%}}
-@media (prefers-reduced-motion:reduce){.wh .wh-meter-bar i,.wh .wh-dots button{transition:none}}
+@media (prefers-reduced-motion:reduce){.wh .wh-meter-bar i,.wh .wh-dots button{transition:none}.wh .wh-meter-bar i::before{animation:none}}
 `;

@@ -343,7 +343,7 @@ const WebsiteHvac = () => {
           {/* ============ 2. HERO ============ */}
           <header className="est-hero wh-hero">
             <div className="est-wrap">
-              <span className="est-eyebrow"><UsFlag />Para dueños de HVAC en EE.UU.</span>
+              <span className="est-eyebrow"><UsFlag />Dueños de negocio de HVAC en USA</span>
               <h1>Te regalamos tu <span className="est-hl">website profesional</span> para tu negocio de HVAC</h1>
               <ul className="wh-checks" aria-label="Lo que incluye">
                 <li><Ic id="check" /><span>Recíbelo en <b>Máximo {WEBSITE_HVAC_DELIVERY_DAYS} Días</b></span></li>
