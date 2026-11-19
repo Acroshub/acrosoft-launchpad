@@ -23,13 +23,15 @@ export const WH_CSS = `
 /* ── Hero ── */
 .wh .wh-hero{padding:20px 0 30px;text-align:center}
 .wh .wh-hero h1{font-size:clamp(33px,9.4vw,52px);line-height:.98;margin-bottom:10px}
+/* Bandera de EE.UU. en línea con el texto de arriba del título */
+.wh .wh-flag{display:inline-block;width:22px;height:15px;margin-right:8px;vertical-align:-3px}
 .wh .wh-sub{font-size:clamp(16px,4.6vw,19px);line-height:1.35;margin:0 auto 16px;max-width:30em;color:var(--body)}
 .wh .wh-sub b{color:var(--ink)}
 /* Subtexto del hero en 2 checks */
-.wh .wh-checks{list-style:none;margin:0 auto 16px;padding:0;max-width:30em;display:grid;gap:8px;text-align:left}
-.wh .wh-checks li{display:flex;gap:8px;align-items:flex-start;font:500 clamp(14px,3.8vw,16px)/1.3 var(--text);color:var(--body)}
+.wh .wh-checks{list-style:none;margin:0 auto 16px;padding:0;max-width:30em;display:grid;gap:8px;justify-items:center;text-align:center}
+.wh .wh-checks li{display:block;font:500 clamp(14px,3.8vw,16px)/1.3 var(--text);color:var(--body)}
 .wh .wh-checks li b{color:var(--ink);font-weight:700}
-.wh .wh-checks .est-ic{flex:none;width:1.3em;height:1.3em;margin-top:0;color:var(--green);stroke-width:3.2}
+.wh .wh-checks .est-ic{display:inline-block;vertical-align:-.28em;margin:0 7px 0 0;width:1.3em;height:1.3em;color:var(--green);stroke-width:3.2}
 .wh .wh-meter{margin:14px auto 0;max-width:420px;text-align:left}
 .wh .wh-meter-row{display:flex;justify-content:space-between;gap:10px;font:600 13.5px/1.2 var(--text);color:var(--ink);margin-bottom:6px}
 .wh .wh-meter-row span:last-child{color:var(--hl)}
@@ -61,12 +63,12 @@ export const WH_CSS = `
 .wh .wh-ben-sec{padding:34px 0 8px}
 .wh .wh-ben-track{display:flex;gap:12px;overflow-x:auto;overscroll-behavior-x:contain;scroll-snap-type:x mandatory;scroll-padding-left:20px;padding:18px 20px 8px;scrollbar-width:none;-webkit-overflow-scrolling:touch;outline-offset:-2px}
 .wh .wh-ben-track::-webkit-scrollbar{display:none}
-.wh .wh-ben-card{flex:0 0 clamp(158px,46vw,200px);scroll-snap-align:start;display:flex;flex-direction:column;align-items:flex-start;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 15px 18px;box-shadow:0 6px 16px rgba(11,58,110,.07)}
+.wh .wh-ben-card{flex:0 0 clamp(224px,64vw,270px);scroll-snap-align:start;display:flex;flex-direction:column;align-items:flex-start;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:18px;padding:16px 15px 18px;box-shadow:0 6px 16px rgba(11,58,110,.07)}
 .wh .wh-ben-ic{display:grid;place-items:center;width:40px;height:40px;border-radius:12px;background:var(--green-soft);color:var(--green);margin-bottom:4px}
 .wh .wh-ben-ic .est-ic{width:22px;height:22px;stroke-width:2.1}
 .wh .wh-ben-n{font:800 clamp(52px,15vw,64px)/.9 var(--head);letter-spacing:.01em;color:var(--hl)}
-.wh .wh-ben-n small{font:800 .5em/1 var(--head);margin-left:2px}
-.wh .wh-ben-card h3{margin:0;text-transform:none;letter-spacing:0;font:600 15px/1.3 var(--text);color:var(--ink)}
+.wh .wh-ben-n small{font:800 .5em/1 var(--head);margin-left:3px;letter-spacing:.02em}
+.wh .wh-ben-card h3{margin:0;text-transform:none;letter-spacing:0;font:600 15.5px/1.35 var(--text);color:var(--ink)}
 
 /* ── Ejemplos: carrusel de maquetas ── */
 .wh .wh-ex-sec{padding:40px 0 34px}
@@ -81,6 +83,9 @@ export const WH_CSS = `
 .wh .wh-dots button.is-on{width:24px;background:var(--orange)}
 .wh .wh-note{margin:10px auto 0;text-align:center;font-size:13px;line-height:1.4;color:#7A7C72;max-width:30em}
 
+/* ── Que incluye: nota en cursiva (no negrita) bajo el primer punto ── */
+.wh .est-checks .wh-inc-note{display:block;margin-top:2px;font-style:italic;font-weight:400;font-size:14px;color:var(--body)}
+
 /* ── Precio ── */
 .wh .wh-price{background:var(--card);border:2px solid var(--green);border-radius:18px;overflow:hidden;margin-top:16px;box-shadow:0 10px 26px rgba(17,17,17,.08)}
 .wh .wh-price-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 16px;border-top:1px solid var(--line)}
@@ -89,7 +94,18 @@ export const WH_CSS = `
 .wh .wh-price-row small{display:block;font:400 13.5px/1.35 var(--text);color:var(--body);margin-top:2px}
 .wh .wh-price-row strong{flex:none;font:800 30px/1 var(--head);letter-spacing:.02em;color:var(--green)}
 .wh .wh-price-row.is-hl{background:var(--green-soft)}
+.wh .wh-price-main{align-items:center}
+.wh .wh-price-was{flex:none;display:grid;justify-items:end;gap:1px;text-align:right}
+.wh .wh-price-was s{font:700 18px/1 var(--head);letter-spacing:.02em;color:#8A93A2;text-decoration-thickness:2px;text-decoration-color:var(--orange)}
+.wh .wh-price-was s i{font:600 .7em/1 var(--text);font-style:normal}
+.wh .wh-price-was strong{font:800 38px/.95 var(--head);letter-spacing:.02em;color:var(--hl)}
+.wh .wh-price-was em{font:700 12.5px/1.2 var(--text);font-style:normal;color:var(--green);text-transform:uppercase;letter-spacing:.04em}
+.wh .wh-price-note{margin:0;padding:12px 16px;border-top:1px solid var(--line);background:#FAFCFE;font:400 13px/1.4 var(--text);color:var(--body)}
 .wh .wh-price-row.is-hl strong{color:var(--hl)}
+
+/* ── Popup del formulario (el contenido es un portal con su propio est-page ct wh) ── */
+.wh.wh-pop-body{padding:14px 12px 16px;border-radius:16px;min-height:0}
+.wh .wh-pop-body .wh-card{margin:0}
 
 /* ── Formulario ── */
 .wh .wh-form-sec{padding:44px 0}
@@ -108,6 +124,13 @@ export const WH_CSS = `
 .wh .wh-in{display:block;width:100%;min-height:48px;padding:11px 13px;border:1.5px solid #CFC9B8;border-radius:11px;background:#fff;color:#111;font:400 16px/1.3 var(--text);appearance:none;-webkit-appearance:none}
 .wh .wh-in::placeholder{color:#A19F94}
 .wh .wh-in:focus{outline:3px solid rgba(11,58,110,.28);outline-offset:0;border-color:var(--green)}
+.wh .wh-wa-label{display:flex!important;align-items:center;gap:6px}
+.wh .wh-wa-ic{width:17px;height:17px;color:#25D366;flex:none}
+.wh .wh-tel select,.wh .wh-tel input{height:48px;min-height:48px;border:1.5px solid #CFC9B8;border-radius:11px;background:#fff;color:#111;font:400 16px/1.3 var(--text)}
+.wh .wh-tel select{padding:0 6px}
+.wh .wh-tel input::placeholder{color:#A19F94}
+.wh .wh-tel input{padding:0 13px}
+.wh .wh-tel select:focus,.wh .wh-tel input:focus{outline:3px solid rgba(11,58,110,.28);outline-offset:0;border-color:var(--green);box-shadow:none}
 .wh .wh-seg{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .wh .wh-seg button{min-height:48px;border:1.5px solid #CFC9B8;border-radius:11px;background:#fff;color:#111;font:700 16px/1 var(--text);cursor:pointer}
 .wh .wh-seg button[aria-pressed="true"]{background:var(--green);border-color:var(--green);color:#fff}
@@ -115,10 +138,12 @@ export const WH_CSS = `
 .wh .wh-chips button{padding:7px 11px;border:1.5px dashed #BDB7A5;border-radius:99px;background:#FBFAF6;color:#3D4037;font:600 13px/1 var(--text);cursor:pointer}
 .wh .wh-chips button:disabled{opacity:.4;cursor:default}
 .wh .wh-svc{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;margin:0 0 8px}
-.wh .wh-star{display:flex;align-items:center;justify-content:center;gap:5px;min-width:48px;min-height:48px;padding:0 10px;border:1.5px solid #CFC9B8;border-radius:11px;background:#fff;color:#8C8A7E;font:700 12.5px/1 var(--text);cursor:pointer}
-.wh .wh-star svg{width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}
-.wh .wh-star[aria-pressed="true"]{background:#FFEFEA;border-color:var(--orange);color:var(--hl)}
-.wh .wh-star[aria-pressed="true"] svg{fill:var(--orange);stroke:var(--orange)}
+.wh .wh-star{display:flex;align-items:center;justify-content:center;gap:6px;min-width:48px;min-height:48px;padding:0 10px;border:1.5px solid #CFC9B8;border-radius:11px;background:#fff;color:#8C8A7E;font:700 12.5px/1 var(--text);cursor:pointer}
+.wh .wh-star span{text-align:left;font-size:11.5px;line-height:1.1;max-width:68px}
+.wh .wh-star svg{flex:none;width:19px;height:19px;fill:none;stroke:currentColor;stroke-width:2;stroke-linejoin:round}
+/* Servicio destacado elegido: amarillo */
+.wh .wh-star[aria-pressed="true"]{background:#FFF7CC;border-color:#F5B800;color:#7A5B00}
+.wh .wh-star[aria-pressed="true"] svg{fill:#FACC15;stroke:#D99A00}
 .wh .wh-star:disabled{opacity:.4;cursor:default}
 .wh .wh-hint{margin:2px 0 0;font-size:12.5px;line-height:1.4;color:#7A7C72}
 .wh .wh-conf{border:1.5px solid var(--line);border-radius:13px;padding:12px;margin:0 0 10px;background:#FBFAF6}
@@ -131,6 +156,8 @@ export const WH_CSS = `
 .wh .wh-actions .est-btn{flex:1;max-width:none}
 .wh .wh-back{flex:none;min-height:52px;padding:0 16px;border:1.5px solid #CFC9B8;border-radius:12px;background:#fff;color:#3D4037;font:700 15px/1 var(--text);cursor:pointer}
 .wh .est-btn[disabled]{opacity:.55;cursor:default;transform:none}
+.wh .est-btn[disabled]{filter:grayscale(.3)}
+.wh .wh-need{margin:9px 0 0;text-align:center;font:500 12.5px/1.35 var(--text);color:#7A7C72}
 .wh .wh-legal{margin:10px 0 0;text-align:center;font-size:12px;line-height:1.4;color:#8A8C82}
 
 /* ── Confirmación (reusa .ct-done de la consultoría) ── */

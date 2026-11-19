@@ -9,7 +9,7 @@ const OUT = new URL("../public/website-hvac/", import.meta.url).pathname;
 mkdirSync(OUT, { recursive: true });
 
 const browser = await chromium.launch();
-for (const n of [1, 2, 3]) {
+for (const n of [1, 2, 3, 4, 5, 6]) {
   for (const [kind, viewport, scale, height] of [
     ["desktop", { width: 1366, height: 860 }, 1, 860],
     ["mobile", { width: 390, height: 844 }, 2, 844],

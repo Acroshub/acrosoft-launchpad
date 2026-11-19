@@ -2,8 +2,6 @@
 // servicio de anuncios; en la llamada de entrega se ofrece el plan de marketing). El formulario NO usa calendario: manda el pedido a la Edge Function
 // `website-hvac-request` (cupo de 10 por mes, contacto en el CRM, aviso push) y luego lleva a WhatsApp para confirmar, igual que /consultoria-mkt-tree.
 
-import { ESTIMADOS_PIXEL_ID } from "@/lib/estimadosConfig";
-
 export const WEBSITE_HVAC_PATH = "/website-hvac";
 export const WEBSITE_HVAC_SLUG = "website-hvac";
 
@@ -16,13 +14,13 @@ export const WEBSITE_HVAC_MONTHLY_LIMIT = 10;
 export const WEBSITE_HVAC_DISPLAY_SLOTS = 3;
 export const WEBSITE_HVAC_MAX_SERVICES = 6;
 /** Precio mensual de dominio y hosting a partir del 4.º mes (USD). */
-export const WEBSITE_HVAC_MONTHLY_PRICE = 30;
+export const WEBSITE_HVAC_MONTHLY_PRICE = 20;
 export const WEBSITE_HVAC_FREE_MONTHS = 3;
 export const WEBSITE_HVAC_DELIVERY_DAYS = 2;
 export const WEBSITE_HVAC_CALL_MINUTES = 30;
 
-/** Mismo pixel que el kit y la consultoría mientras no haya uno propio para esta campaña. Eventos: PageView, ViewContent y Lead (al enviar el formulario). */
-export const WEBSITE_HVAC_PIXEL_ID: string = ESTIMADOS_PIXEL_ID;
+/** Pixel de Meta PROPIO de esta campaña (4563434847244973). Eventos: PageView y ViewContent al cargar la página, y Lead cuando la persona ve «Recibimos tu pedido». */
+export const WEBSITE_HVAC_PIXEL_ID = "4563434847244973";
 
 /** WhatsApp al que el cliente escribe para confirmar su pedido (solo dígitos, con código de país: +591 57697071, el mismo de la consultoría). */
 export const WEBSITE_HVAC_WHATSAPP = "59157697071";
@@ -52,7 +50,7 @@ export interface WebsiteHvacForm {
   language: "" | "es" | "en";
   city: string;
   services: string[]; // siempre WEBSITE_HVAC_MAX_SERVICES entradas (vacías incluidas)
-  star: number; // índice del servicio estrella dentro de `services`, -1 si aún no eligió
+  star: number; // índice del servicio destacado dentro de `services`, -1 si aún no eligió
   answers: Partial<Record<WebsiteHvacConfirmId, "yes" | "no">>;
 }
 
@@ -73,7 +71,7 @@ export function validateWebsiteHvacStep1(f: WebsiteHvacForm): string | null {
   return null;
 }
 
-/** Servicios escritos (sin vacíos ni repetidos) y el índice del estrella dentro de esa lista, o -1. */
+/** Servicios escritos (sin vacíos ni repetidos) y el índice del destacado dentro de esa lista, o -1. */
 export function cleanServices(f: WebsiteHvacForm): { services: string[]; star: string } {
   const out: string[] = [];
   let star = "";
@@ -93,7 +91,7 @@ export function validateWebsiteHvacStep2(f: WebsiteHvacForm): string | null {
   if (!f.city.trim()) return "Escribe la ciudad y el estado donde trabajas";
   const { services, star } = cleanServices(f);
   if (services.length === 0) return "Agrega al menos un servicio";
-  if (!star) return "Elige tu servicio estrella (el que más quieres vender)";
+  if (!star) return "Elige tu Servicio Destacado (el que más quieres vender)";
   if (WEBSITE_HVAC_CONFIRMATIONS.some((c) => !f.answers[c.id])) return "Responde las 4 confirmaciones";
   if (WEBSITE_HVAC_CONFIRMATIONS.some((c) => f.answers[c.id] === "no")) return "Aún no cumples los requisitos para recibir tu website gratis";
   return null;

@@ -1,6 +1,6 @@
-import { Phone, Star, MapPin, Check, ArrowRight, Snowflake, Flame, Wind, Wrench, ShieldCheck, Clock } from "lucide-react";
+import { Phone, Star, MapPin, Check, ArrowRight, Snowflake, Flame, Wind, Wrench, ShieldCheck, Clock, ChevronLeft, ChevronRight, CalendarDays, Thermometer } from "lucide-react";
 
-// Ejemplos de diseño de website para HVAC. Solo sirven para sacar las capturas de la landing /website-hvac (public/website-hvac/*.jpg):
+// Ejemplos de diseño de website para HVAC (6 en total: 1-3 basados en el portafolio; 4-6 de composición propia, con calendario de reservas, barra de cotización rápida y cotización por pasos). Solo sirven para sacar las capturas de la landing /website-hvac (public/website-hvac/*.jpg):
 // son DISEÑOS DE MUESTRA, no clientes reales. Los tres están basados en layouts del portafolio (/websites): Martinez Cleaning (claro, foto a
 // la derecha), El Sol Roofing (oscuro, foto a pantalla completa) y Gonzalez Landscaping (verde, foto grande + tarjeta flotante).
 // Las fotos son imágenes generadas con IA (public/website-hvac/src). Para volver a sacar las capturas: abrir /websites/hvac-ejemplo-1|2|3
@@ -235,6 +235,210 @@ export function HvacExample3() {
               </div>
             );
           })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ───────────────────────── Ejemplo 4: crema, verde azulado y coral · calendario de reservas dentro del hero ─────────────────────────
+export function HvacExample4() {
+  const TEAL = "#0F4C5C", CORAL = "#F26B3A", CREAM = "#FBF6EE";
+  const days = Array.from({ length: 30 }, (_, i) => i + 1); // noviembre de 2026 empieza en domingo
+  const slots = ["8:00 AM", "10:30 AM", "1:00 PM", "3:30 PM"];
+  return (
+    <div className="overflow-x-hidden" style={{ background: CREAM, color: "#1B2A2F", fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <nav className="max-w-6xl mx-auto px-5 sm:px-8 h-[72px] flex items-center justify-between">
+        <div className="flex items-center gap-2.5">
+          <div className="w-9 h-9 rounded-full flex items-center justify-center text-white" style={{ background: TEAL }}><Wind size={18} /></div>
+          <div className="font-extrabold tracking-tight text-lg" style={{ color: TEAL }}>Alpine Air Co.</div>
+        </div>
+        <div className="flex items-center gap-4 text-sm font-semibold">
+          <span className="hidden sm:flex items-center gap-1.5" style={{ color: TEAL }}><Phone size={14} /> (303) 555-0187</span>
+          <span className="px-4 py-2 rounded-full border-2" style={{ borderColor: TEAL, color: TEAL }}>Book a visit</span>
+        </div>
+      </nav>
+
+      <section className="max-w-6xl mx-auto px-5 sm:px-8 pt-4 lg:pt-10 pb-10 grid lg:grid-cols-[1fr_540px] gap-8 lg:gap-6 items-start">
+        <div className="lg:pt-8">
+          <div className="text-xs font-bold tracking-[0.18em] uppercase mb-4" style={{ color: CORAL }}>Denver &amp; front range · AC, heating &amp; air</div>
+          <h1 className="text-[2.6rem] sm:text-[3.4rem] lg:text-[4rem] font-extrabold leading-[1.02] tracking-tight mb-5" style={{ color: TEAL }}>
+            A cooler home,<br />booked in<br /><span style={{ color: CORAL }}>60 seconds.</span>
+          </h1>
+          <p className="text-base lg:text-lg leading-relaxed text-[#4A5A5F] max-w-[26rem] mb-6">Pick a day and a time. A certified technician shows up with the right parts and a clear price before any work starts.</p>
+          <ul className="space-y-2.5 text-[15px] font-medium">
+            {["Same-week appointments", "Upfront, flat-rate pricing", "Licensed, background-checked techs"].map((t) => (
+              <li key={t} className="flex items-center gap-2.5"><span className="w-5 h-5 rounded-full flex items-center justify-center text-white" style={{ background: TEAL }}><Check size={12} strokeWidth={3} /></span>{t}</li>
+            ))}
+          </ul>
+        </div>
+
+        <div className="relative lg:h-[560px]">
+          <div className="relative h-[230px] lg:absolute lg:right-0 lg:top-0 lg:w-[300px] lg:h-[450px] overflow-hidden" style={{ borderRadius: "150px 150px 28px 28px" }}>
+            <img src={`${IMG}/living-termostato.jpg`} alt="Comfortable living room with a smart thermostat" className="w-full h-full object-cover" />
+          </div>
+          <div className="relative -mt-12 mx-2 lg:mx-0 lg:mt-0 lg:absolute lg:left-0 lg:bottom-0 lg:w-[330px] bg-white rounded-3xl p-5 shadow-[0_24px_60px_rgba(15,76,92,0.22)] border border-[#EFE6D8]">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2 font-extrabold text-[15px]" style={{ color: TEAL }}><CalendarDays size={17} /> Pick your day</div>
+              <div className="flex items-center gap-1 text-sm font-semibold text-[#6B7B80]"><ChevronLeft size={16} /> Nov 2026 <ChevronRight size={16} /></div>
+            </div>
+            <div className="grid grid-cols-7 gap-y-1 text-center text-[11px] font-bold text-[#9AA7AB] mb-1">{["S", "M", "T", "W", "T", "F", "S"].map((d, i) => <span key={i}>{d}</span>)}</div>
+            <div className="grid grid-cols-7 gap-y-1 text-center text-[13px]">
+              {days.map((d) => {
+                const dow = (d - 1) % 7, off = d <= 19 || dow === 0 || dow === 6, sel = d === 24;
+                return (
+                  <span key={d} className="mx-auto w-8 h-8 flex items-center justify-center rounded-full font-semibold" style={sel ? { background: CORAL, color: "#fff" } : { color: off ? "#CBD3D5" : "#1B2A2F", background: off ? "transparent" : "#F4EFE6" }}>{d}</span>
+                );
+              })}
+            </div>
+            <div className="mt-4 text-[11px] font-bold tracking-widest uppercase text-[#9AA7AB] mb-2">Tuesday, Nov 24</div>
+            <div className="grid grid-cols-2 gap-2">
+              {slots.map((t) => (
+                <span key={t} className="text-center text-[13px] font-bold py-2 rounded-xl border-2" style={t === "10:30 AM" ? { background: TEAL, borderColor: TEAL, color: "#fff" } : { borderColor: "#E5DCCB", color: TEAL }}>{t}</span>
+              ))}
+            </div>
+            <div className="mt-4 flex items-center justify-center gap-2 text-white font-extrabold py-3.5 rounded-xl" style={{ background: CORAL }}>Confirm appointment <ArrowRight size={16} /></div>
+            <div className="text-center text-[11px] text-[#8A989C] mt-2">Free estimate · No payment today</div>
+          </div>
+        </div>
+      </section>
+
+      <section style={{ background: TEAL }} className="text-white">
+        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-10 grid sm:grid-cols-3 gap-6">
+          {[["01", "Pick a time", "Choose the day that works for you."], ["02", "We show up", "Certified tech, right parts, flat price."], ["03", "Home feels right", "Cool, quiet and backed by our warranty."]].map(([n, t, d]) => (
+            <div key={n} className="flex gap-4"><div className="text-3xl font-extrabold" style={{ color: CORAL }}>{n}</div><div><div className="font-bold text-lg">{t}</div><div className="text-white/70 text-sm mt-1">{d}</div></div></div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ───────────────────────── Ejemplo 5: azul marino y amarillo · corte diagonal y barra de cotización rápida ─────────────────────────
+export function HvacExample5() {
+  const NAVY = "#0B1F3A", YEL = "#FACC15";
+  return (
+    <div className="overflow-x-hidden" style={{ background: "#F3F5F8", color: NAVY, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <div className="text-center text-[11px] sm:text-xs font-extrabold tracking-wider py-2 px-3" style={{ background: YEL, color: NAVY }}>OPEN NOW · 24/7 EMERGENCY SERVICE · (704) 555-0166</div>
+
+      <section className="relative text-white overflow-hidden" style={{ background: NAVY }}>
+        <div className="absolute inset-0 lg:left-auto lg:w-[56%] lg:[clip-path:polygon(16%_0,100%_0,100%_100%,0_100%)]">
+          <img src={`${IMG}/techo-azotea.jpg`} alt="HVAC technician servicing a rooftop unit at sunset" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 lg:hidden" style={{ background: "rgba(11,31,58,0.82)" }} />
+        </div>
+        <nav className="relative z-10 max-w-6xl mx-auto px-5 sm:px-8 h-[68px] flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-md flex items-center justify-center" style={{ background: YEL, color: NAVY }}><Thermometer size={19} /></div>
+            <div className="leading-none"><div className="font-black text-[17px] tracking-tight">BLUE RIDGE</div><div className="text-[9px] font-bold tracking-[3px] mt-1 text-white/60">HEATING &amp; COOLING</div></div>
+          </div>
+          <div className="flex items-center gap-2 font-extrabold px-4 py-2 rounded-full text-sm" style={{ background: YEL, color: NAVY }}><Phone size={14} /> <span className="hidden sm:inline">(704) 555-0166</span><span className="sm:hidden">Call</span></div>
+        </nav>
+        <div className="relative z-10 max-w-6xl mx-auto px-5 sm:px-8 pt-8 lg:pt-14 pb-24 lg:pb-28">
+          <div className="max-w-[34rem]">
+            <div className="inline-flex items-center gap-2 text-xs font-bold tracking-widest uppercase mb-5" style={{ color: YEL }}><span className="w-8 h-0.5" style={{ background: YEL }} />Charlotte, NC</div>
+            <h1 className="text-[3rem] sm:text-[4.2rem] lg:text-[5rem] font-black leading-[0.94] tracking-tighter mb-5">
+              No cool?<br /><span style={{ color: YEL }}>No problem.</span>
+            </h1>
+            <p className="text-base lg:text-lg text-white/70 leading-relaxed max-w-md">Tell us what&apos;s wrong and we&apos;ll call you back in minutes with a price and an arrival window.</p>
+          </div>
+        </div>
+      </section>
+
+      <div className="relative z-20 -mt-14 max-w-5xl mx-auto px-4">
+        <div className="bg-white rounded-2xl p-4 sm:p-5 shadow-[0_24px_60px_rgba(11,31,58,0.25)] border border-[#E3E8EF] grid lg:grid-cols-[0.8fr_1.4fr_1fr_auto] gap-3 items-end">
+          {[["ZIP code", "28202"], ["What&apos;s going on?", "AC not cooling"], ["Mobile phone", "(704) 555-0100"]].map(([l, v], i) => (
+            <div key={l}>
+              <div className="text-[10px] font-extrabold tracking-widest uppercase text-[#7C8BA1] mb-1.5" dangerouslySetInnerHTML={{ __html: l }} />
+              <div className="h-12 rounded-xl border-2 border-[#DDE3EC] px-3.5 flex items-center justify-between text-[15px] font-semibold">{v}{i === 1 && <ChevronRight size={16} className="rotate-90 text-[#7C8BA1]" />}</div>
+            </div>
+          ))}
+          <div className="h-12 px-6 rounded-xl flex items-center justify-center gap-2 font-black" style={{ background: YEL, color: NAVY }}>Get my quote <ArrowRight size={16} /></div>
+        </div>
+        <div className="flex flex-wrap justify-center gap-2 mt-4 mb-6">
+          {["No cooling", "No heat", "Strange noise", "High energy bill", "Thermostat issue"].map((c) => (
+            <span key={c} className="text-xs font-bold px-3.5 py-2 rounded-full bg-white border border-[#DDE3EC]">{c}</span>
+          ))}
+        </div>
+      </div>
+
+      <section className="max-w-5xl mx-auto px-4 pb-12">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+          {[[Snowflake, "AC repair", "Fast diagnostics"], [Flame, "Furnace & heat", "Winter-ready"], [Wind, "Heat pumps", "Efficient year-round"], [Wrench, "Tune-ups", "Prevent breakdowns"]].map(([I, t, d]) => {
+            const Icon = I as typeof Snowflake;
+            return (
+              <div key={t as string} className="bg-white rounded-2xl p-4 border border-[#E3E8EF]">
+                <div className="w-10 h-10 rounded-lg flex items-center justify-center mb-3" style={{ background: YEL, color: NAVY }}><Icon size={19} /></div>
+                <div className="font-extrabold">{t as string}</div><div className="text-sm text-[#5C6B82]">{d as string}</div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+// ───────────────────────── Ejemplo 6: blanco, rojo y carbón · editorial con tipografía serif y cotización por pasos ─────────────────────────
+export function HvacExample6() {
+  const RED = "#B91C1C", INK = "#1F2937";
+  const needs = [["AC repair", true], ["New system", false], ["Heating", false], ["Maintenance plan", false]] as const;
+  return (
+    <div className="overflow-x-hidden bg-white" style={{ color: INK, fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <nav className="border-b border-[#ECECEC]">
+        <div className="max-w-6xl mx-auto px-5 sm:px-8 h-[64px] flex items-center justify-between">
+          <div className="text-[22px] tracking-tight" style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700 }}>Sunbelt<span style={{ color: RED }}> Comfort</span></div>
+          <div className="hidden md:flex gap-8 text-sm font-medium text-[#5B6472]"><span>Cooling</span><span>Heating</span><span>Air quality</span><span>Plans</span></div>
+          <div className="text-sm font-bold flex items-center gap-1.5" style={{ color: RED }}><Phone size={14} /> (813) 555-0123</div>
+        </div>
+      </nav>
+
+      <section className="max-w-6xl mx-auto px-5 sm:px-8 pt-8 lg:pt-14 pb-12 grid lg:grid-cols-[1.15fr_1fr] gap-10 lg:gap-14 items-start">
+        <div>
+          <div className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#7A8393] mb-4">Heating · Cooling · Air quality — Tampa Bay since 2009</div>
+          <h1 className="text-[2.7rem] sm:text-[3.6rem] lg:text-[4.3rem] leading-[1.02] tracking-tight mb-7" style={{ fontFamily: "Georgia, 'Times New Roman', serif", fontWeight: 700 }}>
+            Comfort you <em style={{ color: RED }}>stop thinking</em> about.
+          </h1>
+
+          <div className="rounded-2xl border border-[#E5E7EB] p-5 sm:p-6 shadow-[0_14px_40px_rgba(31,41,55,0.08)] max-w-[34rem]">
+            <div className="flex items-center justify-between text-xs font-bold text-[#7A8393] mb-2"><span>FREE ESTIMATE</span><span>Step 1 of 3</span></div>
+            <div className="h-1.5 rounded-full bg-[#EEF0F3] mb-5"><div className="h-full rounded-full w-1/3" style={{ background: RED }} /></div>
+            <div className="text-lg font-bold mb-3" style={{ fontFamily: "Georgia, serif" }}>What do you need help with?</div>
+            <div className="grid grid-cols-2 gap-2.5">
+              {needs.map(([t, on]) => (
+                <div key={t} className="flex items-center gap-2.5 rounded-xl border-2 px-3.5 py-3 text-[14px] font-semibold" style={on ? { borderColor: RED, background: "#FEF2F2" } : { borderColor: "#E5E7EB" }}>
+                  <span className="w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0" style={{ borderColor: on ? RED : "#C3C9D3" }}>{on && <span className="w-2 h-2 rounded-full" style={{ background: RED }} />}</span>{t}
+                </div>
+              ))}
+            </div>
+            <div className="mt-5 flex items-center justify-between">
+              <span className="text-xs text-[#8A93A2]">Takes about 1 minute</span>
+              <span className="flex items-center gap-2 text-white font-bold px-6 py-3 rounded-xl" style={{ background: RED }}>Continue <ArrowRight size={16} /></span>
+            </div>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 lg:pt-6">
+          <div className="row-span-2 rounded-2xl overflow-hidden"><img src={`${IMG}/instalacion-sala.jpg`} alt="Technician installing a mini-split indoors" className="w-full h-full object-cover" style={{ minHeight: 300 }} /></div>
+          <div className="rounded-2xl overflow-hidden aspect-square"><img src={`${IMG}/apreton-manos.jpg`} alt="Technician greeting a homeowner" className="w-full h-full object-cover" /></div>
+          <div className="rounded-2xl overflow-hidden aspect-square"><img src={`${IMG}/tecnico-condensador.jpg`} alt="Technician servicing an outdoor AC unit" className="w-full h-full object-cover" style={{ objectPosition: "70% 50%" }} /></div>
+          <div className="col-span-2 flex items-center gap-3 rounded-2xl bg-[#F6F7F9] px-4 py-3.5">
+            <div className="flex gap-0.5">{[0, 1, 2, 3, 4].map((i) => <Star key={i} size={15} fill="#F59E0B" style={{ color: "#F59E0B" }} />)}</div>
+            <div className="text-sm font-semibold">4.9 · 400+ homes served</div>
+          </div>
+        </div>
+      </section>
+
+      <section className="bg-[#F6F7F9] border-t border-[#ECECEC]">
+        <div className="max-w-6xl mx-auto px-5 sm:px-8 py-12">
+          <div className="text-[11px] font-bold tracking-[0.2em] uppercase text-[#7A8393] mb-2">Maintenance plans</div>
+          <div className="text-2xl sm:text-3xl mb-6" style={{ fontFamily: "Georgia, serif", fontWeight: 700 }}>Fewer surprises. Lower bills.</div>
+          <div className="grid sm:grid-cols-3 gap-4">
+            {[["Essential", "$14/mo", "1 tune-up a year"], ["Plus", "$24/mo", "2 tune-ups + priority booking"], ["Complete", "$39/mo", "2 tune-ups + repair discounts"]].map(([n, pr, d], i) => (
+              <div key={n} className="rounded-2xl bg-white p-5 border-2" style={{ borderColor: i === 1 ? RED : "#E5E7EB" }}>
+                <div className="font-bold">{n}</div><div className="text-3xl my-1" style={{ fontFamily: "Georgia, serif", fontWeight: 700, color: i === 1 ? RED : INK }}>{pr}</div><div className="text-sm text-[#6B7280]">{d}</div>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
     </div>

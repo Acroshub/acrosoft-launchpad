@@ -19,6 +19,9 @@ const SITES: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   "hvac-ejemplo-1":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample1 }))),
   "hvac-ejemplo-2":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample2 }))),
   "hvac-ejemplo-3":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample3 }))),
+  "hvac-ejemplo-4":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample4 }))),
+  "hvac-ejemplo-5":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample5 }))),
+  "hvac-ejemplo-6":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample6 }))),
 };
 
 function LoadingScreen() {

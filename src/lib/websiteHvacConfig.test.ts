@@ -20,17 +20,17 @@ describe("formulario de /website-hvac", () => {
     expect(validateWebsiteHvacStep1({ ...ok(), business: " " })).toMatch(/negocio/i);
   });
 
-  it("paso 2: válido solo con idioma, ciudad, servicio estrella y las 4 confirmaciones en Sí", () => {
+  it("paso 2: válido solo con idioma, ciudad, servicio destacado y las 4 confirmaciones en Sí", () => {
     expect(validateWebsiteHvacStep2(ok())).toBeNull();
     expect(validateWebsiteHvacStep2({ ...ok(), language: "" })).toMatch(/idioma/i);
     expect(validateWebsiteHvacStep2({ ...ok(), city: "" })).toMatch(/ciudad/i);
-    expect(validateWebsiteHvacStep2({ ...ok(), star: -1 })).toMatch(/estrella/i);
-    expect(validateWebsiteHvacStep2({ ...ok(), star: 1 })).toMatch(/estrella/i); // la fila 2 está vacía: no puede ser la estrella
+    expect(validateWebsiteHvacStep2({ ...ok(), star: -1 })).toMatch(/destacado/i);
+    expect(validateWebsiteHvacStep2({ ...ok(), star: 1 })).toMatch(/destacado/i); // la fila 2 está vacía: no puede ser el destacado
     expect(validateWebsiteHvacStep2({ ...ok(), answers: { confirm_material: "yes" } })).toMatch(/4 confirmaciones/);
     expect(validateWebsiteHvacStep2({ ...ok(), answers: { ...ok().answers, confirm_call: "no" } })).toMatch(/requisitos/);
   });
 
-  it("servicios: sin vacíos ni repetidos, y el estrella se conserva aunque haya filas vacías antes", () => {
+  it("servicios: sin vacíos ni repetidos, y el destacado se conserva aunque haya filas vacías antes", () => {
     expect(cleanServices(ok())).toEqual({ services: ["Reparación de A/C", "Instalación"], star: "Instalación" });
     const dup = { ...ok(), services: ["Instalación", "instalación", "", "", "", ""], star: 0 };
     expect(cleanServices(dup)).toEqual({ services: ["Instalación"], star: "Instalación" });
