@@ -1,0 +1,53 @@
+import { describe, expect, it } from "vitest";
+import {
+  buildWebsiteHvacBody, cleanServices, emptyWebsiteHvacForm, validateWebsiteHvacStep1, validateWebsiteHvacStep2, websiteHvacConfirmUrl,
+} from "./websiteHvacConfig";
+import type { WebsiteHvacForm } from "./websiteHvacConfig";
+
+const ok = (): WebsiteHvacForm => ({
+  ...emptyWebsiteHvacForm(),
+  name: "Carlos Ramírez", email: "carlos@ejemplo.com", whatsapp: "+1 713 555 0101", business: "Ramírez Heating & Air", language: "es", city: "Houston, TX",
+  services: ["Reparación de A/C", "", "Instalación", "", "", ""], star: 2,
+  answers: { confirm_material: "yes", confirm_cost: "yes", confirm_call: "yes", confirm_marketing: "yes" },
+});
+
+describe("formulario de /website-hvac", () => {
+  it("paso 1: pide nombre, correo, WhatsApp y negocio", () => {
+    expect(validateWebsiteHvacStep1(ok())).toBeNull();
+    expect(validateWebsiteHvacStep1({ ...ok(), name: "Ca" })).toMatch(/nombre/i);
+    expect(validateWebsiteHvacStep1({ ...ok(), email: "mal" })).toMatch(/correo/i);
+    expect(validateWebsiteHvacStep1({ ...ok(), whatsapp: "12" })).toMatch(/WhatsApp/);
+    expect(validateWebsiteHvacStep1({ ...ok(), business: " " })).toMatch(/negocio/i);
+  });
+
+  it("paso 2: válido solo con idioma, ciudad, servicio estrella y las 4 confirmaciones en Sí", () => {
+    expect(validateWebsiteHvacStep2(ok())).toBeNull();
+    expect(validateWebsiteHvacStep2({ ...ok(), language: "" })).toMatch(/idioma/i);
+    expect(validateWebsiteHvacStep2({ ...ok(), city: "" })).toMatch(/ciudad/i);
+    expect(validateWebsiteHvacStep2({ ...ok(), star: -1 })).toMatch(/estrella/i);
+    expect(validateWebsiteHvacStep2({ ...ok(), star: 1 })).toMatch(/estrella/i); // la fila 2 está vacía: no puede ser la estrella
+    expect(validateWebsiteHvacStep2({ ...ok(), answers: { confirm_material: "yes" } })).toMatch(/4 confirmaciones/);
+    expect(validateWebsiteHvacStep2({ ...ok(), answers: { ...ok().answers, confirm_call: "no" } })).toMatch(/requisitos/);
+  });
+
+  it("servicios: sin vacíos ni repetidos, y el estrella se conserva aunque haya filas vacías antes", () => {
+    expect(cleanServices(ok())).toEqual({ services: ["Reparación de A/C", "Instalación"], star: "Instalación" });
+    const dup = { ...ok(), services: ["Instalación", "instalación", "", "", "", ""], star: 0 };
+    expect(cleanServices(dup)).toEqual({ services: ["Instalación"], star: "Instalación" });
+  });
+
+  it("cuerpo para el servidor: las confirmaciones salen como booleanos", () => {
+    const b = buildWebsiteHvacBody(ok());
+    expect(b.confirm_material).toBe(true);
+    expect(b.services).toEqual(["Reparación de A/C", "Instalación"]);
+    expect(b.star).toBe("Instalación");
+    expect(buildWebsiteHvacBody({ ...ok(), answers: { ...ok().answers, confirm_cost: "no" } }).confirm_cost).toBe(false);
+  });
+
+  it("mensaje de WhatsApp: nombre, negocio y ciudad", () => {
+    const url = decodeURIComponent(websiteHvacConfirmUrl(ok()).split("text=")[1]);
+    expect(url).toContain("Nombre: Carlos Ramírez");
+    expect(url).toContain("Negocio: Ramírez Heating & Air");
+    expect(url).toContain("Ciudad: Houston, TX");
+  });
+});

@@ -15,6 +15,10 @@ const SITES: Record<string, React.LazyExoticComponent<() => JSX.Element>> = {
   "ledesma-2":              lazy(() => import("./sites/LedesmaCleaning2")),
   "martinez-cleaning":      lazy(() => import("./sites/MartinezCleaning")),
   "martinez-cleaning-booking": lazy(() => import("./sites/MartinezCleaning2")),
+  // Diseños de muestra para HVAC (no están en el catálogo): de aquí salen las capturas de la landing /website-hvac.
+  "hvac-ejemplo-1":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample1 }))),
+  "hvac-ejemplo-2":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample2 }))),
+  "hvac-ejemplo-3":         lazy(() => import("./sites/HvacExamples").then((m) => ({ default: m.HvacExample3 }))),
 };
 
 function LoadingScreen() {

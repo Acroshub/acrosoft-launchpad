@@ -133,6 +133,9 @@ verify_jwt = false
 [functions.crm-calendar-book]
 verify_jwt = false
 
+[functions.website-hvac-request]
+verify_jwt = false
+
 # ── Ebooks (fuera del CRM multi-tenant) ──────────────────────────────────────
 # stripe-webhook lo llama Stripe directo, sin JWT — se protege verificando la
 # firma Stripe-Signature contra STRIPE_WEBHOOK_SECRET.
