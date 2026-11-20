@@ -19,11 +19,11 @@ export const WEBSITE_TREE_MAX_SERVICES = 6;
 export const WEBSITE_TREE_MONTHLY_PRICE = 20;
 export const WEBSITE_TREE_FREE_MONTHS = 3;
 /**
- * Precio de ANCLAJE («Con otra agencia: US$800+», tachado, junto a «Aquí: Gratis»). Cifra elegida por Daniel (2026-11-19): US$800. Es una comparación de mercado:
+ * Precio de ANCLAJE («Crear una website con otra agencia normalmente puede costar US$500+», junto a «Con nosotros: Gratis»). Cifra elegida por Daniel: US$800 el 2026-11-19 y US$500 desde el 2026-11-20. Es una comparación de mercado:
  * estudios de precios de 2026 ubican una website a medida de agencia entre ~US$3,000 y US$15,000, y hay opciones económicas (plantillas, freelancers, suscripciones)
- * desde unos cientos de dólares; US$800 queda por debajo de lo que cobra una agencia, así que la comparación es defendible. Se cambia solo aquí.
+ * desde unos cientos de dólares; US$500 queda muy por debajo de lo que cobra una agencia, así que la comparación es defendible. Se cambia solo aquí.
  */
-export const WEBSITE_TREE_AGENCY_PRICE = 800;
+export const WEBSITE_TREE_AGENCY_PRICE = 500;
 export const WEBSITE_TREE_DELIVERY_DAYS = 2;
 export const WEBSITE_TREE_CALL_MINUTES = 30;
 
