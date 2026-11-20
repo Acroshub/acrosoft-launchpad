@@ -33,16 +33,20 @@ export const WT_CSS = `
 .wt .wt-checks li b{color:var(--ink);font-weight:700}
 .wt .wt-checks .est-ic{display:inline-block;vertical-align:-.28em;margin:0 7px 0 0;width:1.3em;height:1.3em;color:var(--green);stroke-width:3.2}
 /* Precio de anclaje bajo el botón del hero */
-.wt .wt-anchor{max-width:420px;margin:14px auto 0;padding:14px 16px 15px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 16px rgba(17,17,17,.07);text-align:center}
-.wt .wt-anchor-q{margin:0;font:600 15px/1.4 var(--text);color:var(--ink)}
-/* Signo de exclamación que abre el texto */
-.wt .wt-excl{display:inline-grid;place-items:center;width:20px;height:20px;margin-right:7px;border-radius:50%;background:var(--hl);color:#fff;font:800 14px/1 var(--text);vertical-align:1px}
-.wt .wt-anchor-q strong{white-space:nowrap;font:800 24px/1 var(--head);letter-spacing:.02em;color:var(--hl)}
-.wt .wt-anchor-a{display:flex;align-items:baseline;justify-content:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
-.wt .wt-anchor-a span{font:700 14px/1.2 var(--text);color:var(--ink)}
-.wt .wt-anchor-a strong{font:800 36px/1 var(--head);letter-spacing:.02em;text-transform:uppercase;color:var(--green)}
-.wt .wt-why{margin:12px 0 0;padding-top:12px;border-top:1px dashed var(--line);font:400 13.5px/1.5 var(--text);color:var(--body)}
-.wt .wt-why b{font-weight:800;color:var(--hl)}
+.wt .wt-anchor{max-width:420px;margin:14px auto 0;padding:16px 14px 16px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 16px rgba(17,17,17,.07);text-align:center}
+/* «¿Por qué gratis?» como título de sección, su texto y debajo dos tarjetas «Otra agencia VS Con nosotros» */
+.wt .wt-why h3{margin:0 0 8px;text-align:center;font:800 clamp(28px,8vw,34px)/1 var(--head);letter-spacing:.02em;text-transform:uppercase;color:var(--hl)}
+.wt .wt-why p{margin:0;font:400 13.5px/1.5 var(--text);color:var(--body)}
+.wt .wt-why p u{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;text-decoration-color:currentColor}
+.wt .wt-vs{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:stretch;gap:8px;margin-top:16px}
+.wt .wt-vs-card{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:5px;padding:12px 8px 13px;border:1.5px solid var(--line);border-radius:14px;background:#F6F7F4}
+.wt .wt-vs-card.is-us{background:var(--green-soft);border-color:var(--green)}
+.wt .wt-vs-tag{white-space:nowrap;font:700 11px/1.2 var(--text);letter-spacing:.04em;text-transform:uppercase;color:#6B7280}
+.wt .wt-vs-card.is-us .wt-vs-tag{color:var(--green)}
+.wt .wt-vs-card p{margin:0;font:500 12.5px/1.3 var(--text);color:var(--body)}
+.wt .wt-vs-card strong{margin-top:auto;font:800 34px/1 var(--head);letter-spacing:.02em;text-transform:uppercase;color:var(--ink)}
+.wt .wt-vs-card.is-us strong{color:var(--green)}
+.wt .wt-vs-mid{align-self:center;display:grid;place-items:center;width:32px;height:32px;border-radius:50%;background:var(--ink);color:#fff;font:800 13px/1 var(--head);letter-spacing:.04em}
 .wt .wt-meter{margin:14px auto 0;max-width:420px;text-align:left}
 .wt .wt-meter-row{display:flex;justify-content:space-between;gap:10px;font:600 13.5px/1.2 var(--text);color:var(--ink);margin-bottom:6px}
 .wt .wt-meter-row span:last-child{color:var(--hl)}

@@ -366,10 +366,24 @@ const WebsiteHvac = () => {
                 <div className="wh-meter-bar"><i style={{ width: `${Math.round((used / WEBSITE_HVAC_MONTHLY_LIMIT) * 100)}%` }} /></div>
               </div>
               {/* Tarjeta de anclaje: lo que cuesta normalmente con otra agencia vs. con nosotros, y enseguida el «¿Por qué gratis?» para que no se lea como una trampa */}
-              <div className="wh-anchor" role="group" aria-label={`Crear una website con otra agencia normalmente puede costar US${WEBSITE_HVAC_AGENCY_PRICE.toLocaleString("en-US")}+. Con nosotros: gratis.`}>
-                <p className="wh-anchor-q"><span className="wh-excl" aria-hidden="true">!</span>Crear una website con otra agencia normalmente puede costar <strong>US${WEBSITE_HVAC_AGENCY_PRICE.toLocaleString("en-US")}+</strong></p>
-                <div className="wh-anchor-a"><span>Con nosotros:</span><strong>Gratis</strong></div>
-                <p className="wh-why"><b>¿Por qué gratis?</b> Porque también hacemos Marketing, Anuncios y Tecnología. Queremos que conozcas nuestro trabajo y, si nos llevamos bien, en un futuro podemos seguir trabajando juntos.</p>
+              <div className="wh-anchor" role="group" aria-label={`¿Por qué gratis? Crear una website con otra agencia normalmente puede costar US${WEBSITE_HVAC_AGENCY_PRICE.toLocaleString("en-US")}+. Con nosotros: gratis.`}>
+                <div className="wh-why">
+                  <h3>¿Por qué gratis?</h3>
+                  <p>Porque también hacemos Marketing, Anuncios y Tecnología. <u>Queremos que conozcas nuestro trabajo y, si nos llevamos bien, en un futuro podemos seguir trabajando juntos.</u></p>
+                </div>
+                <div className="wh-vs">
+                  <div className="wh-vs-card is-other">
+                    <span className="wh-vs-tag">Otra agencia</span>
+                    <p>Crear una website normalmente puede costar</p>
+                    <strong>US${WEBSITE_HVAC_AGENCY_PRICE.toLocaleString("en-US")}+</strong>
+                  </div>
+                  <span className="wh-vs-mid" aria-hidden="true">VS</span>
+                  <div className="wh-vs-card is-us">
+                    <span className="wh-vs-tag">Con nosotros</span>
+                    <p>Tu website profesional</p>
+                    <strong>Gratis</strong>
+                  </div>
+                </div>
               </div>
             </div>
           </header>

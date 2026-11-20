@@ -366,10 +366,24 @@ const WebsiteTree = () => {
                 <div className="wt-meter-bar"><i style={{ width: `${Math.round((used / WEBSITE_TREE_MONTHLY_LIMIT) * 100)}%` }} /></div>
               </div>
               {/* Tarjeta de anclaje: lo que cuesta normalmente con otra agencia vs. con nosotros, y enseguida el «¿Por qué gratis?» para que no se lea como una trampa */}
-              <div className="wt-anchor" role="group" aria-label={`Crear una website con otra agencia normalmente puede costar US${WEBSITE_TREE_AGENCY_PRICE.toLocaleString("en-US")}+. Con nosotros: gratis.`}>
-                <p className="wt-anchor-q"><span className="wt-excl" aria-hidden="true">!</span>Crear una website con otra agencia normalmente puede costar <strong>US${WEBSITE_TREE_AGENCY_PRICE.toLocaleString("en-US")}+</strong></p>
-                <div className="wt-anchor-a"><span>Con nosotros:</span><strong>Gratis</strong></div>
-                <p className="wt-why"><b>¿Por qué gratis?</b> Porque también hacemos Marketing, Anuncios y Tecnología. Queremos que conozcas nuestro trabajo y, si nos llevamos bien, en un futuro podemos seguir trabajando juntos.</p>
+              <div className="wt-anchor" role="group" aria-label={`¿Por qué gratis? Crear una website con otra agencia normalmente puede costar US${WEBSITE_TREE_AGENCY_PRICE.toLocaleString("en-US")}+. Con nosotros: gratis.`}>
+                <div className="wt-why">
+                  <h3>¿Por qué gratis?</h3>
+                  <p>Porque también hacemos Marketing, Anuncios y Tecnología. <u>Queremos que conozcas nuestro trabajo y, si nos llevamos bien, en un futuro podemos seguir trabajando juntos.</u></p>
+                </div>
+                <div className="wt-vs">
+                  <div className="wt-vs-card is-other">
+                    <span className="wt-vs-tag">Otra agencia</span>
+                    <p>Crear una website normalmente puede costar</p>
+                    <strong>US${WEBSITE_TREE_AGENCY_PRICE.toLocaleString("en-US")}+</strong>
+                  </div>
+                  <span className="wt-vs-mid" aria-hidden="true">VS</span>
+                  <div className="wt-vs-card is-us">
+                    <span className="wt-vs-tag">Con nosotros</span>
+                    <p>Tu website profesional</p>
+                    <strong>Gratis</strong>
+                  </div>
+                </div>
               </div>
             </div>
           </header>
