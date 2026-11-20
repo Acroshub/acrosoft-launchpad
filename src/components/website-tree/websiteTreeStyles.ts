@@ -33,12 +33,16 @@ export const WT_CSS = `
 .wt .wt-checks li b{color:var(--ink);font-weight:700}
 .wt .wt-checks .est-ic{display:inline-block;vertical-align:-.28em;margin:0 7px 0 0;width:1.3em;height:1.3em;color:var(--green);stroke-width:3.2}
 /* Precio de anclaje bajo el botón del hero */
-.wt .wt-anchor{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:8px;max-width:400px;margin:14px auto 0;padding:11px 12px;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 4px 12px rgba(31,81,48,.06)}
-.wt .wt-anchor div{display:flex;flex-direction:column;align-items:center;gap:3px;min-width:0}
-.wt .wt-anchor span{font:600 12.5px/1.2 var(--text);color:#6B7280;text-align:center}
-.wt .wt-anchor s{font:800 30px/1 var(--head);letter-spacing:.02em;color:#8A93A2;text-decoration-thickness:3px;text-decoration-color:var(--orange)}
-.wt .wt-anchor strong{font:800 36px/1 var(--head);letter-spacing:.02em;text-transform:uppercase;color:var(--hl)}
-.wt .wt-anchor .est-ic{width:20px;height:20px;color:var(--green);stroke-width:2.6}
+.wt .wt-anchor{max-width:420px;margin:14px auto 0;padding:14px 16px 15px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 16px rgba(17,17,17,.07);text-align:center}
+.wt .wt-anchor-q{margin:0;font:600 15px/1.4 var(--text);color:var(--ink)}
+/* Signo de exclamación que abre el texto */
+.wt .wt-excl{display:inline-grid;place-items:center;width:20px;height:20px;margin-right:7px;border-radius:50%;background:var(--hl);color:#fff;font:800 14px/1 var(--text);vertical-align:1px}
+.wt .wt-anchor-q strong{white-space:nowrap;font:800 24px/1 var(--head);letter-spacing:.02em;color:var(--hl)}
+.wt .wt-anchor-a{display:flex;align-items:baseline;justify-content:center;gap:8px;margin-top:10px;padding-top:10px;border-top:1px dashed var(--line)}
+.wt .wt-anchor-a span{font:700 14px/1.2 var(--text);color:var(--ink)}
+.wt .wt-anchor-a strong{font:800 36px/1 var(--head);letter-spacing:.02em;text-transform:uppercase;color:var(--green)}
+.wt .wt-why{margin:12px 0 0;padding-top:12px;border-top:1px dashed var(--line);font:400 13.5px/1.5 var(--text);color:var(--body)}
+.wt .wt-why b{font-weight:800;color:var(--hl)}
 .wt .wt-meter{margin:14px auto 0;max-width:420px;text-align:left}
 .wt .wt-meter-row{display:flex;justify-content:space-between;gap:10px;font:600 13.5px/1.2 var(--text);color:var(--ink);margin-bottom:6px}
 .wt .wt-meter-row span:last-child{color:var(--hl)}

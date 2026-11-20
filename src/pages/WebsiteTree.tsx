@@ -360,15 +360,16 @@ const WebsiteTree = () => {
                   <li><Ic id="globe" />Español o inglés</li>
                 </ul>
               </div>
-              {/* Precio de anclaje bajo el botón: lo que cuesta normalmente (tachado) vs. aquí */}
-              <div className="wt-anchor" role="group" aria-label={`Con otra agencia una website cuesta desde US$${WEBSITE_TREE_AGENCY_PRICE.toLocaleString("en-US")}. Aquí es gratis.`}>
-                <div><span>Con otra agencia:</span><s>US${WEBSITE_TREE_AGENCY_PRICE.toLocaleString("en-US")}+</s></div>
-                <Ic id="arrow" />
-                <div><span>Aquí:</span><strong>Gratis</strong></div>
-              </div>
+              {/* Barra de cupos: justo debajo de la línea «Diseño 100% gratis · Entrega · Idioma» */}
               <div className="wt-meter" role="img" aria-label={`${used} de ${WEBSITE_TREE_MONTHLY_LIMIT} cupos usados este mes`}>
                 <div className="wt-meter-row"><span>Cupos de este mes</span><span>{soldOut ? "Agotados" : `Quedan ${shown}`}</span></div>
                 <div className="wt-meter-bar"><i style={{ width: `${Math.round((used / WEBSITE_TREE_MONTHLY_LIMIT) * 100)}%` }} /></div>
+              </div>
+              {/* Tarjeta de anclaje: lo que cuesta normalmente con otra agencia vs. con nosotros, y enseguida el «¿Por qué gratis?» para que no se lea como una trampa */}
+              <div className="wt-anchor" role="group" aria-label={`Crear una website con otra agencia normalmente puede costar US${WEBSITE_TREE_AGENCY_PRICE.toLocaleString("en-US")}+. Con nosotros: gratis.`}>
+                <p className="wt-anchor-q"><span className="wt-excl" aria-hidden="true">!</span>Crear una website con otra agencia normalmente puede costar <strong>US${WEBSITE_TREE_AGENCY_PRICE.toLocaleString("en-US")}+</strong></p>
+                <div className="wt-anchor-a"><span>Con nosotros:</span><strong>Gratis</strong></div>
+                <p className="wt-why"><b>¿Por qué gratis?</b> Porque también hacemos Marketing, Anuncios y Tecnología. Queremos que conozcas nuestro trabajo y, si nos llevamos bien, en un futuro podemos seguir trabajando juntos.</p>
               </div>
             </div>
           </header>
