@@ -11,7 +11,7 @@ import { WH_CSS } from "@/components/website-hvac/websiteHvacStyles";
 import {
   WEBSITE_HVAC_AGENCY_PRICE, WEBSITE_HVAC_CALL_MINUTES, WEBSITE_HVAC_CONFIRMATIONS, WEBSITE_HVAC_DELIVERY_DAYS, WEBSITE_HVAC_DISPLAY_SLOTS, WEBSITE_HVAC_FN, WEBSITE_HVAC_FREE_MONTHS,
   WEBSITE_HVAC_MAX_SERVICES, WEBSITE_HVAC_MONTHLY_LIMIT, WEBSITE_HVAC_MONTHLY_PRICE, WEBSITE_HVAC_PIXEL_ID, WEBSITE_HVAC_SERVICE_SUGGESTIONS,
-  WEBSITE_HVAC_SLUG, buildWebsiteHvacBody, emptyWebsiteHvacForm, validateWebsiteHvacStep1, validateWebsiteHvacStep2, websiteHvacConfirmUrl,
+  WEBSITE_HVAC_SLUG, buildWebsiteHvacBody, emptyWebsiteHvacForm, validateWebsiteHvacStep1, validateWebsiteHvacStep2, websiteHvacConfirmUrl, websiteHvacSupportUrl,
   websiteHvacEventParams,
 } from "@/lib/websiteHvacConfig";
 import type { WebsiteHvacConfirmId, WebsiteHvacForm } from "@/lib/websiteHvacConfig";
@@ -208,6 +208,8 @@ const WebsiteHvac = () => {
   const soldOut = slots === 0;
   const shown = slots === null ? WEBSITE_HVAC_DISPLAY_SLOTS : Math.min(slots, WEBSITE_HVAC_DISPLAY_SLOTS);
   const used = WEBSITE_HVAC_MONTHLY_LIMIT - shown;
+  /** La barra fija móvil está a la vista (el botón de soporte sube para no taparla). */
+  const stickyShown = stickyVisible && !open && !done && !waitlisted;
   const openForm = () => setOpen(true);
   /** Al cambiar de paso, el popup vuelve a su inicio. */
   const scrollPop = () => popupRef.current?.scrollTo?.({ top: 0 });
@@ -502,8 +504,15 @@ const WebsiteHvac = () => {
             </div>
           </footer>
 
+{/* Botón flotante de soporte por WhatsApp: se esconde mientras el popup del formulario está abierto */}
+          {!open && (
+            <a className={`wh-fab${stickyShown ? " is-up" : ""}`} href={websiteHvacSupportUrl()} target="_blank" rel="noopener noreferrer" aria-label="Escríbenos por WhatsApp si tienes una pregunta" data-testid="soporte-whatsapp">
+              <WhatsAppIcon />
+            </a>
+          )}
+
           {/* Barra fija móvil */}
-          <div className={`est-sticky${stickyVisible && !open && !done && !waitlisted ? " est-is-visible" : ""}`}>{cta(soldOut ? "Anotarme en la lista" : "Quiero mi website gratis")}</div>
+          <div className={`est-sticky${stickyShown ? " est-is-visible" : ""}`}>{cta(soldOut ? "Anotarme en la lista" : "Quiero mi website gratis")}</div>
         </div>
 
         {/* ============ POPUP DEL FORMULARIO. Va en un portal (fuera de .est-page), por eso el contenido lleva su propio `est-page ct wh` para heredar la paleta y los estilos. ============ */}

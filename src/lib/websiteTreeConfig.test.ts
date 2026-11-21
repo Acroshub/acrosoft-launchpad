@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildWebsiteTreeBody, cleanServices, emptyWebsiteTreeForm, validateWebsiteTreeStep1, validateWebsiteTreeStep2, websiteTreeConfirmUrl,
+  buildWebsiteTreeBody, cleanServices, emptyWebsiteTreeForm, validateWebsiteTreeStep1, validateWebsiteTreeStep2, websiteTreeConfirmUrl, websiteTreeSupportUrl,
 } from "./websiteTreeConfig";
 import type { WebsiteTreeForm } from "./websiteTreeConfig";
 
@@ -49,5 +49,11 @@ describe("formulario de /website-tree", () => {
     expect(url).toContain("Nombre: Carlos Ramírez");
     expect(url).toContain("Negocio: Ramírez Tree Service");
     expect(url).toContain("Ciudad: Houston, TX");
+  });
+
+  it("botón de soporte: abre el WhatsApp de la confirmación con un mensaje que dice de qué página viene", () => {
+    const url = websiteTreeSupportUrl();
+    expect(url.startsWith("https://wa.me/59157697071?text=")).toBe(true);
+    expect(decodeURIComponent(url.split("?text=")[1])).toBe("Hola, quiero mi website gratis para mi negocio de tree service, pero antes tengo una pregunta. Mi pregunta es: ");
   });
 });

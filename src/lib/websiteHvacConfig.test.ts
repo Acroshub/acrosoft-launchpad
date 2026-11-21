@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  buildWebsiteHvacBody, cleanServices, emptyWebsiteHvacForm, validateWebsiteHvacStep1, validateWebsiteHvacStep2, websiteHvacConfirmUrl,
+  buildWebsiteHvacBody, cleanServices, emptyWebsiteHvacForm, validateWebsiteHvacStep1, validateWebsiteHvacStep2, websiteHvacConfirmUrl, websiteHvacSupportUrl,
 } from "./websiteHvacConfig";
 import type { WebsiteHvacForm } from "./websiteHvacConfig";
 
@@ -49,5 +49,11 @@ describe("formulario de /website-hvac", () => {
     expect(url).toContain("Nombre: Carlos Ramírez");
     expect(url).toContain("Negocio: Ramírez Heating & Air");
     expect(url).toContain("Ciudad: Houston, TX");
+  });
+
+  it("botón de soporte: abre el WhatsApp de la confirmación con un mensaje que dice de qué página viene", () => {
+    const url = websiteHvacSupportUrl();
+    expect(url.startsWith("https://wa.me/59157697071?text=")).toBe(true);
+    expect(decodeURIComponent(url.split("?text=")[1])).toBe("Hola, quiero mi website gratis para mi negocio de HVAC, pero antes tengo una pregunta. Mi pregunta es: ");
   });
 });

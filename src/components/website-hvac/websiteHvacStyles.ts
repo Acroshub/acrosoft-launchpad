@@ -190,6 +190,14 @@ export const WH_CSS = `
 .wh .wh-wait{padding:6px 2px 2px;text-align:center}
 .wh .wh-wait h2{margin-bottom:6px}
 
+/* ── Botón flotante de soporte por WhatsApp (sube cuando aparece la barra fija móvil; por debajo del popup, z-index 50) ── */
+.wh .wh-fab{position:fixed;right:16px;bottom:calc(16px + env(safe-area-inset-bottom));z-index:40;display:grid;place-items:center;width:56px;height:56px;border-radius:50%;background:#25D366;color:#fff;box-shadow:0 6px 18px rgba(0,0,0,.28);transition:bottom .25s,transform .15s}
+.wh .wh-fab:hover{transform:scale(1.06)}
+.wh .wh-fab:focus-visible{outline:3px solid rgba(37,211,102,.5);outline-offset:3px}
+.wh .wh-fab svg{width:31px;height:31px}
+.wh .wh-fab.is-up{bottom:calc(92px + env(safe-area-inset-bottom))}
+@media (min-width:760px){.wh .wh-fab.is-up{bottom:calc(16px + env(safe-area-inset-bottom))}}
+
 /* ── Barra fija móvil y pie ── */
 .wh .wh-foot{padding:6px 0 110px;text-align:center}
 .wh .wh-foot p{margin:8px 0 0;font-size:12.5px;color:#8A8C82}

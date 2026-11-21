@@ -130,6 +130,13 @@ export function websiteHvacConfirmUrl(f: Pick<WebsiteHvacForm, "name" | "busines
   return `https://wa.me/${WEBSITE_HVAC_WHATSAPP}?text=${encodeURIComponent(websiteHvacConfirmMessage(f))}`;
 }
 
+/** Mensaje que envía el botón flotante de soporte por WhatsApp (el mismo número con el que se confirma el pedido). Muestra interés en la website gratis (de qué página viene) y termina en «Mi pregunta es: » para que la persona escriba su duda a continuación. */
+export const WEBSITE_HVAC_SUPPORT_MESSAGE = "Hola, quiero mi website gratis para mi negocio de HVAC, pero antes tengo una pregunta. Mi pregunta es: ";
+
+export function websiteHvacSupportUrl(): string {
+  return `https://wa.me/${WEBSITE_HVAC_WHATSAPP}?text=${encodeURIComponent(WEBSITE_HVAC_SUPPORT_MESSAGE)}`;
+}
+
 export function websiteHvacEventParams() {
   return {
     content_name: "Website gratis para negocios de HVAC",

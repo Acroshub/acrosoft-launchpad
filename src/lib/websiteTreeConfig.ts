@@ -132,6 +132,13 @@ export function websiteTreeConfirmUrl(f: Pick<WebsiteTreeForm, "name" | "busines
   return `https://wa.me/${WEBSITE_TREE_WHATSAPP}?text=${encodeURIComponent(websiteTreeConfirmMessage(f))}`;
 }
 
+/** Mensaje que envía el botón flotante de soporte por WhatsApp (el mismo número con el que se confirma el pedido). Muestra interés en la website gratis (de qué página viene) y termina en «Mi pregunta es: » para que la persona escriba su duda a continuación. */
+export const WEBSITE_TREE_SUPPORT_MESSAGE = "Hola, quiero mi website gratis para mi negocio de tree service, pero antes tengo una pregunta. Mi pregunta es: ";
+
+export function websiteTreeSupportUrl(): string {
+  return `https://wa.me/${WEBSITE_TREE_WHATSAPP}?text=${encodeURIComponent(WEBSITE_TREE_SUPPORT_MESSAGE)}`;
+}
+
 export function websiteTreeEventParams() {
   return {
     content_name: "Website gratis para negocios de tree service",
