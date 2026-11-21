@@ -5,18 +5,18 @@
 export const WT_CSS = `
 .est-page.wt{min-height:0}
 
-/* ── Paleta propia de tree service: verde bosque (naturaleza, confianza) + naranja motosierra (energía). Se pisan las variables del kit (verde/naranja) y los pocos colores
+/* ── Paleta propia de tree service: verde bosque (naturaleza, confianza) + rojo cereza (acción: botón y resaltados). Se pisan las variables del kit (verde/naranja) y los pocos colores
    fijos que traen EST_CSS y CT_CSS para las clases que usa esta página. ── */
-.est-page.wt{--bg:#F5F8F1;--line:#DDE5D6;--body:#4A5648;--green:#1F5130;--green-soft:#E3F0E2;--orange:#E8650C;--orange-dark:#B04A05;--hl:#CC5200;--red-soft:#FBE3DF}
-.wt .est-btn{box-shadow:0 5px 0 var(--orange-dark),0 12px 26px rgba(232,101,12,.25)}
-.wt .est-btn:hover{box-shadow:0 3px 0 var(--orange-dark),0 8px 18px rgba(232,101,12,.22)}
+.est-page.wt{--bg:#F5F8F1;--line:#DDE5D6;--body:#4A5648;--green:#1F5130;--green-soft:#E3F0E2;--orange:#D1382B;--orange-dark:#9C2A20;--hl:#B8281D;--red-soft:#FBE3DF}
+.wt .est-btn{box-shadow:0 5px 0 var(--orange-dark),0 12px 26px rgba(209,56,43,.25)}
+.wt .est-btn:hover{box-shadow:0 3px 0 var(--orange-dark),0 8px 18px rgba(209,56,43,.22)}
 .wt .est-btn:active{box-shadow:0 0 0 var(--orange-dark)}
 .wt .est-sec--offer{background:#E8F1E4;border-top:1px solid #CADBC4;border-bottom:1px solid #CADBC4}
 .wt .est-offer-card{border-color:var(--green);box-shadow:0 20px 44px rgba(31,81,48,.15)}
 .wt .ct-ring-bg{fill:#FDEDEA;stroke:#F5D2CC}
 .wt .ct-ring-fg,.wt .ct-ring-clock{stroke:var(--orange)}
 .wt .ct-prog-track{background:#E3EADF}
-.wt .ct-prog-track i{background:repeating-linear-gradient(135deg,var(--orange) 0 12px,#F58A4B 12px 24px);background-size:34px 34px}
+.wt .ct-prog-track i{background:repeating-linear-gradient(135deg,var(--orange) 0 12px,#E8665A 12px 24px);background-size:34px 34px}
 .wt .ct-done li:before{background:var(--orange)}
 .wt .ct-done-close{background:var(--orange);box-shadow:0 3px 0 var(--orange-dark)}
 
@@ -51,7 +51,7 @@ export const WT_CSS = `
 .wt .wt-meter-row{display:flex;justify-content:space-between;gap:10px;font:600 13.5px/1.2 var(--text);color:var(--ink);margin-bottom:6px}
 .wt .wt-meter-row span:last-child{color:var(--hl)}
 .wt .wt-meter-bar{height:12px;border-radius:99px;background:#E0E8DB;overflow:hidden;box-shadow:inset 0 1px 2px rgba(17,17,17,.12)}
-.wt .wt-meter-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--orange),#F58A4B);position:relative;overflow:hidden;transition:width .6s cubic-bezier(.22,.8,.3,1)}
+.wt .wt-meter-bar i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--orange),#E8665A);position:relative;overflow:hidden;transition:width .6s cubic-bezier(.22,.8,.3,1)}
 /* Barra «en marcha»: franjas diagonales a 45° de ancho parejo (mosaico cuadrado: no se estrechan hacia un extremo) que corren hacia la derecha, así parece que avanza aunque el ancho no cambie. */
 .wt .wt-meter-bar i::before{content:"";position:absolute;inset:0;background-image:linear-gradient(45deg,rgba(255,255,255,.18) 25%,rgba(255,255,255,0) 25%,rgba(255,255,255,0) 50%,rgba(255,255,255,.18) 50%,rgba(255,255,255,.18) 75%,rgba(255,255,255,0) 75%,rgba(255,255,255,0));background-size:28px 28px;animation:wt-meter-run 1.4s linear infinite}
 @keyframes wt-meter-run{from{background-position:0 0}to{background-position:28px 0}}
