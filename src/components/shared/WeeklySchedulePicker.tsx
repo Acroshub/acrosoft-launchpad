@@ -210,7 +210,7 @@ const WeeklySchedulePicker = ({ value, onChange, isEditing, interval = 30 }: Wee
 
               {/* Content */}
               {open ? (
-                <div className="flex-1 space-y-1.5">
+                <div className="flex-1 min-w-0 space-y-1.5">
                   {slots.map((slot, idx) => (
                     <div key={idx} className="flex items-center gap-2">
                       <TimeSelect value={slot.from} onChange={(v) => updateSlot(day, idx, "from", v)} hours={hours} />

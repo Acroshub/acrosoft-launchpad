@@ -9,6 +9,8 @@ interface PhoneInputProps {
   compact?: boolean;
   disabled?: boolean;
   autoFocus?: boolean;
+  /** Prefijo inicial cuando el valor está vacío (por defecto, el del país por defecto de la app). */
+  defaultDial?: string;
 }
 
 export default function PhoneInput({
@@ -18,14 +20,15 @@ export default function PhoneInput({
   compact = false,
   disabled = false,
   autoFocus = false,
+  defaultDial,
 }: PhoneInputProps) {
-  const [dial, setDial] = useState(() => parsePhoneValue(value).dial);
+  const [dial, setDial] = useState(() => (!value && defaultDial ? defaultDial : parsePhoneValue(value).dial));
   const [number, setNumber] = useState(() => parsePhoneValue(value).number);
 
   // Sync from parent only when value is cleared externally (form reset)
   useEffect(() => {
     if (!value) {
-      setDial(DEFAULT_COUNTRY.dial);
+      setDial(defaultDial ?? DEFAULT_COUNTRY.dial);
       setNumber("");
     }
   }, [value]);

@@ -49,7 +49,24 @@ interface PublicField {
   max?: number | string;
   minLength?: number;
   maxLength?: number;
+  /** Texto de ayuda bajo la etiqueta. */
+  helpText?: string;
+  /** Campo condicional: solo se muestra (y se valida / envía) si el campo `fieldId` vale alguno de `equals`. */
+  showIf?: { fieldId: string; equals: string[] };
+  /** Teléfono: prefijo inicial (ej. "+1"). */
+  defaultDial?: string;
+  /** Radio: opciones cortas en una sola fila (ej. Sí / No / No sé). */
+  compact?: boolean;
 }
+
+/** ¿Debe mostrarse el campo con los valores actuales? Sin `showIf` siempre se muestra. */
+const isFieldVisible = (field: PublicField, values: Record<string, any>): boolean =>
+  !field.showIf || (field.showIf.equals ?? []).includes(values[field.showIf.fieldId]);
+
+/** Un repetible «obligatorio» exige al menos un elemento con algún subcampo lleno (el estado inicial es [{}]). */
+const isRepeatableEmpty = (val: any): boolean =>
+  !Array.isArray(val) ||
+  !val.some(item => item && Object.values(item).some(v => v !== undefined && v !== null && String(v).trim() !== ""));
 
 // ─── Public Data Hooks (no auth required) ────────────────────────────────────
 
@@ -185,17 +202,20 @@ const FieldWrapper = ({
   label,
   required,
   error,
+  hint,
 }: {
   children: React.ReactNode;
   label: string;
   required: boolean;
   error?: string;
+  hint?: string;
 }) => (
   <div className="space-y-1.5">
     <label className="text-sm font-semibold text-foreground flex items-center gap-1">
       {label}
       {required && <span className="text-destructive font-bold ml-0.5">*</span>}
     </label>
+    {hint && <p className="text-xs text-muted-foreground leading-snug">{hint}</p>}
     {error && <p className="text-xs text-destructive font-medium">{error}</p>}
     {children}
   </div>
@@ -222,7 +242,7 @@ const ServicesField = ({
   );
 
   return (
-    <FieldWrapper label={field.label} required={field.required} error={error}>
+    <FieldWrapper label={field.label} required={field.required} error={error} hint={field.helpText}>
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground py-4">
           <Loader2 size={16} className="animate-spin" /> Cargando planes...
@@ -334,7 +354,7 @@ const RepeatableField = ({
   const removeItem = (idx: number) => onChange(items.filter((_, i) => i !== idx));
 
   return (
-    <FieldWrapper label={field.label} required={field.required} error={error}>
+    <FieldWrapper label={field.label} required={field.required} error={error} hint={field.helpText}>
       <div className="space-y-3 mt-1">
         {items.map((item, idx) => (
           <div key={idx} className="bg-secondary/20 border border-border/50 rounded-2xl p-4 space-y-3">
@@ -467,7 +487,7 @@ const FileUploadField = ({
   };
 
   return (
-    <FieldWrapper label={field.label} required={field.required} error={uploadError ?? error}>
+    <FieldWrapper label={field.label} required={field.required} error={uploadError ?? error} hint={field.helpText}>
       <label
         className={`mt-1 flex items-center gap-4 border-2 border-dashed rounded-xl p-5 transition-all ${
           uploading
@@ -600,7 +620,7 @@ const FieldRenderer = ({
 
   if (field.type === "schedule") {
     return (
-      <FieldWrapper label={field.label} required={field.required} error={error}>
+      <FieldWrapper label={field.label} required={field.required} error={error} hint={field.helpText}>
         <div className="mt-1">
           <WeeklySchedulePicker
             value={value ?? DEFAULT_WEEKLY_SCHEDULE}
@@ -614,7 +634,7 @@ const FieldRenderer = ({
   if (field.type === "color") {
     const color = value || "#2563EB";
     return (
-      <FieldWrapper label={field.label} required={field.required} error={error}>
+      <FieldWrapper label={field.label} required={field.required} error={error} hint={field.helpText}>
         <div className="flex items-center gap-3 mt-1">
           <input
             type="color"
@@ -635,7 +655,7 @@ const FieldRenderer = ({
 
   if (field.type === "select") {
     return (
-      <FieldWrapper label={field.label} required={field.required} error={error}>
+      <FieldWrapper label={field.label} required={field.required} error={error} hint={field.helpText}>
         <div className="relative mt-1">
           <select
             value={value ?? ""}
@@ -655,8 +675,8 @@ const FieldRenderer = ({
 
   if (field.type === "radio") {
     return (
-      <FieldWrapper label={field.label} required={field.required} error={error}>
-        <div className="grid sm:grid-cols-2 gap-3 mt-1">
+      <FieldWrapper label={field.label} required={field.required} error={error} hint={field.helpText}>
+        <div className={`grid gap-3 mt-1 ${field.compact ? "grid-cols-3" : "sm:grid-cols-2"}`}>
           {(field.options ?? []).map(opt => {
             const isSelected = value === opt;
             return (
@@ -681,7 +701,7 @@ const FieldRenderer = ({
 
   if (field.type === "checkbox") {
     return (
-      <FieldWrapper label={field.label} required={field.required} error={error}>
+      <FieldWrapper label={field.label} required={field.required} error={error} hint={field.helpText}>
         <label className="flex items-center gap-3 mt-1 cursor-pointer">
           <input
             type="checkbox"
@@ -708,7 +728,7 @@ const FieldRenderer = ({
 
   if (field.type === "textarea") {
     return (
-      <FieldWrapper label={field.label} required={field.required} error={error}>
+      <FieldWrapper label={field.label} required={field.required} error={error} hint={field.helpText}>
         <textarea
           value={value ?? ""}
           onChange={e => onChange(e.target.value)}
@@ -723,12 +743,13 @@ const FieldRenderer = ({
 
   if (field.type === "phone") {
     return (
-      <FieldWrapper label={field.label} required={field.required} error={error}>
+      <FieldWrapper label={field.label} required={field.required} error={error} hint={field.helpText}>
         <div className="mt-1" onBlur={onBlur}>
           <PhoneInput
             value={value ?? ""}
             onChange={onChange}
             placeholder={field.placeholder}
+            defaultDial={field.defaultDial}
           />
         </div>
       </FieldWrapper>
@@ -745,7 +766,7 @@ const FieldRenderer = ({
     : "text";
 
   return (
-    <FieldWrapper label={field.label} required={field.required} error={error}>
+    <FieldWrapper label={field.label} required={field.required} error={error} hint={field.helpText}>
       <Input
         type={inputType}
         value={value ?? ""}
@@ -795,7 +816,7 @@ const ConfirmationView = ({
     <div className="space-y-4">
       {sections.map(sec => {
         const sectionFields = fields.filter(
-          f => f.sectionId === sec.id && f.type !== "heading"
+          f => f.sectionId === sec.id && f.type !== "heading" && isFieldVisible(f, formValues)
         );
         if (sectionFields.length === 0) return null;
         return (
@@ -824,7 +845,25 @@ const ConfirmationView = ({
 
 // ─── Main FormRenderer Component ──────────────────────────────────────────────
 
-const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: WidgetLang }) => {
+const FormRenderer = ({
+  formId,
+  lang: langProp,
+  variant = "default",
+  preview = false,
+  previewSuccess = false,
+  heading,
+}: {
+  formId: string;
+  lang?: WidgetLang;
+  /** "tabs": avance por pestañas («Pestaña 1 de 3 · Negocio · te faltan 2 más») y campos sin tarjeta (para páginas con su propio encabezado). */
+  variant?: "default" | "tabs";
+  /** Vista previa para el dueño: nada es obligatorio (ni los términos) y al enviar NO se manda nada, solo se muestra la pantalla de éxito. */
+  preview?: boolean;
+  /** Con `preview`, abre directo la pantalla de éxito. */
+  previewSuccess?: boolean;
+  /** Título de la página: va arriba de la barra de avance y desaparece en la pantalla de éxito. */
+  heading?: React.ReactNode;
+}) => {
   const { data: form, isLoading, error: loadError } = usePublicForm(formId);
   // URL param overrides stored language; stored language overrides default "es"
   const lang: WidgetLang = langProp ?? (form?.language as WidgetLang | undefined) ?? "es";
@@ -853,7 +892,7 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
   const [currentStep, setCurrentStep] = useState(0);
   const [formValues, setFormValues] = useState<Record<string, any>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted] = useState(preview && previewSuccess);
   const [submissionId, setSubmissionId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -873,14 +912,14 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
   const currentFields = isOnConfirm
     ? []
     : fields.filter(f =>
-        currentSection?.id === "__virtual__"
+        (currentSection?.id === "__virtual__"
           ? !f.sectionId
-          : f.sectionId === currentSection?.id
+          : f.sectionId === currentSection?.id) && isFieldVisible(f, formValues)
       );
   const { data: branding } = usePublicBusinessProfile(formId);
   const isBranded = branding?.theme === "branded";
   const brandPrimary = isBranded ? (branding?.color_primary ?? null) : null;
-  const brandLogo = isBranded ? (branding?.logo_url ?? null) : null;
+  const brandLogo = isBranded && variant !== "tabs" ? (branding?.logo_url ?? null) : null;
 
   const hasServicesField = fields.some(f => f.type === "services");
   const servicesFieldAllowedIds = useMemo(() => {
@@ -897,6 +936,7 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
   );
 
   const validate = (): boolean => {
+    if (preview) { setErrors({}); return true; }
     const newErrors: Record<string, string> = {};
     for (const field of currentFields) {
       if (field.type === "heading") continue;
@@ -906,7 +946,7 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
         val === null ||
         val === "" ||
         (Array.isArray(val) && val.length === 0);
-      if (field.required && isEmpty) {
+      if (field.required && (isEmpty || (field.type === "repeatable" && isRepeatableEmpty(val)))) {
         newErrors[field.id] = T.requiredError(field.label);
       } else if (!isEmpty) {
         const typeErr = validateFieldValue(field, val, T);
@@ -943,6 +983,7 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
   };
 
   const handleSubmit = async () => {
+    if (preview) { setSubmitted(true); window.scrollTo({ top: 0, behavior: "smooth" }); return; }
     setIsSubmitting(true);
     let redirecting = false;
     try {
@@ -955,7 +996,12 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
         },
         body: JSON.stringify({
           form_id: formId,
-          data: formValues,
+          data: Object.fromEntries(
+            Object.entries(formValues).filter(([id]) => {
+              const f = fields.find(x => x.id === id);
+              return !f || isFieldVisible(f, formValues);
+            }),
+          ),
           terms_accepted_at: new Date().toISOString(),
         }),
       });
@@ -1005,6 +1051,21 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
 
   // ─── Success state ─────────────────────────────────────────────────────────
 
+  if (submitted && variant === "tabs") {
+    return (
+      <div className="container mx-auto max-w-2xl px-4 py-16 text-center animate-in fade-in duration-500">
+        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
+          <CheckCircle2 size={44} className="text-primary" />
+        </div>
+        <h1 className="mt-6 text-3xl font-black tracking-tight text-foreground">¡Información recibida!</h1>
+        <p className="mx-auto mt-3 max-w-md leading-relaxed text-muted-foreground">
+          {form.success_message || T.successDefault}
+        </p>
+        <p className="mt-8 text-sm text-muted-foreground/70">Ya puedes cerrar esta página.</p>
+      </div>
+    );
+  }
+
   if (submitted) {
     return (
       <div className="flex items-center justify-center py-16 px-4">
@@ -1032,8 +1093,36 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
 
   return (
     <>
+      {/* Avance — variante "tabs": solo texto + barra segmentada (sin botones), cabe siempre en el ancho */}
+      {variant === "tabs" && heading && (
+        <div className="container mx-auto px-4 pt-10"><div className="mx-auto max-w-2xl text-center">{heading}</div></div>
+      )}
+      {variant === "tabs" && totalSteps > 1 && (
+        <div className="container mx-auto px-4 pt-8 pb-4"><div className="mx-auto max-w-2xl">
+          <p className="text-sm font-semibold text-foreground">
+            Pestaña {currentStep + 1} de {totalSteps}
+            <span className="font-medium text-muted-foreground">
+              {" · "}{stepNames[currentStep]}{" · "}
+              {totalSteps - currentStep - 1 === 0
+                ? "es la última"
+                : totalSteps - currentStep - 1 === 1
+                ? "te falta 1 más"
+                : `te faltan ${totalSteps - currentStep - 1} más`}
+            </span>
+          </p>
+          <div className="mt-3 flex gap-1.5" aria-hidden="true">
+            {stepNames.map((_, i) => (
+              <div
+                key={i}
+                className={`h-1.5 flex-1 rounded-full transition-colors duration-500 ${i <= currentStep ? "bg-primary" : "bg-muted-foreground/15"}`}
+              />
+            ))}
+          </div>
+        </div></div>
+      )}
+
       {/* Stepper Progress — only show when multi-step */}
-      {totalSteps > 1 && <div className="bg-card/50 border-b py-6 mb-8">
+      {variant !== "tabs" && totalSteps > 1 && <div className="bg-card/50 border-b py-6 mb-8">
         <div className="container mx-auto px-4 max-w-4xl">
           {brandLogo && (
             <div className="mb-4">
@@ -1079,7 +1168,7 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
               <img src={brandLogo} alt="Logo" className="h-9 max-w-[180px] object-contain" />
             </div>
           )}
-          <div className="bg-card border border-border/60 rounded-3xl p-8 md:p-10 shadow-xl shadow-foreground/5 animate-in fade-in slide-in-from-bottom-6 duration-700">
+          <div className={variant === "tabs" ? "animate-in fade-in duration-500" : "bg-card border border-border/60 rounded-3xl p-8 md:p-10 shadow-xl shadow-foreground/5 animate-in fade-in slide-in-from-bottom-6 duration-700"}>
             {/* Section header */}
             {currentSection && (
               <div className="mb-8">
@@ -1185,8 +1274,8 @@ const FormRenderer = ({ formId, lang: langProp }: { formId: string; lang?: Widge
               {isOnConfirm || (!confirmSection && currentStep === activeSections.length - 1) ? (
                 <Button
                   onClick={isOnConfirm
-                    ? () => { if (!termsAccepted) { setTermsError(true); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); return; } handleSubmit(); }
-                    : () => { if (!termsAccepted) { setTermsError(true); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); return; } if (validate()) handleSubmit(); }}
+                    ? () => { if (!preview && !termsAccepted) { setTermsError(true); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); return; } handleSubmit(); }
+                    : () => { if (!preview && !termsAccepted) { setTermsError(true); window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }); return; } if (validate()) handleSubmit(); }}
                   disabled={isSubmitting}
                   className="rounded-xl h-12 px-8 font-black shadow-lg hover:scale-[1.02] active:scale-[0.98] transition-all"
                   style={brandPrimary ? { backgroundColor: brandPrimary, borderColor: brandPrimary, boxShadow: `0 4px 14px ${brandPrimary}33` } : undefined}

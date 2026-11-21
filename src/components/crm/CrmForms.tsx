@@ -76,6 +76,11 @@ interface FormField {
   maxItems?: number;
   allowedServiceIds?: string[];
   doc_key?: string;
+  // Solo los entiende FormRenderer (no hay UI para editarlos aquí todavía; se conservan al guardar). Ver /onboarding-acros.
+  helpText?: string;
+  compact?: boolean;
+  defaultDial?: string;
+  showIf?: { fieldId: string; equals: string[] };
 }
 
 const FIELD_TYPES: { value: FieldType; label: string; icon: React.ElementType }[] = [
