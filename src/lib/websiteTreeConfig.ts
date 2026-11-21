@@ -38,7 +38,7 @@ export const WEBSITE_TREE_FN = "website-tree-request";
 /** Confirmaciones Sí/No del formulario. Cualquier «No» bloquea el envío. Los textos son los que pidió Daniel. */
 export const WEBSITE_TREE_CONFIRMATIONS = [
   { id: "confirm_material", text: "Me comprometo a enviar mi logo, fotos y videos para terminar la website." },
-  { id: "confirm_cost", text: `Entiendo que la website es gratis y que después del ${WEBSITE_TREE_FREE_MONTHS}er mes, pago US$${WEBSITE_TREE_MONTHLY_PRICE}/mes de mantenimiento (dominio y hosting).` },
+  { id: "confirm_cost", text: `Entiendo que recibo la website y ${WEBSITE_TREE_FREE_MONTHS} meses de mantenimiento gratis. Y que después pago solo el mantenimiento (dominio y hosting) por US$${WEBSITE_TREE_MONTHLY_PRICE}/mes.` },
   { id: "confirm_call", text: "Confirmo que recibiré la website en una llamada (Zoom, Meet o WhatsApp). Si no me presento sin avisar, no podré recibirla después." },
   { id: "confirm_marketing", text: "Quiero recibir un plan de marketing personalizado para conseguir más clientes con la website." },
 ] as const;

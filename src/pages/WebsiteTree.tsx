@@ -44,7 +44,7 @@ const EXAMPLES = [
 ];
 
 const INCLUDES: ReactNode[] = [
-  <><b>{WEBSITE_TREE_FREE_MONTHS} Meses gratis</b> de Dominio y Hosting<em className="wt-inc-note">Luego mantenimiento por US${WEBSITE_TREE_MONTHLY_PRICE}/mes</em></>,
+  <><b>{WEBSITE_TREE_FREE_MONTHS} Meses gratis</b> de Dominio y Hosting</>,
   <>Diseño profesional con <b>tu marca, tus colores y tu logo</b>.</>,
   <>Se ve perfecto en <b>celular y computadora</b>.</>,
   <>Botón de <b>llamada directa</b>.</>,

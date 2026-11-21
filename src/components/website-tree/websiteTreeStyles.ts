@@ -36,7 +36,7 @@ export const WT_CSS = `
 .wt .wt-anchor{max-width:420px;margin:14px auto 0;padding:16px 14px 16px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 16px rgba(17,17,17,.07);text-align:center}
 /* «¿Por qué gratis?» como título de sección, su texto y debajo dos tarjetas «Otra agencia VS Con nosotros» */
 .wt .wt-why h3{margin:0 0 8px;text-align:center;font:800 clamp(28px,8vw,34px)/1 var(--head);letter-spacing:.02em;text-transform:uppercase;color:var(--hl)}
-.wt .wt-why p{margin:0;font:400 13.5px/1.5 var(--text);color:var(--body)}
+.wt .wt-why p{margin:0;font:400 15.5px/1.55 var(--text);color:var(--body)}
 .wt .wt-why p u{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;text-decoration-color:currentColor}
 .wt .wt-vs{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:stretch;gap:8px;margin-top:16px}
 .wt .wt-vs-card{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:5px;padding:12px 8px 13px;border:1.5px solid var(--line);border-radius:14px;background:#F6F7F4}
