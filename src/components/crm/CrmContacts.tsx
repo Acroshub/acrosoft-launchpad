@@ -19,6 +19,7 @@ import { toast } from "sonner";
 import DeleteConfirmDialog from "@/components/shared/DeleteConfirmDialog";
 import { useStaffPermissions } from "@/hooks/useAuth";
 import PhoneInput from "@/components/shared/PhoneInput";
+import FormDataPanel, { type AllFormValues } from "@/components/crm/FormDataPanel";
 import { validateEmail, validatePhone } from "@/lib/validators";
 
 // ─── Identifier field (email / teléfono) ───────────────────────────────────────
@@ -432,208 +433,6 @@ const ContactProductsPanel = ({
             {inactiveItems.map((i) => <Row key={`${i.kind}-${i.id}`} item={i} />)}
           </div>
         </>
-      )}
-    </div>
-  );
-};
-
-// ─── Forms data panel (shown in contact detail for all users) ─────────────────
-const SIMPLE_TYPES = ["text", "email", "phone", "number", "url", "textarea", "select", "address"];
-
-const FormDataPanel = ({
-  contact,
-  forms,
-  onSave,
-  canEdit = true,
-}: {
-  contact: CrmContact;
-  forms: CrmForm[];
-  onSave: (customFields: Record<string, Record<string, string>>) => Promise<void>;
-  canEdit?: boolean;
-}) => {
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [editingFormId, setEditingFormId] = useState<string | null>(null);
-  const [editValues, setEditValues] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
-  const [showAddPicker, setShowAddPicker] = useState(false);
-
-  const getAll = (): Record<string, Record<string, string>> =>
-    ((contact.custom_fields as any) ?? {});
-
-  const getFormValues = (formId: string): Record<string, string> =>
-    getAll()[formId] ?? {};
-
-  const hasData = (form: CrmForm) =>
-    Object.values(getFormValues(form.id)).some((v) => v !== undefined && v !== null && String(v).trim() !== "");
-
-  const editableFields = (form: CrmForm) =>
-    (form.fields as any[]).filter((f) => SIMPLE_TYPES.includes(f.type));
-
-  const startEdit = (form: CrmForm) => {
-    const current = getFormValues(form.id);
-    const initial: Record<string, string> = {};
-    editableFields(form).forEach((f) => { initial[f.id] = current[f.id] ?? ""; });
-    setEditValues(initial);
-    setEditingFormId(form.id);
-    setExpandedId(form.id);
-    setShowAddPicker(false);
-  };
-
-  const saveEdit = async (formId: string) => {
-    setSaving(true);
-    try {
-      await onSave({ ...getAll(), [formId]: editValues });
-      setEditingFormId(null);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  if (forms.length === 0) return null;
-
-  const formsWithData = forms.filter(hasData);
-  // Mientras se está agregando datos a un formulario nuevo, mantenerlo visible en la lista aunque aún no tenga datos guardados
-  const editingExtra = editingFormId && !formsWithData.some((f) => f.id === editingFormId)
-    ? forms.find((f) => f.id === editingFormId)
-    : null;
-  const displayForms = editingExtra ? [...formsWithData, editingExtra] : formsWithData;
-  const addableForms = forms.filter((f) => !hasData(f) && f.id !== editingFormId);
-
-  return (
-    <div>
-      <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium mb-2">
-        Formularios
-      </p>
-      {displayForms.length === 0 && (
-        <p className="text-[11px] text-muted-foreground/50 italic mb-2">Sin datos de formularios aún.</p>
-      )}
-      <div className="space-y-1">
-        {displayForms.map((form) => {
-          const isExpanded = expandedId === form.id;
-          const isEditing = editingFormId === form.id;
-          const values = getFormValues(form.id);
-          const fields = editableFields(form);
-
-          return (
-            <div key={form.id} className="border rounded-xl overflow-hidden">
-              <button
-                onClick={() => setExpandedId(isExpanded ? null : form.id)}
-                className="w-full flex items-center justify-between px-3 py-2 hover:bg-secondary/30 transition-colors text-left"
-              >
-                <span className="text-xs font-medium">{form.name}</span>
-                <ChevronDown
-                  size={13}
-                  className={`text-muted-foreground transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
-                />
-              </button>
-
-              {isExpanded && (
-                <div className="px-3 pb-3 pt-2 border-t space-y-2.5 bg-secondary/10">
-                  {fields.length === 0 ? (
-                    <p className="text-xs text-muted-foreground/50 italic">Sin campos configurados</p>
-                  ) : isEditing ? (
-                    <>
-                      {fields.map((f) => (
-                        <div key={f.id}>
-                          <label className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium block mb-0.5">
-                            {f.label}
-                          </label>
-                          {f.type === "textarea" ? (
-                            <textarea
-                              value={editValues[f.id] ?? ""}
-                              onChange={(e) => setEditValues((p) => ({ ...p, [f.id]: e.target.value }))}
-                              placeholder={f.placeholder ?? ""}
-                              className="flex w-full rounded-md border border-input bg-background px-3 py-1.5 text-base md:text-xs ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none min-h-[60px]"
-                            />
-                          ) : (
-                            <Input
-                              value={editValues[f.id] ?? ""}
-                              onChange={(e) => setEditValues((p) => ({ ...p, [f.id]: e.target.value }))}
-                              placeholder={f.placeholder ?? ""}
-                              className="h-7 text-base md:text-xs"
-                            />
-                          )}
-                        </div>
-                      ))}
-                      <div className="flex gap-2 pt-1">
-                        <Button
-                          size="sm"
-                          onClick={() => saveEdit(form.id)}
-                          disabled={saving}
-                          className="h-7 text-xs flex-1"
-                        >
-                          {saving && <Loader2 size={11} className="animate-spin mr-1" />}
-                          Guardar
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setEditingFormId(null)}
-                          className="h-7 text-xs"
-                        >
-                          Cancelar
-                        </Button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      {fields.map((f) => (
-                        <div key={f.id}>
-                          <span className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-medium block">
-                            {f.label}
-                          </span>
-                          <span className="text-xs">{values[f.id] || "—"}</span>
-                        </div>
-                      ))}
-                      {canEdit && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => startEdit(form)}
-                          className="h-7 text-xs w-full mt-1 gap-1.5"
-                        >
-                          <Pencil size={11} /> Editar
-                        </Button>
-                      )}
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
-
-      {canEdit && addableForms.length > 0 && (
-        showAddPicker ? (
-          <div className="mt-2 border rounded-xl overflow-hidden divide-y">
-            {addableForms.map((form) => (
-              <button
-                key={form.id}
-                onClick={() => startEdit(form)}
-                className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium hover:bg-secondary/30 transition-colors text-left"
-              >
-                <span>{form.name}</span>
-                <Plus size={12} className="text-muted-foreground" />
-              </button>
-            ))}
-            <button
-              onClick={() => setShowAddPicker(false)}
-              className="w-full px-3 py-1.5 text-[11px] text-muted-foreground hover:bg-secondary/20 transition-colors text-center"
-            >
-              Cancelar
-            </button>
-          </div>
-        ) : (
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setShowAddPicker(true)}
-            className="h-8 text-xs w-full mt-2 gap-1.5 border border-dashed border-border text-muted-foreground hover:text-foreground"
-          >
-            <Plus size={12} /> Agregar datos de formulario existente
-          </Button>
-        )
       )}
     </div>
   );
@@ -1737,6 +1536,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
   const { data: clientAccounts = [] } = useClientAccounts();
   const { data: sales = [] } = useSales();
   const { data: services = [] } = useServices();
+  const serviceNames = useMemo(() => Object.fromEntries(services.map((sv) => [sv.id, sv.name])), [services]);
   const { data: courses = [] } = useCourses();
   const { data: products = [] } = useProducts();
   const createContact = useCreateContact();
@@ -1943,9 +1743,9 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
 
   const handleSaveFormData = async (
     contactId: string,
-    customFields: Record<string, Record<string, string>>
+    customFields: AllFormValues
   ) => {
-    await updateContact.mutateAsync({ id: contactId, custom_fields: customFields });
+    await updateContact.mutateAsync({ id: contactId, custom_fields: customFields as Json });
     toast.success("Datos guardados");
   };
 
@@ -2237,7 +2037,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                   );
                 })()}
                 <ContactProductsPanel contactId={detail.id} sales={sales} products={products} courses={courses} />
-                <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
+                <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} serviceNames={serviceNames} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
                 <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
                 <ContactSettingsSection
                   canEdit={canEdit}
@@ -2569,7 +2369,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                   })()}
 
                   <ContactProductsPanel contactId={detail.id} sales={sales} products={products} courses={courses} />
-                  <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
+                  <FormDataPanel contact={detail} forms={forms} canEdit={canEdit} serviceNames={serviceNames} onSave={(cf) => handleSaveFormData(detail.id, cf)} />
                   <ContactNotesThread contactId={detail.id} canEdit={canEdit} />
                   <ContactSettingsSection
                     canEdit={canEdit}
