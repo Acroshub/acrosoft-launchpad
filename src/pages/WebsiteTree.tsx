@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
+import { GoogleLogo, MetaLogo } from "@/components/shared/PartnerBadgeLogos";
 import PhoneInput from "@/components/shared/PhoneInput";
 import WhatsAppIcon from "@/components/shared/WhatsAppIcon";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -371,7 +372,11 @@ const WebsiteTree = () => {
               <div className="wt-anchor" role="group" aria-label={`¿Por qué gratis? Crear una website con otra agencia normalmente puede costar US${WEBSITE_TREE_AGENCY_PRICE.toLocaleString("en-US")}+. Con nosotros: gratis.`}>
                 <div className="wt-why">
                   <h3>¿Por qué gratis?</h3>
-                  <p>Porque también hacemos Marketing, Anuncios y Tecnología. <u>Queremos que conozcas nuestro trabajo y, si nos llevamos bien, en un futuro podemos seguir trabajando juntos.</u></p>
+                  <p>Porque también ayudamos a negocios a conseguir más clientes usando Anuncios en Facebook y Google. <u>Y queremos que conozcas nuestro trabajo, así si nos llevamos bien, en un futuro podemos seguir trabajando juntos.</u></p>
+                  <ul className="wt-badges" aria-label="Respaldo profesional">
+                    <li><MetaLogo /><span><b>Meta</b> Media Buying Professional</span></li>
+                    <li><GoogleLogo /><span><b>Google</b> Marketing Certified</span></li>
+                  </ul>
                 </div>
                 <div className="wt-vs">
                   <div className="wt-vs-card is-other">
@@ -557,7 +562,7 @@ const WebsiteTree = () => {
                     {!soldOut && (
                       <ol className="wt-steps" aria-label="Pasos del formulario">
                         <li className={step === 1 ? "is-on" : ""}><b>1</b>Tus datos</li>
-                        <li className={step === 2 ? "is-on" : ""}><b>2</b>Tu website</li>
+                        <li className={step === 2 ? "is-on" : ""}><b>2</b>Tu nueva website</li>
                       </ol>
                     )}
 
@@ -583,6 +588,10 @@ const WebsiteTree = () => {
                       </form>
                     ) : (
                       <form key="paso-2" onSubmit={submitStep2} noValidate>
+                        <div className="wt-intro">
+                          <h3>¿Cómo quieres que sea tu website?</h3>
+                          <p>No son los datos de tu website actual: con tus respuestas vamos a armar tu <b>nueva website</b>.</p>
+                        </div>
                         <div className="wt-field" role="group" aria-label="Idioma de tu website">
                           <span>Idioma de tu website</span>
                           <div className="wt-seg">

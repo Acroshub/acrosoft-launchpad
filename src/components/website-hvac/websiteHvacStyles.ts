@@ -143,6 +143,10 @@ export const WH_CSS = `
 .wh .wh-steps li.is-on{color:var(--ink)}
 .wh .wh-steps li.is-on b{background:var(--green);color:#fff}
 .wh .wh-steps li+li::before{content:"";width:22px;height:2px;background:#D8D2C2;margin-right:2px}
+.wh .wh-intro{margin:0 0 16px;padding:12px 14px;border-radius:12px;background:var(--green-soft);text-align:center}
+.wh .wh-intro h3{margin:0 0 4px;font:800 clamp(19px,5.4vw,22px)/1.1 var(--head);letter-spacing:.02em;text-transform:uppercase;color:var(--green)}
+.wh .wh-intro p{margin:0;font:500 13.5px/1.4 var(--text);color:var(--body)}
+.wh .wh-intro p b{color:var(--ink)}
 .wh .wh-field{display:block;margin:0 0 13px}
 .wh .wh-field>span{display:block;margin:0 0 5px;font:700 13.5px/1.25 var(--text);color:var(--ink)}
 .wh .wh-field>span em{font-style:normal;font-weight:500;color:#7A7C72}

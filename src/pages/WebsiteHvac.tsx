@@ -371,7 +371,7 @@ const WebsiteHvac = () => {
               <div className="wh-anchor" role="group" aria-label={`¿Por qué gratis? Crear una website con otra agencia normalmente puede costar US${WEBSITE_HVAC_AGENCY_PRICE.toLocaleString("en-US")}+. Con nosotros: gratis.`}>
                 <div className="wh-why">
                   <h3>¿Por qué gratis?</h3>
-                  <p>Porque también hacemos Marketing, Anuncios y Tecnología. <u>Queremos que conozcas nuestro trabajo y, si nos llevamos bien, en un futuro podemos seguir trabajando juntos.</u></p>
+                  <p>Porque también ayudamos a negocios a conseguir más clientes usando Anuncios en Facebook y Google. <u>Y queremos que conozcas nuestro trabajo, así si nos llevamos bien, en un futuro podemos seguir trabajando juntos.</u></p>
                 </div>
                 <div className="wh-vs">
                   <div className="wh-vs-card is-other">
@@ -557,7 +557,7 @@ const WebsiteHvac = () => {
                     {!soldOut && (
                       <ol className="wh-steps" aria-label="Pasos del formulario">
                         <li className={step === 1 ? "is-on" : ""}><b>1</b>Tus datos</li>
-                        <li className={step === 2 ? "is-on" : ""}><b>2</b>Tu website</li>
+                        <li className={step === 2 ? "is-on" : ""}><b>2</b>Tu nueva website</li>
                       </ol>
                     )}
 
@@ -583,6 +583,10 @@ const WebsiteHvac = () => {
                       </form>
                     ) : (
                       <form key="paso-2" onSubmit={submitStep2} noValidate>
+                        <div className="wh-intro">
+                          <h3>¿Cómo quieres que sea tu website?</h3>
+                          <p>No son los datos de tu website actual: con tus respuestas vamos a armar tu <b>nueva website</b>.</p>
+                        </div>
                         <div className="wh-field" role="group" aria-label="Idioma de tu website">
                           <span>Idioma de tu website</span>
                           <div className="wh-seg">
