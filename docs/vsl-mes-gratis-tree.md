@@ -42,7 +42,7 @@ Formato: *lo que se dice* en texto normal. Los números van en letras para que e
 ### BLOQUE 1 · Presentación y promesa (0:21 – 0:40) · 42 palabras
 
 > Soy Daniel Acero, de Acros Software. Llevo más de cinco años haciendo anuncios en Google y Facebook.
-> Y hoy te hago una propuesta que ninguna agencia te ha hecho: un mes completo de servicio, totalmente gratis. Tú solo pagas los anuncios.
+> Y hoy te hago una propuesta que ninguna agencia te ha hecho: Haré tus anuncios y tu Marketing completamente Gratis.
 
 ### BLOQUE 2 · El problema es el modelo, no tú (0:40 – 1:03) · 51 palabras
 
