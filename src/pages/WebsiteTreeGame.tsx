@@ -148,14 +148,14 @@ const WebsiteTreeGame = () => {
     return addNoindex();
   }, []);
 
+  // Pixel: SOLO dos eventos (decisión de Daniel). ViewContent en la primera vista, al cargar; y Lead cuando termina de enviar el formulario (abajo). Sin PageView.
   useEffect(() => {
     if (IS_DEMO || !WEBSITE_TREE_PIXEL_ID) return;
     initMetaPixel(WEBSITE_TREE_PIXEL_ID);
-    trackMetaEvent("PageView", undefined, undefined, WEBSITE_TREE_PIXEL_ID);
     trackMetaEvent("ViewContent", websiteTreeEventParams(), uuid(), WEBSITE_TREE_PIXEL_ID);
   }, []);
 
-  // Lead: cuando la persona ve «Recibimos tu pedido. Solo falta confirmar.» (no en vista previa, ni si el correo ya había pedido este mes).
+  // Lead: en cuanto el servidor guarda el pedido y sale «Recibimos tu pedido» (no hace falta que luego confirme por WhatsApp). No en vista previa, ni si esa persona ya había pedido este mes.
   useEffect(() => {
     if (!done || IS_DEMO || !WEBSITE_TREE_PIXEL_ID || leadSent.current || !newLead.current) return;
     leadSent.current = true;
