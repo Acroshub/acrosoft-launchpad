@@ -906,6 +906,19 @@ const FormRenderer = ({
     fbTrack("ViewContent");
   }, [pixelId]);
 
+  // El selector de horario MUESTRA un horario por defecto: se guarda de entrada en el estado para que lo que se ve sea lo que se envía
+  // (si no, un campo obligatorio pareciera lleno y aun así bloqueara «Continuar» hasta tocarlo).
+  useEffect(() => {
+    const scheduleIds = fields.filter(f => f.type === "schedule").map(f => f.id);
+    if (scheduleIds.length === 0) return;
+    setFormValues(v => {
+      const missing = scheduleIds.filter(id => v[id] === undefined);
+      return missing.length === 0
+        ? v
+        : { ...v, ...Object.fromEntries(missing.map(id => [id, DEFAULT_WEEKLY_SCHEDULE])) };
+    });
+  }, [fields]);
+
   const totalSteps = activeSections.length + (confirmSection ? 1 : 0);
   const isOnConfirm = !!confirmSection && currentStep === activeSections.length;
   const currentSection = isOnConfirm ? confirmSection! : activeSections[currentStep];

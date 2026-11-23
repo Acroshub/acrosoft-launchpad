@@ -185,3 +185,8 @@ verify_jwt = false
 # del kit; el "token" es el session_id de Stripe de esa compra. Idempotente.
 [functions.piscinas-upsell-charge]
 verify_jwt = false
+
+# login-with-phone: pública (la llama /login sin sesión). Resuelve número → cuenta en el servidor y hace el
+# signInWithPassword; devuelve solo la sesión (nunca el email). Límite por IP y por número vía check_rate_limit.
+[functions.login-with-phone]
+verify_jwt = false

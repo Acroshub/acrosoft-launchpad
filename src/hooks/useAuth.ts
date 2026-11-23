@@ -103,10 +103,40 @@ export const useStaffPermissions = () => {
 }
 
 /**
- * Sign in with email and password.
+ * Sign in with email OR phone number, plus password.
+ * - Contains "@" → email, signInWithPassword directo.
+ * - Otherwise → número: la Edge Function login-with-phone lo resuelve a la cuenta en el servidor
+ *   y devuelve la sesión (Auth no tiene proveedor de teléfono). Mismo contrato de error
+ *   que signInWithPassword: `{ error }` con `code === 'user_banned'` si la cuenta está suspendida.
  */
-export const signIn = (email: string, password: string) =>
-  supabase.auth.signInWithPassword({ email, password })
+export const signIn = async (identifier: string, password: string): Promise<{ error: { message: string; code?: string } | null }> => {
+  const id = identifier.trim()
+  if (id.includes('@')) {
+    const { error } = await supabase.auth.signInWithPassword({ email: id, password })
+    return { error }
+  }
+
+  let res: Response
+  try {
+    res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/login-with-phone`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_ANON_KEY },
+      body: JSON.stringify({ phone: id, password }),
+    })
+  } catch {
+    return { error: { message: 'network_error', code: 'network_error' } }
+  }
+  const json = await res.json().catch(() => ({}))
+  if (!res.ok || !json.access_token || !json.refresh_token) {
+    const code = typeof json.error === 'string' ? json.error : 'invalid_credentials'
+    return { error: { message: code, code } }
+  }
+  const { error } = await supabase.auth.setSession({
+    access_token: json.access_token,
+    refresh_token: json.refresh_token,
+  })
+  return { error }
+}
 
 /**
  * Sign out the current user.

@@ -17,15 +17,19 @@ const Login = () => {
   const handleLogin = async () => {
     setError("");
     setLoading(true);
-    // trim: el autocompletado de iOS deja un espacio al final del email
+    // trim: el autocompletado de iOS deja un espacio al final del email.
+    // El campo acepta email o número de teléfono (signIn decide según haya "@").
     const { error: authError } = await signIn(email.trim(), password);
     if (authError) {
       // Un usuario baneado es una cuenta con el servicio suspendido (ver tenant_suspension): Auth
       // solo lo dice tras validar la contraseña, así que no revela si un email existe.
       const banned = (authError as { code?: string }).code === "user_banned" || /banned/i.test(authError.message);
-      setError(banned
+      const code = (authError as { code?: string }).code;
+      setError(banned || code === "user_banned"
         ? "El servicio de esta cuenta está suspendido. Contacta a Acros Software para reactivarlo."
-        : "Email o contraseña incorrectos.");
+        : code === "rate_limited"
+          ? "Demasiados intentos. Espera unos minutos e intenta de nuevo."
+          : "Email, número o contraseña incorrectos.");
       setLoading(false);
       return;
     }
@@ -155,10 +159,15 @@ const Login = () => {
               <div className="space-y-4">
                 {/* Email */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-[#14161F]/55 uppercase tracking-wide">Email</label>
+                  <label className="text-xs font-semibold text-[#14161F]/55 uppercase tracking-wide">Email o número</label>
                   <input
-                    type="email"
-                    placeholder="tu@email.com"
+                    type="text"
+                    inputMode="email"
+                    autoComplete="username"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    placeholder="tu@email.com o +1 555 123 4567"
                     value={email}
                     onChange={e => setEmail(e.target.value)}
                     onKeyDown={e => e.key === "Enter" && handleLogin()}
@@ -173,7 +182,7 @@ const Login = () => {
                     <label className="text-xs font-semibold text-[#14161F]/55 uppercase tracking-wide">Contraseña</label>
                     <button
                       type="button"
-                      onClick={() => { setForgotMode(true); setError(""); }}
+                      onClick={() => { setForgotMode(true); setError(""); if (!email.includes("@")) setEmail(""); }}
                       className="text-[11px] text-[#0F766E] font-semibold hover:underline transition-all"
                     >
                       ¿Olvidaste la contraseña?

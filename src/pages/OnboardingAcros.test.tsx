@@ -16,6 +16,8 @@ const FORM = {
   ],
   fields: [
     { id: "name", sectionId: "s1", type: "text", label: "Nombre del negocio", required: true, placeholder: "Nombre" },
+    { id: "sch", sectionId: "s1", type: "schedule", label: "Horario de atención", required: true },
+    { id: "web", sectionId: "s2", type: "text", label: "Website (opcional)", required: false, placeholder: "tunegocio.com" },
     { id: "fb", sectionId: "s2", type: "radio", label: "¿Tienes una Página de Facebook?", required: true, options: ["Sí", "No", "No sé"], compact: true },
     { id: "fb-link", sectionId: "s2", type: "text", label: "Link de tu Página de Facebook (opcional)", required: false, placeholder: "facebook.com/tunegocio", showIf: { fieldId: "fb", equals: ["Sí"] } },
     { id: "svc", sectionId: "s3", type: "repeatable", label: "Servicios que quieres promocionar", required: true, subFields: [{ id: "name", label: "Servicio", type: "text" }] },
@@ -106,6 +108,8 @@ describe("/onboarding-acros", () => {
     expect(submitted.form_id).toBe(FORM.id);
     expect(submitted.data.name).toBe("Pérez Tree");
     expect(submitted.data.fb).toBe("No");
+    expect(submitted.data.sch.Lun.open).toBe(true); // el horario obligatorio mostrado por defecto sí se envía aunque no se toque
+    expect("web" in submitted.data).toBe(false);     // website opcional sin llenar: no se envía
     expect("fb-link" in submitted.data).toBe(false); // el link quedó oculto → no se envía
     expect(submitted.data.svc[0].name).toBe("Poda de árboles");
     expect(await screen.findByText(/Recibimos la información/)).toBeTruthy();
