@@ -47,6 +47,12 @@ Deno.test("pedido: servicios (1 a 6, sin repetidos); el destacado es opcional", 
 
 Deno.test("pedido: datos de contacto inválidos y HTML se limpia", () => {
   assertEquals(parseWebsiteTreeRequest({ ...ok, email: "no-es-correo" }).ok, false);
+  // El correo es opcional (la versión gamificada no lo pide): sin correo el pedido es válido y queda vacío.
+  const sinCorreo = parseWebsiteTreeRequest({ ...ok, email: "" });
+  assertEquals(sinCorreo.ok, true);
+  if (sinCorreo.ok) assertEquals(sinCorreo.value.email, "");
+  assertEquals(parseWebsiteTreeRequest({ ...ok, email: undefined }).ok, true);
+  assertEquals(parseWebsiteTreeLead({ name: "Carlos Ramírez", whatsapp: "7135550101", business: "Frío Total" }).ok, true);
   assertEquals(parseWebsiteTreeRequest({ ...ok, whatsapp: "abc" }).ok, false);
   assertEquals(parseWebsiteTreeRequest({ ...ok, language: "fr" }).ok, false);
   assertEquals(parseWebsiteTreeRequest(null).ok, false);

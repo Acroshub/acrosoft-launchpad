@@ -4,7 +4,7 @@
 //                           (o website-tree-espera si ya no quedan cupos) sin gastar cupo ni avisar por push.
 //  - { ...pedido }        → guarda el pedido como envío del formulario del CRM «Website Tree Service gratis» (slug website-tree, de la cuenta del
 //                           superadmin), crea/actualiza el contacto con la etiqueta website-tree y avisa por push al superadmin.
-// Límite: 10 pedidos por mes (hora de Nueva York). Un mismo correo no gasta dos cupos. verify_jwt = false (visitante anónimo): se protege
+// Límite: 10 pedidos por mes (hora de Nueva York). Un mismo correo (o, si no dejó correo, un mismo WhatsApp) no gasta dos cupos. verify_jwt = false (visitante anónimo): se protege
 // con límite por IP (check_rate_limit) y validando todo en website-tree.ts.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { PUBLIC_CORS_HEADERS } from "../_shared/cors.ts";
@@ -37,6 +37,13 @@ async function usedThisMonth(formId: string): Promise<number> {
     .eq("form_id", formId).gte("created_at", monthStartIso(Date.now()));
   if (error) throw error;
   return count ?? 0;
+}
+
+/** Contacto ya existente de esa cuenta: por correo si lo dejó; si no, por WhatsApp (el correo es opcional). */
+// deno-lint-ignore no-explicit-any
+function findContact(userId: string, email: string, phone: string, cols: string): Promise<{ data: any }> {
+  const q = supabase.from("crm_contacts").select(cols).eq("user_id", userId);
+  return (email ? q.eq("email", email) : q.eq("phone", phone)).limit(1).maybeSingle() as unknown as Promise<{ data: any }>;
 }
 
 Deno.serve(async (req) => {
@@ -72,8 +79,7 @@ Deno.serve(async (req) => {
       const left = slotsLeft(await usedThisMonth(form.id));
       const tag = left === 0 ? WEBSITE_TREE_TAG_WAITLIST : WEBSITE_TREE_TAG_PARTIAL;
       try {
-        const { data: existing } = await supabase
-          .from("crm_contacts").select("id, tags").eq("user_id", form.user_id).eq("email", l.email).maybeSingle();
+        const { data: existing } = await findContact(form.user_id, l.email, l.whatsapp, "id, tags");
         if (existing) {
           const tags: string[] = existing.tags ?? [];
           // Quien ya completó el formulario (o ya está en la lista de espera) no se vuelve a etiquetar como incompleto.
@@ -82,7 +88,7 @@ Deno.serve(async (req) => {
           }
         } else {
           await supabase.from("crm_contacts").insert({
-            user_id: form.user_id, name: l.name, email: l.email, phone: l.whatsapp, company: l.business, tags: [tag], notes: null, custom_fields: {},
+            user_id: form.user_id, name: l.name, email: l.email || null, phone: l.whatsapp, company: l.business, tags: [tag], notes: null, custom_fields: {},
           });
         }
       } catch (e) {
@@ -99,7 +105,8 @@ Deno.serve(async (req) => {
     // Un mismo correo no gasta dos cupos: si ya pidió este mes, se responde como éxito sin duplicar nada.
     const { count: dup } = await supabase
       .from("crm_form_submissions").select("id", { count: "exact", head: true })
-      .eq("form_id", form.id).gte("created_at", monthStartIso(Date.now())).filter(`data->>${WT_FIELD.email}`, "eq", v.email);
+      .eq("form_id", form.id).gte("created_at", monthStartIso(Date.now()))
+      .filter(`data->>${v.email ? WT_FIELD.email : WT_FIELD.whatsapp}`, "eq", v.email || v.whatsapp);
     if ((dup ?? 0) > 0) return respond({ ok: true, already: true, slots_left: slotsLeft(await usedThisMonth(form.id)) });
 
     if (slotsLeft(await usedThisMonth(form.id)) === 0) return respond({ error: "cupos_agotados", slots_left: 0 }, 409);
@@ -119,8 +126,7 @@ Deno.serve(async (req) => {
 
     // Contacto del CRM (sin duplicar por correo) con la etiqueta de la landing y las respuestas en su ficha.
     try {
-      const { data: existing } = await supabase
-        .from("crm_contacts").select("id, tags, custom_fields").eq("user_id", form.user_id).eq("email", v.email).maybeSingle();
+      const { data: existing } = await findContact(form.user_id, v.email, v.whatsapp, "id, tags, custom_fields");
       if (existing) {
         await supabase.from("crm_contacts").update({
           name: v.name, phone: v.whatsapp, company: v.business,
@@ -130,7 +136,7 @@ Deno.serve(async (req) => {
         }).eq("id", existing.id);
       } else {
         await supabase.from("crm_contacts").insert({
-          user_id: form.user_id, name: v.name, email: v.email, phone: v.whatsapp, company: v.business,
+          user_id: form.user_id, name: v.name, email: v.email || null, phone: v.whatsapp, company: v.business,
           tags: [WEBSITE_TREE_TAG], notes: null, custom_fields: { [form.id]: data },
         });
       }

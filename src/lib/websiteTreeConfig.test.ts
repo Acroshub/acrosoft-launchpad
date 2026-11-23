@@ -16,6 +16,10 @@ describe("formulario de /website-tree", () => {
     expect(validateWebsiteTreeStep1(ok())).toBeNull();
     expect(validateWebsiteTreeStep1({ ...ok(), name: "Ca" })).toMatch(/nombre/i);
     expect(validateWebsiteTreeStep1({ ...ok(), email: "mal" })).toMatch(/correo/i);
+    // Versión gamificada: el correo no se pide, pero si lo escriben tiene que ser válido.
+    expect(validateWebsiteTreeStep1({ ...ok(), email: "" }, false)).toBeNull();
+    expect(validateWebsiteTreeStep1({ ...ok(), email: "" })).toMatch(/correo/i);
+    expect(validateWebsiteTreeStep1({ ...ok(), email: "mal" }, false)).toMatch(/correo/i);
     expect(validateWebsiteTreeStep1({ ...ok(), whatsapp: "12" })).toMatch(/WhatsApp/);
     expect(validateWebsiteTreeStep1({ ...ok(), business: " " })).toMatch(/negocio/i);
   });

@@ -36,8 +36,12 @@ export const WH_CSS = `
 .wh .wh-anchor{max-width:420px;margin:14px auto 0;padding:16px 14px 16px;background:var(--card);border:1px solid var(--line);border-radius:16px;box-shadow:0 6px 16px rgba(17,17,17,.07);text-align:center}
 /* «¿Por qué gratis?» como título de sección, su texto y debajo dos tarjetas «Otra agencia VS Con nosotros» */
 .wh .wh-why h3{margin:0 0 8px;text-align:center;font:800 clamp(28px,8vw,34px)/1 var(--head);letter-spacing:.02em;text-transform:uppercase;color:var(--hl)}
-.wh .wh-why p{margin:0;font:400 15.5px/1.55 var(--text);color:var(--body)}
+.wh .wh-why p{margin:0;font:600 15.5px/1.55 var(--text);color:var(--body)}
 .wh .wh-why p u{text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;text-decoration-color:currentColor}
+.wh .wh-badges{list-style:none;margin:14px 0 0;padding:0;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.wh .wh-badges li{display:flex;align-items:center;justify-content:center;gap:8px;min-width:0;background:#fff;border:1px solid var(--line);border-radius:12px;padding:9px 6px;font:500 clamp(11.5px,3.2vw,13.5px)/1.2 var(--text);color:var(--body)}
+.wh .wh-badges li b{color:var(--ink);font-weight:700}
+.wh .wh-badges li span{min-width:0}
 .wh .wh-vs{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:stretch;gap:8px;margin-top:16px}
 .wh .wh-vs-card{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:5px;padding:12px 8px 13px;border:1.5px solid var(--line);border-radius:14px;background:#F6F7F4}
 .wh .wh-vs-card.is-us{background:var(--green-soft);border-color:var(--green)}

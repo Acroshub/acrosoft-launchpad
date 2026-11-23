@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
+import { GoogleLogo, MetaLogo } from "@/components/shared/PartnerBadgeLogos";
 import PhoneInput from "@/components/shared/PhoneInput";
 import WhatsAppIcon from "@/components/shared/WhatsAppIcon";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -372,6 +373,10 @@ const WebsiteHvac = () => {
                 <div className="wh-why">
                   <h3>¿Por qué gratis?</h3>
                   <p>Porque también ayudamos a negocios a conseguir más clientes usando Anuncios en Facebook y Google. <u>Y queremos que conozcas nuestro trabajo, así si nos llevamos bien, en un futuro podemos seguir trabajando juntos.</u></p>
+                  <ul className="wh-badges" aria-label="Respaldo profesional">
+                    <li><MetaLogo /><span><b>Meta</b> Media Buying Professional</span></li>
+                    <li><GoogleLogo /><span><b>Google</b> Marketing Certified</span></li>
+                  </ul>
                 </div>
                 <div className="wh-vs">
                   <div className="wh-vs-card is-other">

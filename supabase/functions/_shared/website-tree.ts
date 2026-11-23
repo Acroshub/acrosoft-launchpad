@@ -37,6 +37,7 @@ export const WT_FIELD = {
 
 export interface WebsiteTreeRequest {
   name: string;
+  /** "" si la persona no dejó correo. */
   email: string;
   whatsapp: string;
   business: string;
@@ -60,7 +61,8 @@ export function parseWebsiteTreeRequest(body: unknown): ParseResult {
   const language = b.language === "en" ? "en" : b.language === "es" ? "es" : null;
 
   if (name.length < 3) return { ok: false, error: "Falta tu nombre y apellido" };
-  if (!isValidEmail(email)) return { ok: false, error: "Correo inválido" };
+  // El correo es OPCIONAL (la versión /website-tree-game no lo pide): si viene, tiene que ser válido; si no, la persona se identifica por su WhatsApp.
+  if (email && !isValidEmail(email)) return { ok: false, error: "Correo inválido" };
   if (!isValidPhone(whatsapp)) return { ok: false, error: "WhatsApp inválido" };
   if (!business) return { ok: false, error: "Falta el nombre del negocio" };
   if (!language) return { ok: false, error: "Elige el idioma de tu website" };
@@ -96,7 +98,8 @@ export function parseWebsiteTreeLead(body: unknown): { ok: true; value: WebsiteT
   const whatsapp = sanitizeText(b.whatsapp, 30);
   const business = sanitizeText(b.business, 120);
   if (name.length < 3) return { ok: false, error: "Falta tu nombre y apellido" };
-  if (!isValidEmail(email)) return { ok: false, error: "Correo inválido" };
+  // El correo es OPCIONAL (la versión /website-tree-game no lo pide): si viene, tiene que ser válido; si no, la persona se identifica por su WhatsApp.
+  if (email && !isValidEmail(email)) return { ok: false, error: "Correo inválido" };
   if (!isValidPhone(whatsapp)) return { ok: false, error: "WhatsApp inválido" };
   if (!business) return { ok: false, error: "Falta el nombre del negocio" };
   return { ok: true, value: { name, email, whatsapp, business } };

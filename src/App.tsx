@@ -42,6 +42,7 @@ const EstimadosGracias = lazy(() => import("./pages/EstimadosGracias.tsx"));
 const ConsultoriaMktTree = lazy(() => import("./pages/ConsultoriaMktTree.tsx"));
 const WebsiteHvac = lazy(() => import("./pages/WebsiteHvac.tsx"));
 const WebsiteTree = lazy(() => import("./pages/WebsiteTree.tsx"));
+const WebsiteTreeGame = lazy(() => import("./pages/WebsiteTreeGame.tsx"));
 const OnboardingAcros = lazy(() => import("./pages/OnboardingAcros.tsx"));
 
 const queryClient = new QueryClient({
@@ -96,6 +97,7 @@ const App = () => (
             <Route path="/consultoria-mkt-tree" element={<ConsultoriaMktTree />} />
             <Route path="/website-hvac" element={<WebsiteHvac />} />
             <Route path="/website-tree" element={<WebsiteTree />} />
+            <Route path="/website-tree-game" element={<WebsiteTreeGame />} />
             {/* Onboarding de clientes nuevos: formulario del CRM (slug onboarding-acros) en pestañas; crea el contacto con la etiqueta onboarding-acros (nace con noindex) */}
             <Route path="/onboarding-acros" element={<OnboardingAcros />} />
 
