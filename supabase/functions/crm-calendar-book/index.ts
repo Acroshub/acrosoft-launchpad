@@ -155,7 +155,7 @@ Deno.serve(async (req) => {
 
     const { data: calendar, error: calError } = await supabase
       .from("crm_calendar_config")
-      .select("id, user_id, name, description, duration_min, buffer_min, min_advance_hours, max_future_days, availability, timezone, language, linked_form_id, facebook_pixel_id, slug")
+      .select("id, user_id, name, description, duration_min, buffer_min, min_advance_hours, max_future_days, availability, timezone, language, linked_form_id, facebook_pixel_id, slug, sms_reminders_enabled")
       .eq(isUUID ? "id" : "slug", calendar_id)
       .single();
 
@@ -166,7 +166,7 @@ Deno.serve(async (req) => {
     const [{ data: profile }, { data: blockedSlots }, formResult] = await Promise.all([
       supabase
         .from("crm_business_profile")
-        .select("color_primary, color_secondary, color_accent, logo_url, theme, timezone")
+        .select("color_primary, color_secondary, color_accent, logo_url, theme, timezone, business_name")
         .eq("user_id", calendar.user_id)
         .maybeSingle(),
       supabase
@@ -225,7 +225,7 @@ Deno.serve(async (req) => {
 
     const { data: calendar, error: calError } = await supabase
       .from("crm_calendar_config")
-      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability, reminder_rules, timezone")
+      .select("user_id, duration_min, buffer_min, min_advance_hours, max_future_days, name, linked_form_id, availability, reminder_rules, timezone, sms_reminders_enabled")
       .eq("id", calendar_id)
       .single();
 
@@ -339,8 +339,25 @@ Deno.serve(async (req) => {
     const applyBookingVars = (text: string): string => applyBookingPlaceholders(text, bookingVars);
 
     const formKey = calendar.linked_form_id ?? "booking";
-    const formDataToStore = form_data && Object.keys(form_data).length > 0
-      ? { [formKey]: form_data } : {};
+    // Consentimiento de SMS (checkbox propio del formulario, opcional y sin marcar de fábrica). Solo cuenta si el
+    // calendario tiene SMS activado, la persona lo marcó y dejó un teléfono válido. Se guarda la PRUEBA: cuándo,
+    // el texto exacto que vio, el teléfono y el calendario (Twilio / las operadoras pueden pedirla). Queda en el
+    // contacto, fuera de las respuestas del formulario, y un reingreso sin marcar NO la borra (solo STOP la revoca).
+    const smsIn = body.sms_consent as { accepted?: unknown; text?: unknown } | undefined;
+    const smsConsent = smsIn?.accepted === true && calendar.sms_reminders_enabled === true && phone
+      ? { _sms_consent: {
+          granted_at: new Date().toISOString(),
+          phone,
+          calendar_id,
+          source: "calendar",
+          text: sanitizeText(typeof smsIn.text === "string" ? smsIn.text : "", 800),
+        } }
+      : {};
+
+    const formDataToStore = {
+      ...(form_data && Object.keys(form_data).length > 0 ? { [formKey]: form_data } : {}),
+      ...smsConsent,
+    };
 
     let contactId: string | null = null;
 

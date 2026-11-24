@@ -130,6 +130,8 @@ export type CrmCalendarConfig = {
   timezone: string
   language: string
   facebook_pixel_id?: string | null
+  /** Muestra en el formulario de reserva el checkbox de consentimiento de SMS (ver crm-calendar-book). */
+  sms_reminders_enabled?: boolean
 }
 
 export type CrmGoogleEvent = {

@@ -6,6 +6,7 @@ import { widgetTranslations } from "@/i18n/widgets";
 import type { WidgetLang } from "@/hooks/useLangWidget";
 import { usePublicCalendar, usePublicAppointments } from "@/hooks/useCrmData";
 import { wallClockToUtcMs, formatSlotInTz } from "@/lib/slotTime";
+import { LEGAL } from "@/lib/legal";
 import type { CrmBlockedSlot } from "@/lib/supabase";
 import type { WeeklySchedule } from "@/components/shared/WeeklySchedulePicker";
 
@@ -201,6 +202,11 @@ interface BookingFormProps {
   previewOnly?: boolean;
   /** Formulario propio de la página con confirmaciones Sí / No (ver BookingQualification). */
   qualification?: BookingQualification;
+  /**
+   * Presente solo si el calendario tiene SMS activado: muestra el checkbox de consentimiento de recordatorios por SMS (opcional, sin
+   * marcar de fábrica, SEPARADO de los términos). `businessName` es el negocio en cuyo nombre se mandan los mensajes.
+   */
+  smsConsent?: { businessName: string };
   selectedDate: string;
   selectedHour: number;
   selectedMinute: number;
@@ -222,6 +228,7 @@ const BookingForm = ({
   phoneDefaultDial,
   previewOnly = false,
   qualification,
+  smsConsent,
   selectedDate,
   selectedHour,
   selectedMinute,
@@ -241,6 +248,7 @@ const BookingForm = ({
   const [submitError, setSubmitError] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [termsError, setTermsError] = useState(false);
+  const [smsAccepted, setSmsAccepted] = useState(false);
   // Confirmaciones Sí / No del formulario propio de la página: sin responder = undefined.
   const [answers, setAnswers] = useState<Record<string, "yes" | "no">>({});
   const [answersError, setAnswersError] = useState(false);
@@ -296,6 +304,12 @@ const BookingForm = ({
     const onlyPhone: BookingField[] = phones.length > 0 ? phones : [{ id: "f-phone", label: "WhatsApp", type: "phone", required: true, placeholder: T.fieldPhonePh }];
     return onlyPhone.map((f) => ({ ...f, required: true, label: "WhatsApp" }));
   }, [fields, prefilled, requireWhatsapp, qualification, T]);
+
+  // El checkbox de SMS solo tiene sentido si el formulario le pide teléfono a la persona (sin número no hay a quién escribir).
+  const smsShown = !!smsConsent && !qualification && (shownFields as BookingField[]).some((f) => f.type === "phone");
+  const smsLabel = T.smsConsent(LEGAL.brand, smsConsent?.businessName?.trim() || (lang === "en" ? "this business" : "este negocio"));
+  // Páginas legales: en inglés van las dos páginas en inglés; en español, la página combinada de siempre.
+  const legalLinkProps = { target: "_blank", rel: "noopener noreferrer", onClick: (e: React.MouseEvent) => e.stopPropagation() } as const;
 
   const validateField = (field: any, value: string): string | null => {
     const trimmed = value?.trim() ?? "";
@@ -370,6 +384,8 @@ const BookingForm = ({
           "apikey": import.meta.env.VITE_SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({ calendar_id: calendarId, date: selectedDate, hour: selectedHour, minute: selectedMinute, form_data: { ...prefilled, ...values, ...confirmationData }, terms_accepted_at: termsAt,
+          // Consentimiento de SMS: solo si lo marcó. Se manda el texto EXACTO que vio, como prueba (el servidor la guarda en el contacto).
+          ...(smsShown && smsAccepted ? { sms_consent: { accepted: true, text: `${smsLabel} ${T.smsDisclosure}` } } : {}),
           // El servidor completa los correos de reserva: la hora en la zona del visitante, el negocio y las confirmaciones; y etiqueta al contacto.
           booking_meta: {
             visitor_tz: visitorTz,
@@ -515,21 +531,61 @@ const BookingForm = ({
           <span className="text-sm text-gray-500 leading-snug select-none">
             {T.termsAccept}{" "}
             <a
-              href="/terminos_y_politicas_de_privacidad"
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
+              href={lang === "en" ? LEGAL.termsPath : "/terminos_y_politicas_de_privacidad"}
+              {...legalLinkProps}
               className="underline underline-offset-2 hover:opacity-80 transition-opacity"
               style={{ color: primaryColor }}
             >
               {T.termsLink}
             </a>
+            {lang === "en" && (
+              <>
+                {" "}{T.termsAnd}{" "}
+                <a
+                  href={LEGAL.privacyPath}
+                  {...legalLinkProps}
+                  className="underline underline-offset-2 hover:opacity-80 transition-opacity"
+                  style={{ color: primaryColor }}
+                >
+                  {T.privacyLink}
+                </a>
+              </>
+            )}
           </span>
         </label>
         {termsError && (
           <p className="text-xs text-red-500 ml-8">{T.termsError}</p>
         )}
       </div>
+
+      {/* Consentimiento de SMS: checkbox propio (no va mezclado con los términos), opcional y sin marcar de fábrica */}
+      {smsShown && (
+        <div className="space-y-1.5" data-testid="sms-consent-block">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              data-testid="sms-consent-checkbox"
+              checked={smsAccepted}
+              onChange={(e) => setSmsAccepted(e.target.checked)}
+              className="mt-0.5 w-5 h-5 flex-none cursor-pointer"
+              style={{ accentColor: primaryColor }}
+            />
+            <span className="text-sm text-gray-500 leading-snug">{smsLabel}</span>
+          </label>
+          <p className="text-xs text-gray-400 leading-snug ml-8">
+            {T.smsDisclosure}{" "}
+            <a href={lang === "en" ? LEGAL.privacyPath : "/terminos_y_politicas_de_privacidad"} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: primaryColor }}>
+              {lang === "en" ? T.privacyLink : T.termsLink}
+            </a>
+            {lang === "en" && (
+              <>
+                {" · "}
+                <a href={LEGAL.termsPath} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2" style={{ color: primaryColor }}>{T.termsLink}</a>
+              </>
+            )}
+          </p>
+        </div>
+      )}
 
       {failedRequirement ? (
         <p role="alert" data-testid="booking-blocked" className="text-sm font-semibold text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2.5 text-center">
@@ -803,6 +859,7 @@ const CalendarRenderer = ({ calendarId, lang: langProp, primaryColorOverride, on
         phoneDefaultDial={phoneDefaultDial}
         previewOnly={previewOnly}
         qualification={qualification}
+        smsConsent={calendar.sms_reminders_enabled ? { businessName: branding?.business_name ?? "" } : undefined}
         selectedDate={selectedDate}
         selectedHour={selectedSlot.hour}
         selectedMinute={selectedSlot.minute}

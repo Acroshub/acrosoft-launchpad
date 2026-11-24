@@ -18,6 +18,8 @@ import NotFound from "./pages/NotFound.tsx";
 const Crm = lazy(() => import("./pages/Crm.tsx"));
 const CrmSetup = lazy(() => import("./pages/CrmSetup.tsx"));
 const TerminosPoliticas = lazy(() => import("./pages/TerminosPoliticas.tsx"));
+const PrivacyPolicy = lazy(() => import("./pages/PrivacyPolicy.tsx"));
+const TermsAndConditions = lazy(() => import("./pages/TermsAndConditions.tsx"));
 const GoogleCalendarCallback = lazy(() => import("./pages/GoogleCalendarCallback.tsx"));
 const CourseAccess = lazy(() => import("./pages/CourseAccess.tsx"));
 const CoursePlayer = lazy(() => import("./pages/CoursePlayer.tsx"));
@@ -72,6 +74,9 @@ const App = () => (
             <Route path="/terminos_y_politicas_de_privacidad" element={<TerminosPoliticas />} />
             <Route path="/privacy" element={<TerminosPoliticas />} />
             <Route path="/terms"   element={<TerminosPoliticas />} />
+            {/* Páginas legales en inglés (Twilio / SMS): Privacy Policy y Terms and Conditions con el programa de SMS. */}
+            <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+            <Route path="/terms-and-conditions" element={<TermsAndConditions />} />
             <Route path="/oauth/google-calendar" element={<GoogleCalendarCallback />} />
             <Route path="/toefl" element={<Toefl />} />
             <Route path="/toefl-ty" element={<TyToefl />} />

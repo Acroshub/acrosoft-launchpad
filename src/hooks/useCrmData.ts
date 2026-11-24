@@ -963,7 +963,7 @@ export const useLandingProfile = () =>
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export type PublicCalendarBranding = { color_primary: string; color_secondary: string; color_accent: string; logo_url: string | null; theme: string; timezone: string | null };
+export type PublicCalendarBranding = { color_primary: string; color_secondary: string; color_accent: string; logo_url: string | null; theme: string; timezone: string | null; business_name?: string | null };
 
 export type PublicCalendarConfig = {
   calendar: CrmCalendarConfig;
