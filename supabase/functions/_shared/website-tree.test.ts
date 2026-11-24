@@ -1,6 +1,7 @@
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
   parseWebsiteTreeLead, buildSubmissionData, buildWebsiteTreePush, monthStartIso, parseWebsiteTreeRequest, slotsLeft, WT_FIELD,
+  parseVariant, parseVisitorId, variantTag, withVariantTag,
 } from "./website-tree.ts";
 
 const ok = {
@@ -98,4 +99,25 @@ Deno.test("paso 1 (lead): solo pide contacto y negocio", () => {
   if (r.ok) assertEquals(r.value.email, "c@x.com");
   assertEquals(parseWebsiteTreeLead({ name: "Carlos Ramírez", email: "c@x.com", whatsapp: "7135550101" }).ok, false);
   assertEquals(parseWebsiteTreeLead({ name: "Ca", email: "c@x.com", whatsapp: "7135550101", business: "x" }).ok, false);
+});
+
+Deno.test("split test: solo se aceptan las dos versiones y la etiqueta se arma con ellas", () => {
+  assertEquals(parseVariant({ variant: "normal" }), "normal");
+  assertEquals(parseVariant({ variant: "game" }), "game");
+  for (const raro of [undefined, null, "", "GAME", "otra", 1, {}]) assertEquals(parseVariant({ variant: raro }), null);
+  assertEquals(parseVariant(null), null);
+  assertEquals(variantTag("normal"), "website-tree-v-normal");
+  assertEquals(variantTag("game"), "website-tree-v-game");
+});
+
+Deno.test("split test: la etiqueta de versión es de primer contacto, nunca quedan las dos", () => {
+  assertEquals(withVariantTag(["website-tree"], "game"), ["website-tree", "website-tree-v-game"]);
+  assertEquals(withVariantTag(["website-tree-v-normal"], "game"), ["website-tree-v-normal"]);
+  assertEquals(withVariantTag(["website-tree"], null), ["website-tree"]);
+  assertEquals(withVariantTag([], "normal"), ["website-tree-v-normal"]);
+});
+
+Deno.test("split test: visitor_id tiene que ser un uuid", () => {
+  assertEquals(parseVisitorId({ visitor_id: "3F2504E0-4F89-41D3-9A0C-0305E82C3301" }), "3f2504e0-4f89-41d3-9a0c-0305e82c3301");
+  for (const raro of [undefined, "", "abc", "3f2504e0-4f89-41d3-9a0c-0305e82c330", 5, null]) assertEquals(parseVisitorId({ visitor_id: raro }), null);
 });

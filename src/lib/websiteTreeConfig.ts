@@ -139,10 +139,12 @@ export function websiteTreeSupportUrl(): string {
   return `https://wa.me/${WEBSITE_TREE_WHATSAPP}?text=${encodeURIComponent(WEBSITE_TREE_SUPPORT_MESSAGE)}`;
 }
 
-export function websiteTreeEventParams() {
+export function websiteTreeEventParams(variant?: "normal" | "game") {
   return {
     content_name: "Website gratis para negocios de tree service",
     content_ids: [WEBSITE_TREE_SLUG],
     content_category: "website-gratis",
+    // Split test de /website-tree: Meta puede separar visitas y leads por versión. Fuera del test (landing directa) no se manda.
+    ...(variant ? { ab_variant: variant } : {}),
   };
 }

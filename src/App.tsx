@@ -44,7 +44,7 @@ const EstimadosTy = lazy(() => import("./pages/EstimadosTy.tsx"));
 const EstimadosGracias = lazy(() => import("./pages/EstimadosGracias.tsx"));
 const ConsultoriaMktTree = lazy(() => import("./pages/ConsultoriaMktTree.tsx"));
 const WebsiteHvac = lazy(() => import("./pages/WebsiteHvac.tsx"));
-const WebsiteTree = lazy(() => import("./pages/WebsiteTree.tsx"));
+const WebsiteTreeSplit = lazy(() => import("./pages/WebsiteTreeSplit.tsx"));
 const WebsiteTreeGame = lazy(() => import("./pages/WebsiteTreeGame.tsx"));
 const OnboardingAcros = lazy(() => import("./pages/OnboardingAcros.tsx"));
 
@@ -103,7 +103,7 @@ const App = () => (
             {/* Landing de agendamiento «Consultoría de marketing gratis para Tree Services»: VSL + el mismo calendario de /estimados-ty (nace con noindex) */}
             <Route path="/consultoria-mkt-tree" element={<ConsultoriaMktTree />} />
             <Route path="/website-hvac" element={<WebsiteHvac />} />
-            <Route path="/website-tree" element={<WebsiteTree />} />
+            <Route path="/website-tree" element={<WebsiteTreeSplit />} />
             <Route path="/website-tree-game" element={<WebsiteTreeGame />} />
             {/* Onboarding de clientes nuevos: formulario del CRM (slug onboarding-acros) en pestañas; crea el contacto con la etiqueta onboarding-acros (nace con noindex) */}
             <Route path="/onboarding-acros" element={<OnboardingAcros />} />

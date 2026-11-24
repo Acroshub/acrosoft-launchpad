@@ -2,6 +2,8 @@
 //  - { action: "slots" }  → { slots_left, limit }   (la landing lo pide al cargar para mostrar «quedan N cupos»)
 //  - { action: "lead", name, email, whatsapp, business } → paso 1 del formulario: guarda el contacto con la etiqueta website-tree-incompleto
 //                           (o website-tree-espera si ya no quedan cupos) sin gastar cupo ni avisar por push.
+//  - { action: "visit", variant, visitor_id } → cuenta una visita única al split test (tabla website_tree_split_visits); un mismo visitor_id no se repite.
+//  - Los pasos «lead» y el pedido aceptan además `variant` ("normal" | "game"): el contacto queda con la etiqueta website-tree-v-<variante> (la primera que vio).
 //  - { ...pedido }        → guarda el pedido como envío del formulario del CRM «Website Tree Service gratis» (slug website-tree, de la cuenta del
 //                           superadmin), crea/actualiza el contacto con la etiqueta website-tree y avisa por push al superadmin.
 // Límite: 10 pedidos por mes (hora de Nueva York). Un mismo correo (o, si no dejó correo, un mismo WhatsApp) no gasta dos cupos. verify_jwt = false (visitante anónimo): se protege
@@ -11,7 +13,7 @@ import { PUBLIC_CORS_HEADERS } from "../_shared/cors.ts";
 import { sendPushToUsers } from "../_shared/push.ts";
 import {
   WEBSITE_TREE_MONTHLY_LIMIT, WEBSITE_TREE_SLUG, WEBSITE_TREE_TAG, WEBSITE_TREE_TAG_PARTIAL, WEBSITE_TREE_TAG_WAITLIST, WT_FIELD,
-  buildSubmissionData, buildWebsiteTreePush, monthStartIso, parseWebsiteTreeLead, parseWebsiteTreeRequest, slotsLeft,
+  buildSubmissionData, buildWebsiteTreePush, monthStartIso, parseVariant, parseVisitorId, parseWebsiteTreeLead, parseWebsiteTreeRequest, slotsLeft, withVariantTag,
 } from "../_shared/website-tree.ts";
 
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -53,15 +55,26 @@ Deno.serve(async (req) => {
   try { body = await req.json(); } catch { return respond({ error: "JSON inválido" }, 400); }
   const isSlots = body?.action === "slots";
   const isLead = body?.action === "lead";
+  const isVisit = body?.action === "visit";
 
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? req.headers.get("x-real-ip") ?? "unknown";
   const { data: allowed, error: rlErr } = await supabase.rpc("check_rate_limit", {
-    p_key: isSlots ? `website-tree-slots:${ip}` : `website-tree:${ip}`,
+    p_key: isSlots ? `website-tree-slots:${ip}` : isVisit ? `website-tree-visit:${ip}` : `website-tree:${ip}`,
     p_window_seconds: 3600,
-    p_max_count: isSlots ? 120 : 10,
+    p_max_count: isSlots || isVisit ? 120 : 10,
   });
   if (rlErr) console.error("rate_limit check error (non-blocking):", rlErr);
   if (allowed === false) return respond({ error: "Demasiadas solicitudes. Intenta más tarde." }, 429);
+
+  if (isVisit) {
+    const variant = parseVariant(body);
+    const visitorId = parseVisitorId(body);
+    if (!variant || !visitorId) return respond({ error: "Visita inválida" }, 400);
+    // Un visitante cuenta una sola vez (la primera versión que vio): si ya estaba, no se toca nada.
+    const { error } = await supabase.from("website_tree_split_visits").upsert({ visitor_id: visitorId, variant }, { onConflict: "visitor_id", ignoreDuplicates: true });
+    if (error) { console.error("visit:", error); return respond({ error: "No se pudo contar la visita" }, 500); }
+    return respond({ ok: true });
+  }
 
   try {
     const form = await loadForm();
@@ -73,6 +86,7 @@ Deno.serve(async (req) => {
     }
 
     if (isLead) {
+      const variant = parseVariant(body);
       const lead = parseWebsiteTreeLead(body);
       if (!lead.ok) return respond({ error: lead.error }, 400);
       const l = lead.value;
@@ -83,12 +97,12 @@ Deno.serve(async (req) => {
         if (existing) {
           const tags: string[] = existing.tags ?? [];
           // Quien ya completó el formulario (o ya está en la lista de espera) no se vuelve a etiquetar como incompleto.
-          if (!tags.includes(WEBSITE_TREE_TAG) && !tags.includes(tag)) {
-            await supabase.from("crm_contacts").update({ tags: [...tags, tag] }).eq("id", existing.id);
-          }
+          const base = !tags.includes(WEBSITE_TREE_TAG) && !tags.includes(tag) ? [...tags, tag] : tags;
+          const next = withVariantTag(base, variant);
+          if (next.length !== tags.length) await supabase.from("crm_contacts").update({ tags: next }).eq("id", existing.id);
         } else {
           await supabase.from("crm_contacts").insert({
-            user_id: form.user_id, name: l.name, email: l.email || null, phone: l.whatsapp, company: l.business, tags: [tag], notes: null, custom_fields: {},
+            user_id: form.user_id, name: l.name, email: l.email || null, phone: l.whatsapp, company: l.business, tags: withVariantTag([tag], variant), notes: null, custom_fields: {},
           });
         }
       } catch (e) {
@@ -101,6 +115,7 @@ Deno.serve(async (req) => {
     const parsed = parseWebsiteTreeRequest(body);
     if (!parsed.ok) return respond({ error: parsed.error }, 400);
     const v = parsed.value;
+    const variant = parseVariant(body);
 
     // Un mismo correo no gasta dos cupos: si ya pidió este mes, se responde como éxito sin duplicar nada.
     const { count: dup } = await supabase
@@ -131,13 +146,13 @@ Deno.serve(async (req) => {
         await supabase.from("crm_contacts").update({
           name: v.name, phone: v.whatsapp, company: v.business,
           // Ya completó el formulario: deja de ser «incompleto» o «en espera».
-          tags: Array.from(new Set([...((existing.tags ?? []) as string[]).filter((t) => t !== WEBSITE_TREE_TAG_PARTIAL && t !== WEBSITE_TREE_TAG_WAITLIST), WEBSITE_TREE_TAG])),
+          tags: withVariantTag(Array.from(new Set([...((existing.tags ?? []) as string[]).filter((t) => t !== WEBSITE_TREE_TAG_PARTIAL && t !== WEBSITE_TREE_TAG_WAITLIST), WEBSITE_TREE_TAG])), variant),
           custom_fields: { ...((existing.custom_fields as object) ?? {}), [form.id]: data },
         }).eq("id", existing.id);
       } else {
         await supabase.from("crm_contacts").insert({
           user_id: form.user_id, name: v.name, email: v.email || null, phone: v.whatsapp, company: v.business,
-          tags: [WEBSITE_TREE_TAG], notes: null, custom_fields: { [form.id]: data },
+          tags: withVariantTag([WEBSITE_TREE_TAG], variant), notes: null, custom_fields: { [form.id]: data },
         });
       }
     } catch (e) {

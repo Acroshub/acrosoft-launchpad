@@ -13,6 +13,28 @@ export const WEBSITE_TREE_TAG = "website-tree";
 export const WEBSITE_TREE_TAG_PARTIAL = "website-tree-incompleto";
 /** Llegó con los cupos del mes agotados y pidió que le avisen cuando se abran. */
 export const WEBSITE_TREE_TAG_WAITLIST = "website-tree-espera";
+/** Split test de /website-tree: la landing normal y la gamificada se reparten el tráfico 50/50 y cada lead queda etiquetado con la versión que vio. */
+export const WEBSITE_TREE_VARIANTS = ["normal", "game"] as const;
+export type WebsiteTreeVariant = typeof WEBSITE_TREE_VARIANTS[number];
+const WEBSITE_TREE_VARIANT_TAG_PREFIX = "website-tree-v-";
+/** Etiqueta de la versión que vio el lead: website-tree-v-normal / website-tree-v-game. */
+export const variantTag = (v: WebsiteTreeVariant): string => `${WEBSITE_TREE_VARIANT_TAG_PREFIX}${v}`;
+/** Versión que manda la landing; cualquier otra cosa (falta, valor raro) es null y el lead se guarda sin etiqueta de versión. */
+export function parseVariant(body: unknown): WebsiteTreeVariant | null {
+  const v = (body && typeof body === "object" ? (body as Record<string, unknown>).variant : undefined);
+  return WEBSITE_TREE_VARIANTS.find((x) => x === v) ?? null;
+}
+/** Agrega la etiqueta de versión SOLO si el contacto aún no tiene ninguna: gana la primera que vio (first touch), nunca queda con las dos. */
+export function withVariantTag(tags: string[], variant: WebsiteTreeVariant | null): string[] {
+  if (!variant || tags.some((t) => t.startsWith(WEBSITE_TREE_VARIANT_TAG_PREFIX))) return tags;
+  return [...tags, variantTag(variant)];
+}
+/** `visitor_id` que manda la landing: un uuid. Cualquier otra cosa es null y la visita no se cuenta. */
+export function parseVisitorId(body: unknown): string | null {
+  const v = (body && typeof body === "object" ? (body as Record<string, unknown>).visitor_id : undefined);
+  return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v.toLowerCase() : null;
+}
+
 /** Cupos de websites gratis por mes. */
 export const WEBSITE_TREE_MONTHLY_LIMIT = 10;
 /** Zona en la que «empieza el mes» para contar los cupos. */

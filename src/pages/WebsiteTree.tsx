@@ -20,6 +20,7 @@ import { isEstimadosPreview } from "@/lib/estimadosPreview";
 import { initMetaPixel, trackMetaEvent } from "@/lib/metaPixel";
 import { addNoindex } from "@/lib/piscinasFunnel";
 import { uuid } from "@/lib/uuid";
+import type { WebsiteTreeSplit } from "@/lib/websiteTreeSplit";
 
 // /website-tree — landing de CAPTACIÓN: se regala el diseño y la creación de un website profesional a dueños de negocios de tree service en EE.UU. (solo pagan
 // dominio y hosting, y los 3 primeros meses también son gratis; después US$20 al mes). El objetivo único es que llenen el formulario (2 pasos); el pedido
@@ -141,7 +142,9 @@ async function callFn(body: unknown): Promise<{ status: number; json: FnJson | n
   return { status: res.status, json };
 }
 
-const WebsiteTree = () => {
+/** `split` = la visita cuenta para el split test de /website-tree (versión + visitante); sin él (URL directa o vista previa con ?v=) nada se etiqueta. */
+const WebsiteTree = ({ split }: { split?: WebsiteTreeSplit } = {}) => {
+  const variant = split?.variant;
   const popupRef = useRef<HTMLDivElement | null>(null);
   /** Lead una sola vez, y solo si el pedido es nuevo (un correo repetido en el mes no cuenta como lead nuevo). */
   const leadSent = useRef(false);
@@ -173,14 +176,14 @@ const WebsiteTree = () => {
     if (IS_DEMO || !WEBSITE_TREE_PIXEL_ID) return;
     initMetaPixel(WEBSITE_TREE_PIXEL_ID);
     trackMetaEvent("PageView", undefined, undefined, WEBSITE_TREE_PIXEL_ID);
-    trackMetaEvent("ViewContent", websiteTreeEventParams(), uuid(), WEBSITE_TREE_PIXEL_ID);
+    trackMetaEvent("ViewContent", websiteTreeEventParams(variant), uuid(), WEBSITE_TREE_PIXEL_ID);
   }, []);
 
   // Lead: cuando la persona ve «Recibimos tu pedido. Solo falta confirmar.» (no en vista previa, ni si el correo ya había pedido este mes).
   useEffect(() => {
     if (!done || IS_DEMO || !WEBSITE_TREE_PIXEL_ID || leadSent.current || !newLead.current) return;
     leadSent.current = true;
-    try { trackMetaEvent("Lead", websiteTreeEventParams(), uuid(), WEBSITE_TREE_PIXEL_ID); } catch { /* no crítico */ }
+    try { trackMetaEvent("Lead", websiteTreeEventParams(variant), uuid(), WEBSITE_TREE_PIXEL_ID); } catch { /* no crítico */ }
   }, [done]);
 
   // Cupos que quedan este mes (los calcula el servidor). Si no responde, la página sigue funcionando y el servidor decide al enviar.
@@ -247,7 +250,7 @@ const WebsiteTree = () => {
       setBusy(true);
       try {
         if (!IS_DEMO) {
-          const r = await callFn({ action: "lead", name: form.name, email: form.email, whatsapp: form.whatsapp, business: form.business });
+          const r = await callFn({ action: "lead", name: form.name, email: form.email, whatsapp: form.whatsapp, business: form.business, variant });
           if (r.status !== 200) throw new Error(r.json?.error ?? "No pudimos guardar tus datos. Intenta de nuevo.");
         }
         setWaitlisted(true);
@@ -257,7 +260,7 @@ const WebsiteTree = () => {
     }
     if (!IS_DEMO) {
       // Se guarda en segundo plano: si falla, la persona igual sigue con su formulario.
-      callFn({ action: "lead", name: form.name, email: form.email, whatsapp: form.whatsapp, business: form.business }).catch(() => {});
+      callFn({ action: "lead", name: form.name, email: form.email, whatsapp: form.whatsapp, business: form.business, variant }).catch(() => {});
     }
     setStep(2);
     requestAnimationFrame(scrollPop);
@@ -272,7 +275,7 @@ const WebsiteTree = () => {
     try {
       if (IS_DEMO) { await new Promise((r) => setTimeout(r, 700)); }
       else {
-        const r = await callFn(buildWebsiteTreeBody(form));
+        const r = await callFn({ ...buildWebsiteTreeBody(form), variant });
         if (r.status === 409) { setSlots(0); setWaitlisted(true); return; }
         if (r.status === 429) throw new Error("Demasiados intentos. Prueba de nuevo en un rato.");
         if (r.status !== 200 || !r.json?.ok) throw new Error(r.json?.error ?? "No pudimos enviar tu pedido. Intenta de nuevo.");
