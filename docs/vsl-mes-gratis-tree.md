@@ -2,7 +2,7 @@
 
 Guion y guía de edición. Misma estructura de trabajo que `docs/vsl-consultoria-mkt-tree.md` y `docs/vsl-consultoria-mkt-tree-plan-edicion.md`, pero con otra oferta y un guion más corto.
 
-- **Duración:** ≈ **3:40** al ritmo del avatar anterior (476 palabras; el VSL de la consultoría eran ~600 palabras y 4:34). A 1.25x quedaría en unos **2:55**.
+- **Duración:** ≈ **3:55** al ritmo del avatar anterior (516 palabras; el VSL de la consultoría eran ~600 palabras y 4:34). A 1.25x quedaría en unos **3:08**.
 - **Objetivo:** ya no se promociona una consultoría gratis. Ahora es **1 mes de servicio gratis, sin riesgo**: el dueño solo paga los anuncios, y si no le traes clientes nuevos, no te debe nada.
 - **Quién lo ve:** dueños de tree service o remoción de árboles (EE. UU., hispanos) que **ya tuvieron una mala experiencia con una agencia tradicional**: no cumplían, cobraban sin traer clientes, presionaban para cerrar y desaparecían, y solo mandaban reportes sin sentido.
 - **Deseo único:** *clientes nuevos sin arriesgar plata en otra agencia.*
@@ -14,7 +14,7 @@ Guion y guía de edición. Misma estructura de trabajo que `docs/vsl-consultoria
 
 | # | Tema | Por qué importa |
 |---|---|---|
-| 1 | **Dos «mil dólares» distintos.** (a) La **inversión en anuncios** (mín. recomendado US$1.000/mes, se paga a Google y Meta) y (b) tus **honorarios** si deciden continuar (US$1.000/mes). | En el audio suena parecido y confunde. En el guion los separo con «aparte de tu inversión en anuncios». Confirma que ambos son correctos y que **el cliente paga los anuncios directo a Google/Meta** (si no es así, hay que cambiar la frase y el gráfico). |
+| 1 | **Dos «mil dólares» distintos.** (a) La **inversión en anuncios** (mín. recomendado US$1.000/mes, se paga a Google y Meta) y (b) tus **honorarios** si deciden continuar (US$1.000/mes). | En el audio suena parecido y confunde. En el guion los separo con «aparte de lo que gastes en anuncios». Confirma que ambos son correctos y que **el cliente paga los anuncios directo a Google/Meta** (si no es así, hay que cambiar la frase y el gráfico). |
 | 2 | **Qué significa «los anuncios funcionan».** | Todo el VSL descansa en «solo cobro si funciona». Define por escrito una vara medible (por ejemplo: X estimados o llamadas calificadas en 30 días) y quién la mide. Si no, el cliente puede decir «no funcionó» y tú «sí funcionó». El video no promete una cifra. |
 | 3 | **El mes puede quedar corto.** Google Ads necesita unos días para aprender. | Decide si «mes gratis» son 30 días corridos desde que salen los anuncios o desde el pago de la inversión. Evita discusiones. |
 | 4 | **El filtro cambió de US$2.000 a US$1.000.** | La landing `/consultoria-mkt-tree` y su formulario filtran con US$2.000. Si esta oferta va a otra página, ajustar el texto y las preguntas de calificación. |
@@ -26,56 +26,58 @@ Guion y guía de edición. Misma estructura de trabajo que `docs/vsl-consultoria
 
 ---
 
-## 1. Guion (≈ 3:40 · 476 palabras)
+## 1. Guion (≈ 3:55 · 516 palabras)
+
+*Está escrito para decirse en voz alta: frases cortas, palabras de todos los días y como hablaría un dueño de tree service con otro. Si al grabar alguna frase te suena rara en tu boca, cámbiala por como lo dirías tú; lo importante son los números y las ideas, no cada palabra.*
 
 Formato: *lo que se dice* en texto normal. Los números van en letras para que el avatar los pronuncie bien. Los tiempos son aproximados (≈ 2,2 palabras por segundo).
 
-### BLOQUE 0 · Gancho (0:00 – 0:21) · 44 palabras
+### BLOQUE 0 · Gancho (0:00 – 0:21) · 46 palabras
 *Debe entenderse sin sonido si el reproductor sigue haciendo los primeros 20 s en bucle y mudo.*
 
-> ¿Contrataste una agencia de marketing para tu tree service… y te fue mal?
-> ¿Te cobraban cada mes y los clientes nunca llegaban?
-> ¿Te presionaron para cerrar la venta… y luego desaparecieron?
-> ¿O solo te mandaban reportes que no servían para nada?
-> Entonces mira esto.
+> ¿Ya contrataste una agencia de marketing para tu tree service… y te fue mal?
+> ¿Te cobraban todos los meses y los clientes nunca llegaban?
+> ¿Te insistieron hasta que les pagaste… y después desaparecieron?
+> ¿O solo te mandaban reportes que no decían nada?
+> Si te pasó, quédate.
 
-### BLOQUE 1 · Presentación y promesa (0:21 – 0:40) · 42 palabras
+### BLOQUE 1 · Presentación y promesa (0:21 – 0:43) · 48 palabras
 
 > Soy Daniel Acero, de Acros Software. Llevo más de cinco años haciendo anuncios en Google y Facebook.
-> Y hoy te hago una propuesta que ninguna agencia te ha hecho: Haré tus anuncios y tu Marketing completamente Gratis.
+> Y quiero ofrecerte algo que ninguna agencia te ha ofrecido: yo hago tus anuncios y tu marketing, gratis, durante un mes. Tú solo pagas lo que se gasta en los anuncios.
 
-### BLOQUE 2 · El problema es el modelo, no tú (0:40 – 1:03) · 51 palabras
+### BLOQUE 2 · El problema no eres tú (0:43 – 1:08) · 55 palabras
 
-> Si te pasó, no fue tu culpa. El problema es el modelo: la agencia tradicional cobra igual le vaya bien o mal. Entonces nadie mejora tus campañas; solo te mandan un PDF con números sin sentido.
-> La publicidad sí funciona. Lo que no funciona es pagarle a alguien que cobra de todos modos.
+> Si te pasó, no fue tu culpa. Las agencias tradicionales solo buscan cobrarte, no les importa si te consiguen resultados o no,  Entonces, ¿para qué se van a esforzar? Te mandan un PDF con números, pero nadie mejora tus anuncios.
+> La publicidad sí funciona. Lo que no funciona es pagarle a alguien que te cobra igual, sin importar el resultado.
 
-### BLOQUE 3 · Qué incluye y cuánto vale (1:03 – 1:39) · 79 palabras
+### BLOQUE 3 · Qué incluye y cuánto vale (1:08 – 1:45) · 82 palabras
 
-> Esto es lo que incluye tu mes gratis. Un sitio web: trescientos dólares. Un experto en Google Ads: ochocientos. Un experto en Facebook e Instagram: ochocientos. Un diseñador de anuncios: trescientos. Un editor de video: quinientos. Y un experto en automatización, para que tus citas se agenden solas: ochocientos.
-> Contratar todo esto por separado cuesta tres mil quinientos dólares al mes. Contigo, el primer mes cuesta cero. Solo pagas tu inversión en anuncios; te recomiendo mínimo mil dólares al mes.
+> Mira lo que incluye tu mes gratis. Un sitio web: trescientos dólares. Un experto en Google Ads: ochocientos. Un experto en Facebook e Instagram: ochocientos. El diseño de tus anuncios: trescientos. La edición de tus videos: quinientos. Y la automatización para que tus citas se agenden solas: ochocientos.
+> Si contrataras todo esto por separado, pagarías tres mil quinientos dólares al mes. Conmigo, el primer mes es gratis. Tú solo pagas los anuncios. Si conseguimos resultados, el servicio tampoco será 3500 dólares, podrás continuar por solo mil dólares al mes.
 
-### BLOQUE 4 · La metodología: primero Google, después Facebook (1:39 – 2:32) · 116 palabras
+### BLOQUE 4 · Cómo lo hago: primero Google, después Facebook (1:45 – 2:42) · 126 palabras
 
-> ¿Cómo lo hacemos? En un orden específico, y el orden importa.
-> Primero, Google. Cuando a alguien se le cae un árbol sobre el techo, busca «tree removal near me». Esa persona quiere contratar hoy, y ahí aparece tu anuncio. Además, Google nos muestra rápido qué búsquedas y qué mensajes traen estimados.
-> Después, Facebook. A quien visitó tu página y no pidió su estimado, Facebook le recuerda tu negocio con lo que ya sabemos que funciona.
-> Si empezáramos por Facebook, estaríamos interrumpiendo a gente que no está buscando un tree service, y gastando tu presupuesto para averiguar a quién le interesa.
-> Google trae a los que ya quieren. Facebook hace que no se olviden de ti.
+> ¿Y cómo lo hago? Usando un sistema ordenado, y ese orden es lo que más importa.
+> Primero, Google. Piensa en alguien a quien se le cayó un árbol en el techo. Lo busca en Google: «tree removal near me». Esa persona necesita ayuda hoy, y ahí aparece tu anuncio. Así vemos rápido qué mensajes sí traen estimados.
+> Después, Facebook. A los que entraron a tu página y no pidieron su estimado, Facebook se los vuelve a mostrar, con lo que ya sabemos que funciona.
+> Si empezara por Facebook, le mostraría tu anuncio a gente que ni está buscando un tree service, y gastaría tu dinero para ver a quién le interesa.
+> Google trae a los que ya quieren contratar. Facebook hace que no se olviden de ti.
 
 *Por qué el orden importa (lo que explica el bloque):* en tree service la compra es urgente y nace de un problema (rama caída, árbol enfermo). Google llega a quien ya busca. Facebook no sabe quién necesita un tree service hoy, así que sin datos previos gastaría presupuesto averiguándolo. Lo que Google enseña (búsquedas y mensajes que convierten) alimenta a Facebook, y los visitantes que Google trae son la audiencia de la que Facebook se encarga de recordar.
 
-### BLOQUE 5 · Sin riesgo y ganar-ganar (2:32 – 3:19) · 103 palabras
+### BLOQUE 5 · Sin riesgo y ganar-ganar (2:42 – 3:35) · 117 palabras
 
-> Y ahora, lo más importante: tú no corres ningún riesgo.
-> No cobro si no te traigo clientes nuevos. Si en este mes los anuncios no funcionan, no me debes nada y dejamos de trabajar sin problemas.
-> Si funcionan, continuamos. Y no pagarías los tres mil quinientos: serían mil dólares al mes por todo esto, aparte de tu inversión en anuncios.
-> Y no lo hago por caridad. Yo también quiero cobrar, no trabajar gratis; por eso voy a hacer todo lo posible para que tus anuncios funcionen. Ganamos los dos.
-> Esta vez no corres el riesgo de contratar otra agencia mediocre que solo quiere cobrar.
+> Y ahora lo más importante: tú no corres ningún riesgo.
+> Yo no te cobro si no te traigo clientes nuevos. Si en este mes los anuncios no funcionan, no me debes nada y cada quien sigue por su lado, sin problema.
+> Si funcionan, seguimos trabajando juntos. Y no pagarías los tres mil quinientos: pagarías mil dólares al mes por todo esto, aparte de lo que gastes en anuncios.
+> Y no te lo ofrezco por caridad. Yo también quiero cobrar, no quiero trabajar gratis. Por eso voy a hacer todo lo que pueda para que tus anuncios funcionen. Los dos ganamos.
+> Así que esta vez no corres el riesgo de caer en otra agencia que solo quiere cobrarte.
 
-### BLOQUE 6 · Honestidad y llamado a la acción (3:19 – 3:38) · 41 palabras
+### BLOQUE 6 · Honestidad y llamado a la acción (3:35 – 3:54) · 42 palabras
 
-> Te soy honesto: esto no es magia. Necesitas invertir al menos mil dólares al mes en anuncios. Si no puedes, no empieces. Si puedes, no tienes nada que perder.
-> Haz clic en el botón de abajo y reserva tu mes gratis.
+> Eso sí, te hablo claro: esto no es magia. Necesitas gastar mínimo mil dólares al mes en anuncios. Si no puedes, mejor no empieces. Si puedes, no tienes nada que perder.
+> Dale clic al botón de abajo y reserva tu mes gratis.
 
 *Línea opcional de cupos (+4 s):* «Acepto solo [X] negocios por mes.» Solo si es real (decisión 8).
 
@@ -94,14 +96,14 @@ Formato: *lo que se dice* en texto normal. Los números van en letras para que e
 
 | Toma | Tiempo | Texto | Seg. |
 |---|---|---|---|
-| T1 | 0:00–0:10 | «¿Contrataste una agencia… y te fue mal? ¿Te cobraban cada mes y los clientes nunca llegaban?» | ~10 |
+| T1 | 0:00–0:10 | «¿Ya contrataste una agencia… y te fue mal? ¿Te cobraban todos los meses y los clientes nunca llegaban?» | ~10 |
 | T2 | 0:21–0:29 | «Soy Daniel Acero, de Acros Software. Llevo más de cinco años…» (**revisar si M1b del VSL anterior sirve palabra por palabra**) | ~8 |
-| T3 | 0:29–0:40 | «Y hoy te hago una propuesta… un mes completo, totalmente gratis. Tú solo pagas los anuncios.» | ~11 |
-| T4 | 2:32–2:40 | «Y ahora, lo más importante: tú no corres ningún riesgo. No cobro si no te traigo clientes nuevos.» | ~8 |
-| T5 | 2:40–2:48 | «Si en este mes los anuncios no funcionan, no me debes nada y dejamos de trabajar sin problemas.» | ~8 |
-| T6 | 2:59–3:12 | «Y no lo hago por caridad. Yo también quiero cobrar… Ganamos los dos.» | ~13 |
-| T7a | 3:19–3:32 | «Te soy honesto: esto no es magia… no tienes nada que perder.» | ~13 |
-| T7b | 3:32–3:38 | «Haz clic en el botón de abajo y reserva tu mes gratis.» | ~6 |
+| T3 | 0:29–0:43 | «Y quiero ofrecerte algo que ninguna agencia te ha ofrecido: yo hago tus anuncios y tu marketing, gratis, durante un mes. Tú solo pagas lo que se gasta en los anuncios.» | ~14 |
+| T4 | 2:32–2:40 | «Y ahora lo más importante: tú no corres ningún riesgo. Yo no te cobro si no te traigo clientes nuevos.» | ~8 |
+| T5 | 2:40–2:48 | «Si en este mes los anuncios no funcionan, no me debes nada y cada quien sigue por su lado, sin problema.» | ~8 |
+| T6 | 2:59–3:12 | «Y no te lo ofrezco por caridad. Yo también quiero cobrar… Los dos ganamos.» | ~13 |
+| T7a | 3:19–3:32 | «Eso sí, te hablo claro: esto no es magia… no tienes nada que perder.» | ~13 |
+| T7b | 3:32–3:38 | «Dale clic al botón de abajo y reserva tu mes gratis.» | ~6 |
 
 ---
 
@@ -113,6 +115,8 @@ Formato: *lo que se dice* en texto normal. Los números van en letras para que e
 
 Eso hace visible sin explicar la frase «solo cobro si funciona».
 
+*Los tiempos de esta tabla y de la de tomas se calcularon con la primera versión del guion y quedan unos 5 a 15 s corridos respecto a los tiempos de los bloques de arriba. Se ajustan al audio final, al límite de cada frase.*
+
 Estilo: oscuro, para que combine con la oficina del avatar (pared negra, luz LED azul); naranja `#EA5A0B` para énfasis, **Barlow Condensed** mayúsculas en títulos. Subtítulos quemados siempre. Formato técnico, audio y música: los mismos de `vsl-consultoria-mkt-tree.md` §3.1–3.8.
 
 | Tiempo | Qué se dice | Tipo | Qué se ve |
@@ -121,13 +125,13 @@ Estilo: oscuro, para que combine con la oficina del avatar (pared negra, luz LED
 | 0:10–0:21 | Preguntas 3 y 4 + «mira esto» | Motion | Un chat donde llegan mensajes insistentes («¡cierra hoy!») y de pronto queda en «visto», con tres puntos que nunca terminan. Corte a un PDF lleno de gráficas sin etiquetas con un signo `¿?`. Aquí aparece por primera vez el contador **CLIENTES NUEVOS: 0**. |
 | 0:21–0:40 | Presentación y promesa | **AVATAR (T2 + T3)** | Plano medio. Al decir «gratis», sobreimprime `1 MES GRATIS` en naranja. |
 | 0:40–1:03 | El problema es el modelo | Motion + b-roll opcional (B3) | Tres facturas mensuales se sellan «COBRADO» una tras otra mientras el contador sigue en 0. El PDF de gráficas sube pero no mueve el contador. Al decir «La publicidad sí funciona», el contador parpadea. Opcional: 2 s del podador mirando el teléfono sin llamadas. |
-| 1:03–1:39 | Qué incluye | Motion | Seis tarjetas entran una por una **justo cuando se dice cada precio**: `SITIO WEB $300` · `GOOGLE ADS $800` · `META ADS $800` · `DISEÑO DE ANUNCIOS $300` · `EDITOR DE VIDEO $500` · `AUTOMATIZACIÓN $800`. Se suman en `$3.500 / MES`; el total se tacha y queda `1ER MES: $0` en grande. Debajo, un recuadro aparte: `TU INVERSIÓN EN ANUNCIOS (MÍN. $1.000/MES) → GOOGLE Y META`, con una flecha punteada que sale directo a las plataformas. |
+| 1:03–1:39 | Qué incluye | Motion | Seis tarjetas entran una por una **justo cuando se dice cada precio**: `SITIO WEB $300` · `GOOGLE ADS $800` · `META ADS $800` · `DISEÑO DE ANUNCIOS $300` · `EDITOR DE VIDEO $500` · `AUTOMATIZACIÓN $800`. Se suman en `$3.500 / MES`; el total se tacha y queda `1ER MES: $0` en grande. Debajo, un recuadro aparte: `LO QUE GASTES EN ANUNCIOS (MÍN. $1.000/MES) → GOOGLE Y META`, con una flecha punteada que sale directo a las plataformas. |
 | 1:39–1:49 | «¿Cómo lo hacemos? El orden importa» | Motion | Dos casillas vacías numeradas `1` y `2` bajo la palabra `ORDEN`. |
 | 1:49–2:09 | Google primero | B-roll (B2) + motion | B-roll de la rama cayendo (3 s). Corte a un celular: se escribe `tree removal near me` y tu anuncio sale primero, con botón Llamar. La etiqueta `QUIERE CONTRATAR HOY` aparece sobre la persona. Un mini panel muestra búsquedas y mensajes con tilde verde (los que traen estimados). La casilla `1` se llena con `GOOGLE`. |
 | 2:09–2:19 | Después, Facebook | Motion | **El mismo punto** (la persona) sale del buscador y entra a un feed. El anuncio la sigue hasta que toca `PEDIR ESTIMADO`. La casilla `2` se llena con `FACEBOOK`. |
 | 2:19–2:32 | Por qué ese orden | Motion | Versión incorrecta: un feed con muchos puntos que pasan de largo sin detenerse y un medidor de presupuesto que baja (`FACEBOOK PRIMERO`), tachada en rojo apagado. Versión correcta: Google filtra a los que quieren contratar y Facebook los recuerda. Cierra con `GOOGLE TRAE · FACEBOOK RECUERDA`. |
 | 2:32–2:48 | No corres ningún riesgo | **AVATAR (T4 + T5)** | Plano un poco más cerrado. Tercio inferior: `NO COBRO SI NO TE TRAIGO CLIENTES NUEVOS`. |
-| 2:48–2:59 | Si funcionan, continuamos | Motion | La factura de `$3.500` se encoge, cada línea se funde en una sola y baja a `$1.000 / MES`. Se sella `SOLO SI FUNCIONA`. Aparte: `+ TU INVERSIÓN EN ANUNCIOS`. |
+| 2:48–2:59 | Si funcionan, continuamos | Motion | La factura de `$3.500` se encoge, cada línea se funde en una sola y baja a `$1.000 / MES`. Se sella `SOLO SI FUNCIONA`. Aparte: `+ LO QUE GASTES EN ANUNCIOS`. |
 | 2:59–3:12 | Yo también quiero cobrar | **AVATAR (T6)** | Plano medio, sin gráficos. Es el momento más humano. |
 | 3:12–3:19 | Agencia mediocre | Motion | Una tarjeta `AGENCIA QUE SOLO QUIERE COBRAR` se tacha con una X. Luego **el contador por fin sube** `0 → 1 → 2 → 3` y solo entonces se enciende la factura. |
 | 3:19–3:32 | Honestidad | **AVATAR (T7a)** | Plano cerrado, sin gráficos ni música casi (seriedad). |
@@ -138,7 +142,7 @@ Estilo: oscuro, para que combine con la oficina del avatar (pared negra, luz LED
 - **Los primeros 20 s (si sigue el reproductor con bucle mudo):** T1 + el chat con el PDF deben contar el dolor con subtítulos y sin audio. El último segundo debe enganchar con el primero.
 - **Nunca más de 8 s sin un cambio visual.** El bloque 4 es el más largo (53 s): por eso lleva 6 escenas distintas.
 - **Nombres de Google y Facebook:** usar texto o los íconos de las plataformas sin deformarlos; no mostrar capturas con datos reales de clientes sin permiso.
-- **Si se pasa de tiempo:** recortar primero la frase «Si empezáramos por Facebook…» (queda la idea en el gráfico), después «Además, Google nos muestra rápido…».
+- **Si se pasa de tiempo:** recortar primero la frase «Si empezara por Facebook…» (queda la idea en el gráfico), después «Así vemos rápido qué mensajes sí traen estimados».
 
 ---
 
