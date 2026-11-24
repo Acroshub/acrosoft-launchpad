@@ -29,7 +29,8 @@ const TermsAndConditions = () => (
       <LegalList items={[
         <><strong>Program name:</strong> {LEGAL.brand} Appointment Reminders.</>,
         <><strong>What you will receive:</strong> text messages about the appointment you booked, such as a confirmation and reminders, sent by {LEGAL.brand} on behalf of the business you booked with. We do not send marketing or promotional messages through this program.</>,
-        <><strong>How you opt in:</strong> by checking the separate, unchecked text-message consent box on the online booking form and submitting the form. Opting in is optional and is not a condition of booking an appointment or of buying anything.</>,
+        <><strong>How you opt in:</strong> by checking the separate, unchecked text-message consent box on an online booking form, or on our{" "}
+          <a href={LEGAL.smsSignupPath} className="text-primary underline underline-offset-2">SMS sign-up page</a>, and submitting the form. Opting in is optional and is not a condition of booking an appointment or of buying anything.</>,
         <><strong>Message frequency:</strong> varies depending on your appointments.</>,
         <><strong>Costs:</strong> message and data rates may apply, depending on your mobile plan. We do not charge you for the messages.</>,
         <><strong>Opt out:</strong> reply <strong>STOP</strong> to any message at any time. You will get one confirmation message and then no more texts. Opting out of text messages does not cancel your appointment.</>,

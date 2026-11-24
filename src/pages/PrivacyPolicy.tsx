@@ -41,8 +41,9 @@ const PrivacyPolicy = () => (
     <LegalSection id="sms" title="4. Text messaging (SMS) and your mobile information">
       <p>
         We send appointment-related text messages (confirmations and reminders) only to people who opted in by
-        checking the text-message consent box on the booking form. Consent is optional and is not required to
-        book an appointment. You can withdraw it at any time by replying <strong>STOP</strong> to any message.
+        checking the text-message consent box on a booking form or on our{" "}
+        <a href={LEGAL.smsSignupPath} className="text-primary underline underline-offset-2">SMS sign-up page</a>.
+        Consent is optional and is not required to book an appointment. You can withdraw it at any time by replying <strong>STOP</strong> to any message.
       </p>
       <p>
         <strong>

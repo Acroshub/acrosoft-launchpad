@@ -190,3 +190,8 @@ verify_jwt = false
 # signInWithPassword; devuelve solo la sesión (nunca el email). Límite por IP y por número vía check_rate_limit.
 [functions.login-with-phone]
 verify_jwt = false
+
+# sms-opt-in: pública (la llama /sms-reminders sin sesión). Guarda la prueba del consentimiento de SMS en sms_opt_ins
+# (solo números de EE.UU.). Trampa para bots y límite por IP vía check_rate_limit. No envía ningún mensaje.
+[functions.sms-opt-in]
+verify_jwt = false
