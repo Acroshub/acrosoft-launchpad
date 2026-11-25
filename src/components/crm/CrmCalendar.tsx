@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import CrmCalendarConfig from "./CrmCalendarConfig";
+import OnboardingDocButton from "./OnboardingDocButton";
 import { useAppointments, useCreateAppointment, useUpdateAppointment, useDeleteAppointment, useBlockedSlots, useCreateBlockedSlot, useUpdateBlockedSlot, useDeleteBlockedSlot, useContacts, useCalendars, useForms, useCreateForm, useUpdateCalendarConfig, useGoogleEvents } from "@/hooks/useCrmData";
 import { supabase } from "@/lib/supabase";
 import type { CrmGoogleEvent } from "@/lib/supabase";
@@ -1929,6 +1930,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                               <p className="text-xs mt-1">{contact.notes}</p>
                             </div>
                           )}
+                          <OnboardingDocButton key={contact.id} contact={contact} contacts={contacts} />
                           {onNavigateToContact && (
                             <button
                               onClick={() => onNavigateToContact(detail.contact_id!)}
@@ -2202,6 +2204,11 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                       );
                     })()}
 
+                    {(() => {
+                      const contact = contacts.find(c => c.id === detail.contact_id);
+                      return contact ? <OnboardingDocButton key={contact.id} contact={contact} contacts={contacts} /> : null;
+                    })()}
+
                     {/* Botón ir a contacto */}
                     {detail.contact_id && onNavigateToContact && (
                       <button
@@ -2354,6 +2361,7 @@ const CrmCalendar = ({ onNavigateToContact }: { onNavigateToContact?: (contactId
                           <p className="text-xs mt-1">{contact.notes}</p>
                         </div>
                       )}
+                      <OnboardingDocButton key={contact.id} contact={contact} contacts={contacts} />
                       {onNavigateToContact && (
                         <button
                           onClick={() => onNavigateToContact(detail.contact_id!)}

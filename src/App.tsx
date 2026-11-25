@@ -47,6 +47,7 @@ const WebsiteHvac = lazy(() => import("./pages/WebsiteHvac.tsx"));
 const WebsiteTreeSplit = lazy(() => import("./pages/WebsiteTreeSplit.tsx"));
 const WebsiteTreeGame = lazy(() => import("./pages/WebsiteTreeGame.tsx"));
 const OnboardingAcros = lazy(() => import("./pages/OnboardingAcros.tsx"));
+const OnboardingDoc = lazy(() => import("./pages/OnboardingDoc.tsx"));
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { refetchOnWindowFocus: false } },
@@ -107,6 +108,8 @@ const App = () => (
             <Route path="/website-tree-game" element={<WebsiteTreeGame />} />
             {/* Onboarding de clientes nuevos: formulario del CRM (slug onboarding-acros) en pestañas; crea el contacto con la etiqueta onboarding-acros (nace con noindex) */}
             <Route path="/onboarding-acros" element={<OnboardingAcros />} />
+            {/* Copia editable del onboarding de un cliente («Onboarding para Google Ads»): link público desde la cita del calendario (nace con noindex) */}
+            <Route path="/onboarding-google/:token" element={<OnboardingDoc />} />
 
             {/* Client invitation setup — public (session comes from invite link) */}
             <Route path="/crm-setup" element={<CrmSetup />} />

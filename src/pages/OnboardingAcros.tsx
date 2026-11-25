@@ -3,6 +3,7 @@ import AcrosoftLogo from "@/components/shared/AcrosoftLogo";
 import FormRenderer from "@/components/crm/FormRenderer";
 import { addNoindex } from "@/lib/piscinasFunnel";
 import { isEstimadosPreview } from "@/lib/estimadosPreview";
+import { ONBOARDING_FORM_ID } from "@/lib/onboardingDoc";
 
 // /onboarding-acros — formulario de onboarding de clientes nuevos (Google Ads + Facebook Ads).
 // El formulario NO está en el código: es un formulario del CRM (tabla crm_forms, slug «onboarding-acros», cuenta superadmin) que se edita desde
@@ -11,8 +12,6 @@ import { isEstimadosPreview } from "@/lib/estimadosPreview";
 // formularios del CRM todavía no los muestra: se conservan al guardar solo si el editor no los reescribe. Nace con noindex.
 // Vista previa para recorrer todas las pantallas sin llenar nada (nada es obligatorio y al enviar NO se guarda ningún contacto): `?demo=1` en desarrollo o
 // `?demo=<ESTIMADOS_PREVIEW_KEY>` en producción (la misma clave del embudo de estimados). Con `&paso=exito` abre directo la pantalla de éxito.
-const ONBOARDING_FORM_ID = "2b6d1dae-110e-4e23-9442-540210d4d03d";
-
 const PAGE_TITLE = "Onboarding | Acros Software";
 
 // Paleta de marca (teal) aplicada solo a esta página: el resto del CRM sigue con su azul.

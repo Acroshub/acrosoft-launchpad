@@ -1685,6 +1685,10 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
   });
 
   const detail = contacts.find((c) => c.id === selected);
+  // Con Acceso SaaS la cabecera del panel crece tanto que el resto quedaba en una franja con scroll propio:
+  // en ese caso el panel toma su alto completo y se recorre con el scroll de la página.
+  const { data: detailSaasAccess } = useSaasAccess(isSuperAdmin ? detail?.id ?? null : null);
+  const growDetailPanel = isSuperAdmin && !!detailSaasAccess;
 
   const addTag = async (id: string) => {
     if (!tagValue.trim()) return;
@@ -1766,6 +1770,8 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
         supabase.from("crm_sales").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
         supabase.from("crm_appointments").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
         supabase.from("crm_contact_notes").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
+        // El documento de onboarding se borraría junto con el contacto secundario. Si el principal ya tiene uno, se queda el suyo.
+        supabase.from("crm_onboarding_docs").update({ contact_id: detail.id }).eq("contact_id", secondaryId),
       ]);
       // Scalar fields: primary wins, secondary fills gaps
       const merged: Partial<CrmContact> = {
@@ -2209,7 +2215,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
             </div>
 
             {/* Panel de detalle — solo desktop */}
-            <div className="hidden lg:flex bg-card border rounded-2xl flex-col max-h-[80vh]">
+            <div className={`hidden lg:flex bg-card border rounded-2xl flex-col ${growDetailPanel ? "self-start" : "max-h-[80vh]"}`}>
               {detail ? (
                 <>
                   {/* Fixed header */}

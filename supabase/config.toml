@@ -195,3 +195,8 @@ verify_jwt = false
 # (solo números de EE.UU.). Trampa para bots y límite por IP vía check_rate_limit. No envía ningún mensaje.
 [functions.sms-opt-in]
 verify_jwt = false
+
+# onboarding-doc: pública (la usa /onboarding-google/:token sin sesión). Lee y guarda SOLO el documento editable del onboarding;
+# la llave es el token aleatorio del link. Límite por IP vía check_rate_limit.
+[functions.onboarding-doc]
+verify_jwt = false
