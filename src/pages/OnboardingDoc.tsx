@@ -219,7 +219,7 @@ const OnboardingDoc = () => {
               document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
             }}
             onDrop={(e) => e.preventDefault()}
-            className="min-h-[70vh] break-words rounded-sm border border-slate-200 bg-white px-5 py-8 text-base leading-relaxed shadow-sm outline-none sm:px-14 sm:py-14 md:text-[15px] print:border-0 print:p-0 print:shadow-none [&_a]:text-teal-700 [&_a]:underline [&_h1]:mb-6 [&_h1]:text-2xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-5 [&_h2]:text-xl [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:font-bold [&_li]:my-0.5 [&_mark]:rounded [&_mark]:bg-red-100 [&_mark]:px-1 [&_mark]:font-extrabold [&_mark]:text-red-700 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:mb-3 [&_small]:block [&_small]:rounded-md [&_small]:border-l-4 [&_small]:border-red-300 [&_small]:bg-red-50 [&_small]:px-3 [&_small]:py-2 [&_small]:text-[13px] [&_small]:text-slate-600 [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-6"
+            className="min-h-[70vh] break-words rounded-sm border border-slate-200 bg-white px-5 py-8 text-base leading-relaxed shadow-sm outline-none sm:px-14 sm:py-14 md:text-[15px] print:border-0 print:p-0 print:shadow-none [&_a]:text-teal-700 [&_a]:underline [&_h1]:mb-6 [&_h1]:text-2xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-5 [&_h2]:text-xl [&_h2]:font-bold [&_h3]:mb-2 [&_h3]:mt-4 [&_h3]:font-bold [&_li]:my-0.5 [&_mark]:rounded [&_mark]:bg-red-100 [&_mark]:px-1 [&_mark]:font-extrabold [&_mark]:text-red-700 [&_ol]:mb-3 [&_ol]:list-decimal [&_ol]:pl-6 [&_p]:mb-3 [&_ul]:mb-3 [&_ul]:list-disc [&_ul]:pl-6"
           />
         )}
       </main>

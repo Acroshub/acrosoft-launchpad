@@ -98,7 +98,6 @@ export const buildOnboardingDocHtml = (values: Values, fallbackName: string): st
     "<p><strong>Servicios que quieres promocionar:</strong></p>",
     services.length ? `<ol>${services.map((s) => `<li>${escapeHtml(s)}</li>`).join("")}</ol>` : "<p><br></p>",
     "<p><strong>Servicios que <mark>NO</mark> promocionas:</strong></p>",
-    "<p><small>Estos servicios se usan como <strong>palabras negativas</strong>: tus anuncios NO deben aparecer cuando alguien los busque.</small></p>",
     `<p>${text(values["ob-negatives"]) ? multiline(text(values["ob-negatives"])) : "<br>"}</p>`,
     line("Presupuesto", formatBudget(text(values["ob-budget"]))),
     block("Landing Page", ""),

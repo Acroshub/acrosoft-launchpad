@@ -30,7 +30,7 @@ describe("buildOnboardingDocHtml", () => {
     expect(out).toContain("Nombre: Juan Pérez");
     expect(out).toContain("Teléfono del negocio: +1 7815550100");
     expect(out).toContain("Presupuesto: US$1,500 al mes");
-    expect(out).toContain("palabras negativas");
+    expect(out).not.toContain("palabras negativas");
     expect(out).toMatch(/EIN: \n/);
     expect(out).toMatch(/Calle: \n/);
   });
