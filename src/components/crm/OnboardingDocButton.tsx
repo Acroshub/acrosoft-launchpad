@@ -3,8 +3,9 @@ import { FileText, Link2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase, type CrmContact } from "@/lib/supabase";
 import {
-  ONBOARDING_DOC_PATH, buildOnboardingDocHtml, findOnboardingSource, onboardingValues, personName,
+  ONBOARDING_DOC_PATH, buildOnboardingDocHtml, findOnboardingSource, hasActiveSaasAccess, onboardingValues, personName,
 } from "@/lib/onboardingDoc";
+import { useSaasAccess } from "@/hooks/useCrmData";
 
 const TABLE = "crm_onboarding_docs";
 
@@ -33,11 +34,12 @@ const ensureDocUrl = async (source: CrmContact, apptContact: CrmContact): Promis
   return `${window.location.origin}${ONBOARDING_DOC_PATH}/${token}`;
 };
 
-/** Botón de la cita: solo aparece si el cliente llenó el formulario «Onboarding Acros». */
+/** Botón de la ficha del contacto y de la cita: solo aparece con Acceso SaaS vigente y el formulario «Onboarding Acros» llenado. */
 const OnboardingDocButton = ({ contact, contacts }: { contact: CrmContact; contacts: CrmContact[] }) => {
   const [busy, setBusy] = useState<"open" | "copy" | null>(null);
+  const { data: saasAccess } = useSaasAccess(contact.id);
   const source = findOnboardingSource(contact, contacts);
-  if (!source) return null;
+  if (!source || !hasActiveSaasAccess(saasAccess)) return null;
 
   const open = async () => {
     // La pestaña se abre dentro del clic; si se abriera después de esperar al servidor, el navegador la bloquearía.

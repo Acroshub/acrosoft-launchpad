@@ -44,6 +44,12 @@ export const findOnboardingSource = <T extends OnboardingContact>(contact: T, co
   return contacts.find((c) => c.user_id === contact.user_id && phoneKey(c.phone) === key && !!onboardingValues(c)) ?? null;
 };
 
+/** Acceso SaaS vigente: activo y sin vencer (el mismo «Activo» que muestra la ficha). `today` en formato AAAA-MM-DD. */
+export const hasActiveSaasAccess = (
+  access: { status: string; expires_at?: string | null } | null | undefined,
+  today = new Date().toISOString().split("T")[0],
+): boolean => access?.status === "active" && !(access.expires_at && access.expires_at < today);
+
 /** Respaldo para envíos anteriores al campo «Nombre» del formulario: sale de la ficha, salvo que la ficha se llame como el negocio. */
 export const personName = (businessName: string, ...contacts: OnboardingContact[]): string => {
   const business = businessName.trim().toLowerCase();

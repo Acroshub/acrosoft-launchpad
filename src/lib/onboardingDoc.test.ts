@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  ONBOARDING_FORM_ID, buildOnboardingDocHtml, findOnboardingSource, personName, sanitizeDocHtml,
+  ONBOARDING_FORM_ID, buildOnboardingDocHtml, findOnboardingSource, hasActiveSaasAccess, personName, sanitizeDocHtml,
   type OnboardingContact,
 } from "./onboardingDoc";
 
@@ -80,6 +80,17 @@ describe("findOnboardingSource", () => {
     expect(findOnboardingSource(appt, [appt, contact("b", { phone: null, custom_fields: filled })])).toBeNull();
     const empty = contact("d", { custom_fields: { [ONBOARDING_FORM_ID]: { "ob-name": " " } } });
     expect(findOnboardingSource(empty, [empty])).toBeNull();
+  });
+});
+
+describe("hasActiveSaasAccess", () => {
+  it("solo con acceso activo y sin vencer", () => {
+    const today = "2026-11-25";
+    expect(hasActiveSaasAccess({ status: "active", expires_at: null }, today)).toBe(true);
+    expect(hasActiveSaasAccess({ status: "active", expires_at: today }, today)).toBe(true);
+    expect(hasActiveSaasAccess({ status: "active", expires_at: "2026-11-24" }, today)).toBe(false);
+    expect(hasActiveSaasAccess({ status: "suspended" }, today)).toBe(false);
+    expect(hasActiveSaasAccess(null, today)).toBe(false);
   });
 });
 

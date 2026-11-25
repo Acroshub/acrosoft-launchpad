@@ -12,6 +12,7 @@ import {
   Trash2, ChevronDown, ChevronLeft, ChevronRight, ExternalLink, Upload, FileUp, CheckCircle2, Bot, BookOpen, GitMerge, Settings, Check,
 } from "lucide-react";
 import Papa from "papaparse";
+import OnboardingDocButton from "./OnboardingDocButton";
 import { useContacts, useCreateContact, useUpdateContact, useDeleteContact, useForms, useContactNotes, useCreateContactNote, useUpdateContactNote, useDeleteContactNote, useClientAccounts, useCreateSaasClient, useDisableSaasClient, useEnableSaasClient, useSales, useServices, useCourses, useProducts, useSaasAccess, useActivateSaasClient, useUpdateSaasAccess } from "@/hooks/useCrmData";
 import type { CrmContact, CrmForm, CrmSale, CrmProduct, CrmCourse, Json } from "@/lib/supabase";
 import { supabase } from "@/lib/supabase";
@@ -1247,6 +1248,7 @@ const SaasAccessPanel = ({
   onAccessCrm,
   accessingCrm,
   compact = false,
+  extraAction,
 }: {
   contactId: string;
   contactName: string;
@@ -1255,6 +1257,8 @@ const SaasAccessPanel = ({
   onAccessCrm: (contactId: string) => void;
   accessingCrm: string | null;
   compact?: boolean;
+  /** Acción adicional del panel (decide por sí misma si se muestra). */
+  extraAction?: React.ReactNode;
 }) => {
   const { data: saasAccess, isLoading } = useSaasAccess(contactId);
   const activateSaas  = useActivateSaasClient();
@@ -1387,6 +1391,7 @@ const SaasAccessPanel = ({
               Acceder al CRM
             </button>
           )}
+          {extraAction}
           {/* Suspender también cuando está vencido: un plan vencido no corta nada por sí solo, hay
               que suspenderlo. Antes el botón solo salía con el acceso al día, y un vencido ofrecía
               únicamente "Reactivar" (que no hace nada porque ya está activo). */}
@@ -1984,6 +1989,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                   onAccessCrm={handleAccessCrm}
                   accessingCrm={accessingCrm}
                   compact
+                  extraAction={<OnboardingDocButton key={detail.id} contact={detail} contacts={contacts} />}
                 />
               </div>
               <div className="p-5 space-y-5">
@@ -2292,6 +2298,7 @@ const CrmContacts = ({ isSuperAdmin = false, initialContactId }: { isSuperAdmin?
                       isSuperAdmin={isSuperAdmin}
                       onAccessCrm={handleAccessCrm}
                       accessingCrm={accessingCrm}
+                      extraAction={<OnboardingDocButton key={detail.id} contact={detail} contacts={contacts} />}
                     />
                   </div>
 
