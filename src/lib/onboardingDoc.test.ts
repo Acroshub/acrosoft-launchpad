@@ -20,7 +20,7 @@ const textOf = (html: string) => {
 };
 
 describe("buildOnboardingDocHtml", () => {
-  it("trae todos los datos pedidos, en orden, y deja en blanco lo que el formulario no pregunta", () => {
+  it("trae todos los datos pedidos, en orden, y deja en blanco lo que no se respondió", () => {
     const out = textOf(buildOnboardingDocHtml(VALUES, "Juan Pérez"));
     const labels = ["Nombre:", "Nombre del negocio:", "Teléfono del negocio:", "Dirección del negocio:", "Calle:", "Ciudad:", "Estado:", "Zip Code:", "EIN:", "Zona que atiende:",
       "Idioma:", "Servicios que quieres promocionar:", "Servicios que NO promocionas:", "Presupuesto:", "Landing Page:", "Códigos de Tracking:"];
@@ -33,6 +33,14 @@ describe("buildOnboardingDocHtml", () => {
     expect(out).toContain("palabras negativas");
     expect(out).toMatch(/EIN: \n/);
     expect(out).toMatch(/Calle: \n/);
+  });
+
+  it("llena nombre, dirección y EIN con lo que respondió el cliente", () => {
+    const out = textOf(buildOnboardingDocHtml({
+      ...VALUES, "ob-contact-name": "Ana Gómez", "ob-street": "12 Oak St", "ob-city": "Boxford", "ob-state": "MA", "ob-zip": "01921", "ob-ein": "12-3456789",
+    }, "Nombre de la ficha"));
+    for (const line of ["Nombre: Ana Gómez", "Calle: 12 Oak St", "Ciudad: Boxford", "Estado: MA", "Zip Code: 01921", "EIN: 12-3456789"]) expect(out).toContain(line);
+    expect(out).not.toContain("Nombre de la ficha");
   });
 
   it("resalta el NO, escapa las respuestas y sobrevive a la limpieza sin cambios de contenido", () => {

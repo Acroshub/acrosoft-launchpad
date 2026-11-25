@@ -44,7 +44,7 @@ export const findOnboardingSource = <T extends OnboardingContact>(contact: T, co
   return contacts.find((c) => c.user_id === contact.user_id && phoneKey(c.phone) === key && !!onboardingValues(c)) ?? null;
 };
 
-/** El onboarding no pregunta el nombre de la persona: sale de la ficha, salvo que la ficha se llame como el negocio. */
+/** Respaldo para envíos anteriores al campo «Nombre» del formulario: sale de la ficha, salvo que la ficha se llame como el negocio. */
 export const personName = (businessName: string, ...contacts: OnboardingContact[]): string => {
   const business = businessName.trim().toLowerCase();
   return (
@@ -60,6 +60,8 @@ const escapeHtml = (s: string) =>
 
 const multiline = (s: string) => escapeHtml(s).replace(/\r?\n/g, "<br>");
 
+const ADDRESS_PARTS = [["Calle", "ob-street"], ["Ciudad", "ob-city"], ["Estado", "ob-state"], ["Zip Code", "ob-zip"]] as const;
+
 const line = (label: string, value = "") => `<p><strong>${label}:</strong>&nbsp;${escapeHtml(value)}</p>`;
 const block = (label: string, value: string) => `<p><strong>${label}:</strong></p><p>${value ? multiline(value) : "<br>"}</p>`;
 
@@ -68,20 +70,23 @@ const formatBudget = (raw: string): string => {
   return raw && Number.isFinite(n) ? `US$${n.toLocaleString("en-US")} al mes` : raw;
 };
 
-/** Lo que el formulario no pregunta (dirección, EIN, landing page, tracking) sale en blanco para completarlo en el documento. */
-export const buildOnboardingDocHtml = (values: Values, name: string): string => {
+/**
+ * Lo que falte sale en blanco para completarlo en el documento (landing page y tracking no se preguntan en el formulario).
+ * `fallbackName` solo se usa si la respuesta no trae el nombre de la persona.
+ */
+export const buildOnboardingDocHtml = (values: Values, fallbackName: string): string => {
   const services = (Array.isArray(values["ob-services"]) ? (values["ob-services"] as Values[]) : [])
     .map((s) => text(s?.name))
     .filter(Boolean);
 
   return [
     "<h1>Onboarding para Google Ads</h1>",
-    line("Nombre", name),
+    line("Nombre", text(values["ob-contact-name"]) || fallbackName),
     line("Nombre del negocio", text(values["ob-name"])),
     line("Teléfono del negocio", text(values["ob-phone"])),
     "<p><strong>Dirección del negocio:</strong></p>",
-    "<ul><li>Calle:&nbsp;</li><li>Ciudad:&nbsp;</li><li>Estado:&nbsp;</li><li>Zip Code:&nbsp;</li></ul>",
-    line("EIN"),
+    `<ul>${ADDRESS_PARTS.map(([label, id]) => `<li>${label}:&nbsp;${escapeHtml(text(values[id]))}</li>`).join("")}</ul>`,
+    line("EIN", text(values["ob-ein"])),
     block("Zona que atiende", text(values["ob-zone"])),
     line("Idioma", text(values["ob-lang"])),
     "<p><strong>Servicios que quieres promocionar:</strong></p>",
