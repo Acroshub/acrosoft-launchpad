@@ -23,13 +23,13 @@ import { addNoindex } from "@/lib/piscinasFunnel";
 import { uuid } from "@/lib/uuid";
 import type { WebsiteTreeSplit } from "@/lib/websiteTreeSplit";
 
-// /website-tree-game — versión GAMIFICADA de /website-tree (prueba). Misma oferta, mismo backend (Edge Function website-tree-request, 10 cupos al mes), mismo pixel y mismo formulario
+// /website-tree-game — versión GAMIFICADA de /website-tree (prueba). Misma oferta, mismo backend (Edge Function website-tree-request), mismo pixel y mismo formulario
 // de 2 pasos en popup; lo que cambia es el recorrido: en vez de una página larga, la persona avanza pantalla por pantalla (como la landing gamificada «Clase gratis» de tree service):
 //   0. Hero (textos y foto de /website-tree) · 1. Mini-quiz de una sola respuesta · 2. «¿Cómo te gustaría tu website?» (varias respuestas) · 3. «¿Por qué la website que te ofrecemos es gratis?» (solo la pregunta + botón circular) ·
 //   4. La respuesta con icono de crecimiento y badges de Meta y Google (sin precios aún) · 5. «Qué incluye tu website gratis»: checklist directa con iconos (sin ejemplos) ·
 //   6. Formulario en 3 partes (tus datos → tu website → confirmaciones Sí/No) dentro de la misma página, sin popup; al enviar, confirma por WhatsApp. Ya no hay «3 pasos» ni pantalla final de cupos/precio.
 // A propósito NO se copiaron de la landing original los «N personas quieren registrarse ahora», los registros recientes inventados ni los testimonios con cifras: eran datos falsos.
-// Aquí la única escasez que se muestra es la real: los cupos del mes que cuenta el servidor.
+// Los «cupos» que se muestran son solo visuales (número fijo): el servidor recibe todos los pedidos.
 // Vista previa sin enviar nada: `?demo=1` (desarrollo) o `?demo=<ESTIMADOS_PREVIEW_KEY>` (producción). Nace con noindex como el resto del embudo.
 
 const PAGE_TITLE = "Website gratis para negocios de tree service | Diseñada y entregada en 2 días";
@@ -97,10 +97,8 @@ const UsFlag = () => (
   </svg>
 );
 
-type Slots = number | null; // null = aún no se sabe (cargando o sin respuesta)
-
 /** Respuesta de la Edge Function website-tree-request. */
-interface FnJson { ok?: boolean; already?: boolean; error?: string; slots_left?: number; waitlist?: boolean }
+interface FnJson { ok?: boolean; already?: boolean; error?: string }
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
 async function callFn(body: unknown): Promise<{ status: number; json: FnJson | null }> {
@@ -121,14 +119,11 @@ const WebsiteTreeGame = ({ split }: { split?: WebsiteTreeSplit } = {}) => {
   /** Lead una sola vez, y solo si el pedido es nuevo (un correo repetido en el mes no cuenta como lead nuevo). */
   const leadSent = useRef(false);
   const newLead = useRef(false);
-  const [slots, setSlots] = useState<Slots>(null);
   const [form, setForm] = useState<WebsiteTreeForm>(emptyWebsiteTreeForm);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
-  /** La persona ya está en la lista de espera (cupos agotados): se le avisa cuando abran. */
-  const [waitlisted, setWaitlisted] = useState(false);
   const [confirmedWa, setConfirmedWa] = useState(false);
 
   // ── Recorrido del juego ──
@@ -166,20 +161,9 @@ const WebsiteTreeGame = ({ split }: { split?: WebsiteTreeSplit } = {}) => {
     try { trackMetaEvent("Lead", websiteTreeEventParams(variant), uuid(), WEBSITE_TREE_PIXEL_ID); } catch { /* no crítico */ }
   }, [done]);
 
-  // Cupos que quedan este mes (los calcula el servidor). Si no responde, la página sigue funcionando y el servidor decide al enviar.
-  useEffect(() => {
-    if (IS_DEMO) { setSlots(WEBSITE_TREE_MONTHLY_LIMIT); return; }
-    let alive = true;
-    callFn({ action: "slots" }).then(({ json }) => { if (alive && typeof json?.slots_left === "number") setSlots(json.slots_left); }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
-
-  // Cupos REALES (los cuenta el servidor): solo sirven para saber si se agotaron. Lo que se MUESTRA es min(reales, WEBSITE_TREE_DISPLAY_SLOTS):
-  // «quedan 4» mientras haya más de 4 y, cuando los reales bajen de 4, el número real. Antes de que responda el servidor ya se muestra el número de presentación.
-  const soldOut = slots === 0;
-  const shown = slots === null ? WEBSITE_TREE_DISPLAY_SLOTS : Math.min(slots, WEBSITE_TREE_DISPLAY_SLOTS);
-  /** Texto de cupos que acompaña a los botones de las vistas 0 y 1 (el número real lo calcula el servidor). */
-  const cuposLabel = soldOut ? "Cupos agotados · anótate en la lista de espera" : `Quedan ${shown} de ${WEBSITE_TREE_MONTHLY_LIMIT} cupos este mes`;
+  // Cupos: gatillo de escasez SOLO visual (número fijo). El servidor no limita ni cuenta pedidos.
+  /** Texto de cupos que acompaña a los botones de las vistas 0 y 1. */
+  const cuposLabel = `Quedan ${WEBSITE_TREE_DISPLAY_SLOTS} de ${WEBSITE_TREE_MONTHLY_LIMIT} cupos este mes`;
   /** Al pasar de la parte 1 a la 2 del formulario (o al terminar), vuelve arriba. */
   const scrollPop = () => window.scrollTo?.({ top: 0 });
   const set = <K extends keyof WebsiteTreeForm>(k: K, v: WebsiteTreeForm[K]) => { setForm((f) => ({ ...f, [k]: v })); setError(""); };
@@ -205,24 +189,12 @@ const WebsiteTreeGame = ({ split }: { split?: WebsiteTreeSplit } = {}) => {
     setError("");
   };
 
-  // Paso 1 → guarda el contacto (sin gastar cupo) y pasa al paso 2. Si los cupos están agotados, aquí termina: queda en lista de espera.
-  const submitStep1 = async (e: FormEvent) => {
+  // Paso 1 → guarda el contacto y pasa al paso 2.
+  const submitStep1 = (e: FormEvent) => {
     e.preventDefault();
     const problem = validateWebsiteTreeStep1(form, false);
     if (problem) { setError(problem); return; }
     setError("");
-    if (soldOut) {
-      setBusy(true);
-      try {
-        if (!IS_DEMO) {
-          const r = await callFn({ action: "lead", name: form.name, whatsapp: form.whatsapp, business: form.business, variant });
-          if (r.status !== 200) throw new Error(r.json?.error ?? "No pudimos guardar tus datos. Intenta de nuevo.");
-        }
-        setWaitlisted(true);
-      } catch (err) { setError(errMsg(err, "No pudimos guardar tus datos. Intenta de nuevo.")); }
-      finally { setBusy(false); }
-      return;
-    }
     if (!IS_DEMO) {
       // Se guarda en segundo plano: si falla, la persona igual sigue con su formulario.
       callFn({ action: "lead", name: form.name, whatsapp: form.whatsapp, business: form.business, variant }).catch(() => {});
@@ -241,10 +213,8 @@ const WebsiteTreeGame = ({ split }: { split?: WebsiteTreeSplit } = {}) => {
       if (IS_DEMO) { await new Promise((r) => setTimeout(r, 700)); }
       else {
         const r = await callFn({ ...buildWebsiteTreeBody(form), variant });
-        if (r.status === 409) { setSlots(0); setWaitlisted(true); return; }
         if (r.status === 429) throw new Error("Demasiados intentos. Prueba de nuevo en un rato.");
         if (r.status !== 200 || !r.json?.ok) throw new Error(r.json?.error ?? "No pudimos enviar tu pedido. Intenta de nuevo.");
-        if (typeof r.json.slots_left === "number") setSlots(r.json.slots_left);
         newLead.current = !r.json.already;
       }
       setDone(true);
@@ -268,7 +238,7 @@ const WebsiteTreeGame = ({ split }: { split?: WebsiteTreeSplit } = {}) => {
 
 
   // Avance: 0 a 5 = las vistas previas; 6 = formulario parte 1; 7 = parte 2; 8 = parte 3 (confirmaciones); 9 = pedido enviado.
-  const progressIdx = screen < LAST_SCREEN ? screen : done || waitlisted ? 9 : step + 5;
+  const progressIdx = screen < LAST_SCREEN ? screen : done ? 9 : step + 5;
   const progress = Math.round((progressIdx / 9) * 100);
 
   return (
@@ -388,7 +358,7 @@ const WebsiteTreeGame = ({ split }: { split?: WebsiteTreeSplit } = {}) => {
                       <li key={i}><span className="wtg-inc-ico" aria-hidden="true"><Icon size={26} strokeWidth={2} /></span><span className="wtg-inc-txt">{text}</span></li>
                     ))}
                   </ul>
-                  <button type="button" className="wtg-btn" onClick={advance} data-testid="game-to-form">{soldOut ? "Anotarme en la lista" : "Quiero mi website gratis"} →<small>{cuposLabel}</small></button>
+                  <button type="button" className="wtg-btn" onClick={advance} data-testid="game-to-form">Quiero mi website gratis →<small>{cuposLabel}</small></button>
                 </div>
               </section>
             )}
@@ -420,24 +390,16 @@ const WebsiteTreeGame = ({ split }: { split?: WebsiteTreeSplit } = {}) => {
                   </ul>
                   {confirmedWa && <p className="wt-hint" style={{ marginTop: 12 }}>Si el mensaje no se abrió, escríbenos por WhatsApp y dinos tu nombre y el de tu negocio.</p>}
                 </div>
-              ) : waitlisted ? (
-                <div className="wt-wait" role="status" data-testid="website-lista-espera">
-                  <h2>Cupos de este mes agotados</h2>
-                  <p>Ya guardamos tus datos en la lista de espera. <b>Te escribimos por WhatsApp cuando abramos nuevos cupos.</b></p>
-                </div>
               ) : (
                 <>
-                  <h2>{soldOut ? "Anótate en la lista de espera" : "Pide tu website gratis"}</h2>
-                  {soldOut && <p className="wt-lead">Los 10 cupos de este mes ya se usaron. Deja tus datos y te avisamos cuando abramos cupos.</p>}
-                  {!soldOut && (
-                    <ol className="wt-steps" aria-label="Pasos del formulario">
-                      <li className={step === 1 ? "is-on" : ""}><b>1</b>Datos</li>
-                      <li className={step === 2 ? "is-on" : ""}><b>2</b>Website</li>
-                      <li className={step === 3 ? "is-on" : ""}><b>3</b>Confirmar</li>
-                    </ol>
-                  )}
+                  <h2>Pide tu website gratis</h2>
+                  <ol className="wt-steps" aria-label="Pasos del formulario">
+                    <li className={step === 1 ? "is-on" : ""}><b>1</b>Datos</li>
+                    <li className={step === 2 ? "is-on" : ""}><b>2</b>Website</li>
+                    <li className={step === 3 ? "is-on" : ""}><b>3</b>Confirmar</li>
+                  </ol>
 
-                  {step === 1 || soldOut ? (
+                  {step === 1 ? (
                     <form key="paso-1" onSubmit={submitStep1} noValidate>
                       <label className="wt-field"><span>Nombre y Apellido</span>
                         <input className="wt-in" value={form.name} onChange={(e) => set("name", e.target.value)} autoComplete="name" placeholder="Ej: Carlos Ramírez" /></label>
@@ -449,8 +411,8 @@ const WebsiteTreeGame = ({ split }: { split?: WebsiteTreeSplit } = {}) => {
                         <input className="wt-in" value={form.business} onChange={(e) => set("business", e.target.value)} autoComplete="organization" placeholder="Ej: Ramírez Tree Service" /></label>
                       {error && <div className="wt-err" role="alert">{error}</div>}
                       <div className="wt-actions">
-                        <button type="submit" className="est-btn" disabled={busy || !!step1Problem}>
-                          <span className="wt-btn-txt">{busy ? "Guardando…" : soldOut ? "Anotarme en la lista" : "Continuar"}</span>{!busy && !soldOut && <Ic id="arrow" />}
+                        <button type="submit" className="est-btn" disabled={!!step1Problem}>
+                          <span className="wt-btn-txt">Continuar</span><Ic id="arrow" />
                         </button>
                       </div>
                       {step1Problem && <p className="wt-need">Completa todos los datos para continuar.</p>}

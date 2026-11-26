@@ -1,6 +1,6 @@
 import { assertEquals, assert } from "https://deno.land/std@0.224.0/assert/mod.ts";
 import {
-  parseWebsiteTreeLead, buildSubmissionData, buildWebsiteTreePush, monthStartIso, parseWebsiteTreeRequest, slotsLeft, WT_FIELD,
+  parseWebsiteTreeLead, buildSubmissionData, buildWebsiteTreePush, monthStartIso, parseWebsiteTreeRequest, WT_FIELD,
   parseVariant, parseVisitorId, variantTag, withVariantTag,
 } from "./website-tree.ts";
 
@@ -82,15 +82,12 @@ Deno.test("mes en hora de Nueva York: invierno (UTC-5) y verano (UTC-4)", () => 
   assertEquals(monthStartIso(Date.UTC(2026, 11, 1, 2)), "2026-11-01T04:00:00.000Z");
 });
 
-Deno.test("cupos y aviso push", () => {
-  assertEquals(slotsLeft(0), 10);
-  assertEquals(slotsLeft(7), 3);
-  assertEquals(slotsLeft(12), 0);
+Deno.test("aviso push: sin conteo de cupos", () => {
   const r = parseWebsiteTreeRequest(ok);
   assert(r.ok);
   if (!r.ok) return;
-  assertEquals(buildWebsiteTreePush(r.value, 3).body, "Carlos Ramírez · Ramírez Tree Service\nHouston, TX · quedan 3 cupos este mes");
-  assert(buildWebsiteTreePush(r.value, 0).body.includes("agotados"));
+  assertEquals(buildWebsiteTreePush(r.value).body, "Carlos Ramírez · Ramírez Tree Service\nHouston, TX");
+  assert(!buildWebsiteTreePush(r.value).body.includes("cupos"));
 });
 
 Deno.test("paso 1 (lead): solo pide contacto y negocio", () => {

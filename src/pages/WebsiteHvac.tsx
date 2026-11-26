@@ -23,7 +23,7 @@ import { uuid } from "@/lib/uuid";
 
 // /website-hvac — landing de CAPTACIÓN: se regala el diseño y la creación de un website profesional a dueños de negocios de HVAC en EE.UU. (solo pagan
 // dominio y hosting, y los 3 primeros meses también son gratis; después US$20 al mes). El objetivo único es que llenen el formulario (2 pasos); el pedido
-// va a la Edge Function `website-hvac-request` (máx. 10 por mes, contacto en el CRM con la etiqueta website-hvac, aviso push al superadmin) y después se
+// va a la Edge Function `website-hvac-request` (contacto en el CRM con la etiqueta website-hvac, aviso push al superadmin) y después se
 // los lleva a WhatsApp para confirmar, igual que /consultoria-mkt-tree. La website se entrega en una llamada de 30 min donde se ofrece el plan de marketing.
 //
 // Identidad: la misma del kit y de la consultoría (Barlow + naranja/verde); los estilos del formulario están en websiteHvacStyles.ts.
@@ -124,10 +124,8 @@ const UsFlag = () => (
   </svg>
 );
 
-type Slots = number | null; // null = aún no se sabe (cargando o sin respuesta)
-
 /** Respuesta de la Edge Function website-hvac-request. */
-interface FnJson { ok?: boolean; already?: boolean; error?: string; slots_left?: number; waitlist?: boolean }
+interface FnJson { ok?: boolean; already?: boolean; error?: string }
 const errMsg = (e: unknown, fallback: string) => (e instanceof Error && e.message ? e.message : fallback);
 
 async function callFn(body: unknown): Promise<{ status: number; json: FnJson | null }> {
@@ -150,14 +148,11 @@ const WebsiteHvac = () => {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const benRef = useRef<HTMLDivElement | null>(null);
   const [benSlide, setBenSlide] = useState(0);
-  const [slots, setSlots] = useState<Slots>(null);
   const [form, setForm] = useState<WebsiteHvacForm>(emptyWebsiteHvacForm);
   const [step, setStep] = useState<1 | 2>(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState(false);
-  /** La persona ya está en la lista de espera (cupos agotados): se le avisa cuando abran. */
-  const [waitlisted, setWaitlisted] = useState(false);
   const [confirmedWa, setConfirmedWa] = useState(false);
   const [stickyVisible, setStickyVisible] = useState(false);
   /** El formulario vive en un popup que se abre con cualquier botón CTA. */
@@ -183,14 +178,6 @@ const WebsiteHvac = () => {
     try { trackMetaEvent("Lead", websiteHvacEventParams(), uuid(), WEBSITE_HVAC_PIXEL_ID); } catch { /* no crítico */ }
   }, [done]);
 
-  // Cupos que quedan este mes (los calcula el servidor). Si no responde, la página sigue funcionando y el servidor decide al enviar.
-  useEffect(() => {
-    if (IS_DEMO) { setSlots(WEBSITE_HVAC_MONTHLY_LIMIT); return; }
-    let alive = true;
-    callFn({ action: "slots" }).then(({ json }) => { if (alive && typeof json?.slots_left === "number") setSlots(json.slots_left); }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
-
   // Barra fija móvil: aparece al pasar el hero y se esconde mientras el popup del formulario está abierto o ya se envió.
   useEffect(() => {
     const trigger = triggerRef.current;
@@ -204,13 +191,11 @@ const WebsiteHvac = () => {
     return () => { window.removeEventListener("scroll", schedule); window.removeEventListener("resize", schedule); if (frame) cancelAnimationFrame(frame); };
   }, []);
 
-  // Cupos REALES (los cuenta el servidor): solo sirven para saber si se agotaron. Lo que se MUESTRA es min(reales, WEBSITE_HVAC_DISPLAY_SLOTS):
-  // «quedan 4» mientras haya más de 4 y, cuando los reales bajen de 4, el número real. Antes de que responda el servidor ya se muestra el número de presentación.
-  const soldOut = slots === 0;
-  const shown = slots === null ? WEBSITE_HVAC_DISPLAY_SLOTS : Math.min(slots, WEBSITE_HVAC_DISPLAY_SLOTS);
+  // Cupos: gatillo de escasez SOLO visual (número fijo). El servidor no limita ni cuenta pedidos.
+  const shown = WEBSITE_HVAC_DISPLAY_SLOTS;
   const used = WEBSITE_HVAC_MONTHLY_LIMIT - shown;
   /** La barra fija móvil está a la vista (el botón de soporte sube para no taparla). */
-  const stickyShown = stickyVisible && !open && !done && !waitlisted;
+  const stickyShown = stickyVisible && !open && !done;
   const openForm = () => setOpen(true);
   /** Al cambiar de paso, el popup vuelve a su inicio. */
   const scrollPop = () => popupRef.current?.scrollTo?.({ top: 0 });
@@ -237,24 +222,12 @@ const WebsiteHvac = () => {
     setError("");
   };
 
-  // Paso 1 → guarda el contacto (sin gastar cupo) y pasa al paso 2. Si los cupos están agotados, aquí termina: queda en lista de espera.
-  const submitStep1 = async (e: FormEvent) => {
+  // Paso 1 → guarda el contacto y pasa al paso 2.
+  const submitStep1 = (e: FormEvent) => {
     e.preventDefault();
     const problem = validateWebsiteHvacStep1(form);
     if (problem) { setError(problem); return; }
     setError("");
-    if (soldOut) {
-      setBusy(true);
-      try {
-        if (!IS_DEMO) {
-          const r = await callFn({ action: "lead", name: form.name, email: form.email, whatsapp: form.whatsapp, business: form.business });
-          if (r.status !== 200) throw new Error(r.json?.error ?? "No pudimos guardar tus datos. Intenta de nuevo.");
-        }
-        setWaitlisted(true);
-      } catch (err) { setError(errMsg(err, "No pudimos guardar tus datos. Intenta de nuevo.")); }
-      finally { setBusy(false); }
-      return;
-    }
     if (!IS_DEMO) {
       // Se guarda en segundo plano: si falla, la persona igual sigue con su formulario.
       callFn({ action: "lead", name: form.name, email: form.email, whatsapp: form.whatsapp, business: form.business }).catch(() => {});
@@ -273,10 +246,8 @@ const WebsiteHvac = () => {
       if (IS_DEMO) { await new Promise((r) => setTimeout(r, 700)); }
       else {
         const r = await callFn(buildWebsiteHvacBody(form));
-        if (r.status === 409) { setSlots(0); setWaitlisted(true); return; }
         if (r.status === 429) throw new Error("Demasiados intentos. Prueba de nuevo en un rato.");
         if (r.status !== 200 || !r.json?.ok) throw new Error(r.json?.error ?? "No pudimos enviar tu pedido. Intenta de nuevo.");
-        if (typeof r.json.slots_left === "number") setSlots(r.json.slots_left);
         newLead.current = !r.json.already;
       }
       setDone(true);
@@ -291,7 +262,7 @@ const WebsiteHvac = () => {
   const cta = (label = "Quiero mi website gratis") => (
     <button type="button" className="est-btn" onClick={openForm} aria-haspopup="dialog">
       <Ic id="gift" />
-      <span className="wh-btn-txt">{label}{!soldOut && <small>Quedan {shown} de {WEBSITE_HVAC_MONTHLY_LIMIT} cupos este mes</small>}{soldOut && <small>Cupos agotados · anótate en la lista de espera</small>}</span>
+      <span className="wh-btn-txt">{label}<small>Quedan {shown} de {WEBSITE_HVAC_MONTHLY_LIMIT} cupos este mes</small></span>
     </button>
   );
 
@@ -365,7 +336,7 @@ const WebsiteHvac = () => {
               </div>
               {/* Barra de cupos: justo debajo de la línea «Diseño 100% gratis · Entrega · Idioma» */}
               <div className="wh-meter" role="img" aria-label={`${used} de ${WEBSITE_HVAC_MONTHLY_LIMIT} cupos usados este mes`}>
-                <div className="wh-meter-row"><span>Cupos de este mes</span><span>{soldOut ? "Agotados" : `Quedan ${shown}`}</span></div>
+                <div className="wh-meter-row"><span>Cupos de este mes</span><span>Quedan {shown}</span></div>
                 <div className="wh-meter-bar"><i style={{ width: `${Math.round((used / WEBSITE_HVAC_MONTHLY_LIMIT) * 100)}%` }} /></div>
               </div>
               {/* Tarjeta de anclaje: lo que cuesta normalmente con otra agencia vs. con nosotros, y enseguida el «¿Por qué gratis?» para que no se lea como una trampa */}
@@ -517,13 +488,13 @@ const WebsiteHvac = () => {
           )}
 
           {/* Barra fija móvil */}
-          <div className={`est-sticky${stickyShown ? " est-is-visible" : ""}`}>{cta(soldOut ? "Anotarme en la lista" : "Quiero mi website gratis")}</div>
+          <div className={`est-sticky${stickyShown ? " est-is-visible" : ""}`}>{cta("Quiero mi website gratis")}</div>
         </div>
 
         {/* ============ POPUP DEL FORMULARIO. Va en un portal (fuera de .est-page), por eso el contenido lleva su propio `est-page ct wh` para heredar la paleta y los estilos. ============ */}
         <Dialog open={open} onOpenChange={(o) => { if (!o && done && !confirmedWa) return; setOpen(o); }}>
           <DialogContent ref={popupRef} hideClose={done && !confirmedWa} className="gap-0 border-0 p-0 w-[calc(100%-24px)] max-w-[480px] max-h-[94vh] overflow-y-auto rounded-2xl bg-[#F5F8FC]">
-            <DialogTitle className="sr-only">{done ? "Pedido recibido, falta confirmar" : waitlisted ? "Lista de espera" : soldOut ? "Lista de espera" : "Pide tu website gratis"}</DialogTitle>
+            <DialogTitle className="sr-only">{done ? "Pedido recibido, falta confirmar" : "Pide tu website gratis"}</DialogTitle>
             <DialogDescription className="sr-only">Formulario para pedir tu website gratis. Al terminar, confirmas tu pedido por WhatsApp.</DialogDescription>
             <div className="est-page ct wh wh-pop-body">
               <div className="wh-card" data-testid="formulario-popup">
@@ -550,23 +521,16 @@ const WebsiteHvac = () => {
                     {confirmedWa && <p className="wh-hint" style={{ marginTop: 12 }}>Si el mensaje no se abrió, escríbenos por WhatsApp y dinos tu nombre y el de tu negocio.</p>}
                     {confirmedWa && <button type="button" className="ct-done-close" onClick={() => setOpen(false)}>Cerrar</button>}
                   </div>
-                ) : waitlisted ? (
-                  <div className="wh-wait" role="status" data-testid="website-lista-espera">
-                    <h2>Cupos de este mes agotados</h2>
-                    <p>Ya guardamos tus datos en la lista de espera. <b>Te escribimos por WhatsApp cuando abramos nuevos cupos.</b></p>
-                  </div>
                 ) : (
                   <>
-                    <h2>{soldOut ? "Anótate en la lista de espera" : "Pide tu website gratis"}</h2>
-                    <p className="wh-lead">{soldOut ? "Los 10 cupos de este mes ya se usaron. Deja tus datos y te avisamos cuando abramos cupos." : "Completa este formulario en menos de 3 minutos."}</p>
-                    {!soldOut && (
-                      <ol className="wh-steps" aria-label="Pasos del formulario">
-                        <li className={step === 1 ? "is-on" : ""}><b>1</b>Tus datos</li>
-                        <li className={step === 2 ? "is-on" : ""}><b>2</b>Tu nueva website</li>
-                      </ol>
-                    )}
+                    <h2>Pide tu website gratis</h2>
+                    <p className="wh-lead">Completa este formulario en menos de 3 minutos.</p>
+                    <ol className="wh-steps" aria-label="Pasos del formulario">
+                      <li className={step === 1 ? "is-on" : ""}><b>1</b>Tus datos</li>
+                      <li className={step === 2 ? "is-on" : ""}><b>2</b>Tu nueva website</li>
+                    </ol>
 
-                    {step === 1 || soldOut ? (
+                    {step === 1 ? (
                       <form key="paso-1" onSubmit={submitStep1} noValidate>
                         <label className="wh-field"><span>Nombre y Apellido</span>
                           <input className="wh-in" value={form.name} onChange={(e) => set("name", e.target.value)} autoComplete="name" placeholder="Ej: Carlos Ramírez" /></label>
@@ -580,8 +544,8 @@ const WebsiteHvac = () => {
                           <input className="wh-in" value={form.business} onChange={(e) => set("business", e.target.value)} autoComplete="organization" placeholder="Ej: Ramírez Heating & Air" /></label>
                         {error && <div className="wh-err" role="alert">{error}</div>}
                         <div className="wh-actions">
-                          <button type="submit" className="est-btn" disabled={busy || !!step1Problem}>
-                            <span className="wh-btn-txt">{busy ? "Guardando…" : soldOut ? "Anotarme en la lista" : "Continuar"}</span>{!busy && !soldOut && <Ic id="arrow" />}
+                          <button type="submit" className="est-btn" disabled={!!step1Problem}>
+                            <span className="wh-btn-txt">Continuar</span><Ic id="arrow" />
                           </button>
                         </div>
                         {step1Problem && <p className="wh-need">Completa todos los datos para continuar.</p>}

@@ -2,17 +2,14 @@ import { CONSULTORIA_TREE_PIXEL_ID } from "./consultoriaTreeConfig";
 
 // Configuración de la landing /website-tree: website GRATIS para dueños de negocios de tree service en EE.UU. (la web es el primer paso del ecosistema del
 // servicio de anuncios; en la llamada de entrega se ofrece el plan de marketing). El formulario NO usa calendario: manda el pedido a la Edge Function
-// `website-tree-request` (cupo de 10 por mes, contacto en el CRM, aviso push) y luego lleva a WhatsApp para confirmar, igual que /consultoria-mkt-tree.
+// `website-tree-request` (contacto en el CRM, aviso push; sin tope de pedidos) y luego lleva a WhatsApp para confirmar, igual que /consultoria-mkt-tree.
 
 export const WEBSITE_TREE_PATH = "/website-tree";
 export const WEBSITE_TREE_SLUG = "website-tree";
 
-/** Cupos de websites gratis por mes. El que manda es el servidor (supabase/functions/_shared/website-tree.ts); este número solo se usa para dibujar la barra. */
+/** Cupos «del mes» que anuncia la página. SOLO VISUAL (gatillo de escasez): el servidor no limita ni cuenta pedidos. */
 export const WEBSITE_TREE_MONTHLY_LIMIT = 10;
-/**
- * Cupos que MUESTRA la página mientras haya más de esos disponibles (decisión de Daniel, 2026-11-19: «ya quedan solo 4», luego 3). Es un número de presentación:
- * la página muestra min(cupos reales, este número), así que cuando los cupos reales bajen de ese número se muestra el real. El servidor sigue aplicando el límite real de 10.
- */
+/** Cupos que la página dice que quedan. También SOLO VISUAL: es un número fijo (decisión de Daniel: «ya quedan solo 3»; sin límite real desde 2026-11-26). */
 export const WEBSITE_TREE_DISPLAY_SLOTS = 3;
 export const WEBSITE_TREE_MAX_SERVICES = 6;
 /** Precio mensual de dominio y hosting a partir del 4.º mes (USD). */

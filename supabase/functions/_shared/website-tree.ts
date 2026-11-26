@@ -1,9 +1,9 @@
 /**
- * Lógica pura de la landing /website-tree (website gratis para dueños de negocios de tree service): validación del pedido, cupos del mes, datos que se guardan
+ * Lógica pura de la landing /website-tree (website gratis para dueños de negocios de tree service): validación del pedido, datos que se guardan
  * en el formulario del CRM y el aviso push al superadmin. Sin red ni Supabase para poder probarla con `deno test`.
  *
- * Reglas del negocio (Daniel, 2026-11-19): máximo 10 websites al mes, las 4 confirmaciones son obligatorias, hasta 6 servicios y, OPCIONALMENTE, uno de
- * ellos como «servicio destacado» (es lo único opcional del formulario), el cupo del mes se cuenta en la hora de Nueva York (donde vive el cliente), no en UTC.
+ * Reglas del negocio (Daniel, 2026-11-19): sin tope mensual de pedidos (2026-11-26: los «cupos» son solo visuales en la landing), las 4 confirmaciones son obligatorias, hasta 6 servicios y, OPCIONALMENTE, uno de
+ * ellos como «servicio destacado» (es lo único opcional del formulario), «el mes» (para no duplicar pedidos) se cuenta en la hora de Nueva York.
  */
 import { isValidEmail, isValidPhone, sanitizeText } from "./validate.ts";
 
@@ -11,8 +11,6 @@ export const WEBSITE_TREE_SLUG = "website-tree";
 export const WEBSITE_TREE_TAG = "website-tree";
 /** Dejó sus datos de contacto (paso 1) pero no terminó el formulario: se le puede dar seguimiento por WhatsApp. */
 export const WEBSITE_TREE_TAG_PARTIAL = "website-tree-incompleto";
-/** Llegó con los cupos del mes agotados y pidió que le avisen cuando se abran. */
-export const WEBSITE_TREE_TAG_WAITLIST = "website-tree-espera";
 /** Split test de /website-tree: la landing normal y la gamificada se reparten el tráfico 50/50 y cada lead queda etiquetado con la versión que vio. */
 export const WEBSITE_TREE_VARIANTS = ["normal", "game"] as const;
 export type WebsiteTreeVariant = typeof WEBSITE_TREE_VARIANTS[number];
@@ -35,9 +33,7 @@ export function parseVisitorId(body: unknown): string | null {
   return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v.toLowerCase() : null;
 }
 
-/** Cupos de websites gratis por mes. */
-export const WEBSITE_TREE_MONTHLY_LIMIT = 10;
-/** Zona en la que «empieza el mes» para contar los cupos. */
+/** Zona en la que «empieza el mes» (un mismo correo no duplica su pedido dentro del mes). */
 export const WEBSITE_TREE_TZ = "America/New_York";
 export const WEBSITE_TREE_MAX_SERVICES = 6;
 
@@ -112,7 +108,7 @@ export function parseWebsiteTreeRequest(body: unknown): ParseResult {
 
 export interface WebsiteTreeLead { name: string; email: string; whatsapp: string; business: string }
 
-/** Paso 1 del formulario (solo contacto): se guarda como contacto con etiqueta aparte, sin gastar cupo. */
+/** Paso 1 del formulario (solo contacto): se guarda como contacto con etiqueta aparte, sin avisar por push. */
 export function parseWebsiteTreeLead(body: unknown): { ok: true; value: WebsiteTreeLead } | { ok: false; error: string } {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
   const name = sanitizeText(b.name, 120);
@@ -171,17 +167,12 @@ export function monthStartIso(nowMs: number, tz: string = WEBSITE_TREE_TZ): stri
   return new Date(start).toISOString();
 }
 
-/** Cupos que quedan este mes (nunca negativo). */
-export function slotsLeft(used: number, limit: number = WEBSITE_TREE_MONTHLY_LIMIT): number {
-  return Math.max(0, limit - Math.max(0, used));
-}
-
 export interface WebsiteTreePushPayload { title: string; body: string; url: string }
 
-export function buildWebsiteTreePush(v: WebsiteTreeRequest, left: number): WebsiteTreePushPayload {
+export function buildWebsiteTreePush(v: WebsiteTreeRequest): WebsiteTreePushPayload {
   return {
     title: "🌐 Nuevo pedido · Website Tree Service gratis",
-    body: `${v.name} · ${v.business}\n${v.city} · ${left === 0 ? "cupos del mes agotados" : `quedan ${left} cupos este mes`}`,
+    body: `${v.name} · ${v.business}\n${v.city}`,
     url: "/crm",
   };
 }

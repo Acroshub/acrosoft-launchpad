@@ -116,9 +116,8 @@ describe("pixel de Meta de /website-hvac (producción: sin ?demo)", () => {
     px.init.mockClear();
     px.track.mockClear();
     fetchMock.mockReset();
-    fetchMock.mockImplementation(async (_url: string, init?: { body?: string }) => {
-      const body = init?.body ? JSON.parse(init.body) : {};
-      const json = body.action === "slots" ? { slots_left: 10 } : body.action === "lead" ? { ok: true } : { ok: true, slots_left: 9 };
+    fetchMock.mockImplementation(async () => {
+      const json = { ok: true };
       return { status: 200, json: async () => json };
     });
     vi.stubGlobal("fetch", fetchMock);

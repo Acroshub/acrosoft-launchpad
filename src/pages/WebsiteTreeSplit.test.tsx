@@ -28,10 +28,7 @@ const renderSplit = () => render(<MemoryRouter><Split /></MemoryRouter>);
 
 beforeEach(() => {
   px.init.mockClear(); px.track.mockClear(); fetchMock.mockReset();
-  fetchMock.mockImplementation(async (_u: string, init?: { body?: string }) => {
-    const b = init?.body ? JSON.parse(init.body) : {};
-    return { status: 200, json: async () => (b.action === "slots" ? { slots_left: 10 } : { ok: true, slots_left: 9 }) };
-  });
+  fetchMock.mockImplementation(async () => ({ status: 200, json: async () => ({ ok: true }) }));
   vi.stubGlobal("fetch", fetchMock);
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
